@@ -52,13 +52,9 @@ WORKDIR /app
 # Copy recipe and build dependencies with extensive caching
 COPY --from=planner /app/recipe.json recipe.json
 
-# Build dependencies with Railway-compatible cache mounts
+# Build dependencies with Railway optimization
 # Using vendored OpenSSL ensures cross-platform compatibility
-RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git \
-    --mount=type=cache,id=sccache,target=$SCCACHE_DIR \
-    --mount=type=cache,id=target,target=/app/target \
-    CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
+RUN CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
     CARGO_PROFILE_RELEASE_LTO=true \
     CARGO_PROFILE_RELEASE_STRIP="symbols" \
@@ -72,11 +68,7 @@ COPY api/ api/
 COPY indexers/ indexers/
 
 # Build application with size and performance optimizations for Railway
-RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git \
-    --mount=type=cache,id=sccache,target=$SCCACHE_DIR \
-    --mount=type=cache,id=target,target=/app/target \
-    CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
+RUN CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
     CARGO_PROFILE_RELEASE_LTO=true \
     CARGO_PROFILE_RELEASE_STRIP="symbols" \
