@@ -72,7 +72,10 @@ async fn main() -> Result<()> {
     let app = app.merge(
         SwaggerUi::new("/swagger-ui")
             .url("/api-docs/openapi.json", ApiDoc::openapi())
-            .config(utoipa_swagger_ui::Config::new(["/api-docs/openapi.json"])),
+            .config(
+                utoipa_swagger_ui::Config::new(["/api-docs/openapi.json"])
+                    .display_request_duration(true),
+            ),
     );
 
     let server_config = config.server_required();
