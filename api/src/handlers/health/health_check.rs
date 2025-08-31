@@ -6,7 +6,7 @@ use entities::sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use std::time::Instant;
 use tracing::info;
 
-/// Health check endpoint (with database connection)
+/// Health check endpoint
 #[utoipa::path(
     get,
     path = "/health",
@@ -26,7 +26,7 @@ pub async fn health_check(
         Some(db) => {
             // Measure database response time
             let start_time = Instant::now();
-            
+
             // Simple health check query
             match db
                 .execute(Statement::from_string(

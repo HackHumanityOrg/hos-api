@@ -65,7 +65,7 @@ impl AppConfig {
         let config = ConfigBuilder::api().load_with_database_url()?;
         Ok(AppConfig::Api(config))
     }
-    
+
     /// Load indexer configuration by name
     pub fn load_indexer(name: &str) -> Result<Self, ConfigError> {
         let config = ConfigBuilder::indexer(name).load_with_database_url()?;
@@ -113,12 +113,12 @@ impl ConfigBuilder {
     pub fn api() -> ConfigLoader<ApiConfig> {
         ConfigLoader::new("api/config.toml")
     }
-    
+
     /// Load indexer configuration with database + logging only
     pub fn indexer(name: &str) -> ConfigLoader<IndexerConfig> {
         let container_path = format!("/{}-config.toml", name);
         let host_path = format!("indexers/{}/config.toml", name);
-        
+
         // Check if we're in a container (look for container-specific path first)
         if std::path::Path::new(&container_path).exists() {
             ConfigLoader::new(&container_path)
@@ -147,8 +147,7 @@ where
 
     /// Load configuration with hierarchical merging
     pub fn load(self) -> Result<T, ConfigError> {
-        let mut figment = Figment::new()
-            .merge(Toml::file("config.toml")); // Workspace config (database only)
+        let mut figment = Figment::new().merge(Toml::file("config.toml")); // Workspace config (database only)
 
         // Add binary-specific config if it exists
         let binary_config = std::path::Path::new(&self.binary_config_path);
@@ -159,11 +158,9 @@ where
         // Environment variables have highest priority
         figment = figment.merge(Env::prefixed("APP_"));
 
-        let config: T = figment
-            .extract()
-            .map_err(|e| ConfigError::ParseError {
-                message: e.to_string(),
-            })?;
+        let config: T = figment.extract().map_err(|e| ConfigError::ParseError {
+            message: e.to_string(),
+        })?;
 
         Ok(config)
     }
@@ -173,7 +170,7 @@ impl ConfigLoader<ApiConfig> {
     /// Load API configuration and inject DATABASE_URL and PORT
     pub fn load_with_database_url(self) -> Result<ApiConfig, ConfigError> {
         let mut config = self.load()?;
-        
+
         // Load DATABASE_URL from environment
         if let Ok(database_url) = std::env::var("DATABASE_URL") {
             config.database.url = database_url;
@@ -195,7 +192,7 @@ impl ConfigLoader<IndexerConfig> {
     /// Load indexer configuration and inject DATABASE_URL
     pub fn load_with_database_url(self) -> Result<IndexerConfig, ConfigError> {
         let mut config = self.load()?;
-        
+
         // Load DATABASE_URL from environment
         if let Ok(database_url) = std::env::var("DATABASE_URL") {
             config.database.url = database_url;
@@ -238,4 +235,3 @@ impl Default for LoggingConfig {
         }
     }
 }
-

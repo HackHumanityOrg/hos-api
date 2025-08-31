@@ -23,7 +23,7 @@ use utoipa_swagger_ui::SwaggerUi;
         title = "Data Commons API",
         version = "0.1.0",
         description = "REST API for the Data Commons platform",
-        license(name = "MIT")
+        license(name = "MIT", url = "https://opensource.org/licenses/MIT")
     ),
     paths(
         handlers::health::health_check,

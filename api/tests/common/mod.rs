@@ -54,7 +54,6 @@ impl TestDatabase {
     }
 }
 
-
 /// Initialize test tracing (run once per test suite)
 pub fn init_test_tracing() {
     use std::sync::Once;

@@ -103,11 +103,15 @@ async fn test_health_handler_with_database(#[future] test_db: TestDatabase) {
     let db_health = &json["database"];
     assert_eq!(db_health["connected"], true);
     assert!(db_health["error"].is_null());
-    
+
     // Should have response time measurement
     assert!(db_health["response_time_ms"].is_number());
     let response_time = db_health["response_time_ms"].as_u64().unwrap();
-    assert!(response_time < 5000, "Response time should be reasonable: {}ms", response_time); // Less than 5 seconds
+    assert!(
+        response_time < 5000,
+        "Response time should be reasonable: {}ms",
+        response_time
+    ); // Less than 5 seconds
 }
 
 #[rstest]
@@ -168,7 +172,7 @@ async fn test_health_handler_database_connection_persistence(#[future] test_db: 
             "No error should be present on check {}",
             i
         );
-        
+
         // Each request should have response time
         assert!(
             db_health["response_time_ms"].is_number(),
@@ -179,7 +183,8 @@ async fn test_health_handler_database_connection_persistence(#[future] test_db: 
         assert!(
             response_time < 5000,
             "Response time should be reasonable on check {}: {}ms",
-            i, response_time
+            i,
+            response_time
         );
     }
 }
@@ -201,13 +206,17 @@ async fn test_health_handler_database_response_time_measurement(#[future] test_d
     // Verify response time is measured and reasonable
     assert!(db_health["response_time_ms"].is_number());
     let response_time = db_health["response_time_ms"].as_u64().unwrap();
-    
+
     // Response time should be non-zero (measurement took place)
     assert!(response_time >= 0);
-    
+
     // Response time should be reasonable (less than 5 seconds for a simple SELECT 1)
-    assert!(response_time < 5000, "Database response time too high: {}ms", response_time);
-    
+    assert!(
+        response_time < 5000,
+        "Database response time too high: {}ms",
+        response_time
+    );
+
     // Log the response time for debugging
     println!("Database response time: {}ms", response_time);
 }
@@ -229,24 +238,33 @@ async fn test_health_handler_response_time_consistency(#[future] test_db: TestDa
 
         let json: Value = response.json();
         let db_health = &json["database"];
-        
+
         assert_eq!(db_health["connected"], true);
         assert!(db_health["response_time_ms"].is_number());
-        
+
         let response_time = db_health["response_time_ms"].as_u64().unwrap();
         response_times.push(response_time);
-        
+
         println!("Request {}: {}ms", i + 1, response_time);
     }
 
     // All response times should be reasonable
     for (i, &time) in response_times.iter().enumerate() {
-        assert!(time < 5000, "Request {} response time too high: {}ms", i + 1, time);
+        assert!(
+            time < 5000,
+            "Request {} response time too high: {}ms",
+            i + 1,
+            time
+        );
     }
-    
+
     // Calculate average and ensure it's reasonable
     let avg_time = response_times.iter().sum::<u64>() / response_times.len() as u64;
-    assert!(avg_time < 1000, "Average response time too high: {}ms", avg_time);
+    assert!(
+        avg_time < 1000,
+        "Average response time too high: {}ms",
+        avg_time
+    );
 }
 
 #[rstest]
@@ -255,24 +273,25 @@ async fn test_health_handler_database_error_response_time() {
     init_test_tracing();
 
     // Create a broken database connection (invalid URL)
-    use migration::sea_orm::{Database, ConnectOptions};
-    
+    use migration::sea_orm::{ConnectOptions, Database};
+
     // This should fail to connect
-    let mut options = ConnectOptions::new("mysql://invalid:invalid@localhost:9999/invalid".to_owned());
+    let mut options =
+        ConnectOptions::new("mysql://invalid:invalid@localhost:9999/invalid".to_owned());
     options.connect_timeout(std::time::Duration::from_secs(1));
-    
+
     let broken_db = Database::connect(options).await;
-    
+
     match broken_db {
         Ok(db) => {
             // If it somehow connects, test with it
             let server = create_test_server_with_db(Some(db)).await;
             let response = server.get("/health").await;
             response.assert_status_ok();
-            
+
             let json: Value = response.json();
             let db_health = &json["database"];
-            
+
             // Should still measure response time even if query fails
             if db_health["response_time_ms"].is_number() {
                 let response_time = db_health["response_time_ms"].as_u64().unwrap();
@@ -286,10 +305,10 @@ async fn test_health_handler_database_error_response_time() {
             let server = create_test_server_with_db(None).await;
             let response = server.get("/health").await;
             response.assert_status_ok();
-            
+
             let json: Value = response.json();
             let db_health = &json["database"];
-            
+
             // Should not have response time when no DB configured
             assert!(db_health["response_time_ms"].is_null());
         }
@@ -297,10 +316,10 @@ async fn test_health_handler_database_error_response_time() {
 }
 
 #[rstest]
-#[tokio::test] 
+#[tokio::test]
 async fn test_health_response_structure_with_timing(#[future] test_db: TestDatabase) {
     init_test_tracing();
-    
+
     let test_db = test_db.await;
     let server = create_test_server_with_db(Some(test_db.db())).await;
 
@@ -332,12 +351,12 @@ async fn test_health_response_structure_with_timing(#[future] test_db: TestDatab
 
     // Validate field types
     assert!(json["status"].is_string());
-    assert!(json["timestamp"].is_string());  
+    assert!(json["timestamp"].is_string());
     assert!(json["version"].is_string());
     assert!(json["database"].is_object());
     assert!(db_health["connected"].is_boolean());
     assert!(db_health["response_time_ms"].is_number());
-    
+
     // Optional error field should not be present when connected
     if db_health["connected"].as_bool().unwrap() {
         assert!(db_health["error"].is_null());
