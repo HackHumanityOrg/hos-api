@@ -18,5 +18,4 @@ restartPolicyMaxRetries = 3
 
 # Railway environment configuration
 [deploy.env]
-PORT = "3000"
 RUST_LOG = "debug"

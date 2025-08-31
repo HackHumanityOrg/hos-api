@@ -170,13 +170,21 @@ where
 }
 
 impl ConfigLoader<ApiConfig> {
-    /// Load API configuration and inject DATABASE_URL
+    /// Load API configuration and inject DATABASE_URL and PORT
     pub fn load_with_database_url(self) -> Result<ApiConfig, ConfigError> {
         let mut config = self.load()?;
         
         // Load DATABASE_URL from environment
         if let Ok(database_url) = std::env::var("DATABASE_URL") {
             config.database.url = database_url;
+        }
+
+        // Load PORT from environment (Railway requires this for proper health checks)
+        if let Ok(port_str) = std::env::var("PORT") {
+            if let Ok(port) = port_str.parse::<u16>() {
+                config.server.port = port;
+                tracing::info!("Using PORT from environment: {}", port);
+            }
         }
 
         Ok(config)
