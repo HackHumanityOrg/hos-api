@@ -25,23 +25,23 @@ RUST_LOG=debug cargo run-api
 ```
 
 The server will be available at:
-- **API Base URL**: http://127.0.0.1:3000
-- **Swagger UI**: http://127.0.0.1:3000/swagger-ui
-- **OpenAPI Spec**: http://127.0.0.1:3000/api-docs/openapi.json
+- **API Base URL**: http://localhost:3000
+- **Swagger UI**: http://localhost:3000/swagger-ui
+- **OpenAPI Spec**: http://localhost:3000/api-docs/openapi.json
 
 ### Testing Endpoints
 
 Using curl:
 ```bash
 # Health check
-curl http://127.0.0.1:3000/health
+curl http://localhost:3000/health
 
 # With pretty JSON output
-curl -s http://127.0.0.1:3000/health | jq
+curl -s http://localhost:3000/health | jq
 ```
 
 Using the Swagger UI:
-1. Navigate to http://127.0.0.1:3000/swagger-ui
+1. Navigate to http://localhost:3000/swagger-ui
 2. Expand an endpoint
 3. Click "Try it out"
 4. Click "Execute"
@@ -53,13 +53,15 @@ Using the Swagger UI:
 ```
 api/
 ├── src/
-│   ├── main.rs              # Application entry point & routing
+│   ├── main.rs              # Application entry point
 │   ├── lib.rs               # Library exports
 │   ├── handlers/            # Request handlers
-│   │   └── health.rs        # Health check endpoints
-│   ├── models/              # Request/Response models (future)
-│   ├── middleware/          # Custom middleware (future)
-│   └── error.rs             # Error handling (future)
+│   │   └── health/          # Health check endpoints
+│   ├── routes/              # Route definitions
+│   │   └── health/          # Health route module
+│   ├── types.rs             # Request/Response models
+│   ├── state.rs             # Application state management
+│   └── errors.rs            # Error handling
 └── Cargo.toml
 ```
 
@@ -68,25 +70,32 @@ api/
 **Axum Router**: Handles HTTP routing and middleware
 ```rust
 let app = Router::new()
-    .route("/health", get(health_check))
-    .route("/health/db", get(database_health_check))
-    .with_state(db);
+    .nest("/api/v1", routes::create_routes())
+    .merge(routes::health::health_routes())
+    .with_state(app_state);
 ```
 
 **Utoipa Integration**: Automatic OpenAPI documentation
 ```rust
 #[derive(OpenApi)]
 #[openapi(
-    paths(health_check, database_health_check),
-    components(schemas(HealthResponse))
+    paths(handlers::health::health_check),
+    components(schemas(
+        types::HealthResponse,
+        types::DatabaseHealth,
+        errors::ApiError,
+    ))
 )]
 struct ApiDoc;
 ```
 
-**State Management**: Shared database connection
+**State Management**: Shared application state including optional database connection
 ```rust
-async fn handler(State(db): State<DatabaseConnection>) -> Result<Json<Response>, AppError> {
-    // Use database connection
+async fn handler(State(app_state): State<AppState>) -> Result<Json<Response>, ApiError> {
+    // Use app state (including optional database connection)
+    if let Some(db) = &app_state.db {
+        // Use database connection
+    }
 }
 ```
 
@@ -99,7 +108,7 @@ async fn handler(State(db): State<DatabaseConnection>) -> Result<Json<Response>,
 Returns basic health status of the API server.
 
 ```bash
-curl http://127.0.0.1:3000/health
+curl http://localhost:3000/health
 ```
 
 Response:
@@ -107,35 +116,15 @@ Response:
 {
   "status": "healthy",
   "timestamp": "2024-08-31T12:00:00Z",
-  "version": "0.1.0"
-}
-```
-
-### Database Health Check  
-
-**GET /health/db**
-
-Returns health status including database connectivity.
-
-```bash
-curl http://127.0.0.1:3000/health/db
-```
-
-Response (database connected):
-```json
-{
-  "status": "healthy",
-  "timestamp": "2024-08-31T12:00:00Z", 
   "version": "0.1.0",
   "database": {
-    "status": "connected",
-    "connection_pool": {
-      "active_connections": 1,
-      "idle_connections": 9
-    }
+    "connected": true,
+    "response_time_ms": 15
   }
 }
 ```
+
+The `/health` endpoint always includes database connectivity information, so there's no separate database health endpoint.
 
 Response (database disconnected):
 ```json
@@ -144,8 +133,9 @@ Response (database disconnected):
   "timestamp": "2024-08-31T12:00:00Z",
   "version": "0.1.0",
   "database": {
-    "status": "disconnected", 
-    "error": "Connection failed: ..."
+    "connected": false,
+    "response_time_ms": 50,
+    "error": "Database connection error: Connection failed"
   }
 }
 ```
@@ -688,7 +678,7 @@ use httpc_test::{Client, Response};
 
 #[tokio::test]
 async fn test_user_crud_workflow() {
-    let client = Client::new("http://127.0.0.1:3000").unwrap();
+    let client = Client::new("http://localhost:3000").unwrap();
     
     // Create user
     let create_response = client

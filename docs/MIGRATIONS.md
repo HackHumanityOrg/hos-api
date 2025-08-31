@@ -266,7 +266,7 @@ let user: users::Model = new_user.insert(db).await?;
 Every `up()` should have a corresponding `down()` that undoes the change:
 
 ```rust
-// ✅ Good - reversible
+// Good - reversible
 async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
     manager.create_table(/* table definition */).await
 }
@@ -279,12 +279,12 @@ async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
 ### 2. Use Descriptive Names
 
 ```bash
-# ✅ Good
+# Good
 cargo migrate-generate create_users_table
 cargo migrate-generate add_email_index_to_users  
 cargo migrate-generate remove_deprecated_status_column
 
-# ❌ Bad
+# Bad
 cargo migrate-generate update_stuff
 cargo migrate-generate fix_things
 ```

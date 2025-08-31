@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     // TODO: Setup indexing pipeline
     // TODO: Start processing loop
 
-    info!("🔍 Indexer 3 Service would start processing data");
+    info!("Indexer 3 Service would start processing data");
 
     Ok(())
 }

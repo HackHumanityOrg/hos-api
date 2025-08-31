@@ -2,11 +2,7 @@
 
 A high-performance Rust monorepo for data indexing and API services built with modern async architecture.
 
-[![Rust](https://img.shields.io/badge/rust-1.89%2B-orange.svg)](https://www.rust-lang.org/)
-[![SeaORM](https://img.shields.io/badge/SeaORM-1.1%2B-blue.svg)](https://www.sea-ql.org/SeaORM/)
-[![Axum](https://img.shields.io/badge/Axum-0.7%2B-green.svg)](https://github.com/tokio-rs/axum)
-
-## 🏗️ Architecture
+## Architecture
 
 - **API Server** - REST API with OpenAPI/Swagger documentation
 - **Indexers** - Parallel data processing services
@@ -22,7 +18,7 @@ data-commons/
 └── .cargo/               # Cargo aliases and configuration
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 git clone <repository-url> && cd data-commons
@@ -35,9 +31,9 @@ cargo run-api
 
 **Access**: API at http://localhost:3000 • [Swagger UI](http://localhost:3000/swagger-ui) • [OpenAPI spec](http://localhost:3000/api-docs/openapi.json)
 
-📚 **Detailed setup**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+**Detailed setup**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 
-## 📊 Database Operations
+## Database Operations
 
 ```bash
 # Common operations
@@ -46,9 +42,9 @@ cargo migrate-generate <name>  # Create new migration
 cargo generate-entities       # Generate entities from schema
 ```
 
-📚 **Database guide**: [docs/MIGRATIONS.md](docs/MIGRATIONS.md)
+**Database guide**: [docs/MIGRATIONS.md](docs/MIGRATIONS.md)
 
-## 🔧 Development
+## Development
 
 ```bash
 # Common commands
@@ -57,10 +53,10 @@ cargo run-api                        # Start API server
 cargo run-indexer-1                  # Start indexer services
 ```
 
-📚 **Development guide**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
-📚 **API development**: [docs/API.md](docs/API.md)
+**Development guide**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+**API development**: [docs/API.md](docs/API.md)
 
-## 🧪 Testing
+## Testing
 
 ```bash
 cargo test-all              # Run all tests
@@ -69,19 +65,19 @@ cargo test -p api           # API tests with real database containers
 
 **Features**: Real MySQL containers • Handler/Route separation • Security testing • Performance validation
 
-📚 **Testing guide**: [docs/DEVELOPMENT.md#testing](docs/DEVELOPMENT.md#testing)
+**Testing guide**: [docs/DEVELOPMENT.md#testing](docs/DEVELOPMENT.md#testing)
 
-## 📦 Tech Stack
+## Tech Stack
 
 **Backend**: Rust • Tokio • Axum • SeaORM • MySQL/PlanetScale
 **Testing**: testcontainers-rs • rstest • axum-test
 **Docs**: Utoipa • Swagger UI
 **Config**: Figment • Environment variables
 
-## 🤝 Contributing
+## Contributing
 
 ```bash
 cargo check-all && cargo test-all  # Verify your changes
 ```
 
-📚 **Contributing guide**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+**Contributing guide**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)

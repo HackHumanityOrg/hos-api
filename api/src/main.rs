@@ -81,10 +81,10 @@ async fn main() -> Result<()> {
         server_config.port,
     );
 
-    info!("🚀 Server starting on http://{}", addr);
-    info!("📚 Swagger UI available at http://{}/swagger-ui", addr);
+    info!("Server starting on http://{}", addr);
+    info!("Swagger UI available at http://{}/swagger-ui", addr);
     info!(
-        "📖 OpenAPI spec available at http://{}/api-docs/openapi.json",
+        "OpenAPI spec available at http://{}/api-docs/openapi.json",
         addr
     );
 
