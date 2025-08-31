@@ -1,0 +1,22 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "api/Dockerfile"
+watchPaths = [
+  "api/**",
+  "shared/**",
+  "migration/**",
+  "Cargo.toml",
+  "Cargo.lock"
+]
+
+[deploy]
+startCommand = "/api-bin"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# Railway environment configuration
+[deploy.env]
+PORT = "3000"
+RUST_LOG = "debug"
