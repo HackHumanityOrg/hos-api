@@ -88,12 +88,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM gcr.io/distroless/cc-debian12 AS runtime
 
 # Copy optimized statically-linked binary and configuration
-COPY --from=builder /tmp/api /api
+COPY --from=builder /tmp/api /api-bin
 COPY config.toml /config.toml
+COPY api/config.toml /api/config.toml
 
 # Health check for API service (distroless doesn't have curl, so use wget equivalent)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD ["/api", "--health-check"] || exit 1
+    CMD ["/api-bin", "--health-check"] || exit 1
 
 # Expose port
 EXPOSE 3000
@@ -108,4 +109,4 @@ LABEL maintainer="data-commons-team" \
       openssl="vendored-static"
 
 # Run the API server (distroless runs as non-root by default)
-ENTRYPOINT ["/api"]
+ENTRYPOINT ["/api-bin"]

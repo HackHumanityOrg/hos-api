@@ -90,6 +90,7 @@ FROM gcr.io/distroless/cc-debian12 AS runtime
 # Copy optimized statically-linked binary and configuration
 COPY --from=builder /tmp/indexer-3 /indexer-3
 COPY config.toml /config.toml
+COPY indexers/indexer-3/config.toml /indexer-3-config.toml
 
 # Add metadata labels for better maintainability
 LABEL maintainer="data-commons-team" \

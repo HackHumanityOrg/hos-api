@@ -28,5 +28,5 @@ testcontainers-modules = { workspace = true }
 rstest = { workspace = true }
 axum-test = { workspace = true }
 tokio-test = { workspace = true }
-futures = "0.3"
+futures = { workspace = true }
 migration = { path = "../migration" }
