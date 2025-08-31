@@ -52,12 +52,12 @@ WORKDIR /app
 # Copy recipe and build dependencies with extensive caching
 COPY --from=planner /app/recipe.json recipe.json
 
-# Build dependencies with optimized cache mounts and 2025 performance settings
+# Build dependencies with Railway-compatible cache mounts
 # Using vendored OpenSSL ensures cross-platform compatibility
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    --mount=type=cache,target=/app/target,sharing=locked \
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=sccache,target=$SCCACHE_DIR \
+    --mount=type=cache,id=target,target=/app/target \
     CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
     CARGO_PROFILE_RELEASE_LTO=true \
@@ -71,11 +71,11 @@ COPY migration/ migration/
 COPY api/ api/
 COPY indexers/ indexers/
 
-# Build application with size and performance optimizations for 2025
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    --mount=type=cache,target=/app/target,sharing=locked \
+# Build application with size and performance optimizations for Railway
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=sccache,target=$SCCACHE_DIR \
+    --mount=type=cache,id=target,target=/app/target \
     CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
     CARGO_PROFILE_RELEASE_LTO=true \
