@@ -205,7 +205,7 @@ async fn test_health_handler_database_response_time_measurement(#[future] test_d
 
     // Verify response time is measured and reasonable
     assert!(db_health["response_time_ms"].is_number());
-    let response_time = db_health["response_time_ms"].as_u64().unwrap();
+    let response_time = db_health["response_time_ms"].as_i64().unwrap();
 
     // Response time should be non-zero (measurement took place)
     assert!(response_time >= 0);
@@ -294,7 +294,7 @@ async fn test_health_handler_database_error_response_time() {
 
             // Should still measure response time even if query fails
             if db_health["response_time_ms"].is_number() {
-                let response_time = db_health["response_time_ms"].as_u64().unwrap();
+                let response_time = db_health["response_time_ms"].as_i64().unwrap();
                 assert!(response_time >= 0);
                 println!("Error case response time: {}ms", response_time);
             }
