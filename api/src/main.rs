@@ -19,6 +19,12 @@ use utoipa_swagger_ui::SwaggerUi;
 
 #[derive(OpenApi)]
 #[openapi(
+    info(
+        title = "Data Commons API",
+        version = "0.1.0",
+        description = "REST API for the Data Commons platform",
+        license(name = "MIT")
+    ),
     paths(
         handlers::health::health_check,
     ),
