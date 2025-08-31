@@ -12,7 +12,7 @@ use tracing::info;
     tag = "health",
     responses(
         (status = 200, description = "Health check passed", body = HealthResponse),
-        (status = 500, description = "Health check failed", body = ApiError)
+        (status = 500, description = "Health check failed", body = crate::errors::ApiError)
     )
 )]
 pub async fn health_check(
