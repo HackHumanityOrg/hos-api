@@ -1,5 +1,5 @@
-//! Configuration utilities using Figment for hierarchical configuration
-//! Supports loading from TOML files, environment variables, and more
+//! Type-safe configuration system with app-specific configurations
+//! Supports hierarchical loading from TOML files and environment variables
 
 use crate::errors::ConfigError;
 use figment::{
@@ -8,7 +8,7 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Database configuration structure
+/// Database configuration shared by all applications
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
     /// Database URL is provided via DATABASE_URL environment variable
@@ -22,7 +22,7 @@ pub struct DatabaseConfig {
     pub max_lifetime: Option<u64>,
 }
 
-/// Server configuration structure
+/// Server configuration for API service only
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub host: String,
@@ -30,20 +30,163 @@ pub struct ServerConfig {
     pub worker_threads: Option<usize>,
 }
 
-/// Logging configuration structure
+/// Logging configuration per application
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggingConfig {
     pub level: String,
     pub format: Option<String>,
 }
 
-/// Main application configuration
+/// API-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
-pub struct AppConfig {
+pub struct ApiConfig {
     pub database: DatabaseConfig,
     pub server: ServerConfig,
     pub logging: LoggingConfig,
+}
+
+/// Indexer-specific configuration (no server needed)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexerConfig {
+    pub database: DatabaseConfig,
+    pub logging: LoggingConfig,
+}
+
+/// Unified configuration enum for type safety
+#[derive(Debug, Clone)]
+pub enum AppConfig {
+    Api(ApiConfig),
+    Indexer(IndexerConfig),
+}
+
+impl AppConfig {
+    /// Load API configuration
+    pub fn load_api() -> Result<Self, ConfigError> {
+        let config = ConfigBuilder::api().load_with_database_url()?;
+        Ok(AppConfig::Api(config))
+    }
+    
+    /// Load indexer configuration by name
+    pub fn load_indexer(name: &str) -> Result<Self, ConfigError> {
+        let config = ConfigBuilder::indexer(name).load_with_database_url()?;
+        Ok(AppConfig::Indexer(config))
+    }
+
+    /// Get database configuration (available in all app types)
+    pub fn database(&self) -> &DatabaseConfig {
+        match self {
+            AppConfig::Api(config) => &config.database,
+            AppConfig::Indexer(config) => &config.database,
+        }
+    }
+
+    /// Get logging configuration (available in all app types)
+    pub fn logging(&self) -> &LoggingConfig {
+        match self {
+            AppConfig::Api(config) => &config.logging,
+            AppConfig::Indexer(config) => &config.logging,
+        }
+    }
+
+    /// Get server configuration (only available for API)
+    pub fn server(&self) -> Option<&ServerConfig> {
+        match self {
+            AppConfig::Api(config) => Some(&config.server),
+            AppConfig::Indexer(_) => None,
+        }
+    }
+
+    /// Get server configuration (panics if not API)
+    pub fn server_required(&self) -> &ServerConfig {
+        match self {
+            AppConfig::Api(config) => &config.server,
+            AppConfig::Indexer(_) => panic!("Server configuration not available for indexer"),
+        }
+    }
+}
+
+/// Configuration builder for different app types
+pub struct ConfigBuilder;
+
+impl ConfigBuilder {
+    /// Load API configuration with server + database + logging
+    pub fn api() -> ConfigLoader<ApiConfig> {
+        ConfigLoader::new("api/config.toml")
+    }
+    
+    /// Load indexer configuration with database + logging only
+    pub fn indexer(name: &str) -> ConfigLoader<IndexerConfig> {
+        ConfigLoader::new(&format!("indexers/{}/config.toml", name))
+    }
+}
+
+/// Type-safe configuration loader
+pub struct ConfigLoader<T> {
+    binary_config_path: String,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T> ConfigLoader<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    fn new(binary_config_path: &str) -> Self {
+        Self {
+            binary_config_path: binary_config_path.to_string(),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Load configuration with hierarchical merging
+    pub fn load(self) -> Result<T, ConfigError> {
+        let mut figment = Figment::new()
+            .merge(Toml::file("config.toml")); // Workspace config (database only)
+
+        // Add binary-specific config if it exists
+        let binary_config = std::path::Path::new(&self.binary_config_path);
+        if binary_config.exists() {
+            figment = figment.merge(Toml::file(&self.binary_config_path));
+        }
+
+        // Environment variables have highest priority
+        figment = figment.merge(Env::prefixed("APP_"));
+
+        let config: T = figment
+            .extract()
+            .map_err(|e| ConfigError::ParseError {
+                message: e.to_string(),
+            })?;
+
+        Ok(config)
+    }
+}
+
+impl ConfigLoader<ApiConfig> {
+    /// Load API configuration and inject DATABASE_URL
+    pub fn load_with_database_url(self) -> Result<ApiConfig, ConfigError> {
+        let mut config = self.load()?;
+        
+        // Load DATABASE_URL from environment
+        if let Ok(database_url) = std::env::var("DATABASE_URL") {
+            config.database.url = database_url;
+        }
+
+        Ok(config)
+    }
+}
+
+impl ConfigLoader<IndexerConfig> {
+    /// Load indexer configuration and inject DATABASE_URL
+    pub fn load_with_database_url(self) -> Result<IndexerConfig, ConfigError> {
+        let mut config = self.load()?;
+        
+        // Load DATABASE_URL from environment
+        if let Ok(database_url) = std::env::var("DATABASE_URL") {
+            config.database.url = database_url;
+        }
+
+        Ok(config)
+    }
 }
 
 impl Default for DatabaseConfig {
@@ -80,50 +223,3 @@ impl Default for LoggingConfig {
     }
 }
 
-
-impl AppConfig {
-    /// Load configuration from multiple sources in order of precedence:
-    /// 1. Environment variables (highest priority)
-    /// 2. config.toml file
-    /// 3. Default values (lowest priority)
-    pub fn load() -> Result<Self, ConfigError> {
-        let mut config: AppConfig = Figment::new()
-            .merge(Toml::file("config.toml"))
-            .merge(Env::prefixed("APP_"))
-            .extract()
-            .map_err(|e| ConfigError::ParseError {
-                message: e.to_string(),
-            })?;
-
-        // Load DATABASE_URL from environment
-        if let Ok(database_url) = std::env::var("DATABASE_URL") {
-            config.database.url = database_url;
-        }
-
-        Ok(config)
-    }
-
-    /// Load configuration with a custom TOML file path
-    pub fn load_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, ConfigError> {
-        if !path.as_ref().exists() {
-            return Err(ConfigError::FileNotFound {
-                path: path.as_ref().display().to_string(),
-            });
-        }
-
-        let mut config: AppConfig = Figment::new()
-            .merge(Toml::file(path))
-            .merge(Env::prefixed("APP_"))
-            .extract()
-            .map_err(|e| ConfigError::ParseError {
-                message: e.to_string(),
-            })?;
-
-        // Load DATABASE_URL from environment
-        if let Ok(database_url) = std::env::var("DATABASE_URL") {
-            config.database.url = database_url;
-        }
-
-        Ok(config)
-    }
-}

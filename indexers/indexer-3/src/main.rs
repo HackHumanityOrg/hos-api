@@ -7,17 +7,17 @@ async fn main() -> Result<()> {
     // Load environment variables
     dotenvy::dotenv().ok();
 
-    // Load configuration
-    let config = AppConfig::load().context("Failed to load configuration")?;
+    // Load indexer-specific configuration (type-safe)
+    let config = AppConfig::load_indexer("indexer-3").context("Failed to load configuration")?;
 
     // Initialize tracing
-    common::utils::init_tracing(&config.logging.level).context("Failed to initialize tracing")?;
+    common::utils::init_tracing(&config.logging().level).context("Failed to initialize tracing")?;
 
     info!("Starting Indexer 3 Service...");
     info!("Configuration loaded: {:?}", config);
 
     // Initialize database connection
-    let db_result = db_core::connection::from_config(&config.database).await;
+    let db_result = db_core::connection::from_config(config.database()).await;
 
     match &db_result {
         Ok(_) => {

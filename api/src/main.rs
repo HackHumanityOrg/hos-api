@@ -38,16 +38,16 @@ async fn main() -> Result<()> {
     // Load environment variables
     dotenvy::dotenv().ok();
 
-    // Load configuration
-    let config = AppConfig::load().context("Failed to load configuration")?;
+    // Load API-specific configuration (type-safe)
+    let config = AppConfig::load_api().context("Failed to load configuration")?;
 
     // Initialize tracing
-    common::utils::init_tracing(&config.logging.level).context("Failed to initialize tracing")?;
+    common::utils::init_tracing(&config.logging().level).context("Failed to initialize tracing")?;
 
     info!("Starting API Server...");
 
     // Try to initialize database connection from configuration
-    let db_result = db_core::connection::from_config(&config.database).await;
+    let db_result = db_core::connection::from_config(config.database()).await;
 
     match &db_result {
         Ok(_) => {
@@ -75,9 +75,10 @@ async fn main() -> Result<()> {
             .config(utoipa_swagger_ui::Config::new(["/api-docs/openapi.json"])),
     );
 
+    let server_config = config.server_required();
     let addr = SocketAddr::new(
-        config.server.host.parse().context("Invalid server host")?,
-        config.server.port,
+        server_config.host.parse().context("Invalid server host")?,
+        server_config.port,
     );
 
     info!("🚀 Server starting on http://{}", addr);
