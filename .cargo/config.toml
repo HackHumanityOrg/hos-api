@@ -1,0 +1,26 @@
+# Cargo configuration for data-commons workspace
+# This file provides convenient aliases for common development tasks
+
+[alias]
+# SeaORM Migration aliases
+migrate-up = "run --manifest-path ./migration/Cargo.toml -- up"
+migrate-down = "run --manifest-path ./migration/Cargo.toml -- down"
+migrate-status = "run --manifest-path ./migration/Cargo.toml -- status"
+migrate-fresh = "run --manifest-path ./migration/Cargo.toml -- fresh"
+migrate-reset = "run --manifest-path ./migration/Cargo.toml -- reset"
+migrate-generate = ["run", "--manifest-path", "./migration/Cargo.toml", "--", "generate"]
+
+# Entity generation using cargo-run-bin
+generate-entities = "bin sea-orm-cli generate entity -o shared/entities/src"
+
+# Development shortcuts
+check-all = "check --workspace"
+test-all = "test --workspace"
+build-all = "build --workspace"
+clean-all = "clean --workspace"
+
+# Individual service shortcuts
+run-api = "run -p api"
+run-indexer-1 = "run -p indexer-1"
+run-indexer-2 = "run -p indexer-2"
+run-indexer-3 = "run -p indexer-3"

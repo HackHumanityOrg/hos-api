@@ -1,0 +1,32 @@
+[package]
+name = "api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+figment = { workspace = true }
+dotenvy = { workspace = true }
+chrono = { workspace = true }
+
+# Path dependencies to shared modules
+entities = { path = "../shared/entities" }
+db-core = { path = "../shared/db-core" }
+common = { path = "../shared/common" }
+
+[dev-dependencies]
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+rstest = { workspace = true }
+axum-test = { workspace = true }
+tokio-test = { workspace = true }
+futures = "0.3"
+migration = { path = "../migration" }

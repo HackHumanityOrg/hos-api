@@ -1,0 +1,63 @@
+[workspace]
+members = [
+    "shared/entities",
+    "shared/db-core", 
+    "shared/common",
+    "indexers/indexer-1",
+    "indexers/indexer-2", 
+    "indexers/indexer-3",
+    "api",
+    "migration"
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Core async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Database & ORM (MySQL + PlanetScale compatible)
+sea-orm = { version = "^1.1", features = [
+    "sqlx-mysql", 
+    "runtime-tokio-native-tls",  # PlanetScale requires SSL/TLS
+    "macros"
+] }
+sea-orm-migration = { version = "^1.1", features = [
+    "sqlx-mysql",
+    "runtime-tokio-native-tls"
+] }
+
+# Web framework & OpenAPI
+axum = { version = "0.7", features = ["macros"] }
+utoipa = { version = "4", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "7", features = ["axum"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling (hybrid approach: thiserror for libraries, anyhow for applications)
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Configuration
+figment = { version = "0.10", features = ["toml", "env"] }
+dotenvy = "0.15"
+
+# Logging & Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Date/time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Testing
+tokio-test = "0.4"
+testcontainers = "0.22"
+testcontainers-modules = { version = "0.10", features = ["mysql"] }
+rstest = "0.22"
+axum-test = "15.7"
+httpc-test = "0.1"
+
+# Development tools (managed by cargo-run-bin)
+[workspace.metadata.bin]
+sea-orm-cli = { version = "1.1.15" }

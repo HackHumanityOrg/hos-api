@@ -1,0 +1,16 @@
+[package]
+name = "db-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+sea-orm = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+figment = { workspace = true }
+dotenvy = { workspace = true }
+
+# Path dependencies to other workspace members
+entities = { path = "../entities" }
+common = { path = "../common" }
