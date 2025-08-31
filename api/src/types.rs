@@ -21,6 +21,9 @@ pub struct HealthResponse {
 pub struct DatabaseHealth {
     /// Whether database is accessible
     pub connected: bool,
+    /// Database response time in milliseconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_time_ms: Option<u64>,
     /// Optional error message if not connected
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,

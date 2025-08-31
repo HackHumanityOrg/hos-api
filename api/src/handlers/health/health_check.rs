@@ -3,6 +3,7 @@
 use crate::{errors::ApiErrorResponse, state::AppState, types::*};
 use axum::{extract::State, Json};
 use entities::sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+use std::time::Instant;
 use tracing::info;
 
 /// Health check endpoint (with database connection)
@@ -23,6 +24,9 @@ pub async fn health_check(
     // Test database connection if available
     let database_health = match &app_state.db {
         Some(db) => {
+            // Measure database response time
+            let start_time = Instant::now();
+            
             // Simple health check query
             match db
                 .execute(Statement::from_string(
@@ -32,16 +36,20 @@ pub async fn health_check(
                 .await
             {
                 Ok(_) => {
-                    info!("Database health check passed");
+                    let response_time = start_time.elapsed().as_millis() as u64;
+                    info!("Database health check passed in {}ms", response_time);
                     DatabaseHealth {
                         connected: true,
+                        response_time_ms: Some(response_time),
                         error: None,
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Database health check failed: {}", e);
+                    let response_time = start_time.elapsed().as_millis() as u64;
+                    tracing::error!("Database health check failed in {}ms: {}", response_time, e);
                     DatabaseHealth {
                         connected: false,
+                        response_time_ms: Some(response_time),
                         error: Some(format!("Database connection error: {}", e)),
                     }
                 }
@@ -49,6 +57,7 @@ pub async fn health_check(
         }
         None => DatabaseHealth {
             connected: false,
+            response_time_ms: None,
             error: Some("Database connection not configured".to_string()),
         },
     };
