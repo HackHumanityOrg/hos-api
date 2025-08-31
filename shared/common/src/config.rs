@@ -116,7 +116,15 @@ impl ConfigBuilder {
     
     /// Load indexer configuration with database + logging only
     pub fn indexer(name: &str) -> ConfigLoader<IndexerConfig> {
-        ConfigLoader::new(&format!("indexers/{}/config.toml", name))
+        let container_path = format!("/{}-config.toml", name);
+        let host_path = format!("indexers/{}/config.toml", name);
+        
+        // Check if we're in a container (look for container-specific path first)
+        if std::path::Path::new(&container_path).exists() {
+            ConfigLoader::new(&container_path)
+        } else {
+            ConfigLoader::new(&host_path)
+        }
     }
 }
 
