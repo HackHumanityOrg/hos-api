@@ -20,4 +20,3 @@ opentelemetry-semantic-conventions = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 opentelemetry-appender-tracing = { workspace = true }
-tonic = { workspace = true }

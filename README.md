@@ -70,12 +70,13 @@ cargo test -p api           # API tests with real database containers
 
 ## Observability
 
-Complete OpenTelemetry integration with Dash0 for production-ready monitoring:
+Complete OpenTelemetry integration with Dash0 for production-ready monitoring. This project uses the OTLP HTTP/JSON exporters (not gRPC).
 
 ```bash
 # Set environment variables (optional - services degrade gracefully)
-DASH0_OTLP_ENDPOINT=https://ingress.region.aws.dash0.com
-DASH0_AUTH_TOKEN=auth_your_token_here
+# Provide the base HTTPS endpoint (no /v1/* path)
+export DASH0_OTLP_ENDPOINT=https://ingress.region.aws.dash0.com
+export DASH0_AUTH_TOKEN=auth_your_token_here
 ```
 
 **Features**:

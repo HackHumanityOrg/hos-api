@@ -1,9 +1,9 @@
 // Common testing utilities and fixtures
+use axum_test::TestServer;
 use migration::{sea_orm, MigratorTrait};
 use sea_orm::DatabaseConnection;
 use testcontainers::{runners::AsyncRunner, ImageExt};
 use testcontainers_modules::mysql::Mysql;
-use axum_test::TestServer;
 
 /// Test database container setup
 pub struct TestDatabase {

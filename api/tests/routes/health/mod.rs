@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use rstest::*;
 use serde_json::Value;
 
-use crate::common::{init_test_tracing, create_test_server_with_db};
+use crate::common::{create_test_server_with_db, init_test_tracing};
 
 /// Test server helper moved to crate::common
 

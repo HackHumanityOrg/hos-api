@@ -82,8 +82,11 @@ async fn main() -> Result<()> {
         .nest("/api/v1", routes::create_routes())
         .merge(routes::health::health_routes());
 
-    // Add OpenTelemetry middleware if Dash0 is configured
-    if config.telemetry().enabled && std::env::var("DASH0_OTLP_ENDPOINT").is_ok() {
+    // Add OpenTelemetry middleware only when telemetry is enabled and credentials are present
+    if config.telemetry().enabled
+        && std::env::var("DASH0_OTLP_ENDPOINT").is_ok()
+        && std::env::var("DASH0_AUTH_TOKEN").is_ok()
+    {
         app = app
             .layer(OtelInResponseLayer) // Add trace context to responses
             .layer(OtelAxumLayer::default()) // Create spans for requests

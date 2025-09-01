@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use common::config::AppConfig;
+use common::config::{AppConfig, ToLog};
 use common::telemetry::{self, TelemetrySetup};
 use opentelemetry::KeyValue;
 use tracing::{info, instrument};
@@ -21,7 +21,8 @@ async fn main() -> Result<()> {
         telemetry::init_telemetry(telemetry_setup).context("Failed to initialize telemetry")?;
 
     info!("Starting Indexer 2 Service...");
-    info!("Configuration loaded: {:?}", config);
+    // Log sanitized configuration
+    info!(config = %config.to_log(), "Configuration loaded");
 
     // Record indexer startup metric
     if config.telemetry().enabled {

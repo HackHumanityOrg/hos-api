@@ -7,6 +7,13 @@ use figment::{
     Figment,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value as JsonValue};
+
+/// Provide a sanitized representation of configuration for safe logging.
+/// Secret-bearing fields are simply omitted instead of redacted.
+pub trait ToLog {
+    fn to_log(&self) -> JsonValue;
+}
 
 /// Database configuration shared by all applications
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +29,20 @@ pub struct DatabaseConfig {
     pub max_lifetime: Option<u64>,
 }
 
+impl ToLog for DatabaseConfig {
+    fn to_log(&self) -> JsonValue {
+        // Omit connection URL entirely from logs
+        json!({
+            "max_connections": self.max_connections,
+            "min_connections": self.min_connections,
+            "connection_timeout": self.connection_timeout,
+            "acquire_timeout": self.acquire_timeout,
+            "idle_timeout": self.idle_timeout,
+            "max_lifetime": self.max_lifetime,
+        })
+    }
+}
+
 /// Server configuration for API service only
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -30,11 +51,30 @@ pub struct ServerConfig {
     pub worker_threads: Option<usize>,
 }
 
+impl ToLog for ServerConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "host": self.host,
+            "port": self.port,
+            "worker_threads": self.worker_threads,
+        })
+    }
+}
+
 /// Logging configuration per application
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggingConfig {
     pub level: String,
     pub format: Option<String>,
+}
+
+impl ToLog for LoggingConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "level": self.level,
+            "format": self.format,
+        })
+    }
 }
 
 /// Telemetry configuration for OpenTelemetry/Dash0 integration
@@ -52,6 +92,23 @@ pub struct TelemetryConfig {
     pub resource_attributes: std::collections::HashMap<String, String>,
 }
 
+impl ToLog for TelemetryConfig {
+    fn to_log(&self) -> JsonValue {
+        // Omit resource_attributes entirely to avoid leaking any data via logs
+        json!({
+            "enabled": self.enabled,
+            "service_version": self.service_version,
+            "environment": self.environment,
+            "enable_metrics": self.enable_metrics,
+            "enable_traces": self.enable_traces,
+            "enable_logs": self.enable_logs,
+            "batch_size": self.batch_size,
+            "export_timeout_sec": self.export_timeout_sec,
+            "export_interval_sec": self.export_interval_sec,
+        })
+    }
+}
+
 /// API-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
@@ -59,6 +116,17 @@ pub struct ApiConfig {
     pub server: ServerConfig,
     pub logging: LoggingConfig,
     pub telemetry: TelemetryConfig,
+}
+
+impl ToLog for ApiConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "database": self.database.to_log(),
+            "server": self.server.to_log(),
+            "logging": self.logging.to_log(),
+            "telemetry": self.telemetry.to_log(),
+        })
+    }
 }
 
 /// Indexer-specific configuration (no server needed)
@@ -69,11 +137,36 @@ pub struct IndexerConfig {
     pub telemetry: TelemetryConfig,
 }
 
+impl ToLog for IndexerConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "database": self.database.to_log(),
+            "logging": self.logging.to_log(),
+            "telemetry": self.telemetry.to_log(),
+        })
+    }
+}
+
 /// Unified configuration enum for type safety
 #[derive(Debug, Clone)]
 pub enum AppConfig {
     Api(ApiConfig),
     Indexer(IndexerConfig),
+}
+
+impl ToLog for AppConfig {
+    fn to_log(&self) -> JsonValue {
+        match self {
+            AppConfig::Api(cfg) => json!({
+                "kind": "api",
+                "config": cfg.to_log()
+            }),
+            AppConfig::Indexer(cfg) => json!({
+                "kind": "indexer",
+                "config": cfg.to_log()
+            }),
+        }
+    }
 }
 
 impl AppConfig {

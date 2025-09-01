@@ -11,6 +11,13 @@ members = [
 ]
 resolver = "2"
 
+[profile.release]
+# Move Docker ENV profile hints into canonical Cargo profiles
+codegen-units = 1
+lto = true
+strip = "symbols"
+opt-level = "z"
+
 [workspace.dependencies]
 # Core async runtime
 tokio = { version = "1", features = ["full"] }
@@ -65,7 +72,6 @@ opentelemetry-appender-tracing = "0.27"
 axum-tracing-opentelemetry = "0.24"
 
 # Additional dependencies for telemetry
-tonic = "0.12"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace"] }
 
@@ -78,7 +84,6 @@ testcontainers = "0.25"
 testcontainers-modules = { version = "0.13", features = ["mysql"] }
 rstest = "0.26"
 axum-test = "18.0"
-httpc-test = "0.1"
 futures = "0.3"
 
 # Migration specific

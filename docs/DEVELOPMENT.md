@@ -491,7 +491,8 @@ ls -la target/release/
 # Production environment variables
 DATABASE_URL=mysql://prod_user:password@prod_host/database
 RUST_LOG=info
-APP_SERVER_PORT=80
+# Use double underscores for nested keys
+APP_SERVER__PORT=80
 ```
 
 ### Migration in Production

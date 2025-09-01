@@ -278,7 +278,7 @@ fn init_tracer(
     resource: Resource,
     endpoint: String,
     headers: Vec<(String, String)>,
-    _config: &ConfigTelemetry,
+    config: &ConfigTelemetry,
 ) -> Result<trace::TracerProvider> {
     // Set authentication and dataset headers via environment variable for OTLP
     if let Some((_, token)) = headers.first() {
@@ -303,11 +303,20 @@ fn init_tracer(
         .build()
         .context("Failed to create span exporter")?;
 
-    // Configure batch processor following Dash0 best practices
-    std::env::set_var("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "8192");  // Dash0 default
-    std::env::set_var("OTEL_BSP_SCHEDULE_DELAY", "60000");        // 60 seconds for cost optimization
-    std::env::set_var("OTEL_BSP_EXPORT_TIMEOUT", "30000");        // 30 second timeout
-    std::env::set_var("OTEL_BSP_MAX_QUEUE_SIZE", "8192");         // Match batch size
+    // Configure batch processor using TelemetryConfig (Dash0-friendly defaults in config)
+    std::env::set_var(
+        "OTEL_BSP_MAX_EXPORT_BATCH_SIZE",
+        config.batch_size.to_string(),
+    );
+    std::env::set_var("OTEL_BSP_MAX_QUEUE_SIZE", config.batch_size.to_string());
+    std::env::set_var(
+        "OTEL_BSP_SCHEDULE_DELAY",
+        (config.export_interval_sec * 1000).to_string(),
+    );
+    std::env::set_var(
+        "OTEL_BSP_EXPORT_TIMEOUT",
+        (config.export_timeout_sec * 1000).to_string(),
+    );
 
     // Create batch processor with environment-configured settings
     let batch_processor =
@@ -357,13 +366,19 @@ fn init_metrics(
         .build()
         .context("Failed to create metrics exporter")?;
 
-    // Configure for optimal metrics export following Dash0 best practices
-    std::env::set_var("OTEL_METRIC_EXPORT_INTERVAL", "60000"); // 60 seconds
-    std::env::set_var("OTEL_METRIC_EXPORT_TIMEOUT", "30000");  // 30 seconds
+    // Configure metric export based on TelemetryConfig (Dash0-friendly defaults in config)
+    std::env::set_var(
+        "OTEL_METRIC_EXPORT_INTERVAL",
+        (config.export_interval_sec * 1000).to_string(),
+    );
+    std::env::set_var(
+        "OTEL_METRIC_EXPORT_TIMEOUT",
+        (config.export_timeout_sec * 1000).to_string(),
+    );
 
     let reader = PeriodicReader::builder(exporter, opentelemetry_sdk::runtime::Tokio)
-        .with_interval(Duration::from_secs(60)) // Export every 60 seconds for cost optimization
-        .with_timeout(Duration::from_secs(30))  // 30 second timeout for reliability
+        .with_interval(Duration::from_secs(config.export_interval_sec))
+        .with_timeout(Duration::from_secs(config.export_timeout_sec))
         .build();
 
     let provider = MeterProviderBuilder::default()

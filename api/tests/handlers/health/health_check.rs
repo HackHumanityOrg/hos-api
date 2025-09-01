@@ -2,7 +2,7 @@
 use rstest::*;
 use serde_json::Value;
 
-use crate::common::{init_test_tracing, TestDatabase, create_test_server_with_db};
+use crate::common::{create_test_server_with_db, init_test_tracing, TestDatabase};
 
 /// Test server helper moved to crate::common
 
@@ -60,7 +60,9 @@ async fn test_health_handler_response_structure() {
     assert!(json["version"].is_string());
 
     // Validate timestamp is RFC3339
-    let ts = json["timestamp"].as_str().expect("timestamp must be string");
+    let ts = json["timestamp"]
+        .as_str()
+        .expect("timestamp must be string");
     chrono::DateTime::parse_from_rfc3339(ts).expect("timestamp must be RFC3339");
     assert!(json["database"].is_object());
 }

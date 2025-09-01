@@ -88,4 +88,3 @@ fn test_anyhow_downcast_to_database_error() {
     assert_eq!(resp.status, StatusCode::NOT_FOUND);
     assert_eq!(resp.error.code, "NOT_FOUND");
 }
-

@@ -19,4 +19,3 @@ async fn test_from_env_missing_database_url() {
         std::env::set_var(key, v);
     }
 }
-

@@ -32,7 +32,8 @@
 
 ## Security & Configuration Tips
 - Never commit secrets. Use `.env` (copy from `.env.example`) and environment variables: `DATABASE_URL`, `RUST_LOG`, `DASH0_OTLP_ENDPOINT`, `DASH0_AUTH_TOKEN`.
-- Config is hierarchical: root `config.toml` → service config → `APP_*` env overrides. API binds to `APP_SERVER_HOST`/`PORT` if set.
+- Config is hierarchical: root `config.toml` → service config → `APP_*` env overrides.
+  - Use double underscores to address nested keys (Figment): e.g., `APP_SERVER__HOST`, `APP_SERVER__PORT`, `APP_LOGGING__LEVEL`.
 
 ## Quick Start
 ```bash
@@ -40,4 +41,3 @@ cargo install cargo-run-bin && cargo bin --install
 cp .env.example .env && cargo migrate-up && cargo generate-entities
 cargo run-api  # Swagger UI at /swagger-ui
 ```
-

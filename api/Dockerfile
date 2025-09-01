@@ -17,8 +17,9 @@ ENV CARGO_TERM_COLOR=always
 ENV OPENSSL_STATIC=1
 ENV OPENSSL_VENDORED=1
 
-# Use lld linker for faster builds and lower memory usage (available on both platforms)
-ENV RUSTFLAGS="-C link-arg=-fuse-ld=lld -C target-cpu=native"
+# Use lld linker for faster builds and lower memory usage.
+# Avoid target-cpu=native to keep images portable across hosts/architectures.
+ENV RUSTFLAGS="-C link-arg=-fuse-ld=lld"
 
 # Install build dependencies for cross-platform support
 RUN apt-get update && apt-get install -y \
@@ -54,11 +55,7 @@ COPY --from=planner /app/recipe.json recipe.json
 
 # Build dependencies with Railway optimization
 # Using vendored OpenSSL ensures cross-platform compatibility
-RUN CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
-    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
-    CARGO_PROFILE_RELEASE_LTO=true \
-    CARGO_PROFILE_RELEASE_STRIP="symbols" \
-    cargo chef cook --release --recipe-path recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 
 # Copy source code (this layer will be rebuilt when source changes)
 COPY Cargo.toml Cargo.lock ./
@@ -68,11 +65,7 @@ COPY api/ api/
 COPY indexers/ indexers/
 
 # Build application with size and performance optimizations for Railway
-RUN CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
-    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
-    CARGO_PROFILE_RELEASE_LTO=true \
-    CARGO_PROFILE_RELEASE_STRIP="symbols" \
-    cargo build --release -p api && \
+RUN cargo build --release -p api && \
     cp target/release/api /tmp/api
 
 # Runtime stage - distroless for maximum security and minimal size
@@ -83,10 +76,6 @@ FROM gcr.io/distroless/cc-debian12 AS runtime
 COPY --from=builder /tmp/api /api-bin
 COPY config.toml /config.toml
 COPY api/config.toml /api/config.toml
-
-# Health check for API service (distroless doesn't have curl, so use wget equivalent)
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD ["/api-bin", "--health-check"] || exit 1
 
 # Expose port
 EXPOSE 3000

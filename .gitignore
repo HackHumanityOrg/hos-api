@@ -35,7 +35,6 @@ logs/
 *.sqlite
 
 # Docker
-.dockerignore
 
 # Claude Code
 .claude/
