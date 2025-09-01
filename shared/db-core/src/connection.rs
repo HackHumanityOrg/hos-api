@@ -20,7 +20,10 @@ pub async fn establish_connection(
         .connect_timeout(Duration::from_secs(config.connection_timeout.unwrap_or(30)))
         .acquire_timeout(Duration::from_secs(config.acquire_timeout.unwrap_or(30)))
         .idle_timeout(Duration::from_secs(config.idle_timeout.unwrap_or(600)))
-        .max_lifetime(Duration::from_secs(config.max_lifetime.unwrap_or(1800)));
+        .max_lifetime(Duration::from_secs(config.max_lifetime.unwrap_or(1800)))
+        // Configure SQLx logging to provide meaningful database query messages
+        .sqlx_logging(true)
+        .sqlx_logging_level(tracing::log::LevelFilter::Info);
 
     let db = Database::connect(opt)
         .await

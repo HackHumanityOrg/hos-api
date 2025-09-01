@@ -17,6 +17,12 @@ figment = { workspace = true }
 dotenvy = { workspace = true }
 chrono = { workspace = true }
 
+# OpenTelemetry dependencies
+opentelemetry = { workspace = true }
+axum-tracing-opentelemetry = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
 # Path dependencies to shared modules
 entities = { path = "../shared/entities" }
 db-core = { path = "../shared/db-core" }

@@ -2,11 +2,11 @@
 builder = "DOCKERFILE"
 dockerfilePath = "indexers/indexer-2/Dockerfile"
 watchPaths = [
-  "indexers/indexer-2/**",
-  "shared/**",
-  "migration/**",
-  "Cargo.toml",
-  "Cargo.lock"
+    "indexers/indexer-2/**",
+    "shared/**",
+    "migration/**",
+    "Cargo.toml",
+    "Cargo.lock",
 ]
 
 [deploy]

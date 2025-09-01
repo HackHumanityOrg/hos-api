@@ -9,7 +9,7 @@ FROM rust:1.88-bookworm AS base
 RUN cargo install --locked cargo-chef sccache
 
 # Performance optimizations for 2025 + cross-platform support
-ENV RUSTC_WRAPPER=sccache 
+ENV RUSTC_WRAPPER=sccache
 ENV SCCACHE_DIR=/sccache
 ENV CARGO_TERM_COLOR=always
 
@@ -86,13 +86,13 @@ COPY indexers/indexer-3/config.toml /indexer-3-config.toml
 
 # Add metadata labels for better maintainability
 LABEL maintainer="data-commons-team" \
-      version="1.0" \
-      description="Data Commons Indexer-3 Service - 2025 Cross-Platform Optimized" \
-      rust.version="1.88" \
-      build.optimization="size+performance" \
-      platforms="linux/amd64,linux/arm64" \
-      openssl="vendored-static" \
-      service="indexer-3"
+    version="1.0" \
+    description="Data Commons Indexer-3 Service - 2025 Cross-Platform Optimized" \
+    rust.version="1.88" \
+    build.optimization="size+performance" \
+    platforms="linux/amd64,linux/arm64" \
+    openssl="vendored-static" \
+    service="indexer-3"
 
 # Run the indexer service (distroless runs as non-root by default)
 ENTRYPOINT ["/indexer-3"]

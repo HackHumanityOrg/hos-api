@@ -1,3 +1,25 @@
 [logging]
 level = "debug"
 format = "pretty"
+
+[telemetry]
+# Dash0 OpenTelemetry configuration for Indexer 1
+# OTLP endpoint and auth token must be set via environment variables:
+# - DASH0_OTLP_ENDPOINT (e.g., "https://otel.eu-west-1.aws.dash0.com:4317")
+# - DASH0_AUTH_TOKEN
+enabled = true
+service_version = "0.1.0"
+environment = "development" # Options: development, staging, production
+enable_metrics = true
+enable_traces = true
+enable_logs = true
+batch_size = 256            # Smaller batch for indexer
+export_timeout_sec = 10     # Timeout for export operations
+export_interval_sec = 10    # Less frequent exports for indexer
+
+# Indexer-1 specific resource attributes
+[telemetry.resource_attributes]
+"service.namespace" = "data-commons"
+"service.component" = "indexer-1"
+"deployment.region" = "local"
+"indexer.type" = "primary"

@@ -19,7 +19,8 @@ tokio = { version = "1", features = ["full"] }
 sea-orm = { version = "1", features = [
     "sqlx-mysql", 
     "runtime-tokio-native-tls",  # PlanetScale requires SSL/TLS
-    "macros"
+    "macros",
+    "debug-print"  # Enable proper log messages for queries
 ] }
 sea-orm-migration = { version = "1", features = [
     "sqlx-mysql",
@@ -46,7 +47,27 @@ dotenvy = "0.15"
 
 # Logging & Tracing
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# OpenTelemetry Core  
+opentelemetry = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+opentelemetry-semantic-conventions = "0.27"
+
+# OpenTelemetry OTLP Exporter
+opentelemetry-otlp = { version = "0.27", features = ["http-proto", "http-json", "reqwest-client", "reqwest-rustls-webpki-roots", "metrics", "logs"] }
+
+# OpenTelemetry Bridges
+tracing-opentelemetry = "0.28"
+opentelemetry-appender-tracing = "0.27"
+
+# Axum OpenTelemetry Integration
+axum-tracing-opentelemetry = "0.24"
+
+# Additional dependencies for telemetry
+tonic = "0.12"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
 
 # Date/time handling
 chrono = { version = "0.4", features = ["serde"] }

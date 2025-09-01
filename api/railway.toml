@@ -1,13 +1,7 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "api/Dockerfile"
-watchPaths = [
-  "api/**",
-  "shared/**",
-  "migration/**",
-  "Cargo.toml",
-  "Cargo.lock"
-]
+watchPaths = ["api/**", "shared/**", "migration/**", "Cargo.toml", "Cargo.lock"]
 
 [deploy]
 startCommand = "/api-bin"

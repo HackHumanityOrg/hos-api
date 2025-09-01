@@ -5,9 +5,10 @@ A high-performance Rust monorepo for data indexing and API services built with m
 ## Architecture
 
 - **API Server** - REST API with OpenAPI/Swagger documentation
-- **Indexers** - Parallel data processing services
-- **Shared Libraries** - Database, configuration, and utilities
+- **Indexers** - Parallel data processing services  
+- **Shared Libraries** - Database, configuration, utilities, and telemetry
 - **Migrations** - SeaORM-powered MySQL/PlanetScale schema management
+- **Observability** - Complete Dash0 OpenTelemetry integration (logs, traces, metrics)
 
 ```
 data-commons/
@@ -24,7 +25,7 @@ data-commons/
 git clone <repository-url> && cd data-commons
 cargo install cargo-run-bin
 cargo bin --install
-cp .env.example .env  # Edit with your database credentials
+cp .env.example .env  # Edit with database and optional Dash0 credentials
 cargo migrate-up && cargo generate-entities
 cargo run-api
 ```
@@ -67,9 +68,26 @@ cargo test -p api           # API tests with real database containers
 
 **Testing guide**: [docs/DEVELOPMENT.md#testing](docs/DEVELOPMENT.md#testing)
 
+## Observability
+
+Complete OpenTelemetry integration with Dash0 for production-ready monitoring:
+
+```bash
+# Set environment variables (optional - services degrade gracefully)
+DASH0_OTLP_ENDPOINT=https://ingress.region.aws.dash0.com
+DASH0_AUTH_TOKEN=auth_your_token_here
+```
+
+**Features**:
+- **Logs**: Structured JSON with trace correlation
+- **Traces**: HTTP requests, database queries, custom spans
+- **Metrics**: Request counters, duration histograms, custom metrics
+- **Export timing**: Traces (1s), Metrics (2s), Logs (real-time)
+
 ## Tech Stack
 
 **Backend**: Rust • Tokio • Axum • SeaORM • MySQL/PlanetScale
+**Observability**: OpenTelemetry • Dash0 • tracing • structured logging
 **Testing**: testcontainers-rs • rstest • axum-test
 **Docs**: Utoipa • Swagger UI
 **Config**: Figment • Environment variables

@@ -37,12 +37,28 @@ pub struct LoggingConfig {
     pub format: Option<String>,
 }
 
+/// Telemetry configuration for OpenTelemetry/Dash0 integration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    pub enabled: bool,
+    pub service_version: String,
+    pub environment: String,
+    pub enable_metrics: bool,
+    pub enable_traces: bool,
+    pub enable_logs: bool,
+    pub batch_size: u16,
+    pub export_timeout_sec: u64,
+    pub export_interval_sec: u64,
+    pub resource_attributes: std::collections::HashMap<String, String>,
+}
+
 /// API-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
     pub database: DatabaseConfig,
     pub server: ServerConfig,
     pub logging: LoggingConfig,
+    pub telemetry: TelemetryConfig,
 }
 
 /// Indexer-specific configuration (no server needed)
@@ -50,6 +66,7 @@ pub struct ApiConfig {
 pub struct IndexerConfig {
     pub database: DatabaseConfig,
     pub logging: LoggingConfig,
+    pub telemetry: TelemetryConfig,
 }
 
 /// Unified configuration enum for type safety
@@ -85,6 +102,14 @@ impl AppConfig {
         match self {
             AppConfig::Api(config) => &config.logging,
             AppConfig::Indexer(config) => &config.logging,
+        }
+    }
+
+    /// Get telemetry configuration (available in all app types)
+    pub fn telemetry(&self) -> &TelemetryConfig {
+        match self {
+            AppConfig::Api(config) => &config.telemetry,
+            AppConfig::Indexer(config) => &config.telemetry,
         }
     }
 
@@ -232,6 +257,23 @@ impl Default for LoggingConfig {
         Self {
             level: "info".to_string(),
             format: Some("pretty".to_string()),
+        }
+    }
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            service_version: "0.1.0".to_string(),
+            environment: "development".to_string(),
+            enable_metrics: true,
+            enable_traces: true,
+            enable_logs: true,
+            batch_size: 512,
+            export_timeout_sec: 10,
+            export_interval_sec: 5,
+            resource_attributes: std::collections::HashMap::new(),
         }
     }
 }

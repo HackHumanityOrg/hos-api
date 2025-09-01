@@ -11,8 +11,12 @@ mod types;
 
 use anyhow::{Context, Result};
 use axum::Router;
+use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use common::config::AppConfig;
+use common::telemetry::{self, TelemetrySetup};
+use opentelemetry::KeyValue;
 use std::net::SocketAddr;
+use tower_http::trace::TraceLayer;
 use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -47,8 +51,13 @@ async fn main() -> Result<()> {
     // Load API-specific configuration (type-safe)
     let config = AppConfig::load_api().context("Failed to load configuration")?;
 
-    // Initialize tracing
-    common::utils::init_tracing(&config.logging().level).context("Failed to initialize tracing")?;
+    // Initialize telemetry (Dash0 if configured, basic tracing otherwise)
+    let telemetry_setup =
+        TelemetrySetup::from_config("api", config.telemetry(), &config.logging().level)
+            .context("Failed to create telemetry setup")?;
+
+    let _telemetry_guard =
+        telemetry::init_telemetry(telemetry_setup).context("Failed to initialize telemetry")?;
 
     info!("Starting API Server...");
 
@@ -69,10 +78,19 @@ async fn main() -> Result<()> {
     let app_state = state::AppState::new(db_result.ok());
 
     // Create the router with API routes
-    let app = Router::new()
+    let mut app = Router::new()
         .nest("/api/v1", routes::create_routes())
-        .merge(routes::health::health_routes())
-        .with_state(app_state.clone());
+        .merge(routes::health::health_routes());
+
+    // Add OpenTelemetry middleware if Dash0 is configured
+    if config.telemetry().enabled && std::env::var("DASH0_OTLP_ENDPOINT").is_ok() {
+        app = app
+            .layer(OtelInResponseLayer) // Add trace context to responses
+            .layer(OtelAxumLayer::default()) // Create spans for requests
+            .layer(TraceLayer::new_for_http()); // HTTP tracing
+    }
+
+    let app = app.with_state(app_state.clone());
 
     // Add Swagger UI with disabled try-it-out functionality
     let app = app.merge(
@@ -96,6 +114,17 @@ async fn main() -> Result<()> {
         "OpenAPI spec available at http://{}/api-docs/openapi.json",
         addr
     );
+
+    // Record server startup metric if telemetry is enabled
+    if config.telemetry().enabled {
+        telemetry::increment_counter(
+            "server.startup",
+            &[
+                KeyValue::new("service", "api"),
+                KeyValue::new("port", addr.port() as i64),
+            ],
+        );
+    }
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
