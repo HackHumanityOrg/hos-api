@@ -299,15 +299,15 @@ fn init_tracer(
         .with_http()
         .with_endpoint(endpoint_url)
         .with_protocol(Protocol::HttpJson) // Use JSON like your working curl example
-        .with_timeout(Duration::from_secs(10))
+        .with_timeout(Duration::from_secs(30))
         .build()
         .context("Failed to create span exporter")?;
 
-    // Configure batch processor for responsive trace export
-    std::env::set_var("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "512");
-    std::env::set_var("OTEL_BSP_SCHEDULE_DELAY", "1000"); // Export every 1 second
-    std::env::set_var("OTEL_BSP_EXPORT_TIMEOUT", "10000");
-    std::env::set_var("OTEL_BSP_MAX_QUEUE_SIZE", "2048");
+    // Configure batch processor following Dash0 best practices
+    std::env::set_var("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "8192");  // Dash0 default
+    std::env::set_var("OTEL_BSP_SCHEDULE_DELAY", "60000");        // 60 seconds for cost optimization
+    std::env::set_var("OTEL_BSP_EXPORT_TIMEOUT", "30000");        // 30 second timeout
+    std::env::set_var("OTEL_BSP_MAX_QUEUE_SIZE", "8192");         // Match batch size
 
     // Create batch processor with environment-configured settings
     let batch_processor =
@@ -353,17 +353,17 @@ fn init_metrics(
         .with_http()
         .with_endpoint(endpoint_url)
         .with_protocol(Protocol::HttpJson) // Use JSON like your working curl example
-        .with_timeout(Duration::from_secs(10))
+        .with_timeout(Duration::from_secs(30))
         .build()
         .context("Failed to create metrics exporter")?;
 
-    // Configure for frequent metrics export (2 second intervals)
-    std::env::set_var("OTEL_METRIC_EXPORT_INTERVAL", "2000");
-    std::env::set_var("OTEL_METRIC_EXPORT_TIMEOUT", "10000");
+    // Configure for optimal metrics export following Dash0 best practices
+    std::env::set_var("OTEL_METRIC_EXPORT_INTERVAL", "60000"); // 60 seconds
+    std::env::set_var("OTEL_METRIC_EXPORT_TIMEOUT", "30000");  // 30 seconds
 
     let reader = PeriodicReader::builder(exporter, opentelemetry_sdk::runtime::Tokio)
-        .with_interval(Duration::from_secs(2)) // Export every 2 seconds
-        .with_timeout(Duration::from_secs(config.export_timeout_sec))
+        .with_interval(Duration::from_secs(60)) // Export every 60 seconds for cost optimization
+        .with_timeout(Duration::from_secs(30))  // 30 second timeout for reliability
         .build();
 
     let provider = MeterProviderBuilder::default()
@@ -400,7 +400,7 @@ fn init_logger(
         .with_http()
         .with_endpoint(endpoint_url)
         .with_protocol(Protocol::HttpJson) // Use JSON like your working curl example
-        .with_timeout(Duration::from_secs(10))
+        .with_timeout(Duration::from_secs(30))
         .build()
         .context("Failed to create log exporter")?;
 

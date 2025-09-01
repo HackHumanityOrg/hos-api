@@ -21,9 +21,9 @@ environment = "development" # Options: development, staging, production
 enable_metrics = true
 enable_traces = true
 enable_logs = true
-batch_size = 512            # Max number of spans/logs/metrics per batch
-export_timeout_sec = 10     # Timeout for export operations
-export_interval_sec = 5     # How often to export batches
+batch_size = 8192           # Max number of spans/logs/metrics per batch (Dash0 default)
+export_timeout_sec = 30     # Timeout for export operations (Dash0 recommended)
+export_interval_sec = 60    # How often to export batches (cost optimization)
 
 # API-specific resource attributes
 [telemetry.resource_attributes]
