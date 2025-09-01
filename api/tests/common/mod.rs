@@ -3,6 +3,7 @@ use migration::{sea_orm, MigratorTrait};
 use sea_orm::DatabaseConnection;
 use testcontainers::{runners::AsyncRunner, ImageExt};
 use testcontainers_modules::mysql::Mysql;
+use axum_test::TestServer;
 
 /// Test database container setup
 pub struct TestDatabase {
@@ -65,4 +66,19 @@ pub fn init_test_tracing() {
             .with_test_writer()
             .init();
     });
+}
+
+/// Create a test server with optional database connection using the health route
+pub async fn create_test_server_with_db(db: Option<DatabaseConnection>) -> TestServer {
+    use api::handlers::health;
+    use api::state::AppState;
+    use axum::{routing::get, Router};
+
+    let app_state = AppState { db };
+
+    let app = Router::new()
+        .route("/health", get(health::health_check))
+        .with_state(app_state);
+
+    TestServer::new(app).unwrap()
 }

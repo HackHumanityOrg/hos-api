@@ -180,8 +180,9 @@ where
             figment = figment.merge(Toml::file(&self.binary_config_path));
         }
 
-        // Environment variables have highest priority
-        figment = figment.merge(Env::prefixed("APP_"));
+        // Environment variables have highest priority.
+        // Use double underscore to address nested keys, e.g., APP_SERVER__HOST
+        figment = figment.merge(Env::prefixed("APP_").split("__"));
 
         let config: T = figment.extract().map_err(|e| ConfigError::ParseError {
             message: e.to_string(),
@@ -275,5 +276,237 @@ impl Default for TelemetryConfig {
             export_interval_sec: 5,
             resource_attributes: std::collections::HashMap::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::Mutex;
+
+    // Guard to avoid concurrent chdir side effects in this module
+    static CWD_GUARD: Mutex<()> = Mutex::new(());
+
+    fn lock_cwd() -> std::sync::MutexGuard<'static, ()> {
+        match CWD_GUARD.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        }
+    }
+
+    #[test]
+    fn load_api_respects_env_overrides() {
+        let _g = lock_cwd();
+
+        // Create an isolated temporary directory structure with empty config files
+        let base = std::env::temp_dir().join(format!(
+            "config_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+        fs::create_dir_all(base.join("api")).unwrap();
+        // Root workspace config: provide database section (url comes from env)
+        let root_cfg = r#"
+            [database]
+            max_connections = 5
+            min_connections = 1
+            connection_timeout = 30
+            acquire_timeout = 30
+            idle_timeout = 600
+            max_lifetime = 1800
+        "#;
+        fs::write(base.join("config.toml"), root_cfg).unwrap();
+
+        // API binary config: server/logging/telemetry sections
+        let api_cfg = r#"
+            [server]
+            host = "127.0.0.1"
+            port = 3000
+            worker_threads = 4
+
+            [logging]
+            level = "info"
+            format = "pretty"
+
+            [telemetry]
+            enabled = true
+            service_version = "0.1.0"
+            environment = "development"
+            enable_metrics = true
+            enable_traces = true
+            enable_logs = true
+            batch_size = 512
+            export_timeout_sec = 10
+            export_interval_sec = 5
+            resource_attributes = {}
+        "#;
+        fs::write(base.join("api").join("config.toml"), api_cfg).unwrap();
+
+        // Change CWD for this test only
+        let old_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&base).unwrap();
+
+        // Set env vars
+        std::env::set_var("DATABASE_URL", "mysql://user:pass@localhost/db");
+        // Figment nested keys via environment typically use double underscore
+        std::env::set_var("APP_SERVER__HOST", "0.0.0.0");
+        // Port may be overridden by Railway-style PORT env var in load_with_database_url
+        std::env::set_var("PORT", "7777");
+
+        // Load config via builder
+        let app_cfg = AppConfig::load_api().expect("config should load");
+
+        match app_cfg {
+            AppConfig::Api(cfg) => {
+                assert_eq!(cfg.database.url, "mysql://user:pass@localhost/db");
+                assert_eq!(cfg.server.host, "0.0.0.0");
+                assert_eq!(cfg.server.port, 7777);
+            }
+            _ => panic!("Expected Api config"),
+        }
+
+        // Cleanup
+        std::env::set_current_dir(&old_cwd).unwrap();
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("APP_SERVER__HOST");
+        std::env::remove_var("PORT");
+
+        // Best-effort remove temp dir
+        let _ = fs::remove_file(base.join("config.toml"));
+        let _ = fs::remove_file(base.join("api").join("config.toml"));
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn load_indexer_respects_env_overrides_and_host_config() {
+        let _g = lock_cwd();
+
+        // Create temp workspace layout
+        let base = std::env::temp_dir().join(format!(
+            "config_test_indexer_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+        fs::create_dir_all(base.join("indexers").join("indexer-1")).unwrap();
+
+        // Root config provides [database] defaults
+        let root_cfg = r#"
+            [database]
+            max_connections = 10
+            min_connections = 1
+            connection_timeout = 30
+            acquire_timeout = 30
+            idle_timeout = 600
+            max_lifetime = 1800
+        "#;
+        fs::write(base.join("config.toml"), root_cfg).unwrap();
+
+        // Indexer-specific config provides logging/telemetry
+        let idx_cfg = r#"
+            [logging]
+            level = "debug"
+
+            [telemetry]
+            enabled = true
+            service_version = "0.1.0"
+            environment = "development"
+            enable_metrics = true
+            enable_traces = true
+            enable_logs = true
+            batch_size = 512
+            export_timeout_sec = 10
+            export_interval_sec = 5
+            resource_attributes = {}
+        "#;
+        fs::write(
+            base.join("indexers").join("indexer-1").join("config.toml"),
+            idx_cfg,
+        )
+        .unwrap();
+
+        let old_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&base).unwrap();
+
+        // Env overrides
+        std::env::set_var("DATABASE_URL", "mysql://user:pass@localhost/idx");
+        std::env::set_var("APP_TELEMETRY__ENABLED", "false");
+
+        let app_cfg = AppConfig::load_indexer("indexer-1").expect("indexer config loads");
+        match app_cfg {
+            AppConfig::Indexer(cfg) => {
+                // DATABASE_URL injected
+                assert_eq!(cfg.database.url, "mysql://user:pass@localhost/idx");
+                // Host config loaded
+                assert_eq!(cfg.logging.level, "debug");
+                // Env override applied
+                assert_eq!(cfg.telemetry.enabled, false);
+            }
+            _ => panic!("Expected Indexer config"),
+        }
+
+        // Cleanup
+        std::env::set_current_dir(&old_cwd).unwrap();
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("APP_TELEMETRY__ENABLED");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn server_is_none_for_indexer() {
+        let _g = lock_cwd();
+
+        // Temp workspace with root + indexer config
+        let base = std::env::temp_dir().join(format!(
+            "config_test_indexer_server_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+        fs::create_dir_all(base.join("indexers").join("indexer-1")).unwrap();
+        let root_cfg = r#"
+            [database]
+            max_connections = 5
+            min_connections = 1
+            connection_timeout = 30
+            acquire_timeout = 30
+            idle_timeout = 600
+            max_lifetime = 1800
+        "#;
+        fs::write(base.join("config.toml"), root_cfg).unwrap();
+        let idx_cfg = r#"
+            [logging]
+            level = "info"
+
+            [telemetry]
+            enabled = true
+            service_version = "0.1.0"
+            environment = "development"
+            enable_metrics = true
+            enable_traces = true
+            enable_logs = true
+            batch_size = 512
+            export_timeout_sec = 10
+            export_interval_sec = 5
+            resource_attributes = {}
+        "#;
+        fs::write(base.join("indexers/indexer-1/config.toml"), idx_cfg).unwrap();
+
+        let old_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&base).unwrap();
+        std::env::set_var("DATABASE_URL", "mysql://user:pass@localhost/panic");
+
+        let app_cfg = AppConfig::load_indexer("indexer-1").unwrap();
+        assert!(matches!(app_cfg.server(), None));
+
+        // Cleanup
+        std::env::set_current_dir(&old_cwd).unwrap();
+        std::env::remove_var("DATABASE_URL");
+        let _ = fs::remove_dir_all(&base);
     }
 }

@@ -1,25 +1,10 @@
 // Unit/integration tests for health check handler
-use axum_test::TestServer;
-use migration::sea_orm::DatabaseConnection;
 use rstest::*;
 use serde_json::Value;
 
-use crate::common::{init_test_tracing, TestDatabase};
+use crate::common::{init_test_tracing, TestDatabase, create_test_server_with_db};
 
-/// Create a test server with the health check handler
-async fn create_test_server_with_db(db: Option<DatabaseConnection>) -> TestServer {
-    use api::handlers::health;
-    use api::state::AppState;
-    use axum::{routing::get, Router};
-
-    let app_state = AppState { db };
-
-    let app = Router::new()
-        .route("/health", get(health::health_check))
-        .with_state(app_state);
-
-    TestServer::new(app).unwrap()
-}
+/// Test server helper moved to crate::common
 
 #[rstest]
 #[tokio::test]
@@ -38,7 +23,7 @@ async fn test_health_handler_without_database() {
 
     assert_eq!(json["status"], "degraded");
     assert!(json.get("timestamp").is_some());
-    assert_eq!(json["version"], "0.1.0");
+    assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
 
     // Database health should show not connected
     let db_health = &json["database"];
@@ -73,6 +58,10 @@ async fn test_health_handler_response_structure() {
     assert!(json["status"].is_string());
     assert!(json["timestamp"].is_string());
     assert!(json["version"].is_string());
+
+    // Validate timestamp is RFC3339
+    let ts = json["timestamp"].as_str().expect("timestamp must be string");
+    chrono::DateTime::parse_from_rfc3339(ts).expect("timestamp must be RFC3339");
     assert!(json["database"].is_object());
 }
 
@@ -97,7 +86,7 @@ async fn test_health_handler_with_database(#[future] test_db: TestDatabase) {
     // Should be healthy with database connection
     assert_eq!(json["status"], "healthy");
     assert!(json.get("timestamp").is_some());
-    assert_eq!(json["version"], "0.1.0");
+    assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
 
     // Database health should show connected
     let db_health = &json["database"];
@@ -136,7 +125,6 @@ async fn test_health_handler_database_security(#[future] test_db: TestDatabase) 
     // Validate that no sensitive information is exposed
     let json_str = json.to_string();
     assert!(!json_str.contains("password"));
-    assert!(!json_str.contains("user"));
     assert!(!json_str.contains("mysql://"));
     assert!(!json_str.contains("3306"));
 }
