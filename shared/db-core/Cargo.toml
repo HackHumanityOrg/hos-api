@@ -12,5 +12,5 @@ figment = { workspace = true }
 dotenvy = { workspace = true }
 
 # Path dependencies to other workspace members
-entities = { path = "../entities" }
-common = { path = "../common" }
+entities = { workspace = true }
+common = { workspace = true }

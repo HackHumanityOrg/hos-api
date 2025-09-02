@@ -65,17 +65,17 @@ COPY api/ api/
 COPY indexers/ indexers/
 
 # Build application with size and performance optimizations for Railway
-RUN cargo build --release -p indexer-1 && \
-    cp target/release/indexer-1 /tmp/indexer-1
+RUN cargo build --release -p discourse-indexer && \
+    cp target/release/discourse-indexer /tmp/discourse-indexer
 
 # Runtime stage - distroless for maximum security and minimal size
 # Works on both x64 and ARM, Linux and macOS Docker Desktop
 FROM gcr.io/distroless/cc-debian12 AS runtime
 
 # Copy optimized statically-linked binary and configuration
-COPY --from=builder /tmp/indexer-1 /indexer-1
+COPY --from=builder /tmp/discourse-indexer /discourse-indexer
 COPY config.toml /config.toml
-COPY indexers/indexer-1/config.toml /indexer-1-config.toml
+COPY indexers/discourse-indexer/config.toml /discourse-indexer-config.toml
 
 # Add metadata labels for better maintainability
 LABEL maintainer="data-commons-team" \
@@ -85,7 +85,7 @@ LABEL maintainer="data-commons-team" \
     build.optimization="size+performance" \
     platforms="linux/amd64,linux/arm64" \
     openssl="vendored-static" \
-    service="indexer-1"
+    service="discourse-indexer"
 
 # Run the indexer service (distroless runs as non-root by default)
-ENTRYPOINT ["/indexer-1"]
+ENTRYPOINT ["/discourse-indexer"]

@@ -129,12 +129,80 @@ impl ToLog for ApiConfig {
     }
 }
 
+/// Configuration for Discourse indexing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscourseConfig {
+    pub instances: Vec<DiscourseInstanceConfig>,
+    #[serde(default = "default_full_refresh_interval_sec")]
+    pub full_refresh_interval_sec: u64,
+    #[serde(default = "default_recent_update_interval_sec")]
+    pub recent_update_interval_sec: u64,
+    #[serde(default = "default_max_pages_per_run")]
+    pub max_pages_per_run: u32,
+    #[serde(default = "default_recent_lookback_hours")]
+    pub recent_lookback_hours: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscourseInstanceConfig {
+    pub key: String,
+    pub base_url: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    // Per-instance tuning (optional)
+    #[serde(default)]
+    pub max_http_concurrency: Option<usize>,
+    #[serde(default)]
+    pub max_post_tasks: Option<usize>,
+    #[serde(default)]
+    pub likes_concurrency: Option<usize>,
+    #[serde(default)]
+    pub revisions_concurrency: Option<usize>,
+    #[serde(default)]
+    pub max_topic_pages_per_cycle: Option<u32>,
+    #[serde(default)]
+    pub max_post_pages_per_topic: Option<u32>,
+}
+
+fn default_true() -> bool {
+    true
+}
+fn default_full_refresh_interval_sec() -> u64 {
+    24 * 60 * 60
+}
+fn default_recent_update_interval_sec() -> u64 {
+    15 * 60
+}
+fn default_max_pages_per_run() -> u32 {
+    1000
+}
+fn default_recent_lookback_hours() -> i64 {
+    2
+}
+
+impl ToLog for DiscourseConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "instances": self.instances.iter().map(|i| json!({
+                "key": i.key,
+                "base_url": i.base_url,
+                "enabled": i.enabled,
+            })).collect::<Vec<_>>(),
+            "full_refresh_interval_sec": self.full_refresh_interval_sec,
+            "recent_update_interval_sec": self.recent_update_interval_sec,
+            "max_pages_per_run": self.max_pages_per_run,
+            "recent_lookback_hours": self.recent_lookback_hours,
+        })
+    }
+}
+
 /// Indexer-specific configuration (no server needed)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexerConfig {
     pub database: DatabaseConfig,
     pub logging: LoggingConfig,
     pub telemetry: TelemetryConfig,
+    pub discourse: Option<DiscourseConfig>,
 }
 
 impl ToLog for IndexerConfig {
@@ -143,6 +211,7 @@ impl ToLog for IndexerConfig {
             "database": self.database.to_log(),
             "logging": self.logging.to_log(),
             "telemetry": self.telemetry.to_log(),
+            "discourse": self.discourse.as_ref().map(|d| d.to_log()),
         })
     }
 }
@@ -203,6 +272,14 @@ impl AppConfig {
         match self {
             AppConfig::Api(config) => &config.telemetry,
             AppConfig::Indexer(config) => &config.telemetry,
+        }
+    }
+
+    /// Get Discourse indexing configuration if present (indexer only)
+    pub fn discourse(&self) -> Option<&DiscourseConfig> {
+        match self {
+            AppConfig::Api(_) => None,
+            AppConfig::Indexer(config) => config.discourse.as_ref(),
         }
     }
 

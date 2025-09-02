@@ -3,8 +3,8 @@
 use crate::{errors::ApiErrorResponse, state::AppState, types::*};
 use axum::{extract::State, Json};
 use common::telemetry;
-use entities::sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use opentelemetry::KeyValue;
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use std::time::Instant;
 use tracing::{info, instrument};
 

@@ -7,6 +7,7 @@ edition = "2021"
 anyhow = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
+sea-orm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 utoipa = { workspace = true }
@@ -24,9 +25,9 @@ tower = { workspace = true }
 tower-http = { workspace = true }
 
 # Path dependencies to shared modules
-entities = { path = "../shared/entities" }
-db-core = { path = "../shared/db-core" }
-common = { path = "../shared/common" }
+entities = { workspace = true }
+db-core = { workspace = true }
+common = { workspace = true }
 
 [dev-dependencies]
 testcontainers = { workspace = true }
@@ -35,4 +36,4 @@ rstest = { workspace = true }
 axum-test = { workspace = true }
 tokio-test = { workspace = true }
 futures = { workspace = true }
-migration = { path = "../migration" }
+migration = { workspace = true }

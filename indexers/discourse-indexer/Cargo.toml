@@ -1,0 +1,60 @@
+[package]
+name = "discourse-indexer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+dotenvy = { workspace = true }
+opentelemetry = { workspace = true }
+
+# Path dependencies to shared modules
+db-core = { workspace = true }
+common = { workspace = true }
+
+# HTTP + JSON + time
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+sea-orm = { workspace = true }
+rand = { workspace = true }
+httpdate = { workspace = true }
+futures = { workspace = true }
+entities = { workspace = true }
+serde_path_to_error = { workspace = true }
+
+[dev-dependencies]
+mockito = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+rstest = { workspace = true }
+tokio-test = { workspace = true }
+tracing-subscriber = { workspace = true }
+migration = { workspace = true }
+
+[[test]]
+name = "domain_categories_live_db_e2e"
+path = "tests/domains/domain_categories_live_db_e2e.rs"
+
+[[test]]
+name = "domain_topics_live_db_e2e"
+path = "tests/domains/domain_topics_live_db_e2e.rs"
+
+[[test]]
+name = "domain_posts_live_db_e2e"
+path = "tests/domains/domain_posts_live_db_e2e.rs"
+
+[[test]]
+name = "domain_users_live_db_e2e"
+path = "tests/domains/domain_users_live_db_e2e.rs"
+
+[[test]]
+name = "domain_likes_live_db_e2e"
+path = "tests/domains/domain_likes_live_db_e2e.rs"
+
+[[test]]
+name = "domain_revisions_live_db_e2e"
+path = "tests/domains/domain_revisions_live_db_e2e.rs"

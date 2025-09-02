@@ -1,6 +1,6 @@
 //! Application state management
 
-use entities::sea_orm::DatabaseConnection;
+use sea_orm::DatabaseConnection;
 
 /// Application state that can be shared across handlers
 #[derive(Clone)]

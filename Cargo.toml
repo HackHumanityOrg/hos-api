@@ -3,7 +3,7 @@ members = [
     "shared/entities",
     "shared/db-core", 
     "shared/common",
-    "indexers/indexer-1",
+    "indexers/discourse-indexer",
     "indexers/indexer-2", 
     "indexers/indexer-3",
     "api",
@@ -88,6 +88,15 @@ futures = "0.3"
 
 # Migration specific
 async-std = { version = "1", features = ["attributes", "tokio1"] }
+common = { path = "shared/common" }
+db-core = { path = "shared/db-core" }
+entities = { path = "shared/entities" }
+httpdate = "1"
+migration = { path = "migration" }
+mockito = "1.7"
+rand = "0.8"
+reqwest = "0.12"
+serde_path_to_error = "0.1"
 
 # Development tools (managed by cargo-run-bin)
 [workspace.metadata.bin]

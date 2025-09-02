@@ -1,0 +1,75 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TopicResponse {
+    pub topic_list: TopicList,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TopicList {
+    pub topics: Vec<Topic>,
+    pub per_page: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Topic {
+    // Fields from OpenAPI spec for /latest.json
+    pub id: i32,
+    pub title: String,
+    pub fancy_title: String,
+    pub slug: String,
+    pub posts_count: i32,
+    pub reply_count: i32,
+    pub highest_post_number: i32,
+    pub image_url: Option<String>,
+    #[serde(with = "date_format")]
+    pub created_at: DateTime<Utc>,
+    #[serde(with = "date_format")]
+    pub last_posted_at: DateTime<Utc>,
+    pub bumped: Option<bool>,
+    #[serde(with = "date_format")]
+    pub bumped_at: DateTime<Utc>,
+    pub archetype: String,
+    pub unseen: Option<bool>,
+    pub last_read_post_number: Option<i32>,
+    pub unread_posts: Option<i32>,
+    pub pinned: Option<bool>,
+    pub unpinned: Option<String>,
+    pub visible: Option<bool>,
+    pub closed: Option<bool>,
+    pub archived: Option<bool>,
+    pub notification_level: Option<i32>,
+    pub bookmarked: Option<bool>,
+    pub liked: Option<bool>,
+    pub views: i32,
+    pub like_count: i32,
+    pub has_summary: Option<bool>,
+    pub last_poster_username: Option<String>,
+    pub category_id: i32,
+    pub op_like_count: Option<i32>,
+    pub pinned_globally: Option<bool>,
+    pub featured_link: Option<String>,
+}
+
+mod date_format {
+    use chrono::{DateTime, Utc};
+    use serde::{self, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(date: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&date.to_rfc3339())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        DateTime::parse_from_rfc3339(&s)
+            .map(|dt| dt.with_timezone(&Utc))
+            .map_err(serde::de::Error::custom)
+    }
+}

@@ -11,5 +11,5 @@ dotenvy = { workspace = true }
 opentelemetry = { workspace = true }
 
 # Path dependencies to shared modules
-db-core = { path = "../../shared/db-core" }
-common = { path = "../../shared/common" }
+db-core = { workspace = true }
+common = { workspace = true }

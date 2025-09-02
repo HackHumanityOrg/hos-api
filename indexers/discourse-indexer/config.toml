@@ -1,0 +1,37 @@
+[[discourse.instances]]
+key = "NEAR"
+base_url = "https://gov.near.org"
+enabled = true
+max_http_concurrency = 8
+max_post_tasks = 10
+likes_concurrency = 10
+revisions_concurrency = 5
+max_topic_pages_per_cycle = 50
+max_post_pages_per_topic = 20
+
+[logging]
+level = "debug"
+format = "pretty"
+
+[telemetry]
+enabled = true
+service_version = "0.1.0"
+environment = "development"
+enable_metrics = true
+enable_traces = true
+enable_logs = true
+batch_size = 256
+export_timeout_sec = 10
+export_interval_sec = 10
+
+[telemetry.resource_attributes]
+"service.namespace" = "data-commons"
+"service.component" = "discourse-indexer"
+"deployment.region" = "local"
+"indexer.type" = "primary"
+
+[discourse]
+full_refresh_interval_sec = 86400
+recent_update_interval_sec = 900
+max_pages_per_run = 1000
+recent_lookback_hours = 2

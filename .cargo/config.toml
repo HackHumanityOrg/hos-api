@@ -11,7 +11,7 @@ migrate-reset = "run --manifest-path ./migration/Cargo.toml -- reset"
 migrate-generate = ["run", "--manifest-path", "./migration/Cargo.toml", "--", "generate"]
 
 # Entity generation using cargo-run-bin
-generate-entities = "bin sea-orm-cli generate entity -o shared/entities/src"
+generate-entities = "bin sea-orm-cli generate entity -o shared/entities/src --lib --with-serde both"
 
 # Development shortcuts
 check-all = "check --workspace"
@@ -21,6 +21,6 @@ clean-all = "clean --workspace"
 
 # Individual service shortcuts
 run-api = "run -p api"
-run-indexer-1 = "run -p indexer-1"
+run-discourse-indexer = "run -p discourse-indexer"
 run-indexer-2 = "run -p indexer-2"
 run-indexer-3 = "run -p indexer-3"
