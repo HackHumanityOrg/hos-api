@@ -199,7 +199,7 @@ async fn test_live_categoryresponse_deserializes() {
     assert!(!c.name.is_empty());
 }
 
-/// Live call: UserResponse deserializes with optional username field.
+/// Live call: UserResponse deserializes; username is required (String).
 #[tokio::test]
 async fn test_live_userresponse_deserializes_with_optionals() {
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
@@ -208,7 +208,7 @@ async fn test_live_userresponse_deserializes_with_optionals() {
         .expect("deserialize UserResponse");
     assert!(!ur.is_empty());
     let item = &ur[0];
-    // Username can be null on meta, ensure our Option mapping doesn't panic
+    // Username is required in our model; ensure it's present
     let _: &str = item.user.username.as_ref();
 }
 

@@ -52,6 +52,65 @@ pub struct Model {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::discourse_instances::Entity",
+        from = "Column::Instance",
+        to = "super::discourse_instances::Column::Key",
+        on_update = "Cascade",
+        on_delete = "Cascade"
+    )]
+    DiscourseInstances,
+    #[sea_orm(has_many = "super::discourse_post_likes::Entity")]
+    DiscoursePostLikes,
+    #[sea_orm(has_many = "super::discourse_post_revisions::Entity")]
+    DiscoursePostRevisions,
+    #[sea_orm(
+        belongs_to = "super::discourse_topics::Entity",
+        from = "(Column::Instance, Column::TopicId)",
+        to = "(super::discourse_topics::Column::Instance, super::discourse_topics::Column::ExternalId)",
+        on_update = "Cascade",
+        on_delete = "Cascade"
+    )]
+    DiscourseTopics,
+    #[sea_orm(
+        belongs_to = "super::discourse_users::Entity",
+        from = "(Column::Instance, Column::UserId)",
+        to = "(super::discourse_users::Column::Instance, super::discourse_users::Column::ExternalId)",
+        on_update = "Cascade",
+        on_delete = "NoAction"
+    )]
+    DiscourseUsers,
+}
+
+impl Related<super::discourse_instances::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscourseInstances.def()
+    }
+}
+
+impl Related<super::discourse_post_likes::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscoursePostLikes.def()
+    }
+}
+
+impl Related<super::discourse_post_revisions::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscoursePostRevisions.def()
+    }
+}
+
+impl Related<super::discourse_topics::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscourseTopics.def()
+    }
+}
+
+impl Related<super::discourse_users::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscourseUsers.def()
+    }
+}
 
 impl ActiveModelBehavior for ActiveModel {}

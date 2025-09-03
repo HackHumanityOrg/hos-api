@@ -23,6 +23,10 @@ async fn test_domain_users_fetch_and_persist(#[future] test_db: TestDatabase) {
     let db = test_db.db();
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
 
+    discourse_indexer::domain::instances::repo::register_instance(&db, TEST_INSTANCE, "https://meta.discourse.org")
+        .await
+        .expect("register instance");
+
     let users = adapter::fetch_users_directory(&client, true, 1, 0)
         .await
         .expect("users");

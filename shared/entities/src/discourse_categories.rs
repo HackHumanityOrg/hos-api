@@ -53,6 +53,29 @@ pub struct Model {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::discourse_instances::Entity",
+        from = "Column::Instance",
+        to = "super::discourse_instances::Column::Key",
+        on_update = "Cascade",
+        on_delete = "Cascade"
+    )]
+    DiscourseInstances,
+    #[sea_orm(has_many = "super::discourse_topics::Entity")]
+    DiscourseTopics,
+}
+
+impl Related<super::discourse_instances::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscourseInstances.def()
+    }
+}
+
+impl Related<super::discourse_topics::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscourseTopics.def()
+    }
+}
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -22,7 +22,80 @@ async fn test_sync_recent_with_mock_server_inserts_topic_and_post(#[future] test
     let mut server = Server::new_async().await;
     let base = server.url();
 
-    // Categories empty -> break early
+    // Preseed instance and a minimal category for FK constraints
+    discourse_indexer::domain::instances::repo::register_instance(&db, "mock.instance", &base)
+        .await
+        .expect("register instance for mock");
+
+    let seed_cat = discourse_indexer::domain::categories::model::Category {
+        id: 1,
+        name: "General".to_string(),
+        color: "FFFFFF".to_string(),
+        text_color: "000000".to_string(),
+        slug: "general".to_string(),
+        topic_count: 0,
+        post_count: 0,
+        position: 0,
+        description: None,
+        description_text: None,
+        description_excerpt: None,
+        topic_url: None,
+        read_restricted: false,
+        permission: None,
+        notification_level: None,
+        can_edit: Some(false),
+        topic_template: None,
+        has_children: false,
+        subcategory_count: Some(0),
+        sort_order: None,
+        sort_ascending: None,
+        show_subcategory_list: false,
+        num_featured_topics: Some(0),
+        default_view: None,
+        subcategory_list_style: "rows_with_featured_topics".to_string(),
+        default_top_period: "all".to_string(),
+        default_list_filter: "all".to_string(),
+        minimum_required_tags: Some(0),
+        navigate_to_first_post_after_read: false,
+        topics_day: 0,
+        topics_week: 0,
+        topics_month: 0,
+        topics_year: 0,
+        topics_all_time: 0,
+        uploaded_logo: None,
+        uploaded_logo_dark: None,
+        uploaded_background: None,
+        uploaded_background_dark: None,
+        subcategory_list: None,
+        is_uncategorized: Some(false),
+    };
+    discourse_indexer::domain::categories::repo::upsert_category(&db, "mock.instance", &seed_cat)
+        .await
+        .expect("seed category for FK");
+
+    // Preseed minimal author user referenced by the mocked post (user_id = 1)
+    let seed_user = discourse_indexer::domain::users::model::DirectoryItem {
+        id: 0,
+        likes_received: 0,
+        likes_given: 0,
+        topics_entered: 0,
+        topic_count: 0,
+        post_count: 0,
+        posts_read: 0,
+        days_visited: 0,
+        user: discourse_indexer::domain::users::model::DirectoryUser {
+            id: 1,
+            username: "system".to_string(),
+            name: Some("System".to_string()),
+            avatar_template: "/user_avatar/meta.discourse.org/system/{size}/1.png".to_string(),
+            title: None,
+        },
+    };
+    discourse_indexer::domain::users::repo::upsert_user(&db, "mock.instance", &seed_user)
+        .await
+        .expect("seed user for post FK");
+
+    // Categories endpoint returns empty (sync will no-op categories)
     let _m_cat0 = server
         .mock("GET", "/categories.json?include_subcategories=true&page=0")
         .with_status(200)

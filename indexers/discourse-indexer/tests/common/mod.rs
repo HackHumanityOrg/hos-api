@@ -19,10 +19,15 @@ impl TestDatabase {
             .await
             .expect("Failed to start MySQL container");
 
-        let port = mysql_container
-            .get_host_port_ipv4(3306)
-            .await
-            .expect("Failed to get MySQL port");
+        // Retry getting exposed port as Docker may not have published it immediately
+        let mut port: Option<u16> = None;
+        for _ in 0..20u32 {
+            match mysql_container.get_host_port_ipv4(3306).await {
+                Ok(p) => { port = Some(p); break; }
+                Err(_) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
+            }
+        }
+        let port = port.expect("Failed to get MySQL port");
 
         let database_url = format!(
             "mysql://discourse_user:discourse_password@127.0.0.1:{}/discourse_test_db",

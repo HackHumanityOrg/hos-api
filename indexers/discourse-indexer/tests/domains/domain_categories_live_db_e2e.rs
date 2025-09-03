@@ -22,6 +22,11 @@ async fn test_domain_categories_fetch_and_persist(#[future] test_db: TestDatabas
     let test_db = test_db.await;
     let db = test_db.db();
 
+    // Ensure instance exists for FKs
+    discourse_indexer::domain::instances::repo::register_instance(&db, TEST_INSTANCE, "https://meta.discourse.org")
+        .await
+        .expect("register instance");
+
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
     let categories = adapter::fetch_categories_all(&client, 2)
         .await

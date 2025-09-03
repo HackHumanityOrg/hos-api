@@ -23,10 +23,24 @@ async fn test_domain_topics_fetch_and_persist(#[future] test_db: TestDatabase) {
     let db = test_db.db();
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
 
+    discourse_indexer::domain::instances::repo::register_instance(&db, TEST_INSTANCE, "https://meta.discourse.org")
+        .await
+        .expect("register instance");
+
     let resp = adapter::fetch_topics_recent_page(&client, 0)
         .await
         .expect("fetch topics");
     assert!(!resp.topic_list.topics.is_empty());
+
+    // Ensure categories exist to satisfy Topics→Categories FK
+    let cats = discourse_indexer::domain::categories::adapter::fetch_categories_all(&client, 2)
+        .await
+        .expect("fetch categories for topic FK");
+    for c in cats.iter() {
+        discourse_indexer::domain::categories::repo::upsert_category(&db, TEST_INSTANCE, c)
+            .await
+            .expect("upsert category");
+    }
 
     // Persist a subset
     let subset: Vec<_> = resp.topic_list.topics.iter().cloned().take(5).collect();

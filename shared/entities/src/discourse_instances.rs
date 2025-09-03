@@ -15,6 +15,55 @@ pub struct Model {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+    #[sea_orm(has_many = "super::discourse_categories::Entity")]
+    DiscourseCategories,
+    #[sea_orm(has_many = "super::discourse_post_likes::Entity")]
+    DiscoursePostLikes,
+    #[sea_orm(has_many = "super::discourse_post_revisions::Entity")]
+    DiscoursePostRevisions,
+    #[sea_orm(has_many = "super::discourse_posts::Entity")]
+    DiscoursePosts,
+    #[sea_orm(has_many = "super::discourse_topics::Entity")]
+    DiscourseTopics,
+    #[sea_orm(has_many = "super::discourse_users::Entity")]
+    DiscourseUsers,
+}
+
+impl Related<super::discourse_categories::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscourseCategories.def()
+    }
+}
+
+impl Related<super::discourse_post_likes::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscoursePostLikes.def()
+    }
+}
+
+impl Related<super::discourse_post_revisions::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscoursePostRevisions.def()
+    }
+}
+
+impl Related<super::discourse_posts::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscoursePosts.def()
+    }
+}
+
+impl Related<super::discourse_topics::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscourseTopics.def()
+    }
+}
+
+impl Related<super::discourse_users::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DiscourseUsers.def()
+    }
+}
 
 impl ActiveModelBehavior for ActiveModel {}

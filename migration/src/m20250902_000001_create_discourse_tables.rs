@@ -174,6 +174,21 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        // FK: categories.instance -> instances.key
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_categories_instance_instances")
+                    .from_tbl(DiscourseCategories::Table)
+                    .from_col(DiscourseCategories::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
+                    .on_delete(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
+
         let _ = manager
             .create_index(
                 Index::create()
@@ -267,6 +282,21 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+
+        // FK: users.instance -> instances.key
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_users_instance_instances")
+                    .from_tbl(DiscourseUsers::Table)
+                    .from_col(DiscourseUsers::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
+                    .on_delete(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
         let _ = manager
             .create_index(
                 Index::create()
@@ -407,6 +437,38 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+
+        // FK: topics.instance -> instances.key
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_topics_instance_instances")
+                    .from_tbl(DiscourseTopics::Table)
+                    .from_col(DiscourseTopics::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
+                    .on_delete(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
+
+        // Composite FK: (topics.instance, topics.category_id) -> (categories.instance, categories.external_id)
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_topics_category")
+                    .from_tbl(DiscourseTopics::Table)
+                    .from_col(DiscourseTopics::Instance)
+                    .from_col(DiscourseTopics::CategoryId)
+                    .to_tbl(DiscourseCategories::Table)
+                    .to_col(DiscourseCategories::Instance)
+                    .to_col(DiscourseCategories::ExternalId)
+                    .on_delete(ForeignKeyAction::Restrict)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
         let _ = manager
             .create_index(
                 Index::create()
@@ -560,6 +622,55 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+
+        // FK: posts.instance -> instances.key
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_posts_instance_instances")
+                    .from_tbl(DiscoursePosts::Table)
+                    .from_col(DiscoursePosts::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
+                    .on_delete(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
+
+        // Composite FK: (posts.instance, posts.topic_id) -> (topics.instance, topics.external_id)
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_posts_topic")
+                    .from_tbl(DiscoursePosts::Table)
+                    .from_col(DiscoursePosts::Instance)
+                    .from_col(DiscoursePosts::TopicId)
+                    .to_tbl(DiscourseTopics::Table)
+                    .to_col(DiscourseTopics::Instance)
+                    .to_col(DiscourseTopics::ExternalId)
+                    .on_delete(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
+
+        // Composite FK: (posts.instance, posts.user_id) -> (users.instance, users.external_id)
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_posts_user")
+                    .from_tbl(DiscoursePosts::Table)
+                    .from_col(DiscoursePosts::Instance)
+                    .from_col(DiscoursePosts::UserId)
+                    .to_tbl(DiscourseUsers::Table)
+                    .to_col(DiscourseUsers::Instance)
+                    .to_col(DiscourseUsers::ExternalId)
+                    .on_delete(ForeignKeyAction::NoAction)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
         let _ = manager
             .create_index(
                 Index::create()
@@ -614,8 +725,9 @@ impl MigrationTrait for Migration {
             )
             .await;
 
-        // Note: Composite foreign keys (instance + external_id) are not added here
-        // due to migration API limitations. We rely on unique indexes and application-level checks.
+        // Composite foreign keys (instance + external_id) are added where supported via
+        // SeaORM's migration API (see posts->topics/users above and revisions/likes below).
+        // We also create unique and helpful secondary indexes to aid lookups.
 
         // discourse_post_revisions
         manager
@@ -711,6 +823,38 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+
+        // FK: revisions.instance -> instances.key
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_revisions_instance_instances")
+                    .from_tbl(DiscoursePostRevisions::Table)
+                    .from_col(DiscoursePostRevisions::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
+                    .on_delete(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
+
+        // Composite FK: (revisions.instance, revisions.external_post_id) -> (posts.instance, posts.external_id)
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_revisions_post")
+                    .from_tbl(DiscoursePostRevisions::Table)
+                    .from_col(DiscoursePostRevisions::Instance)
+                    .from_col(DiscoursePostRevisions::ExternalPostId)
+                    .to_tbl(DiscoursePosts::Table)
+                    .to_col(DiscoursePosts::Instance)
+                    .to_col(DiscoursePosts::ExternalId)
+                    .on_delete(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
         let _ = manager
             .create_index(
                 Index::create()
@@ -767,6 +911,55 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+
+        // FK: likes.instance -> instances.key
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_likes_instance_instances")
+                    .from_tbl(DiscoursePostLikes::Table)
+                    .from_col(DiscoursePostLikes::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
+                    .on_delete(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
+
+        // Composite FK: (likes.instance, likes.external_discourse_post_id) -> (posts.instance, posts.external_id)
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_likes_post")
+                    .from_tbl(DiscoursePostLikes::Table)
+                    .from_col(DiscoursePostLikes::Instance)
+                    .from_col(DiscoursePostLikes::ExternalDiscoursePostId)
+                    .to_tbl(DiscoursePosts::Table)
+                    .to_col(DiscoursePosts::Instance)
+                    .to_col(DiscoursePosts::ExternalId)
+                    .on_delete(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
+
+        // Composite FK: (likes.instance, likes.external_user_id) -> (users.instance, users.external_id)
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_likes_user")
+                    .from_tbl(DiscoursePostLikes::Table)
+                    .from_col(DiscoursePostLikes::Instance)
+                    .from_col(DiscoursePostLikes::ExternalUserId)
+                    .to_tbl(DiscourseUsers::Table)
+                    .to_col(DiscourseUsers::Instance)
+                    .to_col(DiscourseUsers::ExternalId)
+                    .on_delete(ForeignKeyAction::NoAction)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
         let _ = manager
             .create_index(
                 Index::create()

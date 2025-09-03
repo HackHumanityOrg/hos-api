@@ -5,6 +5,21 @@ pub struct UserResponse {
     pub directory_items: Vec<DirectoryItem>,
 }
 
+// Lightweight user profile returned by `/u/{username}.json`
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UserProfileResponse {
+    pub user: UserProfile,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UserProfile {
+    pub id: i32,
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_template: String,
+    pub title: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DirectoryItem {
     // Required fields from OpenAPI spec for /directory_items.json

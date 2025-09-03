@@ -1,4 +1,5 @@
 // End-to-end integration tests for discourse indexing pipeline
+use discourse_indexer::discourse_api::DiscourseClient;
 use discourse_indexer::domain::categories;
 use discourse_indexer::domain::likes;
 use discourse_indexer::domain::posts;
@@ -117,6 +118,19 @@ async fn test_db() -> TestDatabase {
     TestDatabase::new().await
 }
 
+async fn ensure_user_exists(
+    db: &DatabaseConnection,
+    client: &DiscourseClient,
+    username: &str,
+) -> bool {
+    match users::adapter::fetch_user_profile(client, username).await {
+        Ok(resp) => users::repo::upsert_user_profile(db, TEST_INSTANCE, &resp.user)
+            .await
+            .is_ok(),
+        Err(_) => false,
+    }
+}
+
 /// End-to-end: Index categories, topics, users, posts, likes, and revisions into MySQL.
 #[rstest]
 #[tokio::test]
@@ -126,6 +140,25 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
     let test_db = test_db.await;
     let db = test_db.db();
     let client = create_test_client();
+
+    // Ensure instance record exists for FK relations
+    discourse_indexer::domain::instances::repo::register_instance(
+        &db,
+        TEST_INSTANCE,
+        "https://meta.discourse.org",
+    )
+    .await
+    .expect("register instance");
+
+    // Ensure categories exist for topic FK
+    let categories = categories::adapter::fetch_categories_all(&client, 3)
+        .await
+        .expect("fetch categories for FK");
+    for c in &categories {
+        categories::repo::upsert_category(&db, TEST_INSTANCE, c)
+            .await
+            .expect("upsert category for FK");
+    }
 
     // Test 1: Index categories
     println!("Testing category indexing...");
@@ -200,20 +233,31 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
     assert!(!stored_users.is_empty(), "Users should be stored");
     println!("✅ Indexed {} users", stored_users.len());
 
-    // Test 4: Index posts for a topic
+    // Test 4: Index posts for the first topic that has resolvable authors
     println!("Testing post indexing...");
-    let topic_id = topic_response.topic_list.topics[0].id;
-    let post_response = posts::adapter::fetch_posts_page(&client, topic_id, 0)
-        .await
-        .expect("fetch posts");
+    let mut filtered_posts: Vec<posts::model::Post> = Vec::new();
+    'find_posts: for t in &topic_response.topic_list.topics {
+        match posts::adapter::fetch_posts_page(&client, t.id, 0).await {
+            Ok(pr) => {
+                for p in pr.post_stream.posts.into_iter() {
+                    if ensure_user_exists(&db, &client, &p.username).await {
+                        filtered_posts.push(p);
+                    }
+                }
+                if !filtered_posts.is_empty() {
+                    break 'find_posts;
+                }
+            }
+            Err(_) => continue,
+        }
+    }
 
     assert!(
-        !post_response.post_stream.posts.is_empty(),
-        "Should fetch posts"
+        !filtered_posts.is_empty(),
+        "Should fetch posts with resolvable authors"
     );
 
-    // Store posts in database
-    posts::repo::upsert_posts_bulk(&db, TEST_INSTANCE, &post_response.post_stream.posts)
+    posts::repo::upsert_posts_bulk(&db, TEST_INSTANCE, &filtered_posts)
         .await
         .expect("upsert posts");
 
@@ -226,18 +270,33 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
     assert!(!stored_posts.is_empty(), "Posts should be stored");
     println!("✅ Indexed {} posts", stored_posts.len());
 
-    // Test 5: Index likes for posts
+    // Test 5: Index likes for the first stored post (if any)
     println!("Testing likes indexing...");
-    let post_id = post_response.post_stream.posts[0].id;
-    let likes = likes::adapter::fetch_post_likes(&client, post_id)
-        .await
-        .expect("fetch likes");
-
-    // Store likes in database (may be empty, which is fine)
-    if !likes.post_action_users.is_empty() {
-        likes::repo::upsert_post_likes_batch(&db, TEST_INSTANCE, post_id, &likes)
+    if let Some(first_post) = filtered_posts.get(0) {
+        let post_id = first_post.id;
+        let likes = likes::adapter::fetch_post_likes(&client, post_id)
             .await
-            .expect("upsert likes");
+            .expect("fetch likes");
+
+        if !likes.post_action_users.is_empty() {
+            // Ensure liker users exist; only insert likes if all can be resolved
+            use std::collections::HashSet;
+            let mut seen: HashSet<i32> = HashSet::new();
+            let mut can_insert_likes = true;
+            for u in &likes.post_action_users {
+                if seen.insert(u.id) {
+                    if !ensure_user_exists(&db, &client, &u.username).await {
+                        can_insert_likes = false;
+                        break;
+                    }
+                }
+            }
+            if can_insert_likes {
+                likes::repo::upsert_post_likes_batch(&db, TEST_INSTANCE, post_id, &likes)
+                    .await
+                    .expect("upsert likes");
+            }
+        }
     }
 
     // Verify likes table exists and can be queried
@@ -259,18 +318,30 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
             Err(_) => continue,
         };
 
-        for topic in topics.topic_list.topics.into_iter().take(10) {
+        for topic in topics.topic_list.topics.clone().into_iter().take(10) {
             let posts = match posts::adapter::fetch_posts_page(&client, topic.id, 0).await {
                 Ok(posts) => posts,
                 Err(_) => continue,
             };
 
-            for post in posts.post_stream.posts {
+            for post in posts.post_stream.posts.clone() {
                 if post.can_view_edit_history && post.version > 1 {
                     if let Ok(revision) =
                         revisions::adapter::fetch_post_revision(&client, post.id, 2).await
                     {
-                        // Store revision in database
+                        // Ensure FK chain exists for revisions -> posts (and posts -> topic/user)
+                        // 1) Upsert the topic (requires categories already present)
+                        let _ = topics::repo::upsert_topics_bulk(&db, TEST_INSTANCE, &[topic.clone()])
+                            .await;
+
+                        // 2) Ensure the post author exists
+                        let _ = ensure_user_exists(&db, &client, &post.username).await;
+
+                        // 3) Upsert the post for FK target (topic/user must exist)
+                        let _ = posts::repo::upsert_posts_bulk(&db, TEST_INSTANCE, &[post.clone()])
+                            .await;
+
+                        // 4) Store revision in database (FK to (instance, external_post_id))
                         revisions::repo::upsert_revision(&db, TEST_INSTANCE, post.id, &revision)
                             .await
                             .expect("upsert revision");
@@ -326,6 +397,25 @@ async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabas
     let db = test_db.db();
     let client = create_test_client();
 
+    // Ensure instance record exists for FK relations
+    discourse_indexer::domain::instances::repo::register_instance(
+        &db,
+        TEST_INSTANCE,
+        "https://meta.discourse.org",
+    )
+    .await
+    .expect("register instance");
+
+    // Ensure categories exist for topic FK
+    let categories = categories::adapter::fetch_categories_all(&client, 3)
+        .await
+        .expect("fetch categories for FK");
+    for c in &categories {
+        categories::repo::upsert_category(&db, TEST_INSTANCE, c)
+            .await
+            .expect("upsert category for FK");
+    }
+
     // Fetch and store a topic
     let topic_response = topics::adapter::fetch_topics_recent_page(&client, 0)
         .await
@@ -334,7 +424,7 @@ async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabas
     let topic = &topic_response.topic_list.topics[0];
     let topic_id = topic.id;
 
-    // First insert
+    // First insert (after categories available)
     topics::repo::upsert_topics_bulk(&db, TEST_INSTANCE, &[topic.clone()])
         .await
         .expect("first upsert");
@@ -386,6 +476,15 @@ async fn test_e2e_data_integrity_across_entities(#[future] test_db: TestDatabase
     let db = test_db.db();
     let client = create_test_client();
 
+    // Ensure instance record exists for FK relations
+    discourse_indexer::domain::instances::repo::register_instance(
+        &db,
+        TEST_INSTANCE,
+        "https://meta.discourse.org",
+    )
+    .await
+    .expect("register instance");
+
     // Index a complete data flow: topic -> posts -> users -> likes
     let topic_response = topics::adapter::fetch_topics_recent_page(&client, 0)
         .await
@@ -393,7 +492,17 @@ async fn test_e2e_data_integrity_across_entities(#[future] test_db: TestDatabase
 
     let topic = &topic_response.topic_list.topics[0];
 
-    // Store topic
+    // Ensure categories exist for topic FK
+    let categories = categories::adapter::fetch_categories_all(&client, 3)
+        .await
+        .expect("fetch categories for FK");
+    for c in &categories {
+        categories::repo::upsert_category(&db, TEST_INSTANCE, c)
+            .await
+            .expect("upsert category for FK");
+    }
+
+    // Store topic (after categories available)
     topics::repo::upsert_topics_bulk(&db, TEST_INSTANCE, &[topic.clone()])
         .await
         .expect("store topic");
@@ -405,23 +514,22 @@ async fn test_e2e_data_integrity_across_entities(#[future] test_db: TestDatabase
 
     assert!(!post_response.post_stream.posts.is_empty());
 
-    let post = &post_response.post_stream.posts[0];
+    // Ensure post author exists as user (FK), fetched from API; if not available, pick another post
+    let mut chosen_post = None;
+    for p in post_response.post_stream.posts.iter() {
+        if ensure_user_exists(&db, &client, &p.username).await {
+            chosen_post = Some(p.clone());
+            break;
+        }
+    }
+    let post = chosen_post.expect("find at least one post with resolvable author");
 
     // Store post
     posts::repo::upsert_posts_bulk(&db, TEST_INSTANCE, &[post.clone()])
         .await
         .expect("store post");
 
-    // Fetch and store users from the posts
-    let users = users::adapter::fetch_users_directory(&client, true, 1, 0)
-        .await
-        .expect("fetch users");
-
-    if !users.is_empty() {
-        users::repo::upsert_user(&db, TEST_INSTANCE, &users[0])
-            .await
-            .expect("store user");
-    }
+    // Optionally fetch directory users to populate more info (not required for FK)
 
     // Fetch and store likes
     let likes = likes::adapter::fetch_post_likes(&client, post.id)
@@ -429,9 +537,22 @@ async fn test_e2e_data_integrity_across_entities(#[future] test_db: TestDatabase
         .expect("fetch likes");
 
     if !likes.post_action_users.is_empty() {
-        likes::repo::upsert_post_likes_batch(&db, TEST_INSTANCE, post.id, &likes)
-            .await
-            .expect("store likes");
+        // Ensure liker users exist; only insert likes if all can be resolved
+        let mut seen = std::collections::HashSet::new();
+        let mut can_insert_likes = true;
+        for u in &likes.post_action_users {
+            if seen.insert(u.id) {
+                if !ensure_user_exists(&db, &client, &u.username).await {
+                    can_insert_likes = false;
+                    break;
+                }
+            }
+        }
+        if can_insert_likes {
+            likes::repo::upsert_post_likes_batch(&db, TEST_INSTANCE, post.id, &likes)
+                .await
+                .expect("store likes");
+        }
     }
 
     // Verify data relationships
@@ -505,6 +626,25 @@ async fn test_e2e_error_handling_and_recovery(#[future] test_db: TestDatabase) {
     let db = test_db.db();
     let client = create_test_client();
 
+    // Ensure instance record exists for FK relations
+    discourse_indexer::domain::instances::repo::register_instance(
+        &db,
+        TEST_INSTANCE,
+        "https://meta.discourse.org",
+    )
+    .await
+    .expect("register instance");
+
+    // Ensure categories exist for topic FK (for later topic upsert)
+    let categories = categories::adapter::fetch_categories_all(&client, 3)
+        .await
+        .expect("fetch categories for FK");
+    for c in &categories {
+        categories::repo::upsert_category(&db, TEST_INSTANCE, c)
+            .await
+            .expect("upsert category for FK");
+    }
+
     // Test with invalid topic ID (should handle gracefully)
     let invalid_topic_id = 999999999;
     let result = posts::adapter::fetch_posts_page(&client, invalid_topic_id, 0).await;
@@ -564,6 +704,34 @@ async fn test_e2e_concurrent_indexing_across_topics(#[future] test_db: TestDatab
     let db = test_db.db();
     let client = create_test_client();
 
+    // Ensure instance record exists for FK relations
+    discourse_indexer::domain::instances::repo::register_instance(
+        &db,
+        TEST_INSTANCE,
+        "https://meta.discourse.org",
+    )
+    .await
+    .expect("register instance");
+
+    // Ensure categories exist for topic FK
+    let categories = categories::adapter::fetch_categories_all(&client, 3)
+        .await
+        .expect("fetch categories for FK");
+    for c in &categories {
+        categories::repo::upsert_category(&db, TEST_INSTANCE, c)
+            .await
+            .expect("upsert category for FK");
+    }
+
+    // Ensure instance record exists for FK relations
+    discourse_indexer::domain::instances::repo::register_instance(
+        &db,
+        TEST_INSTANCE,
+        "https://meta.discourse.org",
+    )
+    .await
+    .expect("register instance");
+
     // Fetch topics to work with
     let topic_response = topics::adapter::fetch_topics_recent_page(&client, 0)
         .await
@@ -596,8 +764,14 @@ async fn test_e2e_concurrent_indexing_across_topics(#[future] test_db: TestDatab
             if let Ok(posts) =
                 posts::adapter::fetch_posts_page(&client_clone, topic_clone.id, 0).await
             {
-                let posts_to_store: Vec<_> = posts.post_stream.posts.into_iter().take(2).collect();
+                let mut posts_to_store: Vec<_> = Vec::new();
+                for p in posts.post_stream.posts.into_iter().take(2) {
+                    if ensure_user_exists(&db_clone, &client_clone, &p.username).await {
+                        posts_to_store.push(p);
+                    }
+                }
                 if !posts_to_store.is_empty() {
+                    // Seed users for these posts to satisfy FK using real data
                     posts::repo::upsert_posts_bulk(&db_clone, TEST_INSTANCE, &posts_to_store)
                         .await
                         .expect("concurrent posts upsert");

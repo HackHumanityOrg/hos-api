@@ -1,5 +1,5 @@
 use crate::domain::http::JsonFetcher;
-use crate::domain::users::model::{DirectoryItem, UserResponse};
+use crate::domain::users::model::{DirectoryItem, UserProfileResponse, UserResponse};
 use anyhow::Result;
 use tracing::{debug, instrument};
 
@@ -35,4 +35,17 @@ pub async fn fetch_users_directory<F: JsonFetcher>(
     }
     debug!(total = all.len(), "fetched total directory users");
     Ok(all)
+}
+
+/// Fetch a single user profile by username using `/u/{username}.json`.
+/// This endpoint is useful to ensure a user exists and retrieve identity fields.
+#[instrument(skip(client), fields(username = username))]
+pub async fn fetch_user_profile<F: JsonFetcher>(
+    client: &F,
+    username: &str,
+) -> Result<UserProfileResponse> {
+    let path = format!("/u/{}.json", username);
+    let resp: UserProfileResponse = client.get_json(&path).await?;
+    debug!(id = resp.user.id, username = %resp.user.username, "fetched user profile");
+    Ok(resp)
 }
