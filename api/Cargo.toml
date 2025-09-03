@@ -37,3 +37,4 @@ axum-test = { workspace = true }
 tokio-test = { workspace = true }
 futures = { workspace = true }
 migration = { workspace = true }
+test-support = { path = "../shared/test-support" }

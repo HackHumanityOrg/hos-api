@@ -8,7 +8,7 @@ use discourse_indexer::domain::{
     posts::adapter as posts_adapter,
     topics::adapter as topics_adapter,
 };
-use entities::discourse_post_likes;
+use entities::discourse_indexer_post_likes;
 use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -21,22 +21,30 @@ async fn test_db() -> TestDatabase {
 
 /// Live + DB: search until we find a post with likes, persist, and verify update path.
 #[rstest]
+#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_domain_likes_fetch_and_persist(#[future] test_db: TestDatabase) {
     let test_db = test_db.await;
     let db = test_db.db();
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
 
-    discourse_indexer::domain::instances::repo::register_instance(&db, TEST_INSTANCE, "https://meta.discourse.org")
-        .await
-        .expect("register instance");
+    discourse_indexer::domain::instances::repo::register_instance(
+        &db,
+        TEST_INSTANCE,
+        "https://meta.discourse.org",
+    )
+    .await
+    .expect("register instance");
 
     // Pre-fetch a large slice of directory users so we can satisfy FK for likers
-    let dir_users = discourse_indexer::domain::users::adapter::fetch_users_directory(&client, true, 50, 50)
-        .await
-        .expect("fetch directory users for likes FK");
+    let dir_users =
+        discourse_indexer::domain::users::adapter::fetch_users_directory(&client, true, 50, 50)
+            .await
+            .expect("fetch directory users for likes FK");
     let mut dir_by_id = std::collections::HashMap::new();
-    for it in dir_users.iter() { dir_by_id.insert(it.user.id, it.clone()); }
+    for it in dir_users.iter() {
+        dir_by_id.insert(it.user.id, it.clone());
+    }
 
     // Search multiple pages of topics and posts until we find likes where all likers are in directory
     let mut found: Option<(
@@ -64,10 +72,11 @@ async fn test_domain_likes_fetch_and_persist(#[future] test_db: TestDatabase) {
                                 .filter(|lu| dir_by_id.contains_key(&lu.id))
                                 .collect();
                             if !filtered.is_empty() {
-                                let likes_filtered = discourse_indexer::domain::likes::model::PostLikeResponse {
-                                    post_action_users: filtered,
-                                    total_rows_post_action_users: None,
-                                };
+                                let likes_filtered =
+                                    discourse_indexer::domain::likes::model::PostLikeResponse {
+                                        post_action_users: filtered,
+                                        total_rows_post_action_users: None,
+                                    };
                                 found = Some((t.clone(), p.clone(), likes_filtered));
                                 break 'outer;
                             } else {
@@ -81,7 +90,10 @@ async fn test_domain_likes_fetch_and_persist(#[future] test_db: TestDatabase) {
         }
     }
 
-    assert!(found.is_some(), "No post with likes found after scanning recent topics with directory coverage");
+    assert!(
+        found.is_some(),
+        "No post with likes found after scanning recent topics with directory coverage"
+    );
     let (topic, post, likes) = found.unwrap();
 
     // Ensure categories exist for the topic's category_id (fetch first few pages)
@@ -95,9 +107,13 @@ async fn test_domain_likes_fetch_and_persist(#[future] test_db: TestDatabase) {
     }
 
     // Ensure topic and post are present to satisfy FKs before inserting likes
-    discourse_indexer::domain::topics::repo::upsert_topics_bulk(&db, TEST_INSTANCE, &[topic.clone()])
-        .await
-        .expect("upsert topic for likes");
+    discourse_indexer::domain::topics::repo::upsert_topics_bulk(
+        &db,
+        TEST_INSTANCE,
+        &[topic.clone()],
+    )
+    .await
+    .expect("upsert topic for likes");
     // Ensure minimal author user exists for post FK
     let minimal_user = discourse_indexer::domain::users::model::DirectoryItem {
         id: 0,
@@ -111,7 +127,11 @@ async fn test_domain_likes_fetch_and_persist(#[future] test_db: TestDatabase) {
         user: discourse_indexer::domain::users::model::DirectoryUser {
             id: post.user_id,
             username: post.username.clone(),
-            name: Some(post.display_username.clone().unwrap_or_else(|| post.username.clone())),
+            name: Some(
+                post.display_username
+                    .clone()
+                    .unwrap_or_else(|| post.username.clone()),
+            ),
             avatar_template: post.avatar_template.clone(),
             title: None,
         },
@@ -126,7 +146,9 @@ async fn test_domain_likes_fetch_and_persist(#[future] test_db: TestDatabase) {
 
     // Upsert likers (guaranteed to be present in dir_by_id from the selection above)
     for u in likes.post_action_users.iter() {
-        let item = dir_by_id.get(&u.id).expect("liker present in directory map");
+        let item = dir_by_id
+            .get(&u.id)
+            .expect("liker present in directory map");
         discourse_indexer::domain::users::repo::upsert_user(&db, TEST_INSTANCE, item)
             .await
             .expect("upsert liker user");
@@ -146,11 +168,12 @@ async fn test_domain_likes_fetch_and_persist(#[future] test_db: TestDatabase) {
         .await
         .expect("update likes");
 
-    let stored = discourse_post_likes::Entity::find()
-        .filter(discourse_post_likes::Column::Instance.eq(TEST_INSTANCE))
-        .filter(discourse_post_likes::Column::ExternalDiscoursePostId.eq(post.id))
+    let stored = discourse_indexer_post_likes::Entity::find()
+        .filter(discourse_indexer_post_likes::Column::Instance.eq(TEST_INSTANCE))
+        .filter(discourse_indexer_post_likes::Column::ExternalDiscoursePostId.eq(post.id))
         .filter(
-            discourse_post_likes::Column::ExternalUserId.eq(likes_updated.post_action_users[0].id),
+            discourse_indexer_post_likes::Column::ExternalUserId
+                .eq(likes_updated.post_action_users[0].id),
         )
         .one(&db)
         .await

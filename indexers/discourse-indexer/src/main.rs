@@ -86,9 +86,14 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
     for inst in discourse.instances.iter().filter(|i| i.enabled) {
         let instance_key = inst.key.clone();
         let base_url = inst.base_url.clone();
-        let full_every = discourse.full_refresh_interval_sec;
-        let recent_every = discourse.recent_update_interval_sec;
-        let max_pages = discourse.max_pages_per_run;
+        // Allow per-instance overrides; fall back to global
+        let full_every = inst
+            .full_refresh_interval_sec
+            .unwrap_or(discourse.full_refresh_interval_sec);
+        let recent_every = inst
+            .recent_update_interval_sec
+            .unwrap_or(discourse.recent_update_interval_sec);
+        let _max_pages = discourse.max_pages_per_run;
 
         let db_clone = db.clone();
         let cfg_telemetry = config.telemetry().enabled;
@@ -98,48 +103,101 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
         let post_tasks_limit = inst.max_post_tasks.unwrap_or(10);
         let likes_limit = inst.likes_concurrency.unwrap_or(10);
         let revs_limit = inst.revisions_concurrency.unwrap_or(5);
-        let topic_pages_cap = inst.max_topic_pages_per_cycle.unwrap_or(max_pages);
-        let post_pages_cap = inst.max_post_pages_per_topic.unwrap_or(max_pages);
-        let conc = Concurrency::new(http_limit, post_tasks_limit, likes_limit, revs_limit);
+        // Per-instance recent caps (defaults: topics=3, posts=2)
+        let recent_topic_cap = inst.recent_topic_pages_cap.unwrap_or(3);
+        let conc = Concurrency::new(post_tasks_limit, likes_limit, revs_limit);
 
-        handles.push(tokio::spawn(async move {
-            use tokio::time::{interval_at, Duration, Instant};
-            let client = discourse_indexer::discourse_api::DiscourseClient::new_with_limits(
-                base_url.clone(),
-                5,
-                Some(http_limit),
-            );
+        // Register instance once
+        {
+            let _ = discourse_indexer::domain::instances::repo::register_instance(
+                &db_clone,
+                &instance_key,
+                &base_url,
+            )
+            .await;
+        }
 
-            // Optional: register instance in DB
-            let _ = discourse_indexer::domain::instances::repo::register_instance(&db_clone, &instance_key, &base_url).await;
-
-            let start_delay_recent = Instant::now() + Duration::from_secs(3);
-            let mut tick_recent = interval_at(start_delay_recent, Duration::from_secs(recent_every));
-            tick_recent.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-            let start_delay_full = Instant::now() + Duration::from_secs(60);
-            let mut tick_full = interval_at(start_delay_full, Duration::from_secs(full_every));
-            tick_full.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-            loop {
-                tokio::select! {
-                    _ = tick_recent.tick() => {
-                        if let Err(e) = services::sync_recent(&db_clone, &client, &instance_key, topic_pages_cap, post_pages_cap, &conc).await {
-                            error!(instance = %instance_key, error = ?e, "recent indexing failed");
-                        } else if cfg_telemetry {
-                            telemetry::increment_counter("indexer.batches.processed", &[KeyValue::new("indexer", "discourse-indexer"), KeyValue::new("kind", "recent"), KeyValue::new("instance", instance_key.clone())]);
-                        }
-                    }
-                    _ = tick_full.tick() => {
-                        if let Err(e) = services::sync_full(&db_clone, &client, &instance_key, topic_pages_cap, post_pages_cap, &conc).await {
-                            error!(instance = %instance_key, error = ?e, "full indexing failed");
-                        } else if cfg_telemetry {
-                            telemetry::increment_counter("indexer.batches.processed", &[KeyValue::new("indexer", "discourse-indexer"), KeyValue::new("kind", "full"), KeyValue::new("instance", instance_key.clone())]);
-                        }
+        // Spawn recent loop task (non-overlapping within kind)
+        {
+            let db_clone = db.clone();
+            let instance_key = instance_key.clone();
+            let conc = conc.clone();
+            let cfg_telemetry = cfg_telemetry;
+            let base_url_recent = base_url.clone();
+            let http_limit_recent = http_limit;
+            handles.push(tokio::spawn(async move {
+                use tokio::time::{interval_at, Duration, Instant};
+                let client = discourse_indexer::discourse_api::DiscourseClient::new_with_limits(
+                    base_url_recent.clone(),
+                    5,
+                    Some(http_limit_recent),
+                );
+                let start = Instant::now() + Duration::from_secs(3);
+                let mut tick = interval_at(start, Duration::from_secs(recent_every));
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    tick.tick().await;
+                    if let Err(e) = services::sync_recent(
+                        &db_clone,
+                        &client,
+                        &instance_key,
+                        recent_topic_cap,
+                        &conc,
+                    )
+                    .await
+                    {
+                        error!(instance = %instance_key, error = ?e, "recent indexing failed");
+                    } else if cfg_telemetry {
+                        telemetry::increment_counter(
+                            "indexer.batches.processed",
+                            &[
+                                KeyValue::new("indexer", "discourse-indexer"),
+                                KeyValue::new("kind", "recent"),
+                                KeyValue::new("instance", instance_key.clone()),
+                            ],
+                        );
                     }
                 }
-            }
-        }));
+            }));
+        }
+
+        // Spawn full loop task (non-overlapping within kind)
+        {
+            let db_clone = db.clone();
+            let instance_key = instance_key.clone();
+            let conc = conc.clone();
+            let cfg_telemetry = cfg_telemetry;
+            let base_url_full = base_url.clone();
+            let http_limit_full = http_limit;
+            handles.push(tokio::spawn(async move {
+                use tokio::time::{interval_at, Duration, Instant};
+                let client = discourse_indexer::discourse_api::DiscourseClient::new_with_limits(
+                    base_url_full.clone(),
+                    5,
+                    Some(http_limit_full),
+                );
+                let start = Instant::now() + Duration::from_secs(60);
+                let mut tick = interval_at(start, Duration::from_secs(full_every));
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    tick.tick().await;
+                    if let Err(e) =
+                        services::sync_full(&db_clone, &client, &instance_key, &conc).await
+                    {
+                        error!(instance = %instance_key, error = ?e, "full indexing failed");
+                    } else if cfg_telemetry {
+                        telemetry::increment_counter(
+                            "indexer.batches.processed",
+                            &[
+                                KeyValue::new("indexer", "discourse-indexer"),
+                                KeyValue::new("kind", "full"),
+                                KeyValue::new("instance", instance_key.clone()),
+                            ],
+                        );
+                    }
+                }
+            }));
+        }
     }
 
     for h in handles {

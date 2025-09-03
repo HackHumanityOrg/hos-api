@@ -6,8 +6,9 @@ max_http_concurrency = 8
 max_post_tasks = 10
 likes_concurrency = 10
 revisions_concurrency = 5
-max_topic_pages_per_cycle = 50
-max_post_pages_per_topic = 20
+recent_topic_pages_cap = 3
+full_refresh_interval_sec = 86400  # 24h for this instance
+recent_update_interval_sec = 300   # 5m for this instance
 
 [logging]
 level = "debug"

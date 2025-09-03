@@ -45,6 +45,9 @@ pub struct DiscourseClient {
     http_sem: Option<Arc<Semaphore>>,
     cache: Arc<Mutex<HashMap<String, (Instant, serde_json::Value)>>>,
     cache_ttl: Duration,
+    retry_base_delay: Duration,
+    jitter_min_ms: u64,
+    jitter_max_ms: u64,
 }
 
 impl DiscourseClient {
@@ -60,6 +63,24 @@ impl DiscourseClient {
         base_url: String,
         max_retries: usize,
         http_limit: Option<usize>,
+    ) -> Self {
+        Self::new_with_limits_and_backoff(
+            base_url,
+            max_retries,
+            http_limit,
+            Duration::from_secs(2), // default base delay
+            100,
+            500,
+        )
+    }
+
+    pub fn new_with_limits_and_backoff(
+        base_url: String,
+        max_retries: usize,
+        http_limit: Option<usize>,
+        retry_base_delay: Duration,
+        jitter_min_ms: u64,
+        jitter_max_ms: u64,
     ) -> Self {
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -81,6 +102,13 @@ impl DiscourseClient {
             http_sem: http_limit.map(|n| Arc::new(Semaphore::new(n.max(1)))),
             cache: Arc::new(Mutex::new(HashMap::new())),
             cache_ttl: Duration::from_secs(5),
+            retry_base_delay,
+            jitter_min_ms,
+            jitter_max_ms: if jitter_max_ms < jitter_min_ms {
+                jitter_min_ms
+            } else {
+                jitter_max_ms
+            },
         }
     }
 
@@ -142,7 +170,7 @@ impl DiscourseClient {
         extra: &HeaderMap,
     ) -> Result<T> {
         let url = format!("{}{}", self.base_url, path);
-        let mut delay = Duration::from_secs(2);
+        let mut delay = self.retry_base_delay;
         let mut attempt = 0usize;
         loop {
             attempt += 1;
@@ -210,7 +238,8 @@ impl DiscourseClient {
                         }
                     }
                 }
-                let jitter: u64 = rand::thread_rng().gen_range(100..=500);
+                let jitter: u64 =
+                    rand::thread_rng().gen_range(self.jitter_min_ms..=self.jitter_max_ms);
                 delay = retry_hint.unwrap_or(delay);
                 delay = std::cmp::min(delay * 2, Duration::from_secs(60))
                     + Duration::from_millis(jitter);

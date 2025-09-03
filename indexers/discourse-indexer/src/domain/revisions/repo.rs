@@ -1,7 +1,8 @@
 use crate::domain::revisions::model::Revision;
 use crate::domain::util::bool_i8;
+use crate::domain::util::with_deadlock_retry;
 use anyhow::Result;
-use entities::discourse_post_revisions;
+use entities::discourse_indexer_post_revisions;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
 use tracing::{debug, instrument};
@@ -13,7 +14,7 @@ pub async fn upsert_revision(
     external_post_id: i32,
     revision: &Revision,
 ) -> Result<()> {
-    let am = discourse_post_revisions::ActiveModel {
+    let am = discourse_indexer_post_revisions::ActiveModel {
         instance: Set(instance.to_string()),
         external_post_id: Set(external_post_id),
         created_at: Set(revision.created_at),
@@ -42,39 +43,42 @@ pub async fn upsert_revision(
         version_count: Set(revision.version_count),
         ..Default::default()
     };
-    discourse_post_revisions::Entity::insert(am)
-        .on_conflict(
-            OrmOnConflict::columns([
-                discourse_post_revisions::Column::Instance,
-                discourse_post_revisions::Column::ExternalPostId,
-                discourse_post_revisions::Column::CurrentVersion,
-            ])
-            .update_columns([
-                discourse_post_revisions::Column::CreatedAt,
-                discourse_post_revisions::Column::Username,
-                discourse_post_revisions::Column::ActingUserName,
-                discourse_post_revisions::Column::DisplayUsername,
-                discourse_post_revisions::Column::AvatarTemplate,
-                discourse_post_revisions::Column::EditReason,
-                discourse_post_revisions::Column::BodyChanges,
-                discourse_post_revisions::Column::TitleChanges,
-                discourse_post_revisions::Column::PreviousCategoryId,
-                discourse_post_revisions::Column::CurrentCategoryId,
-                discourse_post_revisions::Column::PreviousUserId,
-                discourse_post_revisions::Column::CurrentUserId,
-                discourse_post_revisions::Column::PreviousHidden,
-                discourse_post_revisions::Column::CurrentHidden,
-                discourse_post_revisions::Column::FirstRevision,
-                discourse_post_revisions::Column::PreviousRevision,
-                discourse_post_revisions::Column::CurrentRevision,
-                discourse_post_revisions::Column::NextRevision,
-                discourse_post_revisions::Column::LastRevision,
-                discourse_post_revisions::Column::VersionCount,
-            ])
-            .to_owned(),
-        )
-        .exec(db)
-        .await?;
+    with_deadlock_retry(|| async {
+        discourse_indexer_post_revisions::Entity::insert(am.clone())
+            .on_conflict(
+                OrmOnConflict::columns([
+                    discourse_indexer_post_revisions::Column::Instance,
+                    discourse_indexer_post_revisions::Column::ExternalPostId,
+                    discourse_indexer_post_revisions::Column::CurrentVersion,
+                ])
+                .update_columns([
+                    discourse_indexer_post_revisions::Column::CreatedAt,
+                    discourse_indexer_post_revisions::Column::Username,
+                    discourse_indexer_post_revisions::Column::ActingUserName,
+                    discourse_indexer_post_revisions::Column::DisplayUsername,
+                    discourse_indexer_post_revisions::Column::AvatarTemplate,
+                    discourse_indexer_post_revisions::Column::EditReason,
+                    discourse_indexer_post_revisions::Column::BodyChanges,
+                    discourse_indexer_post_revisions::Column::TitleChanges,
+                    discourse_indexer_post_revisions::Column::PreviousCategoryId,
+                    discourse_indexer_post_revisions::Column::CurrentCategoryId,
+                    discourse_indexer_post_revisions::Column::PreviousUserId,
+                    discourse_indexer_post_revisions::Column::CurrentUserId,
+                    discourse_indexer_post_revisions::Column::PreviousHidden,
+                    discourse_indexer_post_revisions::Column::CurrentHidden,
+                    discourse_indexer_post_revisions::Column::FirstRevision,
+                    discourse_indexer_post_revisions::Column::PreviousRevision,
+                    discourse_indexer_post_revisions::Column::CurrentRevision,
+                    discourse_indexer_post_revisions::Column::NextRevision,
+                    discourse_indexer_post_revisions::Column::LastRevision,
+                    discourse_indexer_post_revisions::Column::VersionCount,
+                ])
+                .to_owned(),
+            )
+            .exec(db)
+            .await
+    })
+    .await?;
     debug!("upserted revision");
     Ok(())
 }

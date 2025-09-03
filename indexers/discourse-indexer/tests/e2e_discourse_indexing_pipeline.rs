@@ -7,91 +7,14 @@ use discourse_indexer::domain::revisions;
 use discourse_indexer::domain::topics;
 use discourse_indexer::domain::users;
 use entities::{
-    discourse_categories, discourse_post_likes, discourse_post_revisions, discourse_posts,
-    discourse_topics, discourse_users,
+    discourse_indexer_categories, discourse_indexer_post_likes, discourse_indexer_post_revisions,
+    discourse_indexer_posts, discourse_indexer_topics, discourse_indexer_users,
 };
 use rstest::*;
+use sea_orm::DatabaseConnection;
 use sea_orm::{EntityTrait, PaginatorTrait};
 
-// Common testing utilities inlined for end-to-end tests
-use migration::{sea_orm, MigratorTrait};
-use sea_orm::DatabaseConnection;
-use testcontainers::{runners::AsyncRunner, ImageExt};
-use testcontainers_modules::mysql::Mysql;
-
-/// Test database container setup for discourse indexer
-pub struct TestDatabase {
-    pub connection: DatabaseConnection,
-    // Keep container alive for the duration of the test
-    pub _container: testcontainers::ContainerAsync<testcontainers_modules::mysql::Mysql>,
-}
-
-impl TestDatabase {
-    /// Create a new test database with MySQL container and discourse migrations
-    pub async fn new() -> Self {
-        // Start MySQL container
-        let mysql_container = Mysql::default()
-            .with_env_var("MYSQL_DATABASE", "discourse_test_db")
-            .with_env_var("MYSQL_USER", "discourse_user")
-            .with_env_var("MYSQL_PASSWORD", "discourse_password")
-            .with_env_var("MYSQL_ROOT_PASSWORD", "root_password")
-            .start()
-            .await
-            .expect("Failed to start MySQL container");
-
-        let port = mysql_container
-            .get_host_port_ipv4(3306)
-            .await
-            .expect("Failed to get MySQL port");
-
-        // Create database URL
-        let database_url = format!(
-            "mysql://discourse_user:discourse_password@127.0.0.1:{}/discourse_test_db",
-            port
-        );
-
-        // Create database connection with retry logic for container startup
-        let connection = Self::connect_with_retry(&database_url, 10).await;
-
-        // Run discourse migrations
-        if let Err(e) = migration::Migrator::up(&connection, None).await {
-            panic!("Failed to run discourse migrations: {}", e);
-        }
-
-        TestDatabase {
-            connection,
-            _container: mysql_container,
-        }
-    }
-
-    /// Connect to database with retry logic
-    async fn connect_with_retry(database_url: &str, max_attempts: u32) -> DatabaseConnection {
-        for attempt in 1..=max_attempts {
-            match sea_orm::Database::connect(database_url).await {
-                Ok(conn) => return conn,
-                Err(e) => {
-                    if attempt == max_attempts {
-                        panic!(
-                            "Failed to connect to test database after {} attempts: {}",
-                            max_attempts, e
-                        );
-                    }
-                    println!(
-                        "Database connection attempt {} failed, retrying...",
-                        attempt
-                    );
-                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                }
-            }
-        }
-        unreachable!()
-    }
-
-    /// Get a clone of the database connection for testing
-    pub fn db(&self) -> DatabaseConnection {
-        self.connection.clone()
-    }
-}
+use test_support::{init_test_tracing, TestDatabase};
 
 /// Test client setup for meta discourse
 pub fn create_test_client() -> discourse_indexer::discourse_api::DiscourseClient {
@@ -99,17 +22,7 @@ pub fn create_test_client() -> discourse_indexer::discourse_api::DiscourseClient
 }
 
 /// Initialize test tracing (run once per test suite)
-pub fn init_test_tracing() {
-    use std::sync::Once;
-    static INIT: Once = Once::new();
-
-    INIT.call_once(|| {
-        tracing_subscriber::fmt()
-            .with_env_filter("debug")
-            .with_test_writer()
-            .init();
-    });
-}
+// tracing initialized via test_support::init_test_tracing
 
 const TEST_INSTANCE: &str = "meta.discourse.org";
 
@@ -133,6 +46,7 @@ async fn ensure_user_exists(
 
 /// End-to-end: Index categories, topics, users, posts, likes, and revisions into MySQL.
 #[rstest]
+#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) {
     init_test_tracing();
@@ -176,7 +90,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
     }
 
     // Verify categories were stored
-    let stored_categories = discourse_categories::Entity::find()
+    let stored_categories = discourse_indexer_categories::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored categories");
@@ -201,7 +115,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
         .expect("upsert topics");
 
     // Verify topics were stored
-    let stored_topics = discourse_topics::Entity::find()
+    let stored_topics = discourse_indexer_topics::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored topics");
@@ -225,7 +139,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
     }
 
     // Verify users were stored
-    let stored_users = discourse_users::Entity::find()
+    let stored_users = discourse_indexer_users::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored users");
@@ -262,7 +176,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
         .expect("upsert posts");
 
     // Verify posts were stored
-    let stored_posts = discourse_posts::Entity::find()
+    let stored_posts = discourse_indexer_posts::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored posts");
@@ -300,7 +214,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
     }
 
     // Verify likes table exists and can be queried
-    let stored_likes = discourse_post_likes::Entity::find()
+    let stored_likes = discourse_indexer_post_likes::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored likes");
@@ -331,8 +245,9 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
                     {
                         // Ensure FK chain exists for revisions -> posts (and posts -> topic/user)
                         // 1) Upsert the topic (requires categories already present)
-                        let _ = topics::repo::upsert_topics_bulk(&db, TEST_INSTANCE, &[topic.clone()])
-                            .await;
+                        let _ =
+                            topics::repo::upsert_topics_bulk(&db, TEST_INSTANCE, &[topic.clone()])
+                                .await;
 
                         // 2) Ensure the post author exists
                         let _ = ensure_user_exists(&db, &client, &post.username).await;
@@ -359,7 +274,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
     }
 
     // Verify revisions were stored (if any were found)
-    let stored_revisions = discourse_post_revisions::Entity::find()
+    let stored_revisions = discourse_indexer_post_revisions::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored revisions");
@@ -389,6 +304,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
 
 /// End-to-end: Upsert semantics on topics (no duplicates, updates in place).
 #[rstest]
+#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabase) {
     init_test_tracing();
@@ -429,7 +345,7 @@ async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabas
         .await
         .expect("first upsert");
 
-    let topics_count = discourse_topics::Entity::find()
+    let topics_count = discourse_indexer_topics::Entity::find()
         .count(&db)
         .await
         .expect("count topics");
@@ -441,7 +357,7 @@ async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabas
         .await
         .expect("second upsert");
 
-    let topics_count_after = discourse_topics::Entity::find()
+    let topics_count_after = discourse_indexer_topics::Entity::find()
         .count(&db)
         .await
         .expect("count topics after second insert");
@@ -452,7 +368,7 @@ async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabas
     );
 
     // Verify the topic data is correct
-    let stored_topic = discourse_topics::Entity::find()
+    let stored_topic = discourse_indexer_topics::Entity::find()
         .one(&db)
         .await
         .expect("fetch topic")
@@ -468,6 +384,7 @@ async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabas
 
 /// End-to-end: Integrity across related entities (topic, post, users, likes).
 #[rstest]
+#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_e2e_data_integrity_across_entities(#[future] test_db: TestDatabase) {
     init_test_tracing();
@@ -556,22 +473,22 @@ async fn test_e2e_data_integrity_across_entities(#[future] test_db: TestDatabase
     }
 
     // Verify data relationships
-    let stored_topics = discourse_topics::Entity::find()
+    let stored_topics = discourse_indexer_topics::Entity::find()
         .all(&db)
         .await
         .expect("fetch topics");
 
-    let stored_posts = discourse_posts::Entity::find()
+    let stored_posts = discourse_indexer_posts::Entity::find()
         .all(&db)
         .await
         .expect("fetch posts");
 
-    let stored_users = discourse_users::Entity::find()
+    let stored_users = discourse_indexer_users::Entity::find()
         .all(&db)
         .await
         .expect("fetch users");
 
-    let stored_likes = discourse_post_likes::Entity::find()
+    let stored_likes = discourse_indexer_post_likes::Entity::find()
         .all(&db)
         .await
         .expect("fetch likes");
@@ -618,6 +535,7 @@ async fn test_e2e_data_integrity_across_entities(#[future] test_db: TestDatabase
 
 /// End-to-end: API error handling and DB recovery remain functional.
 #[rstest]
+#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_e2e_error_handling_and_recovery(#[future] test_db: TestDatabase) {
     init_test_tracing();
@@ -681,7 +599,7 @@ async fn test_e2e_error_handling_and_recovery(#[future] test_db: TestDatabase) {
         .await
         .expect("database operations should still work after API errors");
 
-    let stored_topics = discourse_topics::Entity::find()
+    let stored_topics = discourse_indexer_topics::Entity::find()
         .count(&db)
         .await
         .expect("count topics");
@@ -696,6 +614,7 @@ async fn test_e2e_error_handling_and_recovery(#[future] test_db: TestDatabase) {
 
 /// End-to-end: Concurrent indexing of multiple topics persists without corruption.
 #[rstest]
+#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_e2e_concurrent_indexing_across_topics(#[future] test_db: TestDatabase) {
     init_test_tracing();
@@ -797,12 +716,12 @@ async fn test_e2e_concurrent_indexing_across_topics(#[future] test_db: TestDatab
     }
 
     // Verify data integrity after concurrent operations
-    let stored_topics = discourse_topics::Entity::find()
+    let stored_topics = discourse_indexer_topics::Entity::find()
         .count(&db)
         .await
         .expect("count topics");
 
-    let stored_posts = discourse_posts::Entity::find()
+    let stored_posts = discourse_indexer_posts::Entity::find()
         .count(&db)
         .await
         .expect("count posts");

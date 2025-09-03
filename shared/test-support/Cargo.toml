@@ -1,0 +1,13 @@
+[package]
+name = "test-support"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+sea-orm = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+tracing-subscriber = { workspace = true }
+migration = { workspace = true }
+tokio = { workspace = true }

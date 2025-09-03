@@ -7,16 +7,14 @@ use tokio::sync::Semaphore;
 
 #[derive(Clone)]
 pub struct Concurrency {
-    pub http: Arc<Semaphore>,
     pub post_tasks: Arc<Semaphore>,
     pub likes: Arc<Semaphore>,
     pub revisions: Arc<Semaphore>,
 }
 
 impl Concurrency {
-    pub fn new(http_limit: usize, post_tasks: usize, likes: usize, revisions: usize) -> Self {
+    pub fn new(post_tasks: usize, likes: usize, revisions: usize) -> Self {
         Self {
-            http: Arc::new(Semaphore::new(http_limit.max(1))),
             post_tasks: Arc::new(Semaphore::new(post_tasks.max(1))),
             likes: Arc::new(Semaphore::new(likes.max(1))),
             revisions: Arc::new(Semaphore::new(revisions.max(1))),
@@ -29,23 +27,12 @@ pub async fn sync_recent(
     db: &sea_orm::DatabaseConnection,
     client: &discourse_api::DiscourseClient,
     instance: &str,
-    max_topic_pages: u32,
-    max_post_pages: u32,
+    recent_topic_cap: u32,
     conc: &Concurrency,
 ) -> Result<()> {
     // categories and recent users
     services_helpers::sync_categories(db, client, instance).await?;
-    services_helpers::sync_directory_users(db, client, instance, true, 5, max_topic_pages).await?;
-    services_helpers::sync_topics(
-        db,
-        client,
-        instance,
-        max_topic_pages,
-        max_post_pages,
-        true,
-        conc,
-    )
-    .await
+    services_helpers::sync_topics(db, client, instance, true, recent_topic_cap, conc).await
 }
 
 #[tracing::instrument(skip(db, client, conc))]
@@ -53,28 +40,18 @@ pub async fn sync_full(
     db: &sea_orm::DatabaseConnection,
     client: &discourse_api::DiscourseClient,
     instance: &str,
-    max_topic_pages: u32,
-    max_post_pages: u32,
     conc: &Concurrency,
 ) -> Result<()> {
     services_helpers::sync_categories(db, client, instance).await?;
-    services_helpers::sync_directory_users(db, client, instance, false, u32::MAX, max_topic_pages)
-        .await?;
-    services_helpers::sync_topics(
-        db,
-        client,
-        instance,
-        max_topic_pages,
-        max_post_pages,
-        false,
-        conc,
-    )
-    .await
+    services_helpers::sync_directory_users(db, client, instance, false, u32::MAX, u32::MAX).await?;
+    services_helpers::sync_topics(db, client, instance, false, 0, conc).await
 }
 
 mod services_helpers {
     use super::*;
     use futures::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
+
+    // Caps are provided via parameters from config
 
     pub async fn sync_categories(
         db: &sea_orm::DatabaseConnection,
@@ -110,13 +87,13 @@ mod services_helpers {
         db: &sea_orm::DatabaseConnection,
         client: &discourse_api::DiscourseClient,
         instance: &str,
-        max_topic_pages: u32,
-        max_post_pages: u32,
         recent: bool,
+        recent_topic_cap: u32,
         conc: &Concurrency,
     ) -> Result<()> {
         use crate::domain::topics::model::TopicResponse;
         let mut page: u32 = 0;
+        let mut prev_ids: Option<Vec<i32>> = None;
         loop {
             let resp: TopicResponse = if recent {
                 match domain::topics::adapter::fetch_topics_recent_page(client, page).await {
@@ -148,12 +125,31 @@ mod services_helpers {
             if resp.topic_list.topics.is_empty() {
                 break;
             }
+            // For full sync: stop if page content repeats (same IDs as previous page)
+            if !recent {
+                let ids: Vec<i32> = resp.topic_list.topics.iter().map(|t| t.id).collect();
+                // Preserve order for strict comparison
+                if let Some(prev) = &prev_ids {
+                    if prev == &ids {
+                        break;
+                    }
+                }
+                prev_ids = Some(ids);
+            }
             domain::topics::repo::upsert_topics_bulk(db, instance, &resp.topic_list.topics).await?;
             for t in resp.topic_list.topics {
-                sync_posts_for_topic(db, client, instance, t.id, max_post_pages, conc).await?;
+                sync_posts_for_topic(db, client, instance, t.id, recent, conc).await?;
             }
-            if page >= max_topic_pages {
-                break;
+            // Recent: cap to a few pages; Full: continue until empty or repeat
+            if recent {
+                let cap = if recent_topic_cap == 0 {
+                    1
+                } else {
+                    recent_topic_cap
+                };
+                if page >= cap {
+                    break;
+                }
             }
             page += 1;
         }
@@ -166,17 +162,15 @@ mod services_helpers {
         client: &discourse_api::DiscourseClient,
         instance: &str,
         topic_id: i32,
-        max_pages: u32,
+        recent: bool,
         conc: &Concurrency,
     ) -> Result<()> {
         use crate::domain::posts::model::PostResponse;
         let mut page: u32 = 0;
         let mut processed = 0i32;
         let mut total: Option<i32> = None;
+        let mut prev_post_ids: Option<Vec<i32>> = None;
         loop {
-            if page > max_pages {
-                break;
-            }
             let r: PostResponse =
                 match domain::posts::adapter::fetch_posts_page(client, topic_id, page).await {
                     Ok(r) => r,
@@ -196,6 +190,14 @@ mod services_helpers {
             if r.post_stream.posts.is_empty() {
                 break;
             }
+            // Stop if page content repeats (same post IDs as previous page), for both recent and full
+            let ids: Vec<i32> = r.post_stream.posts.iter().map(|p| p.id).collect();
+            if let Some(prev) = &prev_post_ids {
+                if prev == &ids {
+                    break;
+                }
+            }
+            prev_post_ids = Some(ids);
             domain::posts::repo::upsert_posts_bulk(db, instance, &r.post_stream.posts).await?;
 
             let mut futs: FuturesUnordered<BoxFuture<'static, ()>> = FuturesUnordered::new();

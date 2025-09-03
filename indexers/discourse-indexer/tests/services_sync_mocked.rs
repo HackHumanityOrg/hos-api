@@ -4,7 +4,7 @@ mod common;
 use common::TestDatabase;
 use discourse_indexer::discourse_api::DiscourseClient;
 use discourse_indexer::sync::{self, Concurrency};
-use entities::{discourse_posts, discourse_topics};
+use entities::{discourse_indexer_posts, discourse_indexer_topics};
 use mockito::Server;
 use rstest::*;
 use sea_orm::{EntityTrait, PaginatorTrait};
@@ -243,14 +243,20 @@ async fn test_sync_recent_with_mock_server_inserts_topic_and_post(#[future] test
         .await;
 
     let client = DiscourseClient::new(base);
-    let conc = Concurrency::new(4, 2, 2, 2);
+    let conc = Concurrency::new(2, 2, 2);
     // Use small caps
-    sync::sync_recent(&db, &client, "mock.instance", 1, 1, &conc)
+    sync::sync_recent(&db, &client, "mock.instance", 1, &conc)
         .await
         .expect("sync_recent");
 
-    let topics_count = discourse_topics::Entity::find().count(&db).await.unwrap();
-    let posts_count = discourse_posts::Entity::find().count(&db).await.unwrap();
+    let topics_count = discourse_indexer_topics::Entity::find()
+        .count(&db)
+        .await
+        .unwrap();
+    let posts_count = discourse_indexer_posts::Entity::find()
+        .count(&db)
+        .await
+        .unwrap();
     assert_eq!(topics_count, 1);
     assert_eq!(posts_count, 1);
 }

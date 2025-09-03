@@ -4,7 +4,7 @@ mod common;
 use common::TestDatabase;
 use discourse_indexer::discourse_api::DiscourseClient;
 use discourse_indexer::domain::topics::{adapter, repo};
-use entities::discourse_topics;
+use entities::discourse_indexer_topics;
 use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -17,15 +17,20 @@ async fn test_db() -> TestDatabase {
 
 /// Live + DB: fetch topics from latest page, persist bulk, and verify upsert.
 #[rstest]
+#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_domain_topics_fetch_and_persist(#[future] test_db: TestDatabase) {
     let test_db = test_db.await;
     let db = test_db.db();
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
 
-    discourse_indexer::domain::instances::repo::register_instance(&db, TEST_INSTANCE, "https://meta.discourse.org")
-        .await
-        .expect("register instance");
+    discourse_indexer::domain::instances::repo::register_instance(
+        &db,
+        TEST_INSTANCE,
+        "https://meta.discourse.org",
+    )
+    .await
+    .expect("register instance");
 
     let resp = adapter::fetch_topics_recent_page(&client, 0)
         .await
@@ -60,9 +65,9 @@ async fn test_domain_topics_fetch_and_persist(#[future] test_db: TestDatabase) {
         .await
         .expect("update topic");
 
-    let stored = discourse_topics::Entity::find()
-        .filter(discourse_topics::Column::Instance.eq(TEST_INSTANCE))
-        .filter(discourse_topics::Column::ExternalId.eq(t.id))
+    let stored = discourse_indexer_topics::Entity::find()
+        .filter(discourse_indexer_topics::Column::Instance.eq(TEST_INSTANCE))
+        .filter(discourse_indexer_topics::Column::ExternalId.eq(t.id))
         .one(&db)
         .await
         .expect("fetch t")

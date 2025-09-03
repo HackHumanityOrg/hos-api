@@ -329,6 +329,20 @@ cargo test -p indexer-3
 cargo test -p api -- --nocapture --test-threads=1
 ```
 
+#### Live HTTP Tests (gated)
+
+Some indexer tests call the live Discourse API (meta.discourse.org). These are gated behind the `live_http` feature and are skipped by default to keep CI deterministic and fast.
+
+- Run fast, deterministic tests (default):
+  - `cargo test -p discourse-indexer`
+
+- Run live HTTP tests explicitly:
+  - `cargo test -p discourse-indexer --features live_http`
+
+Notes:
+- The live tests use timeouts and may scan multiple pages; they can be slow and occasionally flaky due to upstream changes.
+- Mocked tests using `mockito` cover headers, rate limits, and error/retry logic without network access.
+
 ### Writing Tests
 
 #### Handler Tests (Business Logic)

@@ -14,3 +14,8 @@ dotenvy = { workspace = true }
 # Path dependencies to other workspace members
 entities = { workspace = true }
 common = { workspace = true }
+
+[dev-dependencies]
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+migration = { workspace = true }

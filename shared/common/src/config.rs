@@ -158,10 +158,14 @@ pub struct DiscourseInstanceConfig {
     pub likes_concurrency: Option<usize>,
     #[serde(default)]
     pub revisions_concurrency: Option<usize>,
+    // Recent caps per instance
     #[serde(default)]
-    pub max_topic_pages_per_cycle: Option<u32>,
+    pub recent_topic_pages_cap: Option<u32>,
+    // Optional per-instance scheduling overrides
     #[serde(default)]
-    pub max_post_pages_per_topic: Option<u32>,
+    pub full_refresh_interval_sec: Option<u64>,
+    #[serde(default)]
+    pub recent_update_interval_sec: Option<u64>,
 }
 
 fn default_true() -> bool {

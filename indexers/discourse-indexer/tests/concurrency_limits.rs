@@ -5,10 +5,9 @@ use std::sync::Arc;
 /// Semaphores cap concurrent tasks at the configured limits.
 #[tokio::test]
 async fn test_concurrency_permits_limit_parallelism() {
-    // Limits for http and post_tasks we will verify
-    let http_limit = 3usize;
+    // Limit for post_tasks we will verify
     let post_limit = 2usize;
-    let conc = Concurrency::new(http_limit, post_limit, 4, 5);
+    let conc = Concurrency::new(post_limit, 4, 5);
 
     // Track current and max concurrency observed
     async fn exercise(semaphore: Arc<tokio::sync::Semaphore>, limit: usize) {
@@ -51,8 +50,6 @@ async fn test_concurrency_permits_limit_parallelism() {
         assert_eq!(observed, limit, "observed concurrency should equal limit");
     }
 
-    // Verify http semaphore
-    exercise(conc.http.clone(), http_limit).await;
     // Verify post_tasks semaphore
     exercise(conc.post_tasks.clone(), post_limit).await;
 }

@@ -4,7 +4,7 @@ mod common;
 use common::TestDatabase;
 use discourse_indexer::discourse_api::DiscourseClient;
 use discourse_indexer::domain::categories::{adapter, repo};
-use entities::discourse_categories;
+use entities::discourse_indexer_categories;
 use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -17,15 +17,20 @@ async fn test_db() -> TestDatabase {
 
 /// Live + DB: fetch categories via adapter, persist, and verify upsert.
 #[rstest]
+#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_domain_categories_fetch_and_persist(#[future] test_db: TestDatabase) {
     let test_db = test_db.await;
     let db = test_db.db();
 
     // Ensure instance exists for FKs
-    discourse_indexer::domain::instances::repo::register_instance(&db, TEST_INSTANCE, "https://meta.discourse.org")
-        .await
-        .expect("register instance");
+    discourse_indexer::domain::instances::repo::register_instance(
+        &db,
+        TEST_INSTANCE,
+        "https://meta.discourse.org",
+    )
+    .await
+    .expect("register instance");
 
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
     let categories = adapter::fetch_categories_all(&client, 2)
@@ -55,9 +60,9 @@ async fn test_domain_categories_fetch_and_persist(#[future] test_db: TestDatabas
             .await
             .expect("upsert category update");
 
-        let stored = discourse_categories::Entity::find()
-            .filter(discourse_categories::Column::Instance.eq(TEST_INSTANCE))
-            .filter(discourse_categories::Column::ExternalId.eq(updated.id))
+        let stored = discourse_indexer_categories::Entity::find()
+            .filter(discourse_indexer_categories::Column::Instance.eq(TEST_INSTANCE))
+            .filter(discourse_indexer_categories::Column::ExternalId.eq(updated.id))
             .one(&db)
             .await
             .expect("fetch stored")

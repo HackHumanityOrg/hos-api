@@ -1,7 +1,7 @@
 use crate::domain::categories::model::Category;
-use crate::domain::util::{bool_i8, opt_bool_to_i8};
+use crate::domain::util::{bool_i8, opt_bool_to_i8, with_deadlock_retry};
 use anyhow::Result;
-use entities::discourse_categories;
+use entities::discourse_indexer_categories;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
 use tracing::{debug, instrument};
@@ -12,7 +12,7 @@ pub async fn upsert_category(
     instance: &str,
     c: &Category,
 ) -> Result<()> {
-    let am = discourse_categories::ActiveModel {
+    let am = discourse_indexer_categories::ActiveModel {
         instance: Set(instance.to_string()),
         external_id: Set(c.id),
         name: Set(c.name.clone()),
@@ -48,53 +48,58 @@ pub async fn upsert_category(
         is_uncategorized: Set(opt_bool_to_i8(c.is_uncategorized)),
         ..Default::default()
     };
-    discourse_categories::Entity::insert(am)
-        .on_conflict(
-            OrmOnConflict::columns([
-                discourse_categories::Column::Instance,
-                discourse_categories::Column::ExternalId,
-            ])
-            .update_columns([
-                discourse_categories::Column::Name,
-                discourse_categories::Column::Color,
-                discourse_categories::Column::TextColor,
-                discourse_categories::Column::Slug,
-                discourse_categories::Column::TopicCount,
-                discourse_categories::Column::PostCount,
-                discourse_categories::Column::Position,
-                discourse_categories::Column::Description,
-                discourse_categories::Column::DescriptionText,
-                discourse_categories::Column::DescriptionExcerpt,
-                discourse_categories::Column::TopicUrl,
-                discourse_categories::Column::TopicTemplate,
-                discourse_categories::Column::HasChildren,
-                discourse_categories::Column::SubcategoryCount,
-                discourse_categories::Column::SortOrder,
-                discourse_categories::Column::NumFeaturedTopics,
-                discourse_categories::Column::DefaultView,
-                discourse_categories::Column::SubcategoryListStyle,
-                discourse_categories::Column::DefaultTopPeriod,
-                discourse_categories::Column::DefaultListFilter,
-                discourse_categories::Column::MinimumRequiredTags,
-                discourse_categories::Column::TopicsDay,
-                discourse_categories::Column::TopicsWeek,
-                discourse_categories::Column::TopicsMonth,
-                discourse_categories::Column::TopicsYear,
-                discourse_categories::Column::TopicsAllTime,
-                discourse_categories::Column::UploadedLogo,
-                discourse_categories::Column::UploadedLogoDark,
-                discourse_categories::Column::UploadedBackground,
-                discourse_categories::Column::UploadedBackgroundDark,
-                discourse_categories::Column::IsUncategorized,
-            ])
-            .to_owned(),
-        )
-        .exec(db)
-        .await
-        .or_else(|err| match err {
-            sea_orm::DbErr::RecordNotInserted => Ok(sea_orm::InsertResult { last_insert_id: 0 }),
-            _ => Err(err),
-        })?;
+    with_deadlock_retry(|| async {
+        discourse_indexer_categories::Entity::insert(am.clone())
+            .on_conflict(
+                OrmOnConflict::columns([
+                    discourse_indexer_categories::Column::Instance,
+                    discourse_indexer_categories::Column::ExternalId,
+                ])
+                .update_columns([
+                    discourse_indexer_categories::Column::Name,
+                    discourse_indexer_categories::Column::Color,
+                    discourse_indexer_categories::Column::TextColor,
+                    discourse_indexer_categories::Column::Slug,
+                    discourse_indexer_categories::Column::TopicCount,
+                    discourse_indexer_categories::Column::PostCount,
+                    discourse_indexer_categories::Column::Position,
+                    discourse_indexer_categories::Column::Description,
+                    discourse_indexer_categories::Column::DescriptionText,
+                    discourse_indexer_categories::Column::DescriptionExcerpt,
+                    discourse_indexer_categories::Column::TopicUrl,
+                    discourse_indexer_categories::Column::TopicTemplate,
+                    discourse_indexer_categories::Column::HasChildren,
+                    discourse_indexer_categories::Column::SubcategoryCount,
+                    discourse_indexer_categories::Column::SortOrder,
+                    discourse_indexer_categories::Column::NumFeaturedTopics,
+                    discourse_indexer_categories::Column::DefaultView,
+                    discourse_indexer_categories::Column::SubcategoryListStyle,
+                    discourse_indexer_categories::Column::DefaultTopPeriod,
+                    discourse_indexer_categories::Column::DefaultListFilter,
+                    discourse_indexer_categories::Column::MinimumRequiredTags,
+                    discourse_indexer_categories::Column::TopicsDay,
+                    discourse_indexer_categories::Column::TopicsWeek,
+                    discourse_indexer_categories::Column::TopicsMonth,
+                    discourse_indexer_categories::Column::TopicsYear,
+                    discourse_indexer_categories::Column::TopicsAllTime,
+                    discourse_indexer_categories::Column::UploadedLogo,
+                    discourse_indexer_categories::Column::UploadedLogoDark,
+                    discourse_indexer_categories::Column::UploadedBackground,
+                    discourse_indexer_categories::Column::UploadedBackgroundDark,
+                    discourse_indexer_categories::Column::IsUncategorized,
+                ])
+                .to_owned(),
+            )
+            .exec(db)
+            .await
+            .or_else(|err| match err {
+                sea_orm::DbErr::RecordNotInserted => {
+                    Ok(sea_orm::InsertResult { last_insert_id: 0 })
+                }
+                _ => Err(err),
+            })
+    })
+    .await?;
     debug!("upserted category record");
     Ok(())
 }

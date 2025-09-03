@@ -8,7 +8,7 @@ use discourse_indexer::domain::{
     revisions::{adapter as revisions_adapter, repo as revisions_repo},
     topics::adapter as topics_adapter,
 };
-use entities::discourse_post_revisions;
+use entities::discourse_indexer_post_revisions;
 use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -21,22 +21,30 @@ async fn test_db() -> TestDatabase {
 
 /// Live + DB: find a post with edit history, fetch a revision, persist, and verify update path.
 #[rstest]
+#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_domain_revisions_fetch_and_persist(#[future] test_db: TestDatabase) {
     let test_db = test_db.await;
     let db = test_db.db();
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
 
-    discourse_indexer::domain::instances::repo::register_instance(&db, TEST_INSTANCE, "https://meta.discourse.org")
-        .await
-        .expect("register instance");
+    discourse_indexer::domain::instances::repo::register_instance(
+        &db,
+        TEST_INSTANCE,
+        "https://meta.discourse.org",
+    )
+    .await
+    .expect("register instance");
 
     // Pre-fetch directory users (many pages) to satisfy Posts→Users FK
-    let dir_users = discourse_indexer::domain::users::adapter::fetch_users_directory(&client, true, 50, 50)
-        .await
-        .expect("fetch directory users");
+    let dir_users =
+        discourse_indexer::domain::users::adapter::fetch_users_directory(&client, true, 50, 50)
+            .await
+            .expect("fetch directory users");
     let mut dir_by_id = std::collections::HashMap::new();
-    for it in dir_users.into_iter() { dir_by_id.insert(it.user.id, it); }
+    for it in dir_users.into_iter() {
+        dir_by_id.insert(it.user.id, it);
+    }
 
     // Find a post with revisions (and author present in directory), and ensure the revision endpoint succeeds
     let mut found: Option<(
@@ -57,7 +65,10 @@ async fn test_domain_revisions_fetch_and_persist(#[future] test_db: TestDatabase
                     Err(_) => continue,
                 };
                 for p in posts.post_stream.posts.clone() {
-                    if p.can_view_edit_history && p.version > 1 && dir_by_id.contains_key(&p.user_id) {
+                    if p.can_view_edit_history
+                        && p.version > 1
+                        && dir_by_id.contains_key(&p.user_id)
+                    {
                         // Try revision versions 2..=p.version with a timeout
                         let max_ver = std::cmp::min(p.version, 5);
                         for ver in 2..=max_ver {
@@ -80,7 +91,10 @@ async fn test_domain_revisions_fetch_and_persist(#[future] test_db: TestDatabase
         }
     }
 
-    assert!(found.is_some(), "No post with accessible revisions found after scanning recent topics");
+    assert!(
+        found.is_some(),
+        "No post with accessible revisions found after scanning recent topics"
+    );
     if let Some((topic, post, version)) = found {
         // Ensure dependencies for FKs: categories -> topic -> user -> post
         let cats = discourse_indexer::domain::categories::adapter::fetch_categories_all(&client, 2)
@@ -91,9 +105,13 @@ async fn test_domain_revisions_fetch_and_persist(#[future] test_db: TestDatabase
                 .await
                 .expect("upsert category");
         }
-        discourse_indexer::domain::topics::repo::upsert_topics_bulk(&db, TEST_INSTANCE, &[topic.clone()])
-            .await
-            .expect("upsert topic for revisions FK");
+        discourse_indexer::domain::topics::repo::upsert_topics_bulk(
+            &db,
+            TEST_INSTANCE,
+            &[topic.clone()],
+        )
+        .await
+        .expect("upsert topic for revisions FK");
 
         // Upsert author user from pre-fetched directory map
         if let Some(item) = dir_by_id.get(&post.user_id) {
@@ -101,9 +119,13 @@ async fn test_domain_revisions_fetch_and_persist(#[future] test_db: TestDatabase
                 .await
                 .expect("upsert author user");
         }
-        discourse_indexer::domain::posts::repo::upsert_posts_bulk(&db, TEST_INSTANCE, &[post.clone()])
-            .await
-            .expect("upsert post for revisions FK");
+        discourse_indexer::domain::posts::repo::upsert_posts_bulk(
+            &db,
+            TEST_INSTANCE,
+            &[post.clone()],
+        )
+        .await
+        .expect("upsert post for revisions FK");
 
         let mut rev = tokio::time::timeout(
             std::time::Duration::from_secs(10),
@@ -122,10 +144,10 @@ async fn test_domain_revisions_fetch_and_persist(#[future] test_db: TestDatabase
             .await
             .expect("update rev");
 
-        let stored = discourse_post_revisions::Entity::find()
-            .filter(discourse_post_revisions::Column::Instance.eq(TEST_INSTANCE))
-            .filter(discourse_post_revisions::Column::ExternalPostId.eq(post.id))
-            .filter(discourse_post_revisions::Column::CurrentVersion.eq(version))
+        let stored = discourse_indexer_post_revisions::Entity::find()
+            .filter(discourse_indexer_post_revisions::Column::Instance.eq(TEST_INSTANCE))
+            .filter(discourse_indexer_post_revisions::Column::ExternalPostId.eq(post.id))
+            .filter(discourse_indexer_post_revisions::Column::CurrentVersion.eq(version))
             .one(&db)
             .await
             .expect("fetch rev")

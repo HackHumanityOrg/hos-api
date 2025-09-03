@@ -141,6 +141,7 @@ dependencies = [
  "sea-orm",
  "serde",
  "serde_json",
+ "test-support",
  "testcontainers",
  "testcontainers-modules",
  "tokio",
@@ -1045,7 +1046,10 @@ dependencies = [
  "dotenvy",
  "entities",
  "figment",
+ "migration",
  "sea-orm",
+ "testcontainers",
+ "testcontainers-modules",
  "tokio",
  "tracing",
 ]
@@ -1122,6 +1126,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_path_to_error",
+ "test-support",
  "testcontainers",
  "testcontainers-modules",
  "tokio",
@@ -2262,7 +2267,11 @@ name = "migration"
 version = "0.1.0"
 dependencies = [
  "async-std",
+ "sea-orm",
  "sea-orm-migration",
+ "testcontainers",
+ "testcontainers-modules",
+ "tokio",
 ]
 
 [[package]]
@@ -4350,6 +4359,18 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "test-support"
+version = "0.1.0"
+dependencies = [
+ "migration",
+ "sea-orm",
+ "testcontainers",
+ "testcontainers-modules",
+ "tokio",
+ "tracing-subscriber",
 ]
 
 [[package]]

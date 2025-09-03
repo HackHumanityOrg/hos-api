@@ -7,7 +7,7 @@ use discourse_indexer::domain::{
     posts::{adapter as posts_adapter, repo as posts_repo},
     topics::adapter as topics_adapter,
 };
-use entities::discourse_posts;
+use entities::discourse_indexer_posts;
 use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -20,15 +20,20 @@ async fn test_db() -> TestDatabase {
 
 /// Live + DB: fetch posts for a topic via adapter, persist, and verify update path.
 #[rstest]
+#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_domain_posts_fetch_and_persist(#[future] test_db: TestDatabase) {
     let test_db = test_db.await;
     let db = test_db.db();
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
 
-    discourse_indexer::domain::instances::repo::register_instance(&db, TEST_INSTANCE, "https://meta.discourse.org")
-        .await
-        .expect("register instance");
+    discourse_indexer::domain::instances::repo::register_instance(
+        &db,
+        TEST_INSTANCE,
+        "https://meta.discourse.org",
+    )
+    .await
+    .expect("register instance");
 
     // Ensure categories exist to satisfy Topic FK
     let cats = discourse_indexer::domain::categories::adapter::fetch_categories_all(&client, 2)
@@ -39,11 +44,12 @@ async fn test_domain_posts_fetch_and_persist(#[future] test_db: TestDatabase) {
             .await
             .expect("upsert category");
     }
-    
+
     // Fetch directory users (several pages) and build a lookup by id for FK
-    let dir_users = discourse_indexer::domain::users::adapter::fetch_users_directory(&client, true, 50, 50)
-        .await
-        .expect("fetch directory users");
+    let dir_users =
+        discourse_indexer::domain::users::adapter::fetch_users_directory(&client, true, 50, 50)
+            .await
+            .expect("fetch directory users");
     let mut user_by_id = std::collections::HashMap::new();
     for it in dir_users.iter() {
         user_by_id.insert(it.user.id, it.clone());
@@ -60,7 +66,16 @@ async fn test_domain_posts_fetch_and_persist(#[future] test_db: TestDatabase) {
             for ppage in 0..2 {
                 let pr = posts_adapter::fetch_posts_page(&client, t.id, ppage)
                     .await
-                    .unwrap_or_else(|_| discourse_indexer::domain::posts::model::PostResponse { post_stream: discourse_indexer::domain::posts::model::PostStream { posts: vec![] }, posts_count: None, id: None, title: None, fancy_title: None, created_at: None });
+                    .unwrap_or_else(|_| discourse_indexer::domain::posts::model::PostResponse {
+                        post_stream: discourse_indexer::domain::posts::model::PostStream {
+                            posts: vec![],
+                        },
+                        posts_count: None,
+                        id: None,
+                        title: None,
+                        fancy_title: None,
+                        created_at: None,
+                    });
                 let mut filtered: Vec<_> = pr
                     .post_stream
                     .posts
@@ -81,9 +96,13 @@ async fn test_domain_posts_fetch_and_persist(#[future] test_db: TestDatabase) {
     let topic = chosen_topic.unwrap();
 
     // Upsert the chosen topic
-    discourse_indexer::domain::topics::repo::upsert_topics_bulk(&db, TEST_INSTANCE, &[topic.clone()])
-        .await
-        .expect("upsert topic for posts FK");
+    discourse_indexer::domain::topics::repo::upsert_topics_bulk(
+        &db,
+        TEST_INSTANCE,
+        &[topic.clone()],
+    )
+    .await
+    .expect("upsert topic for posts FK");
 
     // Upsert required users first
     for p in posts.iter() {
@@ -107,7 +126,11 @@ async fn test_domain_posts_fetch_and_persist(#[future] test_db: TestDatabase) {
             user: discourse_indexer::domain::users::model::DirectoryUser {
                 id: p.user_id,
                 username: p.username.clone(),
-                name: Some(p.display_username.clone().unwrap_or_else(|| p.username.clone())),
+                name: Some(
+                    p.display_username
+                        .clone()
+                        .unwrap_or_else(|| p.username.clone()),
+                ),
                 avatar_template: p.avatar_template.clone(),
                 title: None,
             },
@@ -127,9 +150,9 @@ async fn test_domain_posts_fetch_and_persist(#[future] test_db: TestDatabase) {
         .await
         .expect("update post");
 
-    let stored = discourse_posts::Entity::find()
-        .filter(discourse_posts::Column::Instance.eq(TEST_INSTANCE))
-        .filter(discourse_posts::Column::ExternalId.eq(posts[0].id))
+    let stored = discourse_indexer_posts::Entity::find()
+        .filter(discourse_indexer_posts::Column::Instance.eq(TEST_INSTANCE))
+        .filter(discourse_indexer_posts::Column::ExternalId.eq(posts[0].id))
         .one(&db)
         .await
         .expect("fetch post")

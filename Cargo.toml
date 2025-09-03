@@ -3,6 +3,7 @@ members = [
     "shared/entities",
     "shared/db-core", 
     "shared/common",
+    "shared/test-support",
     "indexers/discourse-indexer",
     "indexers/indexer-2", 
     "indexers/indexer-3",

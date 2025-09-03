@@ -27,7 +27,15 @@ async fn test_respects_rate_limit_reset_header_when_remaining_zero() {
         .create_async()
         .await;
 
-    let client = DiscourseClient::new(base_url);
+    // Use small backoff to keep test fast
+    let client = DiscourseClient::new_with_limits_and_backoff(
+        base_url,
+        5,
+        None,
+        std::time::Duration::from_millis(50),
+        0,
+        0,
+    );
     let start = Instant::now();
 
     let result: serde_json::Value = client.get_json("/test.json").await.unwrap();
@@ -107,8 +115,8 @@ async fn test_retries_on_429_with_backoff() {
     let result: serde_json::Value = client.get_json("/test.json").await.unwrap();
 
     let elapsed = start.elapsed();
-    // Should have waited for at least 2 retry delays (reduced for testing)
-    assert!(elapsed >= Duration::from_secs(2));
+    // Should have waited for at least two retry delays (~100ms + 200ms)
+    assert!(elapsed >= Duration::from_millis(250));
     assert_eq!(result["success"], true);
 
     mock_429_1.assert_async().await;

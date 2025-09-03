@@ -14,7 +14,7 @@ pub struct Model {
     pub username: String,
     pub avatar_template: String,
     pub created_at: DateTimeUtc,
-    #[sea_orm(column_type = "Text")]
+    #[sea_orm(column_type = "custom(\"MEDIUMTEXT\")")]
     pub cooked: String,
     pub post_number: i32,
     pub post_type: i32,
@@ -47,7 +47,7 @@ pub struct Model {
     pub user_deleted: i8,
     pub edit_reason: Option<String>,
     pub wiki: i8,
-    #[sea_orm(column_type = "Text", nullable)]
+    #[sea_orm(column_type = "custom(\"MEDIUMTEXT\")", nullable)]
     pub raw: Option<String>,
 }
 
