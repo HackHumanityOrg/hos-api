@@ -316,7 +316,7 @@ impl AccountsModule {
                         deleted_at_time: Set(None),
                     };
 
-                    // Insert access key record
+                    // Insert access key record with PlanetScale-compatible upsert
                     entities::near_access_keys::Entity::insert(access_key_record)
                         .on_conflict(
                             OnConflict::columns([
@@ -324,7 +324,12 @@ impl AccountsModule {
                                 entities::near_access_keys::Column::PublicKey,
                                 entities::near_access_keys::Column::BlockHeight,
                             ])
-                            .do_nothing()
+                            .update_columns([
+                                entities::near_access_keys::Column::AccessKeyType,
+                                entities::near_access_keys::Column::ContractId,
+                                entities::near_access_keys::Column::MethodNames,
+                                entities::near_access_keys::Column::Allowance,
+                            ])
                             .to_owned(),
                         )
                         .exec(&txn)
@@ -355,7 +360,7 @@ impl AccountsModule {
                         deleted_at_time: Set(Some(ts)),
                     };
 
-                    // Insert access key deletion record
+                    // Insert access key deletion record with PlanetScale-compatible upsert
                     entities::near_access_keys::Entity::insert(access_key_record)
                         .on_conflict(
                             OnConflict::columns([
@@ -363,7 +368,11 @@ impl AccountsModule {
                                 entities::near_access_keys::Column::PublicKey,
                                 entities::near_access_keys::Column::BlockHeight,
                             ])
-                            .do_nothing()
+                            .update_columns([
+                                entities::near_access_keys::Column::IsDeleted,
+                                entities::near_access_keys::Column::DeletedAtHeight,
+                                entities::near_access_keys::Column::DeletedAtTime,
+                            ])
                             .to_owned(),
                         )
                         .exec(&txn)
@@ -392,7 +401,7 @@ impl AccountsModule {
                         cause_receipt_hash: Set(cause_receipt.clone()),
                     };
 
-                    // Insert contract data record
+                    // Insert contract data record with PlanetScale-compatible upsert
                     entities::near_contract_data::Entity::insert(data_record)
                         .on_conflict(
                             OnConflict::columns([
@@ -400,7 +409,11 @@ impl AccountsModule {
                                 entities::near_contract_data::Column::DataKey,
                                 entities::near_contract_data::Column::BlockHeight,
                             ])
-                            .do_nothing()
+                            .update_columns([
+                                entities::near_contract_data::Column::DataValue,
+                                entities::near_contract_data::Column::ChangeType,
+                                entities::near_contract_data::Column::BlockTime,
+                            ])
                             .to_owned(),
                         )
                         .exec(&txn)
@@ -424,7 +437,7 @@ impl AccountsModule {
                         cause_receipt_hash: Set(cause_receipt.clone()),
                     };
 
-                    // Insert contract data deletion record
+                    // Insert contract data deletion record with PlanetScale-compatible upsert
                     entities::near_contract_data::Entity::insert(data_record)
                         .on_conflict(
                             OnConflict::columns([
@@ -432,7 +445,11 @@ impl AccountsModule {
                                 entities::near_contract_data::Column::DataKey,
                                 entities::near_contract_data::Column::BlockHeight,
                             ])
-                            .do_nothing()
+                            .update_columns([
+                                entities::near_contract_data::Column::DataValue,
+                                entities::near_contract_data::Column::ChangeType,
+                                entities::near_contract_data::Column::BlockTime,
+                            ])
                             .to_owned(),
                         )
                         .exec(&txn)
@@ -456,14 +473,19 @@ impl AccountsModule {
                         cause_receipt_hash: Set(cause_receipt.clone()),
                     };
 
-                    // Insert contract code record
+                    // Insert contract code record with PlanetScale-compatible upsert
                     entities::near_contract_code::Entity::insert(code_record)
                         .on_conflict(
                             OnConflict::columns([
                                 entities::near_contract_code::Column::AccountId,
                                 entities::near_contract_code::Column::BlockHeight,
                             ])
-                            .do_nothing()
+                            .update_columns([
+                                entities::near_contract_code::Column::CodeHash,
+                                entities::near_contract_code::Column::Code,
+                                entities::near_contract_code::Column::ChangeType,
+                                entities::near_contract_code::Column::BlockTime,
+                            ])
                             .to_owned(),
                         )
                         .exec(&txn)
@@ -485,14 +507,19 @@ impl AccountsModule {
                         cause_receipt_hash: Set(cause_receipt.clone()),
                     };
 
-                    // Insert contract code deletion record
+                    // Insert contract code deletion record with PlanetScale-compatible upsert
                     entities::near_contract_code::Entity::insert(code_record)
                         .on_conflict(
                             OnConflict::columns([
                                 entities::near_contract_code::Column::AccountId,
                                 entities::near_contract_code::Column::BlockHeight,
                             ])
-                            .do_nothing()
+                            .update_columns([
+                                entities::near_contract_code::Column::CodeHash,
+                                entities::near_contract_code::Column::Code,
+                                entities::near_contract_code::Column::ChangeType,
+                                entities::near_contract_code::Column::BlockTime,
+                            ])
                             .to_owned(),
                         )
                         .exec(&txn)
