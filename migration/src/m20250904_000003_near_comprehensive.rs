@@ -184,15 +184,6 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_accounts_parent")
-                    .table(NearAccounts::Table)
-                    .col(NearAccounts::ParentAccountId)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                Index::create()
                     .name("idx_near_accounts_deleted_beneficiary")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::DeletedBeneficiaryId)
@@ -426,15 +417,6 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_account_state_account")
-                    .table(NearAccountStateHistory::Table)
-                    .col(NearAccountStateHistory::AccountId)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                Index::create()
                     .name("idx_near_account_state_height")
                     .table(NearAccountStateHistory::Table)
                     .col(NearAccountStateHistory::BlockHeight)
@@ -585,15 +567,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_access_keys_account")
-                    .table(NearAccessKeys::Table)
-                    .col(NearAccessKeys::AccountId)
-                    .to_owned(),
-            )
-            .await?;
 
         manager
             .create_index(
@@ -734,15 +707,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_contract_code_account")
-                    .table(NearContractCode::Table)
-                    .col(NearContractCode::AccountId)
-                    .to_owned(),
-            )
-            .await?;
 
         manager
             .create_index(
@@ -864,15 +828,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_contract_data_account")
-                    .table(NearContractData::Table)
-                    .col(NearContractData::AccountId)
-                    .to_owned(),
-            )
-            .await?;
 
         manager
             .create_index(
@@ -973,15 +928,6 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_account_events_account")
-                    .table(NearAccountEvents::Table)
-                    .col(NearAccountEvents::AccountId)
-                    .to_owned(),
-            )
-            .await?;
 
         // Time-based index for events
         manager
@@ -994,16 +940,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // Event type filtering
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_account_events_type")
-                    .table(NearAccountEvents::Table)
-                    .col(NearAccountEvents::EventType)
-                    .to_owned(),
-            )
-            .await?;
 
         // Transaction and receipt tracking for events
         manager

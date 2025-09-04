@@ -689,16 +689,6 @@ impl MigrationTrait for Migration {
         let _ = manager
             .create_index(
                 Index::create()
-                    .name("ix_posts_instance_topic")
-                    .table(DiscoursePosts::Table)
-                    .col(DiscoursePosts::Instance)
-                    .col(DiscoursePosts::TopicId)
-                    .to_owned(),
-            )
-            .await;
-        let _ = manager
-            .create_index(
-                Index::create()
                     .name("ix_posts_instance_topic_created_at")
                     .table(DiscoursePosts::Table)
                     .col(DiscoursePosts::Instance)
