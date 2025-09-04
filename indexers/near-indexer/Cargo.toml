@@ -26,6 +26,10 @@ db-core = { workspace = true }
 near-lake-framework = { workspace = true }
 near-account-id = { workspace = true }
 
+# Additional crypto and encoding dependencies
+sha2 = "0.10"
+hex = "0.4"
+
 [dev-dependencies]
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true, features = ["mysql"] }

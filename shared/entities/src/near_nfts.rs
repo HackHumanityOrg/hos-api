@@ -43,6 +43,14 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
+        belongs_to = "super::near_accounts::Entity",
+        from = "Column::OwnerId",
+        to = "super::near_accounts::Column::AccountId",
+        on_update = "Cascade",
+        on_delete = "SetNull"
+    )]
+    NearAccounts,
+    #[sea_orm(
         belongs_to = "super::near_tokens::Entity",
         from = "Column::ContractId",
         to = "super::near_tokens::Column::ContractId",
@@ -50,11 +58,31 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     NearTokens,
+    #[sea_orm(
+        belongs_to = "super::near_transactions::Entity",
+        from = "Column::MintedByTxHash",
+        to = "super::near_transactions::Column::TxHash",
+        on_update = "Cascade",
+        on_delete = "SetNull"
+    )]
+    NearTransactions,
+}
+
+impl Related<super::near_accounts::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::NearAccounts.def()
+    }
 }
 
 impl Related<super::near_tokens::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::NearTokens.def()
+    }
+}
+
+impl Related<super::near_transactions::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::NearTransactions.def()
     }
 }
 

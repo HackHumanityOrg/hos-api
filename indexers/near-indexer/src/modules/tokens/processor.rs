@@ -379,7 +379,10 @@ impl TokensModule {
                 log_index: Set(log_index as i32),
             };
 
+            // Prevent duplicate inserts on replay by ignoring conflicts against
+            // the unique index (receipt_hash, log_index, event_type).
             entities::near_token_transfers::Entity::insert(transfer)
+                .on_conflict_do_nothing()
                 .exec(&txn)
                 .await?;
         }
@@ -457,18 +460,54 @@ impl IndexerModule for TokensModule {
         db: &DatabaseConnection,
     ) -> Result<()> {
         let height = msg.block.header.height as i64;
+        // Always skip if this block is at or before the persisted cursor height
+        if let Some(prev) = self.get_cursor(db).await? {
+            if height <= prev {
+                debug!(
+                    height,
+                    module = MODULE_NAME,
+                    "skipping block at/before cursor"
+                );
+                return Ok(());
+            }
+        }
         let ts = msg.block.header.timestamp_nanosec as i64;
 
+        // Create a map of transaction hashes from chunks
+        let mut tx_hash_map = std::collections::HashMap::new();
         for shard in &msg.shards {
+            if let Some(chunk) = &shard.chunk {
+                for tx in &chunk.transactions {
+                    let tx_hash = tx.transaction.hash.to_string();
+                    for receipt in &tx.outcome.execution_outcome.outcome.receipt_ids {
+                        tx_hash_map.insert(receipt.to_string(), tx_hash.clone());
+                    }
+                }
+            }
+        }
+
+        // Process receipt execution outcomes
+        for shard in &msg.shards {
+            // Process transactions directly from chunks (for direct token events)
+            if let Some(chunk) = &shard.chunk {
+                for tx in &chunk.transactions {
+                    let tx_hash = tx.transaction.hash.to_string();
+                    let events = self.parse_event_logs(&tx.outcome.execution_outcome)?;
+                    if !events.is_empty() {
+                        // For transaction logs, use transaction hash as receipt hash too
+                        self.process_token_events(events, height, ts, &tx_hash, &tx_hash, db)
+                            .await?;
+                    }
+                }
+            }
+
+            // Process receipt execution outcomes
             for reo in &shard.receipt_execution_outcomes {
-                let tx_hash = reo
-                    .execution_outcome
-                    .outcome
-                    .receipt_ids
-                    .first()
-                    .map(|id| id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
                 let receipt_hash = reo.receipt.receipt_id.to_string();
+                let tx_hash = tx_hash_map.get(&receipt_hash).cloned().unwrap_or_else(|| {
+                    // Fallback: try to extract from receipt's predecessor or use receipt ID
+                    receipt_hash.clone()
+                });
 
                 let events = self.parse_event_logs(&reo.execution_outcome)?;
                 if !events.is_empty() {
@@ -487,6 +526,11 @@ impl IndexerModule for TokensModule {
     }
 
     async fn update_cursor(&self, db: &DatabaseConnection, height: i64) -> Result<()> {
-        cursor::upsert_module_cursor(db, MODULE_NAME, height).await
+        // Only advance cursor when moving forward
+        let current = self.get_cursor(db).await?;
+        if current.map(|h| height > h).unwrap_or(true) {
+            cursor::upsert_module_cursor(db, MODULE_NAME, height).await?;
+        }
+        Ok(())
     }
 }

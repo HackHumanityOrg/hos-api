@@ -31,10 +31,42 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    #[sea_orm(has_many = "super::near_access_keys::Entity")]
+    NearAccessKeys,
     #[sea_orm(has_many = "super::near_account_events::Entity")]
     NearAccountEvents,
     #[sea_orm(has_many = "super::near_account_state_history::Entity")]
     NearAccountStateHistory,
+    #[sea_orm(has_many = "super::near_contract_code::Entity")]
+    NearContractCode,
+    #[sea_orm(has_many = "super::near_contract_data::Entity")]
+    NearContractData,
+    #[sea_orm(has_many = "super::near_nfts::Entity")]
+    NearNfts,
+    #[sea_orm(has_one = "super::near_tokens::Entity")]
+    NearTokens,
+    #[sea_orm(
+        belongs_to = "super::near_transactions::Entity",
+        from = "Column::CreatedByTxHash",
+        to = "super::near_transactions::Column::TxHash",
+        on_update = "Cascade",
+        on_delete = "SetNull"
+    )]
+    NearTransactions2,
+    #[sea_orm(
+        belongs_to = "super::near_transactions::Entity",
+        from = "Column::DeletedByTxHash",
+        to = "super::near_transactions::Column::TxHash",
+        on_update = "Cascade",
+        on_delete = "SetNull"
+    )]
+    NearTransactions1,
+}
+
+impl Related<super::near_access_keys::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::NearAccessKeys.def()
+    }
 }
 
 impl Related<super::near_account_events::Entity> for Entity {
@@ -46,6 +78,30 @@ impl Related<super::near_account_events::Entity> for Entity {
 impl Related<super::near_account_state_history::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::NearAccountStateHistory.def()
+    }
+}
+
+impl Related<super::near_contract_code::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::NearContractCode.def()
+    }
+}
+
+impl Related<super::near_contract_data::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::NearContractData.def()
+    }
+}
+
+impl Related<super::near_nfts::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::NearNfts.def()
+    }
+}
+
+impl Related<super::near_tokens::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::NearTokens.def()
     }
 }
 

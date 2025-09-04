@@ -1,13 +1,16 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use entities;
 use near_account_id::AccountIdRef;
 use near_lake_framework::near_indexer_primitives::views::{
-    ActionView, ReceiptEnumView, StateChangeCauseView, StateChangeValueView,
+    AccessKeyPermissionView, ActionView, ReceiptEnumView, StateChangeCauseView,
+    StateChangeValueView,
 };
 use sea_orm::sea_query::OnConflict;
 use sea_orm::ActiveValue::NotSet;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, TransactionTrait};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::{sync::Semaphore, task::JoinSet};
@@ -268,7 +271,235 @@ impl AccountsModule {
                         }
                     }
                 }
-                _ => {}
+                StateChangeValueView::AccessKeyUpdate {
+                    account_id,
+                    public_key,
+                    access_key,
+                } => {
+                    let access_key_type = match &access_key.permission {
+                        AccessKeyPermissionView::FullAccess => "full_access",
+                        AccessKeyPermissionView::FunctionCall { .. } => "function_call",
+                    };
+
+                    let (contract_id, method_names, allowance) = match &access_key.permission {
+                        AccessKeyPermissionView::FunctionCall {
+                            allowance: maybe_allowance,
+                            receiver_id,
+                            method_names: methods,
+                        } => {
+                            let allowance = maybe_allowance.map(|a| {
+                                rust_decimal::Decimal::from_str_exact(&a.to_string())
+                                    .unwrap_or_default()
+                            });
+                            let methods_json = serde_json::to_string(methods).unwrap_or_default();
+                            (Some(receiver_id.to_string()), Some(methods_json), allowance)
+                        }
+                        _ => (None, None, None),
+                    };
+
+                    let access_key_record = entities::near_access_keys::ActiveModel {
+                        id: NotSet,
+                        account_id: Set(account_id.to_string()),
+                        public_key: Set(public_key.to_string()),
+                        access_key_type: Set(access_key_type.to_string()),
+                        contract_id: Set(contract_id),
+                        method_names: Set(method_names),
+                        allowance: Set(allowance),
+                        block_height: Set(height),
+                        block_time: Set(ts),
+                        change_type: Set("add".to_string()),
+                        cause_type: Set(cause_str.to_string()),
+                        cause_tx_hash: Set(cause_tx.clone()),
+                        cause_receipt_hash: Set(cause_receipt.clone()),
+                        is_deleted: Set(0),
+                        deleted_at_height: Set(None),
+                        deleted_at_time: Set(None),
+                    };
+
+                    // Insert access key record
+                    entities::near_access_keys::Entity::insert(access_key_record)
+                        .on_conflict(
+                            OnConflict::columns([
+                                entities::near_access_keys::Column::AccountId,
+                                entities::near_access_keys::Column::PublicKey,
+                                entities::near_access_keys::Column::BlockHeight,
+                            ])
+                            .do_nothing()
+                            .to_owned(),
+                        )
+                        .exec(&txn)
+                        .await?;
+
+                    debug!(account_id = %account_id, public_key = %public_key, "access key updated");
+                }
+                StateChangeValueView::AccessKeyDeletion {
+                    account_id,
+                    public_key,
+                } => {
+                    let access_key_record = entities::near_access_keys::ActiveModel {
+                        id: NotSet,
+                        account_id: Set(account_id.to_string()),
+                        public_key: Set(public_key.to_string()),
+                        access_key_type: Set("unknown".to_string()), // We don't know the type on deletion
+                        contract_id: Set(None),
+                        method_names: Set(None),
+                        allowance: Set(None),
+                        block_height: Set(height),
+                        block_time: Set(ts),
+                        change_type: Set("delete".to_string()),
+                        cause_type: Set(cause_str.to_string()),
+                        cause_tx_hash: Set(cause_tx.clone()),
+                        cause_receipt_hash: Set(cause_receipt.clone()),
+                        is_deleted: Set(1),
+                        deleted_at_height: Set(Some(height)),
+                        deleted_at_time: Set(Some(ts)),
+                    };
+
+                    // Insert access key deletion record
+                    entities::near_access_keys::Entity::insert(access_key_record)
+                        .on_conflict(
+                            OnConflict::columns([
+                                entities::near_access_keys::Column::AccountId,
+                                entities::near_access_keys::Column::PublicKey,
+                                entities::near_access_keys::Column::BlockHeight,
+                            ])
+                            .do_nothing()
+                            .to_owned(),
+                        )
+                        .exec(&txn)
+                        .await?;
+
+                    debug!(account_id = %account_id, public_key = %public_key, "access key deleted");
+                }
+                StateChangeValueView::DataUpdate {
+                    account_id,
+                    key,
+                    value,
+                } => {
+                    let key_base64 = hex::encode(key.as_ref() as &[u8]);
+                    let value_base64 = hex::encode(value.as_ref() as &[u8]);
+
+                    let data_record = entities::near_contract_data::ActiveModel {
+                        id: NotSet,
+                        account_id: Set(account_id.to_string()),
+                        data_key: Set(key_base64),
+                        data_value: Set(Some(value_base64)),
+                        block_height: Set(height),
+                        block_time: Set(ts),
+                        change_type: Set("update".to_string()),
+                        cause_type: Set(cause_str.to_string()),
+                        cause_tx_hash: Set(cause_tx.clone()),
+                        cause_receipt_hash: Set(cause_receipt.clone()),
+                    };
+
+                    // Insert contract data record
+                    entities::near_contract_data::Entity::insert(data_record)
+                        .on_conflict(
+                            OnConflict::columns([
+                                entities::near_contract_data::Column::AccountId,
+                                entities::near_contract_data::Column::DataKey,
+                                entities::near_contract_data::Column::BlockHeight,
+                            ])
+                            .do_nothing()
+                            .to_owned(),
+                        )
+                        .exec(&txn)
+                        .await?;
+
+                    debug!(account_id = %account_id, key_len = key.len(), "contract data updated");
+                }
+                StateChangeValueView::DataDeletion { account_id, key } => {
+                    let key_base64 = hex::encode(key.as_ref() as &[u8]);
+
+                    let data_record = entities::near_contract_data::ActiveModel {
+                        id: NotSet,
+                        account_id: Set(account_id.to_string()),
+                        data_key: Set(key_base64),
+                        data_value: Set(None), // NULL indicates deletion
+                        block_height: Set(height),
+                        block_time: Set(ts),
+                        change_type: Set("delete".to_string()),
+                        cause_type: Set(cause_str.to_string()),
+                        cause_tx_hash: Set(cause_tx.clone()),
+                        cause_receipt_hash: Set(cause_receipt.clone()),
+                    };
+
+                    // Insert contract data deletion record
+                    entities::near_contract_data::Entity::insert(data_record)
+                        .on_conflict(
+                            OnConflict::columns([
+                                entities::near_contract_data::Column::AccountId,
+                                entities::near_contract_data::Column::DataKey,
+                                entities::near_contract_data::Column::BlockHeight,
+                            ])
+                            .do_nothing()
+                            .to_owned(),
+                        )
+                        .exec(&txn)
+                        .await?;
+
+                    debug!(account_id = %account_id, key_len = key.len(), "contract data deleted");
+                }
+                StateChangeValueView::ContractCodeUpdate { account_id, code } => {
+                    let code_hash = format!("{:x}", Sha256::digest(&code));
+
+                    let code_record = entities::near_contract_code::ActiveModel {
+                        id: NotSet,
+                        account_id: Set(account_id.to_string()),
+                        code_hash: Set(code_hash),
+                        code: Set(Some(code.clone())),
+                        block_height: Set(height),
+                        block_time: Set(ts),
+                        change_type: Set("deploy".to_string()),
+                        cause_type: Set(cause_str.to_string()),
+                        cause_tx_hash: Set(cause_tx.clone()),
+                        cause_receipt_hash: Set(cause_receipt.clone()),
+                    };
+
+                    // Insert contract code record
+                    entities::near_contract_code::Entity::insert(code_record)
+                        .on_conflict(
+                            OnConflict::columns([
+                                entities::near_contract_code::Column::AccountId,
+                                entities::near_contract_code::Column::BlockHeight,
+                            ])
+                            .do_nothing()
+                            .to_owned(),
+                        )
+                        .exec(&txn)
+                        .await?;
+
+                    debug!(account_id = %account_id, code_len = code.len(), "contract code updated");
+                }
+                StateChangeValueView::ContractCodeDeletion { account_id } => {
+                    let code_record = entities::near_contract_code::ActiveModel {
+                        id: NotSet,
+                        account_id: Set(account_id.to_string()),
+                        code_hash: Set("deleted".to_string()),
+                        code: Set(None), // NULL indicates deletion
+                        block_height: Set(height),
+                        block_time: Set(ts),
+                        change_type: Set("delete".to_string()),
+                        cause_type: Set(cause_str.to_string()),
+                        cause_tx_hash: Set(cause_tx.clone()),
+                        cause_receipt_hash: Set(cause_receipt.clone()),
+                    };
+
+                    // Insert contract code deletion record
+                    entities::near_contract_code::Entity::insert(code_record)
+                        .on_conflict(
+                            OnConflict::columns([
+                                entities::near_contract_code::Column::AccountId,
+                                entities::near_contract_code::Column::BlockHeight,
+                            ])
+                            .do_nothing()
+                            .to_owned(),
+                        )
+                        .exec(&txn)
+                        .await?;
+
+                    debug!(account_id = %account_id, "contract code deleted");
+                }
             }
         }
 
@@ -381,6 +612,16 @@ impl IndexerModule for AccountsModule {
         db: &DatabaseConnection,
     ) -> Result<()> {
         let height = msg.block.header.height as i64;
+        if let Some(prev) = self.get_cursor(db).await? {
+            if height <= prev {
+                debug!(
+                    height,
+                    module = MODULE_NAME,
+                    "skipping block at/before cursor"
+                );
+                return Ok(());
+            }
+        }
         let ts = msg.block.header.timestamp_nanosec as i64;
 
         let delete_beneficiaries = Arc::new(Self::pre_scan_delete_beneficiaries(msg));
@@ -417,6 +658,10 @@ impl IndexerModule for AccountsModule {
     }
 
     async fn update_cursor(&self, db: &DatabaseConnection, height: i64) -> Result<()> {
-        cursor::upsert_module_cursor(db, MODULE_NAME, height).await
+        let current = self.get_cursor(db).await?;
+        if current.map(|h| height > h).unwrap_or(true) {
+            cursor::upsert_module_cursor(db, MODULE_NAME, height).await?;
+        }
+        Ok(())
     }
 }
