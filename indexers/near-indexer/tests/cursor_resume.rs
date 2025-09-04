@@ -67,3 +67,27 @@ async fn upsert_module_cursor_inserts_then_updates_timestamp() {
     assert_eq!(second.block_height, 11);
     assert!(second.updated_at.unwrap() > first.updated_at.unwrap());
 }
+
+#[tokio::test]
+async fn negative_cursor_treated_as_zero() {
+    let test_db = TestDatabase::new().await;
+    let db = test_db.db();
+
+    // Insert a negative height cursor
+    let row = entities::near_sync_cursors::ActiveModel {
+        stream_name: Set("near-indexer:test".to_string()),
+        block_height: Set(-5),
+        updated_at: NotSet,
+    };
+    let _ = entities::near_sync_cursors::Entity::insert(row)
+        .exec(&db)
+        .await
+        .expect("insert neg cursor");
+
+    // Configured start lower than 1; expect start = 1
+    let (start, used_cursor) = choose_module_start_height(&db, "test", 0)
+        .await
+        .expect("choose neg");
+    assert!(used_cursor);
+    assert_eq!(start, 1);
+}

@@ -381,8 +381,15 @@ impl TokensModule {
 
             // Prevent duplicate inserts on replay by ignoring conflicts against
             // the unique index (receipt_hash, log_index, event_type).
+            use entities::near_token_transfers::Column as TTC;
+            use sea_orm::sea_query::OnConflict;
             entities::near_token_transfers::Entity::insert(transfer)
-                .on_conflict_do_nothing()
+                .on_conflict(
+                    OnConflict::columns([TTC::ReceiptHash, TTC::LogIndex, TTC::EventType])
+                        // No-op style update to satisfy MySQL (ON DUPLICATE KEY UPDATE)
+                        .update_columns([TTC::LogIndex])
+                        .to_owned(),
+                )
                 .exec(&txn)
                 .await?;
         }

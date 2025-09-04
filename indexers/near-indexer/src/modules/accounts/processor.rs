@@ -577,16 +577,34 @@ impl AccountsModule {
 
         // Batch insert for state history
         if !state_history_inserts.is_empty() {
+            use entities::near_account_state_history::Column as ASHC;
+            use sea_orm::sea_query::OnConflict;
             entities::near_account_state_history::Entity::insert_many(state_history_inserts)
-                .on_conflict_do_nothing()
+                .on_conflict(
+                    OnConflict::columns([ASHC::AccountId, ASHC::BlockHeight])
+                        // Update to same columns to emulate no-op on duplicate
+                        .update_columns([ASHC::BlockTime])
+                        .to_owned(),
+                )
                 .exec(&txn)
                 .await?;
         }
 
         // Batch insert for events with receipt hash
         if !event_inserts_receipt.is_empty() {
+            use entities::near_account_events::Column as AEC;
+            use sea_orm::sea_query::OnConflict;
             entities::near_account_events::Entity::insert_many(event_inserts_receipt)
-                .on_conflict_do_nothing()
+                .on_conflict(
+                    OnConflict::columns([
+                        AEC::AccountId,
+                        AEC::EventType,
+                        AEC::BlockHeight,
+                        AEC::ReceiptHash,
+                    ])
+                    .update_columns([AEC::BlockTime])
+                    .to_owned(),
+                )
                 .exec(&txn)
                 .await?;
         }

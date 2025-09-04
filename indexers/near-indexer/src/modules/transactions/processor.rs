@@ -88,10 +88,12 @@ impl TransactionsProcessor {
 
         let tx_count = transaction_inserts.len();
         if !transaction_inserts.is_empty() {
+            use entities::near_transactions::Column as TXC;
             entities::near_transactions::Entity::insert_many(transaction_inserts)
                 .on_conflict(
-                    OnConflict::column(entities::near_transactions::Column::TxHash)
-                        .do_nothing()
+                    OnConflict::column(TXC::TxHash)
+                        // No-op style update to satisfy MySQL
+                        .update_columns([TXC::TxHash])
                         .to_owned(),
                 )
                 .exec(&txn)

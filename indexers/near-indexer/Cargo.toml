@@ -13,7 +13,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sea-orm = { workspace = true }
 entities = { workspace = true }
-async-trait = "0.1"
+async-trait = { workspace = true }
 
 # Decimal for amounts
 rust_decimal = { workspace = true }
@@ -27,8 +27,9 @@ near-lake-framework = { workspace = true }
 near-account-id = { workspace = true }
 
 # Additional crypto and encoding dependencies
-sha2 = "0.10"
-hex = "0.4"
+sha2 = { workspace = true }
+hex = { workspace = true }
+near-primitives = { workspace = true }
 
 [dev-dependencies]
 testcontainers = { workspace = true }
@@ -37,3 +38,4 @@ migration = { workspace = true }
 db-core = { workspace = true }
 common = { workspace = true }
 test-support = { workspace = true }
+near-crypto = { workspace = true }
