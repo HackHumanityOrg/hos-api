@@ -74,7 +74,6 @@ FROM gcr.io/distroless/cc-debian12 AS runtime
 
 # Copy optimized statically-linked binary and configuration
 COPY --from=builder /tmp/discourse-indexer /discourse-indexer
-COPY config.toml /config.toml
 COPY indexers/discourse-indexer/config.toml /discourse-indexer-config.toml
 
 # Add metadata labels for better maintainability

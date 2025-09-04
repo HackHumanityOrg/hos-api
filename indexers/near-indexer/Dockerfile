@@ -62,7 +62,6 @@ FROM gcr.io/distroless/cc-debian12 AS runtime
 
 # Copy binary and configs
 COPY --from=builder /tmp/near-indexer /near-indexer
-COPY config.toml /config.toml
 COPY indexers/near-indexer/config.toml /near-indexer-config.toml
 
 LABEL maintainer="data-commons-team" \
@@ -73,4 +72,3 @@ LABEL maintainer="data-commons-team" \
   platforms="linux/amd64,linux/arm64"
 
 ENTRYPOINT ["/near-indexer"]
-

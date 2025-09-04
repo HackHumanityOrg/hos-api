@@ -74,7 +74,6 @@ FROM gcr.io/distroless/cc-debian12 AS runtime
 
 # Copy optimized statically-linked binary and configuration
 COPY --from=builder /tmp/api /api-bin
-COPY config.toml /config.toml
 COPY api/config.toml /api/config.toml
 
 # Expose port
