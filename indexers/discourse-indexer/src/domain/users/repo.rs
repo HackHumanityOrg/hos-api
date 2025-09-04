@@ -1,6 +1,6 @@
 use crate::domain::users::model::{DirectoryItem, UserProfile};
 use anyhow::Result;
-use entities::discourse_indexer_users;
+use entities::discourse_users;
 use rand::Rng;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use tracing::{debug, instrument};
 
-// Per-instance async lock to serialize writes to `discourse_indexer_users` and avoid
+// Per-instance async lock to serialize writes to `discourse_users` and avoid
 // interleaving UPSERTs from directory, posts, and likes that can cause deadlocks.
 static USER_LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
 
@@ -32,7 +32,7 @@ pub async fn upsert_user(
     let _guard = lock.lock().await;
     let u = &item.user;
 
-    let am = discourse_indexer_users::ActiveModel {
+    let am = discourse_users::ActiveModel {
         instance: Set(instance.to_string()),
         external_id: Set(u.id),
         username: Set(u.username.clone()),
@@ -52,24 +52,24 @@ pub async fn upsert_user(
     let mut attempts = 0u32;
     loop {
         attempts += 1;
-        let res = discourse_indexer_users::Entity::insert(am.clone())
+        let res = discourse_users::Entity::insert(am.clone())
             .on_conflict(
                 OrmOnConflict::columns([
-                    discourse_indexer_users::Column::Instance,
-                    discourse_indexer_users::Column::ExternalId,
+                    discourse_users::Column::Instance,
+                    discourse_users::Column::ExternalId,
                 ])
                 .update_columns([
-                    discourse_indexer_users::Column::Username,
-                    discourse_indexer_users::Column::Name,
-                    discourse_indexer_users::Column::AvatarTemplate,
-                    discourse_indexer_users::Column::Title,
-                    discourse_indexer_users::Column::LikesReceived,
-                    discourse_indexer_users::Column::LikesGiven,
-                    discourse_indexer_users::Column::TopicsEntered,
-                    discourse_indexer_users::Column::TopicCount,
-                    discourse_indexer_users::Column::PostCount,
-                    discourse_indexer_users::Column::PostsRead,
-                    discourse_indexer_users::Column::DaysVisited,
+                    discourse_users::Column::Username,
+                    discourse_users::Column::Name,
+                    discourse_users::Column::AvatarTemplate,
+                    discourse_users::Column::Title,
+                    discourse_users::Column::LikesReceived,
+                    discourse_users::Column::LikesGiven,
+                    discourse_users::Column::TopicsEntered,
+                    discourse_users::Column::TopicCount,
+                    discourse_users::Column::PostCount,
+                    discourse_users::Column::PostsRead,
+                    discourse_users::Column::DaysVisited,
                 ])
                 .to_owned(),
             )
@@ -114,7 +114,7 @@ pub async fn upsert_user_profile(
     // Serialize per-instance writers to users
     let lock = get_user_lock(instance);
     let _guard = lock.lock().await;
-    let am = discourse_indexer_users::ActiveModel {
+    let am = discourse_users::ActiveModel {
         instance: Set(instance.to_string()),
         external_id: Set(profile.id),
         username: Set(profile.username.clone()),
@@ -130,17 +130,17 @@ pub async fn upsert_user_profile(
         days_visited: Set(0),
         ..Default::default()
     };
-    discourse_indexer_users::Entity::insert(am)
+    discourse_users::Entity::insert(am)
         .on_conflict(
             OrmOnConflict::columns([
-                discourse_indexer_users::Column::Instance,
-                discourse_indexer_users::Column::ExternalId,
+                discourse_users::Column::Instance,
+                discourse_users::Column::ExternalId,
             ])
             .update_columns([
-                discourse_indexer_users::Column::Username,
-                discourse_indexer_users::Column::Name,
-                discourse_indexer_users::Column::AvatarTemplate,
-                discourse_indexer_users::Column::Title,
+                discourse_users::Column::Username,
+                discourse_users::Column::Name,
+                discourse_users::Column::AvatarTemplate,
+                discourse_users::Column::Title,
             ])
             .to_owned(),
         )
@@ -178,9 +178,9 @@ pub async fn upsert_user_profiles_bulk(
     // Chunk to reduce lock footprint and the probability of deadlocks
     const CHUNK_SIZE: usize = 200;
     for chunk in uniq.chunks(CHUNK_SIZE) {
-        let ams: Vec<discourse_indexer_users::ActiveModel> = chunk
+        let ams: Vec<discourse_users::ActiveModel> = chunk
             .iter()
-            .map(|p| discourse_indexer_users::ActiveModel {
+            .map(|p| discourse_users::ActiveModel {
                 instance: Set(instance.to_string()),
                 external_id: Set(p.id),
                 username: Set(p.username.clone()),
@@ -202,17 +202,17 @@ pub async fn upsert_user_profiles_bulk(
         let mut attempts = 0u32;
         loop {
             attempts += 1;
-            let res = discourse_indexer_users::Entity::insert_many(ams.clone())
+            let res = discourse_users::Entity::insert_many(ams.clone())
                 .on_conflict(
                     OrmOnConflict::columns([
-                        discourse_indexer_users::Column::Instance,
-                        discourse_indexer_users::Column::ExternalId,
+                        discourse_users::Column::Instance,
+                        discourse_users::Column::ExternalId,
                     ])
                     .update_columns([
-                        discourse_indexer_users::Column::Username,
-                        discourse_indexer_users::Column::Name,
-                        discourse_indexer_users::Column::AvatarTemplate,
-                        discourse_indexer_users::Column::Title,
+                        discourse_users::Column::Username,
+                        discourse_users::Column::Name,
+                        discourse_users::Column::AvatarTemplate,
+                        discourse_users::Column::Title,
                     ])
                     .to_owned(),
                 )

@@ -1,0 +1,35 @@
+[package]
+name = "near-indexer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dotenvy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sea-orm = { workspace = true }
+entities = { workspace = true }
+async-trait = "0.1"
+
+# Decimal for amounts
+rust_decimal = { workspace = true }
+
+# Shared workspace crates
+common = { workspace = true }
+db-core = { workspace = true }
+
+# NEAR Lake and account id helpers
+near-lake-framework = { workspace = true }
+near-account-id = { workspace = true }
+
+[dev-dependencies]
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true, features = ["mysql"] }
+migration = { workspace = true }
+db-core = { workspace = true }
+common = { workspace = true }
+test-support = { workspace = true }

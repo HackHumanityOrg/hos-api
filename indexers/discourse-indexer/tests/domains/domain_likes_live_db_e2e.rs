@@ -8,7 +8,7 @@ use discourse_indexer::domain::{
     posts::adapter as posts_adapter,
     topics::adapter as topics_adapter,
 };
-use entities::discourse_indexer_post_likes;
+use entities::discourse_post_likes;
 use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -168,12 +168,11 @@ async fn test_domain_likes_fetch_and_persist(#[future] test_db: TestDatabase) {
         .await
         .expect("update likes");
 
-    let stored = discourse_indexer_post_likes::Entity::find()
-        .filter(discourse_indexer_post_likes::Column::Instance.eq(TEST_INSTANCE))
-        .filter(discourse_indexer_post_likes::Column::ExternalDiscoursePostId.eq(post.id))
+    let stored = discourse_post_likes::Entity::find()
+        .filter(discourse_post_likes::Column::Instance.eq(TEST_INSTANCE))
+        .filter(discourse_post_likes::Column::ExternalDiscoursePostId.eq(post.id))
         .filter(
-            discourse_indexer_post_likes::Column::ExternalUserId
-                .eq(likes_updated.post_action_users[0].id),
+            discourse_post_likes::Column::ExternalUserId.eq(likes_updated.post_action_users[0].id),
         )
         .one(&db)
         .await

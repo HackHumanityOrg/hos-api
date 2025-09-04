@@ -8,7 +8,7 @@ use discourse_indexer::domain::{
     revisions::{adapter as revisions_adapter, repo as revisions_repo},
     topics::adapter as topics_adapter,
 };
-use entities::discourse_indexer_post_revisions;
+use entities::discourse_post_revisions;
 use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -144,10 +144,10 @@ async fn test_domain_revisions_fetch_and_persist(#[future] test_db: TestDatabase
             .await
             .expect("update rev");
 
-        let stored = discourse_indexer_post_revisions::Entity::find()
-            .filter(discourse_indexer_post_revisions::Column::Instance.eq(TEST_INSTANCE))
-            .filter(discourse_indexer_post_revisions::Column::ExternalPostId.eq(post.id))
-            .filter(discourse_indexer_post_revisions::Column::CurrentVersion.eq(version))
+        let stored = discourse_post_revisions::Entity::find()
+            .filter(discourse_post_revisions::Column::Instance.eq(TEST_INSTANCE))
+            .filter(discourse_post_revisions::Column::ExternalPostId.eq(post.id))
+            .filter(discourse_post_revisions::Column::CurrentVersion.eq(version))
             .one(&db)
             .await
             .expect("fetch rev")

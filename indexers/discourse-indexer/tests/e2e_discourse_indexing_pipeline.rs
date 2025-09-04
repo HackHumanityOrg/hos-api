@@ -7,8 +7,8 @@ use discourse_indexer::domain::revisions;
 use discourse_indexer::domain::topics;
 use discourse_indexer::domain::users;
 use entities::{
-    discourse_indexer_categories, discourse_indexer_post_likes, discourse_indexer_post_revisions,
-    discourse_indexer_posts, discourse_indexer_topics, discourse_indexer_users,
+    discourse_categories, discourse_post_likes, discourse_post_revisions, discourse_posts,
+    discourse_topics, discourse_users,
 };
 use rstest::*;
 use sea_orm::DatabaseConnection;
@@ -90,7 +90,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
     }
 
     // Verify categories were stored
-    let stored_categories = discourse_indexer_categories::Entity::find()
+    let stored_categories = discourse_categories::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored categories");
@@ -115,7 +115,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
         .expect("upsert topics");
 
     // Verify topics were stored
-    let stored_topics = discourse_indexer_topics::Entity::find()
+    let stored_topics = discourse_topics::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored topics");
@@ -139,7 +139,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
     }
 
     // Verify users were stored
-    let stored_users = discourse_indexer_users::Entity::find()
+    let stored_users = discourse_users::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored users");
@@ -176,7 +176,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
         .expect("upsert posts");
 
     // Verify posts were stored
-    let stored_posts = discourse_indexer_posts::Entity::find()
+    let stored_posts = discourse_posts::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored posts");
@@ -214,7 +214,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
     }
 
     // Verify likes table exists and can be queried
-    let stored_likes = discourse_indexer_post_likes::Entity::find()
+    let stored_likes = discourse_post_likes::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored likes");
@@ -274,7 +274,7 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
     }
 
     // Verify revisions were stored (if any were found)
-    let stored_revisions = discourse_indexer_post_revisions::Entity::find()
+    let stored_revisions = discourse_post_revisions::Entity::find()
         .all(&db)
         .await
         .expect("fetch stored revisions");
@@ -345,7 +345,7 @@ async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabas
         .await
         .expect("first upsert");
 
-    let topics_count = discourse_indexer_topics::Entity::find()
+    let topics_count = discourse_topics::Entity::find()
         .count(&db)
         .await
         .expect("count topics");
@@ -357,7 +357,7 @@ async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabas
         .await
         .expect("second upsert");
 
-    let topics_count_after = discourse_indexer_topics::Entity::find()
+    let topics_count_after = discourse_topics::Entity::find()
         .count(&db)
         .await
         .expect("count topics after second insert");
@@ -368,7 +368,7 @@ async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabas
     );
 
     // Verify the topic data is correct
-    let stored_topic = discourse_indexer_topics::Entity::find()
+    let stored_topic = discourse_topics::Entity::find()
         .one(&db)
         .await
         .expect("fetch topic")
@@ -473,22 +473,22 @@ async fn test_e2e_data_integrity_across_entities(#[future] test_db: TestDatabase
     }
 
     // Verify data relationships
-    let stored_topics = discourse_indexer_topics::Entity::find()
+    let stored_topics = discourse_topics::Entity::find()
         .all(&db)
         .await
         .expect("fetch topics");
 
-    let stored_posts = discourse_indexer_posts::Entity::find()
+    let stored_posts = discourse_posts::Entity::find()
         .all(&db)
         .await
         .expect("fetch posts");
 
-    let stored_users = discourse_indexer_users::Entity::find()
+    let stored_users = discourse_users::Entity::find()
         .all(&db)
         .await
         .expect("fetch users");
 
-    let stored_likes = discourse_indexer_post_likes::Entity::find()
+    let stored_likes = discourse_post_likes::Entity::find()
         .all(&db)
         .await
         .expect("fetch likes");
@@ -599,7 +599,7 @@ async fn test_e2e_error_handling_and_recovery(#[future] test_db: TestDatabase) {
         .await
         .expect("database operations should still work after API errors");
 
-    let stored_topics = discourse_indexer_topics::Entity::find()
+    let stored_topics = discourse_topics::Entity::find()
         .count(&db)
         .await
         .expect("count topics");
@@ -716,12 +716,12 @@ async fn test_e2e_concurrent_indexing_across_topics(#[future] test_db: TestDatab
     }
 
     // Verify data integrity after concurrent operations
-    let stored_topics = discourse_indexer_topics::Entity::find()
+    let stored_topics = discourse_topics::Entity::find()
         .count(&db)
         .await
         .expect("count topics");
 
-    let stored_posts = discourse_indexer_posts::Entity::find()
+    let stored_posts = discourse_posts::Entity::find()
         .count(&db)
         .await
         .expect("count posts");

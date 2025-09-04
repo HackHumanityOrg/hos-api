@@ -207,6 +207,9 @@ pub struct IndexerConfig {
     pub logging: LoggingConfig,
     pub telemetry: TelemetryConfig,
     pub discourse: Option<DiscourseConfig>,
+    /// NEAR Lake / chain streaming configuration for NEAR indexers
+    #[serde(default)]
+    pub near: Option<NearLakeConfig>,
 }
 
 impl ToLog for IndexerConfig {
@@ -216,6 +219,113 @@ impl ToLog for IndexerConfig {
             "logging": self.logging.to_log(),
             "telemetry": self.telemetry.to_log(),
             "discourse": self.discourse.as_ref().map(|d| d.to_log()),
+            "near": self.near.as_ref().map(|n| n.to_log()),
+        })
+    }
+}
+
+/// NEAR Lake / chain streaming configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NearLakeConfig {
+    /// Chain to index: "mainnet" or "testnet"
+    #[serde(default = "default_chain")]
+    pub chain: String,
+    /// Start block height for backfill
+    #[serde(default)]
+    pub start_height: u64,
+    /// Optional concurrency hint for internal batching (not all frameworks use it)
+    #[serde(default)]
+    pub concurrency: Option<usize>,
+    /// Optional AWS region override (e.g., eu-central-1). Typically use AWS_REGION env.
+    #[serde(default)]
+    pub region: Option<String>,
+    /// Module-specific configurations
+    #[serde(default)]
+    pub modules: Option<NearModulesConfig>,
+}
+
+/// NEAR indexer modules configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NearModulesConfig {
+    /// Accounts module configuration
+    #[serde(default)]
+    pub accounts: Option<AccountsModuleConfig>,
+    /// Tokens module configuration
+    #[serde(default)]
+    pub tokens: Option<TokensModuleConfig>,
+}
+
+/// Accounts module configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AccountsModuleConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub track_implicit: bool,
+    #[serde(default = "default_true")]
+    pub track_eth_implicit: bool,
+}
+
+/// Tokens module configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TokensModuleConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub track_nep141: bool,
+    #[serde(default = "default_true")]
+    pub track_nep171: bool,
+    #[serde(default)]
+    pub contracts: Vec<String>,
+}
+
+fn default_chain() -> String {
+    "mainnet".to_string()
+}
+
+impl ToLog for NearLakeConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "chain": self.chain,
+            "start_height": self.start_height,
+            "concurrency": self.concurrency,
+            // do not include region if using env; but it's not secret either
+            "region": self.region,
+            "modules": self.modules.as_ref().map(|m| m.to_log()),
+        })
+    }
+}
+
+impl ToLog for NearModulesConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "accounts": self.accounts.as_ref().map(|a| a.to_log()),
+            "tokens": self.tokens.as_ref().map(|t| t.to_log()),
+        })
+    }
+}
+
+impl ToLog for AccountsModuleConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "enabled": self.enabled,
+            "track_implicit": self.track_implicit,
+            "track_eth_implicit": self.track_eth_implicit,
+        })
+    }
+}
+
+impl ToLog for TokensModuleConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "enabled": self.enabled,
+            "track_nep141": self.track_nep141,
+            "track_nep171": self.track_nep171,
+            "contracts": if self.contracts.is_empty() {
+                "all".to_string()
+            } else {
+                format!("{} contracts", self.contracts.len())
+            },
         })
     }
 }
@@ -346,12 +456,24 @@ where
 
     /// Load configuration with hierarchical merging
     pub fn load(self) -> Result<T, ConfigError> {
-        let mut figment = Figment::new().merge(Toml::file("config.toml")); // Workspace config (database only)
+        let mut figment = Figment::new();
 
-        // Add binary-specific config if it exists
+        // Check if root config exists and merge it if present (for backward compatibility)
+        if std::path::Path::new("config.toml").exists() {
+            figment = figment.merge(Toml::file("config.toml"));
+        }
+
+        // Add binary-specific config - this is now required since each app has its own config
         let binary_config = std::path::Path::new(&self.binary_config_path);
         if binary_config.exists() {
             figment = figment.merge(Toml::file(&self.binary_config_path));
+        } else {
+            return Err(ConfigError::ParseError {
+                message: format!(
+                    "Required config file not found: {}",
+                    self.binary_config_path
+                ),
+            });
         }
 
         // Environment variables have highest priority.
@@ -362,6 +484,34 @@ where
             message: e.to_string(),
         })?;
 
+        Ok(config)
+    }
+
+    /// Load configuration strictly from files (no environment overrides)
+    pub fn load_no_env(self) -> Result<T, ConfigError> {
+        let mut figment = Figment::new();
+
+        // Check if root config exists and merge it if present (for backward compatibility)
+        if std::path::Path::new("config.toml").exists() {
+            figment = figment.merge(Toml::file("config.toml"));
+        }
+
+        // Add binary-specific config - this is now required since each app has its own config
+        let binary_config = std::path::Path::new(&self.binary_config_path);
+        if binary_config.exists() {
+            figment = figment.merge(Toml::file(&self.binary_config_path));
+        } else {
+            return Err(ConfigError::ParseError {
+                message: format!(
+                    "Required config file not found: {}",
+                    self.binary_config_path
+                ),
+            });
+        }
+
+        let config: T = figment.extract().map_err(|e| ConfigError::ParseError {
+            message: e.to_string(),
+        })?;
         Ok(config)
     }
 }

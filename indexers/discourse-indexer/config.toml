@@ -1,3 +1,16 @@
+# Discourse Indexer Configuration
+# Database URL comes from DATABASE_URL environment variable
+
+[database]
+# DATABASE_URL is loaded from environment variable
+# Connection pool and timeout settings
+max_connections = 15
+min_connections = 2
+connection_timeout = 30
+acquire_timeout = 30  
+idle_timeout = 600
+max_lifetime = 1800
+
 [[discourse.instances]]
 key = "NEAR"
 base_url = "https://gov.near.org"

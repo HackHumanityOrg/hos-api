@@ -2,10 +2,17 @@
 
 pub mod prelude;
 
-pub mod discourse_indexer_categories;
-pub mod discourse_indexer_instances;
-pub mod discourse_indexer_post_likes;
-pub mod discourse_indexer_post_revisions;
-pub mod discourse_indexer_posts;
-pub mod discourse_indexer_topics;
-pub mod discourse_indexer_users;
+pub mod discourse_categories;
+pub mod discourse_instances;
+pub mod discourse_post_likes;
+pub mod discourse_post_revisions;
+pub mod discourse_posts;
+pub mod discourse_topics;
+pub mod discourse_users;
+pub mod near_account_events;
+pub mod near_account_state_history;
+pub mod near_accounts;
+pub mod near_nfts;
+pub mod near_sync_cursors;
+pub mod near_token_transfers;
+pub mod near_tokens;

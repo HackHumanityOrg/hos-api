@@ -1,0 +1,58 @@
+# NEAR Indexer Configuration
+# Database URL comes from DATABASE_URL environment variable
+
+[database]
+# DATABASE_URL is loaded from environment variable
+# Connection pool and timeout settings
+max_connections = 10
+min_connections = 1
+connection_timeout = 30
+acquire_timeout = 30  
+idle_timeout = 600
+max_lifetime = 1800
+
+[logging]
+level = "info"
+format = "pretty"
+
+[telemetry]
+enabled = true
+service_version = "0.1.0"
+environment = "development"
+enable_metrics = true
+enable_traces = true
+enable_logs = true
+batch_size = 256
+export_timeout_sec = 10
+export_interval_sec = 10
+
+[telemetry.resource_attributes]
+"service.namespace" = "data-commons"
+"service.component" = "near-indexer"
+"deployment.region" = "local"
+"indexer.type" = "primary"
+
+[near]
+# Chain to index: "mainnet", "testnet", or "disabled"
+chain = "mainnet"
+# Starting block height (0 for genesis, or specific height)
+start_height = 0
+# Concurrency for shard processing (0 = auto based on shard count)
+concurrency = 0
+
+# Module configurations
+[near.modules.accounts]
+enabled = true
+# Track implicit accounts (64-char hex addresses)
+track_implicit = true
+# Track ETH-implicit accounts (Ethereum-style addresses)
+track_eth_implicit = true
+
+[near.modules.tokens]
+enabled = true
+# Track NEP-141 fungible tokens
+track_nep141 = true
+# Track NEP-171 NFTs
+track_nep171 = true
+# List of specific contracts to track (empty = track all)
+contracts = []

@@ -1,14 +1,13 @@
 [workspace]
 members = [
     "shared/entities",
-    "shared/db-core", 
+    "shared/db-core",
     "shared/common",
     "shared/test-support",
     "indexers/discourse-indexer",
-    "indexers/indexer-2", 
-    "indexers/indexer-3",
+    "indexers/near-indexer",
     "api",
-    "migration"
+    "migration",
 ]
 resolver = "2"
 
@@ -25,15 +24,15 @@ tokio = { version = "1", features = ["full"] }
 
 # Database & ORM (MySQL + PlanetScale compatible)
 sea-orm = { version = "1", features = [
-    "sqlx-mysql", 
-    "runtime-tokio-native-tls",  # PlanetScale requires SSL/TLS
+    "sqlx-mysql",
+    "runtime-tokio-native-tls", # PlanetScale requires SSL/TLS
     "macros",
-    "debug-print"  # Enable proper log messages for queries
+    "debug-print",              # Enable proper log messages for queries
 ] }
 sea-orm-migration = { version = "1", features = [
     "sqlx-mysql",
     "runtime-tokio-native-tls",
-    "runtime-tokio-rustls"  # Also include CLI features
+    "runtime-tokio-rustls",     # Also include CLI features
 ] }
 
 # Web framework & OpenAPI
@@ -57,13 +56,20 @@ dotenvy = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-# OpenTelemetry Core  
+# OpenTelemetry Core
 opentelemetry = "0.27"
 opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
 opentelemetry-semantic-conventions = "0.27"
 
 # OpenTelemetry OTLP Exporter
-opentelemetry-otlp = { version = "0.27", features = ["http-proto", "http-json", "reqwest-client", "reqwest-rustls-webpki-roots", "metrics", "logs"] }
+opentelemetry-otlp = { version = "0.27", features = [
+    "http-proto",
+    "http-json",
+    "reqwest-client",
+    "reqwest-rustls-webpki-roots",
+    "metrics",
+    "logs",
+] }
 
 # OpenTelemetry Bridges
 tracing-opentelemetry = "0.28"
@@ -98,6 +104,10 @@ mockito = "1.7"
 rand = "0.8"
 reqwest = "0.12"
 serde_path_to_error = "0.1"
+near-account-id = "1.1.3"
+near-lake-framework = "0.7.13"
+rust_decimal = "1"
+test-support = { path = "shared/test-support" }
 
 # Development tools (managed by cargo-run-bin)
 [workspace.metadata.bin]

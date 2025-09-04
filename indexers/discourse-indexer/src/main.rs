@@ -122,7 +122,6 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
             let db_clone = db.clone();
             let instance_key = instance_key.clone();
             let conc = conc.clone();
-            let cfg_telemetry = cfg_telemetry;
             let base_url_recent = base_url.clone();
             let http_limit_recent = http_limit;
             handles.push(tokio::spawn(async move {
@@ -166,7 +165,6 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
             let db_clone = db.clone();
             let instance_key = instance_key.clone();
             let conc = conc.clone();
-            let cfg_telemetry = cfg_telemetry;
             let base_url_full = base_url.clone();
             let http_limit_full = http_limit;
             handles.push(tokio::spawn(async move {

@@ -10,32 +10,32 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(DiscourseIndexerInstances::Table)
+                    .table(DiscourseInstances::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(DiscourseIndexerInstances::Key)
+                        ColumnDef::new(DiscourseInstances::Key)
                             .string_len(100)
                             .not_null()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerInstances::BaseUrl)
+                        ColumnDef::new(DiscourseInstances::BaseUrl)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerInstances::Enabled)
+                        ColumnDef::new(DiscourseInstances::Enabled)
                             .boolean()
                             .not_null()
                             .default(true),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerInstances::CreatedAt)
+                        ColumnDef::new(DiscourseInstances::CreatedAt)
                             .timestamp()
                             .default(Expr::current_timestamp()),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerInstances::UpdatedAt)
+                        ColumnDef::new(DiscourseInstances::UpdatedAt)
                             .timestamp()
                             .default(Expr::current_timestamp()),
                     )
@@ -47,129 +47,129 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(DiscourseIndexerCategories::Table)
+                    .table(DiscourseCategories::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::Id)
+                        ColumnDef::new(DiscourseCategories::Id)
                             .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::Instance)
+                        ColumnDef::new(DiscourseCategories::Instance)
                             .string_len(100)
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::ExternalId)
+                        ColumnDef::new(DiscourseCategories::ExternalId)
                             .integer()
                             .not_null(),
                     )
                     // Required fields from OpenAPI
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::Name)
+                        ColumnDef::new(DiscourseCategories::Name)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::Color)
+                        ColumnDef::new(DiscourseCategories::Color)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::TextColor)
+                        ColumnDef::new(DiscourseCategories::TextColor)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::Slug)
+                        ColumnDef::new(DiscourseCategories::Slug)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::TopicCount)
+                        ColumnDef::new(DiscourseCategories::TopicCount)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::PostCount)
+                        ColumnDef::new(DiscourseCategories::PostCount)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::Position)
+                        ColumnDef::new(DiscourseCategories::Position)
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerCategories::Description).text())
-                    .col(ColumnDef::new(DiscourseIndexerCategories::DescriptionText).text())
-                    .col(ColumnDef::new(DiscourseIndexerCategories::DescriptionExcerpt).text())
-                    .col(ColumnDef::new(DiscourseIndexerCategories::TopicUrl).text())
-                    .col(ColumnDef::new(DiscourseIndexerCategories::TopicTemplate).text())
+                    .col(ColumnDef::new(DiscourseCategories::Description).text())
+                    .col(ColumnDef::new(DiscourseCategories::DescriptionText).text())
+                    .col(ColumnDef::new(DiscourseCategories::DescriptionExcerpt).text())
+                    .col(ColumnDef::new(DiscourseCategories::TopicUrl).text())
+                    .col(ColumnDef::new(DiscourseCategories::TopicTemplate).text())
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::HasChildren)
+                        ColumnDef::new(DiscourseCategories::HasChildren)
                             .boolean()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerCategories::SubcategoryCount).integer())
-                    .col(ColumnDef::new(DiscourseIndexerCategories::SortOrder).string())
+                    .col(ColumnDef::new(DiscourseCategories::SubcategoryCount).integer())
+                    .col(ColumnDef::new(DiscourseCategories::SortOrder).string())
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::NumFeaturedTopics)
+                        ColumnDef::new(DiscourseCategories::NumFeaturedTopics)
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerCategories::DefaultView).string())
+                    .col(ColumnDef::new(DiscourseCategories::DefaultView).string())
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::SubcategoryListStyle)
+                        ColumnDef::new(DiscourseCategories::SubcategoryListStyle)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::DefaultTopPeriod)
+                        ColumnDef::new(DiscourseCategories::DefaultTopPeriod)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::DefaultListFilter)
+                        ColumnDef::new(DiscourseCategories::DefaultListFilter)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::MinimumRequiredTags)
+                        ColumnDef::new(DiscourseCategories::MinimumRequiredTags)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::TopicsDay)
+                        ColumnDef::new(DiscourseCategories::TopicsDay)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::TopicsWeek)
+                        ColumnDef::new(DiscourseCategories::TopicsWeek)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::TopicsMonth)
+                        ColumnDef::new(DiscourseCategories::TopicsMonth)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::TopicsYear)
+                        ColumnDef::new(DiscourseCategories::TopicsYear)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerCategories::TopicsAllTime)
+                        ColumnDef::new(DiscourseCategories::TopicsAllTime)
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerCategories::UploadedLogo).text())
-                    .col(ColumnDef::new(DiscourseIndexerCategories::UploadedLogoDark).text())
-                    .col(ColumnDef::new(DiscourseIndexerCategories::UploadedBackground).text())
-                    .col(ColumnDef::new(DiscourseIndexerCategories::UploadedBackgroundDark).text())
-                    .col(ColumnDef::new(DiscourseIndexerCategories::IsUncategorized).boolean())
+                    .col(ColumnDef::new(DiscourseCategories::UploadedLogo).text())
+                    .col(ColumnDef::new(DiscourseCategories::UploadedLogoDark).text())
+                    .col(ColumnDef::new(DiscourseCategories::UploadedBackground).text())
+                    .col(ColumnDef::new(DiscourseCategories::UploadedBackgroundDark).text())
+                    .col(ColumnDef::new(DiscourseCategories::IsUncategorized).boolean())
                     .to_owned(),
             )
             .await?;
@@ -179,10 +179,10 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_categories_instance_instances")
-                    .from_tbl(DiscourseIndexerCategories::Table)
-                    .from_col(DiscourseIndexerCategories::Instance)
-                    .to_tbl(DiscourseIndexerInstances::Table)
-                    .to_col(DiscourseIndexerInstances::Key)
+                    .from_tbl(DiscourseCategories::Table)
+                    .from_col(DiscourseCategories::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
                     .on_delete(ForeignKeyAction::Cascade)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -193,9 +193,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ux_categories_instance_ext")
-                    .table(DiscourseIndexerCategories::Table)
-                    .col(DiscourseIndexerCategories::Instance)
-                    .col(DiscourseIndexerCategories::ExternalId)
+                    .table(DiscourseCategories::Table)
+                    .col(DiscourseCategories::Instance)
+                    .col(DiscourseCategories::ExternalId)
                     .unique()
                     .to_owned(),
             )
@@ -204,9 +204,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ix_categories_instance_slug")
-                    .table(DiscourseIndexerCategories::Table)
-                    .col(DiscourseIndexerCategories::Instance)
-                    .col(DiscourseIndexerCategories::Slug)
+                    .table(DiscourseCategories::Table)
+                    .col(DiscourseCategories::Instance)
+                    .col(DiscourseCategories::Slug)
                     .to_owned(),
             )
             .await;
@@ -215,71 +215,67 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(DiscourseIndexerUsers::Table)
+                    .table(DiscourseUsers::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(DiscourseIndexerUsers::Id)
+                        ColumnDef::new(DiscourseUsers::Id)
                             .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerUsers::Instance)
+                        ColumnDef::new(DiscourseUsers::Instance)
                             .string_len(100)
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerUsers::ExternalId)
+                        ColumnDef::new(DiscourseUsers::ExternalId)
                             .integer()
                             .not_null(),
                     )
                     // User fields from directory_items.json endpoint
+                    .col(ColumnDef::new(DiscourseUsers::Username).string().not_null())
+                    .col(ColumnDef::new(DiscourseUsers::Name).string())
                     .col(
-                        ColumnDef::new(DiscourseIndexerUsers::Username)
+                        ColumnDef::new(DiscourseUsers::AvatarTemplate)
                             .string()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerUsers::Name).string())
-                    .col(
-                        ColumnDef::new(DiscourseIndexerUsers::AvatarTemplate)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscourseIndexerUsers::Title).string())
+                    .col(ColumnDef::new(DiscourseUsers::Title).string())
                     // Stats from directory_items (all required in API)
                     .col(
-                        ColumnDef::new(DiscourseIndexerUsers::LikesReceived)
+                        ColumnDef::new(DiscourseUsers::LikesReceived)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerUsers::LikesGiven)
+                        ColumnDef::new(DiscourseUsers::LikesGiven)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerUsers::TopicsEntered)
+                        ColumnDef::new(DiscourseUsers::TopicsEntered)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerUsers::TopicCount)
+                        ColumnDef::new(DiscourseUsers::TopicCount)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerUsers::PostCount)
+                        ColumnDef::new(DiscourseUsers::PostCount)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerUsers::PostsRead)
+                        ColumnDef::new(DiscourseUsers::PostsRead)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerUsers::DaysVisited)
+                        ColumnDef::new(DiscourseUsers::DaysVisited)
                             .integer()
                             .not_null(),
                     )
@@ -292,10 +288,10 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_users_instance_instances")
-                    .from_tbl(DiscourseIndexerUsers::Table)
-                    .from_col(DiscourseIndexerUsers::Instance)
-                    .to_tbl(DiscourseIndexerInstances::Table)
-                    .to_col(DiscourseIndexerInstances::Key)
+                    .from_tbl(DiscourseUsers::Table)
+                    .from_col(DiscourseUsers::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
                     .on_delete(ForeignKeyAction::Cascade)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -305,9 +301,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ux_users_instance_ext")
-                    .table(DiscourseIndexerUsers::Table)
-                    .col(DiscourseIndexerUsers::Instance)
-                    .col(DiscourseIndexerUsers::ExternalId)
+                    .table(DiscourseUsers::Table)
+                    .col(DiscourseUsers::Instance)
+                    .col(DiscourseUsers::ExternalId)
                     .unique()
                     .to_owned(),
             )
@@ -316,9 +312,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ux_users_instance_username")
-                    .table(DiscourseIndexerUsers::Table)
-                    .col(DiscourseIndexerUsers::Instance)
-                    .col(DiscourseIndexerUsers::Username)
+                    .table(DiscourseUsers::Table)
+                    .col(DiscourseUsers::Instance)
+                    .col(DiscourseUsers::Username)
                     .unique()
                     .to_owned(),
             )
@@ -328,144 +324,116 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(DiscourseIndexerTopics::Table)
+                    .table(DiscourseTopics::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::Id)
+                        ColumnDef::new(DiscourseTopics::Id)
                             .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::Instance)
+                        ColumnDef::new(DiscourseTopics::Instance)
                             .string_len(100)
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::ExternalId)
+                        ColumnDef::new(DiscourseTopics::ExternalId)
                             .integer()
                             .not_null(),
                     )
                     // Fields from OpenAPI spec for /latest.json
+                    .col(ColumnDef::new(DiscourseTopics::Title).string().not_null())
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::Title)
+                        ColumnDef::new(DiscourseTopics::FancyTitle)
                             .string()
                             .not_null(),
                     )
+                    .col(ColumnDef::new(DiscourseTopics::Slug).string().not_null())
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::FancyTitle)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::Slug)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::PostsCount)
+                        ColumnDef::new(DiscourseTopics::PostsCount)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::ReplyCount)
+                        ColumnDef::new(DiscourseTopics::ReplyCount)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::HighestPostNumber)
+                        ColumnDef::new(DiscourseTopics::HighestPostNumber)
                             .integer()
                             .not_null(),
                     )
+                    .col(ColumnDef::new(DiscourseTopics::ImageUrl).text().not_null())
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::ImageUrl)
-                            .text()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::CreatedAt)
+                        ColumnDef::new(DiscourseTopics::CreatedAt)
                             .timestamp()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::LastPostedAt)
+                        ColumnDef::new(DiscourseTopics::LastPostedAt)
+                            .timestamp()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(DiscourseTopics::Bumped).boolean().not_null())
+                    .col(
+                        ColumnDef::new(DiscourseTopics::BumpedAt)
                             .timestamp()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::Bumped)
+                        ColumnDef::new(DiscourseTopics::Archetype)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(DiscourseTopics::Pinned).boolean().not_null())
+                    .col(ColumnDef::new(DiscourseTopics::Unpinned).string())
+                    .col(
+                        ColumnDef::new(DiscourseTopics::Visible)
+                            .boolean()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(DiscourseTopics::Closed).boolean().not_null())
+                    .col(
+                        ColumnDef::new(DiscourseTopics::Archived)
+                            .boolean()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(DiscourseTopics::NotificationLevel).integer())
+                    .col(ColumnDef::new(DiscourseTopics::Views).integer().not_null())
+                    .col(
+                        ColumnDef::new(DiscourseTopics::LikeCount)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DiscourseTopics::HasSummary)
                             .boolean()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::BumpedAt)
-                            .timestamp()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::Archetype)
+                        ColumnDef::new(DiscourseTopics::LastPosterUsername)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::Pinned)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscourseIndexerTopics::Unpinned).string())
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::Visible)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::Closed)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::Archived)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscourseIndexerTopics::NotificationLevel).integer())
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::Views)
+                        ColumnDef::new(DiscourseTopics::CategoryId)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::LikeCount)
+                        ColumnDef::new(DiscourseTopics::OpLikeCount)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerTopics::HasSummary)
+                        ColumnDef::new(DiscourseTopics::PinnedGlobally)
                             .boolean()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::LastPosterUsername)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::CategoryId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::OpLikeCount)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerTopics::PinnedGlobally)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscourseIndexerTopics::FeaturedLink).string())
+                    .col(ColumnDef::new(DiscourseTopics::FeaturedLink).string())
                     .to_owned(),
             )
             .await?;
@@ -475,10 +443,10 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_topics_instance_instances")
-                    .from_tbl(DiscourseIndexerTopics::Table)
-                    .from_col(DiscourseIndexerTopics::Instance)
-                    .to_tbl(DiscourseIndexerInstances::Table)
-                    .to_col(DiscourseIndexerInstances::Key)
+                    .from_tbl(DiscourseTopics::Table)
+                    .from_col(DiscourseTopics::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
                     .on_delete(ForeignKeyAction::Cascade)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -490,12 +458,12 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_topics_category")
-                    .from_tbl(DiscourseIndexerTopics::Table)
-                    .from_col(DiscourseIndexerTopics::Instance)
-                    .from_col(DiscourseIndexerTopics::CategoryId)
-                    .to_tbl(DiscourseIndexerCategories::Table)
-                    .to_col(DiscourseIndexerCategories::Instance)
-                    .to_col(DiscourseIndexerCategories::ExternalId)
+                    .from_tbl(DiscourseTopics::Table)
+                    .from_col(DiscourseTopics::Instance)
+                    .from_col(DiscourseTopics::CategoryId)
+                    .to_tbl(DiscourseCategories::Table)
+                    .to_col(DiscourseCategories::Instance)
+                    .to_col(DiscourseCategories::ExternalId)
                     .on_delete(ForeignKeyAction::Restrict)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -505,9 +473,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ux_topics_instance_ext")
-                    .table(DiscourseIndexerTopics::Table)
-                    .col(DiscourseIndexerTopics::Instance)
-                    .col(DiscourseIndexerTopics::ExternalId)
+                    .table(DiscourseTopics::Table)
+                    .col(DiscourseTopics::Instance)
+                    .col(DiscourseTopics::ExternalId)
                     .unique()
                     .to_owned(),
             )
@@ -516,9 +484,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ix_topics_instance_category")
-                    .table(DiscourseIndexerTopics::Table)
-                    .col(DiscourseIndexerTopics::Instance)
-                    .col(DiscourseIndexerTopics::CategoryId)
+                    .table(DiscourseTopics::Table)
+                    .col(DiscourseTopics::Instance)
+                    .col(DiscourseTopics::CategoryId)
                     .to_owned(),
             )
             .await;
@@ -527,9 +495,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ix_topics_instance_slug")
-                    .table(DiscourseIndexerTopics::Table)
-                    .col(DiscourseIndexerTopics::Instance)
-                    .col(DiscourseIndexerTopics::Slug)
+                    .table(DiscourseTopics::Table)
+                    .col(DiscourseTopics::Instance)
+                    .col(DiscourseTopics::Slug)
                     .to_owned(),
             )
             .await;
@@ -538,169 +506,123 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(DiscourseIndexerPosts::Table)
+                    .table(DiscoursePosts::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Id)
+                        ColumnDef::new(DiscoursePosts::Id)
                             .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Instance)
+                        ColumnDef::new(DiscoursePosts::Instance)
                             .string_len(100)
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::ExternalId)
+                        ColumnDef::new(DiscoursePosts::ExternalId)
                             .integer()
                             .not_null(),
                     )
                     // Required fields from OpenAPI spec for /t/{id}.json
+                    .col(ColumnDef::new(DiscoursePosts::Name).string().not_null())
+                    .col(ColumnDef::new(DiscoursePosts::Username).string().not_null())
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Name)
+                        ColumnDef::new(DiscoursePosts::AvatarTemplate)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Username)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::AvatarTemplate)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::CreatedAt)
+                        ColumnDef::new(DiscoursePosts::CreatedAt)
                             .timestamp()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Cooked)
+                        ColumnDef::new(DiscoursePosts::Cooked)
                             .custom(SeaRc::new("MEDIUMTEXT"))
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::PostNumber)
+                        ColumnDef::new(DiscoursePosts::PostNumber)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::PostType)
+                        ColumnDef::new(DiscoursePosts::PostType)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::UpdatedAt)
+                        ColumnDef::new(DiscoursePosts::UpdatedAt)
                             .timestamp()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::ReplyCount)
+                        ColumnDef::new(DiscoursePosts::ReplyCount)
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerPosts::ReplyToPostNumber).integer())
+                    .col(ColumnDef::new(DiscoursePosts::ReplyToPostNumber).integer())
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::QuoteCount)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::IncomingLinkCount)
+                        ColumnDef::new(DiscoursePosts::QuoteCount)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Reads)
+                        ColumnDef::new(DiscoursePosts::IncomingLinkCount)
                             .integer()
                             .not_null(),
                     )
+                    .col(ColumnDef::new(DiscoursePosts::Reads).integer().not_null())
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::ReadersCount)
+                        ColumnDef::new(DiscoursePosts::ReadersCount)
                             .integer()
                             .not_null(),
                     )
+                    .col(ColumnDef::new(DiscoursePosts::Score).double().not_null())
+                    .col(ColumnDef::new(DiscoursePosts::TopicId).integer().not_null())
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Score)
-                            .double()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::TopicId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::TopicSlug)
+                        ColumnDef::new(DiscoursePosts::TopicSlug)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::DisplayUsername)
+                        ColumnDef::new(DiscoursePosts::DisplayUsername)
                             .string()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerPosts::PrimaryGroupName).string())
-                    .col(ColumnDef::new(DiscourseIndexerPosts::FlairName).string())
-                    .col(ColumnDef::new(DiscourseIndexerPosts::FlairUrl).string())
-                    .col(ColumnDef::new(DiscourseIndexerPosts::FlairBgColor).string())
-                    .col(ColumnDef::new(DiscourseIndexerPosts::FlairColor).string())
+                    .col(ColumnDef::new(DiscoursePosts::PrimaryGroupName).string())
+                    .col(ColumnDef::new(DiscoursePosts::FlairName).string())
+                    .col(ColumnDef::new(DiscoursePosts::FlairUrl).string())
+                    .col(ColumnDef::new(DiscoursePosts::FlairBgColor).string())
+                    .col(ColumnDef::new(DiscoursePosts::FlairColor).string())
+                    .col(ColumnDef::new(DiscoursePosts::Version).integer().not_null())
+                    .col(ColumnDef::new(DiscoursePosts::UserTitle).string())
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Version)
+                        ColumnDef::new(DiscoursePosts::Moderator)
+                            .boolean()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(DiscoursePosts::Admin).boolean().not_null())
+                    .col(ColumnDef::new(DiscoursePosts::Staff).boolean().not_null())
+                    .col(ColumnDef::new(DiscoursePosts::UserId).integer().not_null())
+                    .col(ColumnDef::new(DiscoursePosts::Hidden).boolean().not_null())
+                    .col(
+                        ColumnDef::new(DiscoursePosts::TrustLevel)
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerPosts::UserTitle).string())
+                    .col(ColumnDef::new(DiscoursePosts::DeletedAt).timestamp())
                     .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Moderator)
+                        ColumnDef::new(DiscoursePosts::UserDeleted)
                             .boolean()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Admin)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Staff)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::UserId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Hidden)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::TrustLevel)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscourseIndexerPosts::DeletedAt).timestamp())
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::UserDeleted)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscourseIndexerPosts::EditReason).string())
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Wiki)
-                            .boolean()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(DiscoursePosts::EditReason).string())
+                    .col(ColumnDef::new(DiscoursePosts::Wiki).boolean().not_null())
                     // Optional fields
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPosts::Raw).custom(SeaRc::new("MEDIUMTEXT")),
-                    )
+                    .col(ColumnDef::new(DiscoursePosts::Raw).custom(SeaRc::new("MEDIUMTEXT")))
                     .to_owned(),
             )
             .await?;
@@ -710,10 +632,10 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_posts_instance_instances")
-                    .from_tbl(DiscourseIndexerPosts::Table)
-                    .from_col(DiscourseIndexerPosts::Instance)
-                    .to_tbl(DiscourseIndexerInstances::Table)
-                    .to_col(DiscourseIndexerInstances::Key)
+                    .from_tbl(DiscoursePosts::Table)
+                    .from_col(DiscoursePosts::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
                     .on_delete(ForeignKeyAction::Cascade)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -725,12 +647,12 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_posts_topic")
-                    .from_tbl(DiscourseIndexerPosts::Table)
-                    .from_col(DiscourseIndexerPosts::Instance)
-                    .from_col(DiscourseIndexerPosts::TopicId)
-                    .to_tbl(DiscourseIndexerTopics::Table)
-                    .to_col(DiscourseIndexerTopics::Instance)
-                    .to_col(DiscourseIndexerTopics::ExternalId)
+                    .from_tbl(DiscoursePosts::Table)
+                    .from_col(DiscoursePosts::Instance)
+                    .from_col(DiscoursePosts::TopicId)
+                    .to_tbl(DiscourseTopics::Table)
+                    .to_col(DiscourseTopics::Instance)
+                    .to_col(DiscourseTopics::ExternalId)
                     .on_delete(ForeignKeyAction::Cascade)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -742,12 +664,12 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_posts_user")
-                    .from_tbl(DiscourseIndexerPosts::Table)
-                    .from_col(DiscourseIndexerPosts::Instance)
-                    .from_col(DiscourseIndexerPosts::UserId)
-                    .to_tbl(DiscourseIndexerUsers::Table)
-                    .to_col(DiscourseIndexerUsers::Instance)
-                    .to_col(DiscourseIndexerUsers::ExternalId)
+                    .from_tbl(DiscoursePosts::Table)
+                    .from_col(DiscoursePosts::Instance)
+                    .from_col(DiscoursePosts::UserId)
+                    .to_tbl(DiscourseUsers::Table)
+                    .to_col(DiscourseUsers::Instance)
+                    .to_col(DiscourseUsers::ExternalId)
                     .on_delete(ForeignKeyAction::NoAction)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -757,9 +679,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ux_posts_instance_ext")
-                    .table(DiscourseIndexerPosts::Table)
-                    .col(DiscourseIndexerPosts::Instance)
-                    .col(DiscourseIndexerPosts::ExternalId)
+                    .table(DiscoursePosts::Table)
+                    .col(DiscoursePosts::Instance)
+                    .col(DiscoursePosts::ExternalId)
                     .unique()
                     .to_owned(),
             )
@@ -768,9 +690,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ix_posts_instance_topic")
-                    .table(DiscourseIndexerPosts::Table)
-                    .col(DiscourseIndexerPosts::Instance)
-                    .col(DiscourseIndexerPosts::TopicId)
+                    .table(DiscoursePosts::Table)
+                    .col(DiscoursePosts::Instance)
+                    .col(DiscoursePosts::TopicId)
                     .to_owned(),
             )
             .await;
@@ -778,10 +700,10 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ix_posts_instance_topic_created_at")
-                    .table(DiscourseIndexerPosts::Table)
-                    .col(DiscourseIndexerPosts::Instance)
-                    .col(DiscourseIndexerPosts::TopicId)
-                    .col(DiscourseIndexerPosts::CreatedAt)
+                    .table(DiscoursePosts::Table)
+                    .col(DiscoursePosts::Instance)
+                    .col(DiscoursePosts::TopicId)
+                    .col(DiscoursePosts::CreatedAt)
                     .to_owned(),
             )
             .await;
@@ -790,9 +712,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ix_posts_instance_user")
-                    .table(DiscourseIndexerPosts::Table)
-                    .col(DiscourseIndexerPosts::Instance)
-                    .col(DiscourseIndexerPosts::UserId)
+                    .table(DiscoursePosts::Table)
+                    .col(DiscoursePosts::Instance)
+                    .col(DiscoursePosts::UserId)
                     .to_owned(),
             )
             .await;
@@ -800,9 +722,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ix_posts_instance_created_at")
-                    .table(DiscourseIndexerPosts::Table)
-                    .col(DiscourseIndexerPosts::Instance)
-                    .col(DiscourseIndexerPosts::CreatedAt)
+                    .table(DiscoursePosts::Table)
+                    .col(DiscoursePosts::Instance)
+                    .col(DiscoursePosts::CreatedAt)
                     .to_owned(),
             )
             .await;
@@ -815,92 +737,90 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(DiscourseIndexerPostRevisions::Table)
+                    .table(DiscoursePostRevisions::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::Id)
+                        ColumnDef::new(DiscoursePostRevisions::Id)
                             .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::Instance)
+                        ColumnDef::new(DiscoursePostRevisions::Instance)
                             .string_len(100)
                             .not_null(),
                     )
                     // Fields from actual API response /posts/{id}/revisions/{version}.json
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::ExternalPostId)
+                        ColumnDef::new(DiscoursePostRevisions::ExternalPostId)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::CreatedAt)
+                        ColumnDef::new(DiscoursePostRevisions::CreatedAt)
                             .timestamp()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::Username)
+                        ColumnDef::new(DiscoursePostRevisions::Username)
                             .string()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerPostRevisions::ActingUserName).string())
+                    .col(ColumnDef::new(DiscoursePostRevisions::ActingUserName).string())
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::DisplayUsername)
+                        ColumnDef::new(DiscoursePostRevisions::DisplayUsername)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::AvatarTemplate)
+                        ColumnDef::new(DiscoursePostRevisions::AvatarTemplate)
                             .string()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerPostRevisions::EditReason).text())
-                    .col(ColumnDef::new(DiscourseIndexerPostRevisions::BodyChanges).json())
-                    .col(ColumnDef::new(DiscourseIndexerPostRevisions::TitleChanges).json())
+                    .col(ColumnDef::new(DiscoursePostRevisions::EditReason).text())
+                    .col(ColumnDef::new(DiscoursePostRevisions::BodyChanges).json())
+                    .col(ColumnDef::new(DiscoursePostRevisions::TitleChanges).json())
                     // Normalized category changes
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::PreviousCategoryId).integer(),
-                    )
-                    .col(ColumnDef::new(DiscourseIndexerPostRevisions::CurrentCategoryId).integer())
+                    .col(ColumnDef::new(DiscoursePostRevisions::PreviousCategoryId).integer())
+                    .col(ColumnDef::new(DiscoursePostRevisions::CurrentCategoryId).integer())
                     // Normalized user changes
-                    .col(ColumnDef::new(DiscourseIndexerPostRevisions::PreviousUserId).integer())
-                    .col(ColumnDef::new(DiscourseIndexerPostRevisions::CurrentUserId).integer())
+                    .col(ColumnDef::new(DiscoursePostRevisions::PreviousUserId).integer())
+                    .col(ColumnDef::new(DiscoursePostRevisions::CurrentUserId).integer())
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::PreviousHidden)
+                        ColumnDef::new(DiscoursePostRevisions::PreviousHidden)
                             .boolean()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::CurrentHidden)
+                        ColumnDef::new(DiscoursePostRevisions::CurrentHidden)
                             .boolean()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::FirstRevision)
+                        ColumnDef::new(DiscoursePostRevisions::FirstRevision)
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerPostRevisions::PreviousRevision).integer())
+                    .col(ColumnDef::new(DiscoursePostRevisions::PreviousRevision).integer())
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::CurrentRevision)
+                        ColumnDef::new(DiscoursePostRevisions::CurrentRevision)
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseIndexerPostRevisions::NextRevision).integer())
+                    .col(ColumnDef::new(DiscoursePostRevisions::NextRevision).integer())
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::LastRevision)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::CurrentVersion)
+                        ColumnDef::new(DiscoursePostRevisions::LastRevision)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostRevisions::VersionCount)
+                        ColumnDef::new(DiscoursePostRevisions::CurrentVersion)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DiscoursePostRevisions::VersionCount)
                             .integer()
                             .not_null(),
                     )
@@ -913,10 +833,10 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_revisions_instance_instances")
-                    .from_tbl(DiscourseIndexerPostRevisions::Table)
-                    .from_col(DiscourseIndexerPostRevisions::Instance)
-                    .to_tbl(DiscourseIndexerInstances::Table)
-                    .to_col(DiscourseIndexerInstances::Key)
+                    .from_tbl(DiscoursePostRevisions::Table)
+                    .from_col(DiscoursePostRevisions::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
                     .on_delete(ForeignKeyAction::Cascade)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -928,12 +848,12 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_revisions_post")
-                    .from_tbl(DiscourseIndexerPostRevisions::Table)
-                    .from_col(DiscourseIndexerPostRevisions::Instance)
-                    .from_col(DiscourseIndexerPostRevisions::ExternalPostId)
-                    .to_tbl(DiscourseIndexerPosts::Table)
-                    .to_col(DiscourseIndexerPosts::Instance)
-                    .to_col(DiscourseIndexerPosts::ExternalId)
+                    .from_tbl(DiscoursePostRevisions::Table)
+                    .from_col(DiscoursePostRevisions::Instance)
+                    .from_col(DiscoursePostRevisions::ExternalPostId)
+                    .to_tbl(DiscoursePosts::Table)
+                    .to_col(DiscoursePosts::Instance)
+                    .to_col(DiscoursePosts::ExternalId)
                     .on_delete(ForeignKeyAction::Cascade)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -943,10 +863,10 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ux_revisions_instance_post_revision")
-                    .table(DiscourseIndexerPostRevisions::Table)
-                    .col(DiscourseIndexerPostRevisions::Instance)
-                    .col(DiscourseIndexerPostRevisions::ExternalPostId)
-                    .col(DiscourseIndexerPostRevisions::CurrentRevision)
+                    .table(DiscoursePostRevisions::Table)
+                    .col(DiscoursePostRevisions::Instance)
+                    .col(DiscoursePostRevisions::ExternalPostId)
+                    .col(DiscoursePostRevisions::CurrentRevision)
                     .unique()
                     .to_owned(),
             )
@@ -957,38 +877,38 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(DiscourseIndexerPostLikes::Table)
+                    .table(DiscoursePostLikes::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostLikes::Id)
+                        ColumnDef::new(DiscoursePostLikes::Id)
                             .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostLikes::Instance)
+                        ColumnDef::new(DiscoursePostLikes::Instance)
                             .string_len(100)
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostLikes::ExternalDiscoursePostId)
+                        ColumnDef::new(DiscoursePostLikes::ExternalDiscoursePostId)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostLikes::ExternalUserId)
+                        ColumnDef::new(DiscoursePostLikes::ExternalUserId)
                             .integer()
                             .not_null(),
                     )
                     // Denormalized user data from the API response
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostLikes::Username)
+                        ColumnDef::new(DiscoursePostLikes::Username)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseIndexerPostLikes::CreatedAt)
+                        ColumnDef::new(DiscoursePostLikes::CreatedAt)
                             .timestamp()
                             .not_null(),
                     )
@@ -1001,10 +921,10 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_likes_instance_instances")
-                    .from_tbl(DiscourseIndexerPostLikes::Table)
-                    .from_col(DiscourseIndexerPostLikes::Instance)
-                    .to_tbl(DiscourseIndexerInstances::Table)
-                    .to_col(DiscourseIndexerInstances::Key)
+                    .from_tbl(DiscoursePostLikes::Table)
+                    .from_col(DiscoursePostLikes::Instance)
+                    .to_tbl(DiscourseInstances::Table)
+                    .to_col(DiscourseInstances::Key)
                     .on_delete(ForeignKeyAction::Cascade)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -1016,12 +936,12 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_likes_post")
-                    .from_tbl(DiscourseIndexerPostLikes::Table)
-                    .from_col(DiscourseIndexerPostLikes::Instance)
-                    .from_col(DiscourseIndexerPostLikes::ExternalDiscoursePostId)
-                    .to_tbl(DiscourseIndexerPosts::Table)
-                    .to_col(DiscourseIndexerPosts::Instance)
-                    .to_col(DiscourseIndexerPosts::ExternalId)
+                    .from_tbl(DiscoursePostLikes::Table)
+                    .from_col(DiscoursePostLikes::Instance)
+                    .from_col(DiscoursePostLikes::ExternalDiscoursePostId)
+                    .to_tbl(DiscoursePosts::Table)
+                    .to_col(DiscoursePosts::Instance)
+                    .to_col(DiscoursePosts::ExternalId)
                     .on_delete(ForeignKeyAction::Cascade)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -1033,12 +953,12 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_likes_user")
-                    .from_tbl(DiscourseIndexerPostLikes::Table)
-                    .from_col(DiscourseIndexerPostLikes::Instance)
-                    .from_col(DiscourseIndexerPostLikes::ExternalUserId)
-                    .to_tbl(DiscourseIndexerUsers::Table)
-                    .to_col(DiscourseIndexerUsers::Instance)
-                    .to_col(DiscourseIndexerUsers::ExternalId)
+                    .from_tbl(DiscoursePostLikes::Table)
+                    .from_col(DiscoursePostLikes::Instance)
+                    .from_col(DiscoursePostLikes::ExternalUserId)
+                    .to_tbl(DiscourseUsers::Table)
+                    .to_col(DiscourseUsers::Instance)
+                    .to_col(DiscourseUsers::ExternalId)
                     .on_delete(ForeignKeyAction::NoAction)
                     .on_update(ForeignKeyAction::Cascade)
                     .to_owned(),
@@ -1048,10 +968,10 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ux_likes_instance_post_user")
-                    .table(DiscourseIndexerPostLikes::Table)
-                    .col(DiscourseIndexerPostLikes::Instance)
-                    .col(DiscourseIndexerPostLikes::ExternalDiscoursePostId)
-                    .col(DiscourseIndexerPostLikes::ExternalUserId)
+                    .table(DiscoursePostLikes::Table)
+                    .col(DiscoursePostLikes::Instance)
+                    .col(DiscoursePostLikes::ExternalDiscoursePostId)
+                    .col(DiscoursePostLikes::ExternalUserId)
                     .unique()
                     .to_owned(),
             )
@@ -1061,9 +981,9 @@ impl MigrationTrait for Migration {
             .create_index(
                 Index::create()
                     .name("ix_likes_instance_user")
-                    .table(DiscourseIndexerPostLikes::Table)
-                    .col(DiscourseIndexerPostLikes::Instance)
-                    .col(DiscourseIndexerPostLikes::ExternalUserId)
+                    .table(DiscoursePostLikes::Table)
+                    .col(DiscoursePostLikes::Instance)
+                    .col(DiscoursePostLikes::ExternalUserId)
                     .to_owned(),
             )
             .await;
@@ -1073,52 +993,36 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(
-                Table::drop()
-                    .table(DiscourseIndexerPostLikes::Table)
-                    .to_owned(),
-            )
+            .drop_table(Table::drop().table(DiscoursePostLikes::Table).to_owned())
             .await?;
         manager
             .drop_table(
                 Table::drop()
-                    .table(DiscourseIndexerPostRevisions::Table)
+                    .table(DiscoursePostRevisions::Table)
                     .to_owned(),
             )
             .await?;
         manager
-            .drop_table(Table::drop().table(DiscourseIndexerPosts::Table).to_owned())
+            .drop_table(Table::drop().table(DiscoursePosts::Table).to_owned())
             .await?;
         manager
-            .drop_table(
-                Table::drop()
-                    .table(DiscourseIndexerTopics::Table)
-                    .to_owned(),
-            )
+            .drop_table(Table::drop().table(DiscourseTopics::Table).to_owned())
             .await?;
         manager
-            .drop_table(Table::drop().table(DiscourseIndexerUsers::Table).to_owned())
+            .drop_table(Table::drop().table(DiscourseUsers::Table).to_owned())
             .await?;
         manager
-            .drop_table(
-                Table::drop()
-                    .table(DiscourseIndexerCategories::Table)
-                    .to_owned(),
-            )
+            .drop_table(Table::drop().table(DiscourseCategories::Table).to_owned())
             .await?;
         manager
-            .drop_table(
-                Table::drop()
-                    .table(DiscourseIndexerInstances::Table)
-                    .to_owned(),
-            )
+            .drop_table(Table::drop().table(DiscourseInstances::Table).to_owned())
             .await?;
         Ok(())
     }
 }
 
 #[derive(DeriveIden)]
-enum DiscourseIndexerInstances {
+enum DiscourseInstances {
     Table,
     Key,
     BaseUrl,
@@ -1128,7 +1032,7 @@ enum DiscourseIndexerInstances {
 }
 
 #[derive(DeriveIden)]
-enum DiscourseIndexerCategories {
+enum DiscourseCategories {
     Table,
     Id,
     Instance,
@@ -1167,7 +1071,7 @@ enum DiscourseIndexerCategories {
 }
 
 #[derive(DeriveIden)]
-enum DiscourseIndexerUsers {
+enum DiscourseUsers {
     Table,
     Id,
     Instance,
@@ -1186,7 +1090,7 @@ enum DiscourseIndexerUsers {
 }
 
 #[derive(DeriveIden)]
-enum DiscourseIndexerTopics {
+enum DiscourseTopics {
     Table,
     Id,
     Instance,
@@ -1220,7 +1124,7 @@ enum DiscourseIndexerTopics {
 }
 
 #[derive(DeriveIden)]
-enum DiscourseIndexerPosts {
+enum DiscoursePosts {
     Table,
     Id,
     Instance,
@@ -1264,7 +1168,7 @@ enum DiscourseIndexerPosts {
 }
 
 #[derive(DeriveIden)]
-enum DiscourseIndexerPostRevisions {
+enum DiscoursePostRevisions {
     Table,
     Id,
     Instance,
@@ -1293,7 +1197,7 @@ enum DiscourseIndexerPostRevisions {
 }
 
 #[derive(DeriveIden)]
-enum DiscourseIndexerPostLikes {
+enum DiscoursePostLikes {
     Table,
     Id,
     Instance,

@@ -4,7 +4,7 @@ mod common;
 use common::TestDatabase;
 use discourse_indexer::discourse_api::DiscourseClient;
 use discourse_indexer::domain::categories::{adapter, repo};
-use entities::discourse_indexer_categories;
+use entities::discourse_categories;
 use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -60,9 +60,9 @@ async fn test_domain_categories_fetch_and_persist(#[future] test_db: TestDatabas
             .await
             .expect("upsert category update");
 
-        let stored = discourse_indexer_categories::Entity::find()
-            .filter(discourse_indexer_categories::Column::Instance.eq(TEST_INSTANCE))
-            .filter(discourse_indexer_categories::Column::ExternalId.eq(updated.id))
+        let stored = discourse_categories::Entity::find()
+            .filter(discourse_categories::Column::Instance.eq(TEST_INSTANCE))
+            .filter(discourse_categories::Column::ExternalId.eq(updated.id))
             .one(&db)
             .await
             .expect("fetch stored")

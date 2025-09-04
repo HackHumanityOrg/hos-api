@@ -4,7 +4,7 @@ mod common;
 use common::TestDatabase;
 use discourse_indexer::discourse_api::DiscourseClient;
 use discourse_indexer::domain::topics::{adapter, repo};
-use entities::discourse_indexer_topics;
+use entities::discourse_topics;
 use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -65,9 +65,9 @@ async fn test_domain_topics_fetch_and_persist(#[future] test_db: TestDatabase) {
         .await
         .expect("update topic");
 
-    let stored = discourse_indexer_topics::Entity::find()
-        .filter(discourse_indexer_topics::Column::Instance.eq(TEST_INSTANCE))
-        .filter(discourse_indexer_topics::Column::ExternalId.eq(t.id))
+    let stored = discourse_topics::Entity::find()
+        .filter(discourse_topics::Column::Instance.eq(TEST_INSTANCE))
+        .filter(discourse_topics::Column::ExternalId.eq(t.id))
         .one(&db)
         .await
         .expect("fetch t")

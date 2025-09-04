@@ -4,7 +4,7 @@ use crate::domain::users::repo::upsert_user_profiles_bulk;
 use crate::domain::util::with_deadlock_retry;
 use crate::domain::util::{bool_i8, opt_string};
 use anyhow::Result;
-use entities::discourse_indexer_posts;
+use entities::discourse_posts;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
 use tracing::{debug, instrument};
@@ -44,9 +44,9 @@ pub async fn upsert_posts_bulk(
     sorted_posts.sort_by_key(|p| p.id);
     const CHUNK_SIZE: usize = 200;
     for chunk in sorted_posts.chunks(CHUNK_SIZE) {
-        let ams: Vec<discourse_indexer_posts::ActiveModel> = chunk
+        let ams: Vec<discourse_posts::ActiveModel> = chunk
             .iter()
-            .map(|p| discourse_indexer_posts::ActiveModel {
+            .map(|p| discourse_posts::ActiveModel {
                 instance: Set(instance.to_string()),
                 external_id: Set(p.id),
                 name: Set(opt_string(p.name.clone())),
@@ -89,49 +89,49 @@ pub async fn upsert_posts_bulk(
             })
             .collect();
         with_deadlock_retry(|| async {
-            discourse_indexer_posts::Entity::insert_many(ams.clone())
+            discourse_posts::Entity::insert_many(ams.clone())
                 .on_conflict(
                     OrmOnConflict::columns([
-                        discourse_indexer_posts::Column::Instance,
-                        discourse_indexer_posts::Column::ExternalId,
+                        discourse_posts::Column::Instance,
+                        discourse_posts::Column::ExternalId,
                     ])
                     .update_columns([
-                        discourse_indexer_posts::Column::Name,
-                        discourse_indexer_posts::Column::Username,
-                        discourse_indexer_posts::Column::AvatarTemplate,
-                        discourse_indexer_posts::Column::CreatedAt,
-                        discourse_indexer_posts::Column::Cooked,
-                        discourse_indexer_posts::Column::PostNumber,
-                        discourse_indexer_posts::Column::PostType,
-                        discourse_indexer_posts::Column::UpdatedAt,
-                        discourse_indexer_posts::Column::ReplyCount,
-                        discourse_indexer_posts::Column::ReplyToPostNumber,
-                        discourse_indexer_posts::Column::QuoteCount,
-                        discourse_indexer_posts::Column::IncomingLinkCount,
-                        discourse_indexer_posts::Column::Reads,
-                        discourse_indexer_posts::Column::ReadersCount,
-                        discourse_indexer_posts::Column::Score,
-                        discourse_indexer_posts::Column::TopicId,
-                        discourse_indexer_posts::Column::TopicSlug,
-                        discourse_indexer_posts::Column::DisplayUsername,
-                        discourse_indexer_posts::Column::PrimaryGroupName,
-                        discourse_indexer_posts::Column::FlairName,
-                        discourse_indexer_posts::Column::FlairUrl,
-                        discourse_indexer_posts::Column::FlairBgColor,
-                        discourse_indexer_posts::Column::FlairColor,
-                        discourse_indexer_posts::Column::Version,
-                        discourse_indexer_posts::Column::UserTitle,
-                        discourse_indexer_posts::Column::Moderator,
-                        discourse_indexer_posts::Column::Admin,
-                        discourse_indexer_posts::Column::Staff,
-                        discourse_indexer_posts::Column::UserId,
-                        discourse_indexer_posts::Column::Hidden,
-                        discourse_indexer_posts::Column::TrustLevel,
-                        discourse_indexer_posts::Column::DeletedAt,
-                        discourse_indexer_posts::Column::UserDeleted,
-                        discourse_indexer_posts::Column::EditReason,
-                        discourse_indexer_posts::Column::Wiki,
-                        discourse_indexer_posts::Column::Raw,
+                        discourse_posts::Column::Name,
+                        discourse_posts::Column::Username,
+                        discourse_posts::Column::AvatarTemplate,
+                        discourse_posts::Column::CreatedAt,
+                        discourse_posts::Column::Cooked,
+                        discourse_posts::Column::PostNumber,
+                        discourse_posts::Column::PostType,
+                        discourse_posts::Column::UpdatedAt,
+                        discourse_posts::Column::ReplyCount,
+                        discourse_posts::Column::ReplyToPostNumber,
+                        discourse_posts::Column::QuoteCount,
+                        discourse_posts::Column::IncomingLinkCount,
+                        discourse_posts::Column::Reads,
+                        discourse_posts::Column::ReadersCount,
+                        discourse_posts::Column::Score,
+                        discourse_posts::Column::TopicId,
+                        discourse_posts::Column::TopicSlug,
+                        discourse_posts::Column::DisplayUsername,
+                        discourse_posts::Column::PrimaryGroupName,
+                        discourse_posts::Column::FlairName,
+                        discourse_posts::Column::FlairUrl,
+                        discourse_posts::Column::FlairBgColor,
+                        discourse_posts::Column::FlairColor,
+                        discourse_posts::Column::Version,
+                        discourse_posts::Column::UserTitle,
+                        discourse_posts::Column::Moderator,
+                        discourse_posts::Column::Admin,
+                        discourse_posts::Column::Staff,
+                        discourse_posts::Column::UserId,
+                        discourse_posts::Column::Hidden,
+                        discourse_posts::Column::TrustLevel,
+                        discourse_posts::Column::DeletedAt,
+                        discourse_posts::Column::UserDeleted,
+                        discourse_posts::Column::EditReason,
+                        discourse_posts::Column::Wiki,
+                        discourse_posts::Column::Raw,
                     ])
                     .to_owned(),
                 )

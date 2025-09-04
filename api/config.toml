@@ -1,3 +1,16 @@
+# API Configuration
+# Database URL comes from DATABASE_URL environment variable
+
+[database]
+# DATABASE_URL is loaded from environment variable
+# Connection pool and timeout settings
+max_connections = 20
+min_connections = 5
+connection_timeout = 30
+acquire_timeout = 30  
+idle_timeout = 600
+max_lifetime = 1800
+
 [server]
 host = "0.0.0.0"
 port = 3000

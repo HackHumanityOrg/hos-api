@@ -7,7 +7,7 @@ use discourse_indexer::domain::{
     posts::{adapter as posts_adapter, repo as posts_repo},
     topics::adapter as topics_adapter,
 };
-use entities::discourse_indexer_posts;
+use entities::discourse_posts;
 use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -150,9 +150,9 @@ async fn test_domain_posts_fetch_and_persist(#[future] test_db: TestDatabase) {
         .await
         .expect("update post");
 
-    let stored = discourse_indexer_posts::Entity::find()
-        .filter(discourse_indexer_posts::Column::Instance.eq(TEST_INSTANCE))
-        .filter(discourse_indexer_posts::Column::ExternalId.eq(posts[0].id))
+    let stored = discourse_posts::Entity::find()
+        .filter(discourse_posts::Column::Instance.eq(TEST_INSTANCE))
+        .filter(discourse_posts::Column::ExternalId.eq(posts[0].id))
         .one(&db)
         .await
         .expect("fetch post")

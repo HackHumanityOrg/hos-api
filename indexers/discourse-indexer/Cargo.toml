@@ -34,7 +34,7 @@ rstest = { workspace = true }
 tokio-test = { workspace = true }
 tracing-subscriber = { workspace = true }
 migration = { workspace = true }
-test-support = { path = "../../shared/test-support" }
+test-support = { workspace = true }
 
 [[test]]
 name = "domain_categories_live_db_e2e"

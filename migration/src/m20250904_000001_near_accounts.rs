@@ -1,0 +1,569 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        // near_accounts
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearAccounts::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearAccounts::AccountId)
+                            .string_len(128)
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(NearAccounts::ParentAccountId).string_len(128))
+                    .col(ColumnDef::new(NearAccounts::Depth).integer().not_null())
+                    .col(
+                        ColumnDef::new(NearAccounts::IsTopLevel)
+                            .boolean()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccounts::IsImplicit)
+                            .boolean()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearAccounts::IsSystem).boolean().not_null())
+                    .col(ColumnDef::new(NearAccounts::CreatedAtHeight).big_integer())
+                    .col(ColumnDef::new(NearAccounts::CreatedAtTime).big_integer())
+                    .col(ColumnDef::new(NearAccounts::CreatedCause).string_len(64))
+                    .col(ColumnDef::new(NearAccounts::CreatedByTxHash).string_len(100))
+                    .col(ColumnDef::new(NearAccounts::CreatedByReceiptHash).string_len(100))
+                    .col(ColumnDef::new(NearAccounts::DeletedAtHeight).big_integer())
+                    .col(ColumnDef::new(NearAccounts::DeletedAtTime).big_integer())
+                    .col(ColumnDef::new(NearAccounts::DeletedBeneficiaryId).string_len(128))
+                    .col(ColumnDef::new(NearAccounts::DeletedByTxHash).string_len(100))
+                    .col(ColumnDef::new(NearAccounts::DeletedByReceiptHash).string_len(100))
+                    .col(ColumnDef::new(NearAccounts::FirstSeenHeight).big_integer())
+                    .col(ColumnDef::new(NearAccounts::FirstSeenTime).big_integer())
+                    .col(ColumnDef::new(NearAccounts::LastSeenHeight).big_integer())
+                    .col(ColumnDef::new(NearAccounts::LastSeenTime).big_integer())
+                    .to_owned(),
+            )
+            .await?;
+
+        // Performance indexes for near_accounts
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_parent")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::ParentAccountId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_deleted_beneficiary")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::DeletedBeneficiaryId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_created_height")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::CreatedAtHeight)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_deleted_height")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::DeletedAtHeight)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Account type filtering indexes
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_is_implicit")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::IsImplicit)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_is_system")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::IsSystem)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_is_top_level")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::IsTopLevel)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Transaction and receipt hash indexes for tracking
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_created_by_tx")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::CreatedByTxHash)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_deleted_by_tx")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::DeletedByTxHash)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_created_by_receipt")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::CreatedByReceiptHash)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_deleted_by_receipt")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::DeletedByReceiptHash)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Time-based indexes for temporal queries
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_first_seen_time")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::FirstSeenTime)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_last_seen_time")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::LastSeenTime)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Composite indexes for common query patterns
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_accounts_parent_depth")
+                    .table(NearAccounts::Table)
+                    .col(NearAccounts::ParentAccountId)
+                    .col(NearAccounts::Depth)
+                    .to_owned(),
+            )
+            .await?;
+
+        // near_account_state_history
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearAccountStateHistory::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearAccountStateHistory::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountStateHistory::AccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountStateHistory::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountStateHistory::BlockTime)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountStateHistory::Amount)
+                            .decimal_len(39, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountStateHistory::Locked)
+                            .decimal_len(39, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountStateHistory::StorageUsage)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountStateHistory::CodeHash)
+                            .string_len(100)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountStateHistory::CauseType)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearAccountStateHistory::CauseTxHash).string_len(100))
+                    .col(ColumnDef::new(NearAccountStateHistory::CauseReceiptHash).string_len(100))
+                    .to_owned(),
+            )
+            .await?;
+        // FK: near_account_state_history.account_id -> near_accounts(account_id)
+        manager
+            .create_foreign_key(
+                ForeignKey::create()
+                    .name("fk_near_account_state_account")
+                    .from(
+                        NearAccountStateHistory::Table,
+                        NearAccountStateHistory::AccountId,
+                    )
+                    .to(NearAccounts::Table, NearAccounts::AccountId)
+                    .on_delete(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("ux_near_account_state_account_height")
+                    .table(NearAccountStateHistory::Table)
+                    .col(NearAccountStateHistory::AccountId)
+                    .col(NearAccountStateHistory::BlockHeight)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_state_account")
+                    .table(NearAccountStateHistory::Table)
+                    .col(NearAccountStateHistory::AccountId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_state_height")
+                    .table(NearAccountStateHistory::Table)
+                    .col(NearAccountStateHistory::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+        // Time-based index for state history
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_state_block_time")
+                    .table(NearAccountStateHistory::Table)
+                    .col(NearAccountStateHistory::BlockTime)
+                    .to_owned(),
+            )
+            .await?;
+        // Cause tracking indexes
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_state_cause_type")
+                    .table(NearAccountStateHistory::Table)
+                    .col(NearAccountStateHistory::CauseType)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_state_cause_tx")
+                    .table(NearAccountStateHistory::Table)
+                    .col(NearAccountStateHistory::CauseTxHash)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_state_cause_receipt")
+                    .table(NearAccountStateHistory::Table)
+                    .col(NearAccountStateHistory::CauseReceiptHash)
+                    .to_owned(),
+            )
+            .await?;
+
+        // near_account_events
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearAccountEvents::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearAccountEvents::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountEvents::AccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountEvents::EventType)
+                            .string_len(32)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountEvents::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountEvents::BlockTime)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearAccountEvents::TxHash).string_len(100))
+                    .col(ColumnDef::new(NearAccountEvents::ReceiptHash).string_len(100))
+                    .col(ColumnDef::new(NearAccountEvents::Metadata).text())
+                    .to_owned(),
+            )
+            .await?;
+        // FK: near_account_events.account_id -> near_accounts(account_id)
+        manager
+            .create_foreign_key(
+                ForeignKey::create()
+                    .name("fk_near_account_events_account")
+                    .from(NearAccountEvents::Table, NearAccountEvents::AccountId)
+                    .to(NearAccounts::Table, NearAccounts::AccountId)
+                    .on_delete(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("ux_near_account_events_dedupe")
+                    .table(NearAccountEvents::Table)
+                    .col(NearAccountEvents::AccountId)
+                    .col(NearAccountEvents::EventType)
+                    .col(NearAccountEvents::BlockHeight)
+                    .col(NearAccountEvents::ReceiptHash)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_events_account")
+                    .table(NearAccountEvents::Table)
+                    .col(NearAccountEvents::AccountId)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Time-based index for events
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_events_block_time")
+                    .table(NearAccountEvents::Table)
+                    .col(NearAccountEvents::BlockTime)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Event type filtering
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_events_type")
+                    .table(NearAccountEvents::Table)
+                    .col(NearAccountEvents::EventType)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Transaction and receipt tracking for events
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_events_tx_hash")
+                    .table(NearAccountEvents::Table)
+                    .col(NearAccountEvents::TxHash)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_events_receipt_hash")
+                    .table(NearAccountEvents::Table)
+                    .col(NearAccountEvents::ReceiptHash)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Composite index for event type and time queries
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_account_events_type_time")
+                    .table(NearAccountEvents::Table)
+                    .col(NearAccountEvents::EventType)
+                    .col(NearAccountEvents::BlockTime)
+                    .to_owned(),
+            )
+            .await?;
+
+        // near_sync_cursors
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearSyncCursors::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearSyncCursors::StreamName)
+                            .string_len(64)
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearSyncCursors::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearSyncCursors::UpdatedAt)
+                            .timestamp()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(Table::drop().table(NearSyncCursors::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearAccountEvents::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(NearAccountStateHistory::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearAccounts::Table).to_owned())
+            .await?;
+        Ok(())
+    }
+}
+
+#[derive(DeriveIden)]
+enum NearAccounts {
+    Table,
+    AccountId,
+    ParentAccountId,
+    Depth,
+    IsTopLevel,
+    IsImplicit,
+    IsSystem,
+    CreatedAtHeight,
+    CreatedAtTime,
+    CreatedCause,
+    CreatedByTxHash,
+    CreatedByReceiptHash,
+    DeletedAtHeight,
+    DeletedAtTime,
+    DeletedBeneficiaryId,
+    DeletedByTxHash,
+    DeletedByReceiptHash,
+    FirstSeenHeight,
+    FirstSeenTime,
+    LastSeenHeight,
+    LastSeenTime,
+}
+
+#[derive(DeriveIden)]
+enum NearAccountStateHistory {
+    Table,
+    Id,
+    AccountId,
+    BlockHeight,
+    BlockTime,
+    Amount,
+    Locked,
+    StorageUsage,
+    CodeHash,
+    CauseType,
+    CauseTxHash,
+    CauseReceiptHash,
+}
+
+#[derive(DeriveIden)]
+enum NearAccountEvents {
+    Table,
+    Id,
+    AccountId,
+    EventType,
+    BlockHeight,
+    BlockTime,
+    TxHash,
+    ReceiptHash,
+    Metadata,
+}
+
+#[derive(DeriveIden)]
+enum NearSyncCursors {
+    Table,
+    StreamName,
+    BlockHeight,
+    UpdatedAt,
+}

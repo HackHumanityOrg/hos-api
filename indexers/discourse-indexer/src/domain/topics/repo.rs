@@ -1,7 +1,7 @@
 use crate::domain::topics::model::Topic;
 use crate::domain::util::{opt_bool_i8, opt_string, with_deadlock_retry};
 use anyhow::Result;
-use entities::discourse_indexer_topics;
+use entities::discourse_topics;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
 use tracing::{debug, instrument};
@@ -21,9 +21,9 @@ pub async fn upsert_topics_bulk(
     sorted.sort_by_key(|t| t.id);
     const CHUNK_SIZE: usize = 200;
     for chunk in sorted.chunks(CHUNK_SIZE) {
-        let ams: Vec<discourse_indexer_topics::ActiveModel> = chunk
+        let ams: Vec<discourse_topics::ActiveModel> = chunk
             .iter()
-            .map(|t| discourse_indexer_topics::ActiveModel {
+            .map(|t| discourse_topics::ActiveModel {
                 instance: Set(instance.to_string()),
                 external_id: Set(t.id),
                 title: Set(t.title.clone()),
@@ -56,39 +56,39 @@ pub async fn upsert_topics_bulk(
             })
             .collect();
         with_deadlock_retry(|| async {
-            discourse_indexer_topics::Entity::insert_many(ams.clone())
+            discourse_topics::Entity::insert_many(ams.clone())
                 .on_conflict(
                     OrmOnConflict::columns([
-                        discourse_indexer_topics::Column::Instance,
-                        discourse_indexer_topics::Column::ExternalId,
+                        discourse_topics::Column::Instance,
+                        discourse_topics::Column::ExternalId,
                     ])
                     .update_columns([
-                        discourse_indexer_topics::Column::Title,
-                        discourse_indexer_topics::Column::FancyTitle,
-                        discourse_indexer_topics::Column::Slug,
-                        discourse_indexer_topics::Column::PostsCount,
-                        discourse_indexer_topics::Column::ReplyCount,
-                        discourse_indexer_topics::Column::HighestPostNumber,
-                        discourse_indexer_topics::Column::ImageUrl,
-                        discourse_indexer_topics::Column::CreatedAt,
-                        discourse_indexer_topics::Column::LastPostedAt,
-                        discourse_indexer_topics::Column::Bumped,
-                        discourse_indexer_topics::Column::BumpedAt,
-                        discourse_indexer_topics::Column::Archetype,
-                        discourse_indexer_topics::Column::Pinned,
-                        discourse_indexer_topics::Column::Unpinned,
-                        discourse_indexer_topics::Column::Visible,
-                        discourse_indexer_topics::Column::Closed,
-                        discourse_indexer_topics::Column::Archived,
-                        discourse_indexer_topics::Column::NotificationLevel,
-                        discourse_indexer_topics::Column::Views,
-                        discourse_indexer_topics::Column::LikeCount,
-                        discourse_indexer_topics::Column::HasSummary,
-                        discourse_indexer_topics::Column::LastPosterUsername,
-                        discourse_indexer_topics::Column::CategoryId,
-                        discourse_indexer_topics::Column::OpLikeCount,
-                        discourse_indexer_topics::Column::PinnedGlobally,
-                        discourse_indexer_topics::Column::FeaturedLink,
+                        discourse_topics::Column::Title,
+                        discourse_topics::Column::FancyTitle,
+                        discourse_topics::Column::Slug,
+                        discourse_topics::Column::PostsCount,
+                        discourse_topics::Column::ReplyCount,
+                        discourse_topics::Column::HighestPostNumber,
+                        discourse_topics::Column::ImageUrl,
+                        discourse_topics::Column::CreatedAt,
+                        discourse_topics::Column::LastPostedAt,
+                        discourse_topics::Column::Bumped,
+                        discourse_topics::Column::BumpedAt,
+                        discourse_topics::Column::Archetype,
+                        discourse_topics::Column::Pinned,
+                        discourse_topics::Column::Unpinned,
+                        discourse_topics::Column::Visible,
+                        discourse_topics::Column::Closed,
+                        discourse_topics::Column::Archived,
+                        discourse_topics::Column::NotificationLevel,
+                        discourse_topics::Column::Views,
+                        discourse_topics::Column::LikeCount,
+                        discourse_topics::Column::HasSummary,
+                        discourse_topics::Column::LastPosterUsername,
+                        discourse_topics::Column::CategoryId,
+                        discourse_topics::Column::OpLikeCount,
+                        discourse_topics::Column::PinnedGlobally,
+                        discourse_topics::Column::FeaturedLink,
                     ])
                     .to_owned(),
                 )

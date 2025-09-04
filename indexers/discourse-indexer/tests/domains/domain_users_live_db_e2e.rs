@@ -4,7 +4,7 @@ mod common;
 use common::TestDatabase;
 use discourse_indexer::discourse_api::DiscourseClient;
 use discourse_indexer::domain::users::{adapter, repo};
-use entities::discourse_indexer_users;
+use entities::discourse_users;
 use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -48,9 +48,9 @@ async fn test_domain_users_fetch_and_persist(#[future] test_db: TestDatabase) {
         .await
         .expect("update user");
 
-    let stored = discourse_indexer_users::Entity::find()
-        .filter(discourse_indexer_users::Column::Instance.eq(TEST_INSTANCE))
-        .filter(discourse_indexer_users::Column::ExternalId.eq(item.user.id))
+    let stored = discourse_users::Entity::find()
+        .filter(discourse_users::Column::Instance.eq(TEST_INSTANCE))
+        .filter(discourse_users::Column::ExternalId.eq(item.user.id))
         .one(&db)
         .await
         .expect("fetch user")
