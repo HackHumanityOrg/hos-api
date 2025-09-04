@@ -1,0 +1,20 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "indexers/near-indexer/Dockerfile"
+watchPaths = [
+  "indexers/near-indexer/**",
+  "shared/**",
+  "migration/**",
+  "Cargo.toml",
+  "Cargo.lock",
+]
+
+[deploy]
+startCommand = "/near-indexer"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+[deploy.env]
+RUST_LOG = "debug"
+INDEXER_NAME = "near-indexer"
+
