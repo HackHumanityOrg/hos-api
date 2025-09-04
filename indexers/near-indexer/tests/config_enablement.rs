@@ -12,7 +12,10 @@ fn base_indexer_config() -> common::config::IndexerConfig {
             idle_timeout: None,
             max_lifetime: None,
         },
-        logging: common::config::LoggingConfig { level: "debug".into(), format: None },
+        logging: common::config::LoggingConfig {
+            level: "debug".into(),
+            format: None,
+        },
         telemetry: common::config::TelemetryConfig {
             enabled: false,
             service_version: "test".into(),
@@ -52,7 +55,19 @@ fn tokens_can_be_enabled_via_config() {
         start_height: 0,
         concurrency: Some(2),
         region: None,
-        modules: Some(common::config::NearModulesConfig { accounts: Some(common::config::AccountsModuleConfig { enabled: true, track_implicit: true, track_eth_implicit: true }), tokens: Some(common::config::TokensModuleConfig { enabled: true, track_nep141: true, track_nep171: true, contracts: vec![] }) }),
+        modules: Some(common::config::NearModulesConfig {
+            accounts: Some(common::config::AccountsModuleConfig {
+                enabled: true,
+                track_implicit: true,
+                track_eth_implicit: true,
+            }),
+            tokens: Some(common::config::TokensModuleConfig {
+                enabled: true,
+                track_nep141: true,
+                track_nep171: true,
+                contracts: vec![],
+            }),
+        }),
     });
     let app = common::config::AppConfig::Indexer(cfg);
     let mut registry = ModuleRegistry::new();
@@ -61,4 +76,3 @@ fn tokens_can_be_enabled_via_config() {
     let enabled: Vec<&str> = registry.enabled_modules().map(|m| m.name()).collect();
     assert!(enabled.contains(&"tokens"));
 }
-

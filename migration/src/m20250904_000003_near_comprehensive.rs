@@ -567,7 +567,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-
         manager
             .create_index(
                 Index::create()
@@ -707,7 +706,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-
         manager
             .create_index(
                 Index::create()
@@ -828,7 +826,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-
         manager
             .create_index(
                 Index::create()
@@ -939,7 +936,6 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-
 
         // Transaction and receipt tracking for events
         manager

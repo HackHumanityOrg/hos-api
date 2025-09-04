@@ -2,7 +2,6 @@ use discourse_indexer::discourse_api::DiscourseClient;
 use discourse_indexer::domain;
 
 /// Live call: fetch recent topics and posts on meta.discourse.org.
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_live_fetch_recent_topics_and_posts() {
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
@@ -38,7 +37,6 @@ async fn test_live_fetch_recent_topics_and_posts() {
 }
 
 /// Live call: fetch categories and directory users on meta.discourse.org.
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_live_fetch_categories_and_directory_users() {
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
@@ -55,7 +53,6 @@ async fn test_live_fetch_categories_and_directory_users() {
 }
 
 /// Live call: verify pinned topic slug for topic id 1 in latest.
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_live_latest_contains_pinned_start_here() {
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
@@ -76,7 +73,6 @@ async fn test_live_latest_contains_pinned_start_here() {
 }
 
 /// Live call: verify shape of first page of posts for topic 1.
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_live_topic_posts_first_page_shape() {
     // Use topic 1 which should be stable
@@ -97,7 +93,6 @@ async fn test_live_topic_posts_first_page_shape() {
 }
 
 /// Live call: users directory returns at least one user.
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_live_directory_items_contains_users() {
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
@@ -111,7 +106,6 @@ async fn test_live_directory_items_contains_users() {
 }
 
 /// Live call: find a post with edits and fetch a revision.
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_live_find_post_with_edits_and_fetch_revision() {
     // Search more thoroughly for a post with edit history
@@ -175,7 +169,6 @@ async fn test_live_find_post_with_edits_and_fetch_revision() {
 }
 
 /// Live call: TopicResponse deserializes and contains expected fields.
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_live_topicresponse_deserializes() {
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
@@ -194,7 +187,6 @@ async fn test_live_topicresponse_deserializes() {
 }
 
 /// Live call: CategoryResponse deserializes and contains expected fields.
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_live_categoryresponse_deserializes() {
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
@@ -208,7 +200,6 @@ async fn test_live_categoryresponse_deserializes() {
 }
 
 /// Live call: UserResponse deserializes; username is required (String).
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_live_userresponse_deserializes_with_optionals() {
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
@@ -222,7 +213,6 @@ async fn test_live_userresponse_deserializes_with_optionals() {
 }
 
 /// Live call: PostResponse and Likes deserialize.
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_live_postresponse_and_likes_deserialize() {
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());
@@ -246,7 +236,6 @@ async fn test_live_postresponse_and_likes_deserialize() {
 }
 
 /// Live call: comprehensive coverage across topics, categories, users, posts, likes, and revisions.
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_live_comprehensive_model_parsing() {
     let client = DiscourseClient::new("https://meta.discourse.org".to_string());

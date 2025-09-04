@@ -1,18 +1,24 @@
+use near_indexer::modules::transactions::TransactionsProcessor;
+use near_indexer::IndexerModule;
 use near_lake_framework::near_indexer_primitives as nip;
 use nip::views as v;
-use near_indexer::modules::transactions::TransactionsProcessor;
-use test_support::TestDatabase;
-use std::str::FromStr;
 use sea_orm::{EntityTrait, PaginatorTrait};
-use near_indexer::IndexerModule;
+use std::str::FromStr;
+use test_support::TestDatabase;
 
 mod testutil;
-use testutil::{make_block, chunk_header};
+use testutil::{chunk_header, make_block};
 
-fn tx_with_outcome(hash: nip::CryptoHash, signer: &str, receiver: &str, status: v::ExecutionStatusView) -> nip::IndexerTransactionWithOutcome {
+fn tx_with_outcome(
+    hash: nip::CryptoHash,
+    signer: &str,
+    receiver: &str,
+    status: v::ExecutionStatusView,
+) -> nip::IndexerTransactionWithOutcome {
     let stx = v::SignedTransactionView {
         signer_id: signer.parse().unwrap(),
-        public_key: near_crypto::PublicKey::from_str("ed25519:11111111111111111111111111111111").unwrap(),
+        public_key: near_crypto::PublicKey::from_str("ed25519:11111111111111111111111111111111")
+            .unwrap(),
         nonce: 1,
         receiver_id: receiver.parse().unwrap(),
         actions: vec![v::ActionView::Transfer { deposit: 0 }],
@@ -34,7 +40,13 @@ fn tx_with_outcome(hash: nip::CryptoHash, signer: &str, receiver: &str, status: 
             metadata: Default::default(),
         },
     };
-    nip::IndexerTransactionWithOutcome { transaction: stx, outcome: nip::IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome: eo, receipt: None } }
+    nip::IndexerTransactionWithOutcome {
+        transaction: stx,
+        outcome: nip::IndexerExecutionOutcomeWithOptionalReceipt {
+            execution_outcome: eo,
+            receipt: None,
+        },
+    }
 }
 
 #[tokio::test]
@@ -43,10 +55,25 @@ async fn transactions_processor_inserts_row() {
     let db = test_db.db();
 
     let tx_hash = nip::CryptoHash::default();
-    let tx = tx_with_outcome(tx_hash, "alice.near", "contract.near", v::ExecutionStatusView::SuccessValue(vec![]));
+    let tx = tx_with_outcome(
+        tx_hash,
+        "alice.near",
+        "contract.near",
+        v::ExecutionStatusView::SuccessValue(vec![]),
+    );
 
     let ch = chunk_header(100, 0);
-    let shard = nip::IndexerShard { shard_id: 0u64.into(), chunk: Some(nip::IndexerChunkView { author: "prod.near".parse().unwrap(), header: ch, transactions: vec![tx], receipts: vec![] }), receipt_execution_outcomes: vec![], state_changes: vec![] };
+    let shard = nip::IndexerShard {
+        shard_id: 0u64.into(),
+        chunk: Some(nip::IndexerChunkView {
+            author: "prod.near".parse().unwrap(),
+            header: ch,
+            transactions: vec![tx],
+            receipts: vec![],
+        }),
+        receipt_execution_outcomes: vec![],
+        state_changes: vec![],
+    };
 
     let mut msg = make_block(100, 200);
     msg.shards.push(shard);
@@ -54,6 +81,9 @@ async fn transactions_processor_inserts_row() {
     let module = TransactionsProcessor::new(true);
     module.process_block(&msg, &db).await.unwrap();
 
-    let count = entities::near_transactions::Entity::find().count(&db).await.unwrap();
+    let count = entities::near_transactions::Entity::find()
+        .count(&db)
+        .await
+        .unwrap();
     assert_eq!(count, 1);
 }

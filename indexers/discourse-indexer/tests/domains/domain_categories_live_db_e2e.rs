@@ -17,7 +17,6 @@ async fn test_db() -> TestDatabase {
 
 /// Live + DB: fetch categories via adapter, persist, and verify upsert.
 #[rstest]
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_domain_categories_fetch_and_persist(#[future] test_db: TestDatabase) {
     let test_db = test_db.await;

@@ -1,8 +1,11 @@
+use anyhow::{anyhow, Result};
 use near_indexer::core::processor::{process_streamer_message, run_processing_loop};
 use near_indexer::{IndexerModule, ModuleRegistry};
-use anyhow::{anyhow, Result};
 use near_lake_framework::near_indexer_primitives as nip;
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use test_support::TestDatabase;
 
 mod testutil;
@@ -19,9 +22,17 @@ struct TestModule {
 
 #[async_trait::async_trait]
 impl IndexerModule for TestModule {
-    fn name(&self) -> &str { self.name }
-    fn enabled(&self) -> bool { self.enabled }
-    async fn process_block(&self, _msg: &nip::StreamerMessage, _db: &sea_orm::DatabaseConnection) -> Result<()> {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn enabled(&self) -> bool {
+        self.enabled
+    }
+    async fn process_block(
+        &self,
+        _msg: &nip::StreamerMessage,
+        _db: &sea_orm::DatabaseConnection,
+    ) -> Result<()> {
         let n = self.fail_for.load(Ordering::SeqCst);
         if n > 0 {
             self.fail_for.fetch_sub(1, Ordering::SeqCst);
@@ -30,7 +41,9 @@ impl IndexerModule for TestModule {
         self.processed.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
-    async fn get_cursor(&self, _db: &sea_orm::DatabaseConnection) -> Result<Option<i64>> { Ok(None) }
+    async fn get_cursor(&self, _db: &sea_orm::DatabaseConnection) -> Result<Option<i64>> {
+        Ok(None)
+    }
     async fn update_cursor(&self, _db: &sea_orm::DatabaseConnection, _height: i64) -> Result<()> {
         self.updated.fetch_add(1, Ordering::SeqCst);
         Ok(())
@@ -42,8 +55,20 @@ async fn process_streamer_message_runs_enabled_modules_and_updates_cursors() {
     let test_db = TestDatabase::new().await;
     let db = test_db.db();
 
-    let m1 = TestModule { name: "m1", enabled: true, fail_for: Arc::new(AtomicUsize::new(0)), processed: Arc::new(AtomicUsize::new(0)), updated: Arc::new(AtomicUsize::new(0)) };
-    let m2 = TestModule { name: "m2", enabled: true, fail_for: Arc::new(AtomicUsize::new(0)), processed: Arc::new(AtomicUsize::new(0)), updated: Arc::new(AtomicUsize::new(0)) };
+    let m1 = TestModule {
+        name: "m1",
+        enabled: true,
+        fail_for: Arc::new(AtomicUsize::new(0)),
+        processed: Arc::new(AtomicUsize::new(0)),
+        updated: Arc::new(AtomicUsize::new(0)),
+    };
+    let m2 = TestModule {
+        name: "m2",
+        enabled: true,
+        fail_for: Arc::new(AtomicUsize::new(0)),
+        processed: Arc::new(AtomicUsize::new(0)),
+        updated: Arc::new(AtomicUsize::new(0)),
+    };
 
     let mut registry = ModuleRegistry::new();
     registry.register_module(Box::new(m1.clone()));
@@ -63,7 +88,13 @@ async fn run_processing_loop_retries_until_success_with_backoff() {
     let test_db = TestDatabase::new().await;
     let db = test_db.db();
 
-    let failing = TestModule { name: "flaky", enabled: true, fail_for: Arc::new(AtomicUsize::new(2)), processed: Arc::new(AtomicUsize::new(0)), updated: Arc::new(AtomicUsize::new(0)) };
+    let failing = TestModule {
+        name: "flaky",
+        enabled: true,
+        fail_for: Arc::new(AtomicUsize::new(2)),
+        processed: Arc::new(AtomicUsize::new(0)),
+        updated: Arc::new(AtomicUsize::new(0)),
+    };
 
     let mut registry = ModuleRegistry::new();
     registry.register_module(Box::new(failing.clone()));
@@ -85,14 +116,28 @@ async fn process_streamer_message_stops_on_error() {
     let test_db = TestDatabase::new().await;
     let db = test_db.db();
 
-    let failing = TestModule { name: "fail_first", enabled: true, fail_for: Arc::new(AtomicUsize::new(1)), processed: Arc::new(AtomicUsize::new(0)), updated: Arc::new(AtomicUsize::new(0)) };
-    let later = TestModule { name: "later", enabled: true, fail_for: Arc::new(AtomicUsize::new(0)), processed: Arc::new(AtomicUsize::new(0)), updated: Arc::new(AtomicUsize::new(0)) };
+    let failing = TestModule {
+        name: "fail_first",
+        enabled: true,
+        fail_for: Arc::new(AtomicUsize::new(1)),
+        processed: Arc::new(AtomicUsize::new(0)),
+        updated: Arc::new(AtomicUsize::new(0)),
+    };
+    let later = TestModule {
+        name: "later",
+        enabled: true,
+        fail_for: Arc::new(AtomicUsize::new(0)),
+        processed: Arc::new(AtomicUsize::new(0)),
+        updated: Arc::new(AtomicUsize::new(0)),
+    };
 
     let mut registry = ModuleRegistry::new();
     registry.register_module(Box::new(failing.clone()));
     registry.register_module(Box::new(later.clone()));
     let msg = make_block(1, 2);
-    let _ = process_streamer_message(&registry, &db, msg).await.unwrap_err();
+    let _ = process_streamer_message(&registry, &db, msg)
+        .await
+        .unwrap_err();
     assert_eq!(failing.processed.load(Ordering::SeqCst), 0);
     assert_eq!(later.processed.load(Ordering::SeqCst), 0);
     assert_eq!(failing.updated.load(Ordering::SeqCst), 0);

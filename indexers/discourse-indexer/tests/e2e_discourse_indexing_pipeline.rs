@@ -46,7 +46,6 @@ async fn ensure_user_exists(
 
 /// End-to-end: Index categories, topics, users, posts, likes, and revisions into MySQL.
 #[rstest]
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) {
     init_test_tracing();
@@ -304,7 +303,6 @@ async fn test_e2e_full_indexing_pipeline_mysql(#[future] test_db: TestDatabase) 
 
 /// End-to-end: Upsert semantics on topics (no duplicates, updates in place).
 #[rstest]
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabase) {
     init_test_tracing();
@@ -384,7 +382,6 @@ async fn test_e2e_database_persistence_and_upsert(#[future] test_db: TestDatabas
 
 /// End-to-end: Integrity across related entities (topic, post, users, likes).
 #[rstest]
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_e2e_data_integrity_across_entities(#[future] test_db: TestDatabase) {
     init_test_tracing();
@@ -535,7 +532,6 @@ async fn test_e2e_data_integrity_across_entities(#[future] test_db: TestDatabase
 
 /// End-to-end: API error handling and DB recovery remain functional.
 #[rstest]
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_e2e_error_handling_and_recovery(#[future] test_db: TestDatabase) {
     init_test_tracing();
@@ -614,7 +610,6 @@ async fn test_e2e_error_handling_and_recovery(#[future] test_db: TestDatabase) {
 
 /// End-to-end: Concurrent indexing of multiple topics persists without corruption.
 #[rstest]
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_e2e_concurrent_indexing_across_topics(#[future] test_db: TestDatabase) {
     init_test_tracing();

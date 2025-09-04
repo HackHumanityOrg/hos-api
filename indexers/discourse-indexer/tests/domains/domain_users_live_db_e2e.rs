@@ -17,7 +17,6 @@ async fn test_db() -> TestDatabase {
 
 /// Live + DB: fetch directory users via adapter, persist, and verify update path.
 #[rstest]
-#[cfg_attr(not(feature = "live_http"), ignore)]
 #[tokio::test]
 async fn test_domain_users_fetch_and_persist(#[future] test_db: TestDatabase) {
     let test_db = test_db.await;
