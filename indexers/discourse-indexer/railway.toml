@@ -2,11 +2,11 @@
 builder = "DOCKERFILE"
 dockerfilePath = "indexers/discourse-indexer/Dockerfile"
 watchPaths = [
-    "indexers/discourse-indexer/**",
-    "shared/**",
-    "migration/**",
-    "Cargo.toml",
-    "Cargo.lock",
+  "indexers/discourse-indexer/**",
+  "shared/**",
+  "migration/**",
+  "Cargo.toml",
+  "Cargo.lock"
 ]
 
 [deploy]

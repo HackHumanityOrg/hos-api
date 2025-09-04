@@ -100,6 +100,9 @@ impl AccountsModule {
         let mut state_history_inserts: Vec<entities::near_account_state_history::ActiveModel> =
             Vec::new();
         let mut event_inserts_receipt: Vec<entities::near_account_events::ActiveModel> = Vec::new();
+        let mut access_key_inserts: Vec<entities::near_access_keys::ActiveModel> = Vec::new();
+        let mut contract_data_inserts: Vec<entities::near_contract_data::ActiveModel> = Vec::new();
+        let mut contract_code_inserts: Vec<entities::near_contract_code::ActiveModel> = Vec::new();
 
         for sc in shard.state_changes {
             let (cause_str, cause_tx, cause_receipt) = match &sc.cause {
@@ -316,26 +319,10 @@ impl AccountsModule {
                         deleted_at_time: Set(None),
                     };
 
-                    // Insert access key record with PlanetScale-compatible upsert
-                    entities::near_access_keys::Entity::insert(access_key_record)
-                        .on_conflict(
-                            OnConflict::columns([
-                                entities::near_access_keys::Column::AccountId,
-                                entities::near_access_keys::Column::PublicKey,
-                                entities::near_access_keys::Column::BlockHeight,
-                            ])
-                            .update_columns([
-                                entities::near_access_keys::Column::AccessKeyType,
-                                entities::near_access_keys::Column::ContractId,
-                                entities::near_access_keys::Column::MethodNames,
-                                entities::near_access_keys::Column::Allowance,
-                            ])
-                            .to_owned(),
-                        )
-                        .exec(&txn)
-                        .await?;
+                    // Add to batch for later processing after accounts are created
+                    access_key_inserts.push(access_key_record);
 
-                    debug!(account_id = %account_id, public_key = %public_key, "access key updated");
+                    debug!(account_id = %account_id, public_key = %public_key, "access key batched for update");
                 }
                 StateChangeValueView::AccessKeyDeletion {
                     account_id,
@@ -360,25 +347,10 @@ impl AccountsModule {
                         deleted_at_time: Set(Some(ts)),
                     };
 
-                    // Insert access key deletion record with PlanetScale-compatible upsert
-                    entities::near_access_keys::Entity::insert(access_key_record)
-                        .on_conflict(
-                            OnConflict::columns([
-                                entities::near_access_keys::Column::AccountId,
-                                entities::near_access_keys::Column::PublicKey,
-                                entities::near_access_keys::Column::BlockHeight,
-                            ])
-                            .update_columns([
-                                entities::near_access_keys::Column::IsDeleted,
-                                entities::near_access_keys::Column::DeletedAtHeight,
-                                entities::near_access_keys::Column::DeletedAtTime,
-                            ])
-                            .to_owned(),
-                        )
-                        .exec(&txn)
-                        .await?;
+                    // Add to batch for later processing after accounts are created
+                    access_key_inserts.push(access_key_record);
 
-                    debug!(account_id = %account_id, public_key = %public_key, "access key deleted");
+                    debug!(account_id = %account_id, public_key = %public_key, "access key deletion batched");
                 }
                 StateChangeValueView::DataUpdate {
                     account_id,
@@ -401,25 +373,10 @@ impl AccountsModule {
                         cause_receipt_hash: Set(cause_receipt.clone()),
                     };
 
-                    // Insert contract data record with PlanetScale-compatible upsert
-                    entities::near_contract_data::Entity::insert(data_record)
-                        .on_conflict(
-                            OnConflict::columns([
-                                entities::near_contract_data::Column::AccountId,
-                                entities::near_contract_data::Column::DataKey,
-                                entities::near_contract_data::Column::BlockHeight,
-                            ])
-                            .update_columns([
-                                entities::near_contract_data::Column::DataValue,
-                                entities::near_contract_data::Column::ChangeType,
-                                entities::near_contract_data::Column::BlockTime,
-                            ])
-                            .to_owned(),
-                        )
-                        .exec(&txn)
-                        .await?;
+                    // Add to batch for later processing after accounts are created
+                    contract_data_inserts.push(data_record);
 
-                    debug!(account_id = %account_id, key_len = key.len(), "contract data updated");
+                    debug!(account_id = %account_id, key_len = key.len(), "contract data batched for update");
                 }
                 StateChangeValueView::DataDeletion { account_id, key } => {
                     let key_base64 = hex::encode(key.as_ref() as &[u8]);
@@ -437,25 +394,10 @@ impl AccountsModule {
                         cause_receipt_hash: Set(cause_receipt.clone()),
                     };
 
-                    // Insert contract data deletion record with PlanetScale-compatible upsert
-                    entities::near_contract_data::Entity::insert(data_record)
-                        .on_conflict(
-                            OnConflict::columns([
-                                entities::near_contract_data::Column::AccountId,
-                                entities::near_contract_data::Column::DataKey,
-                                entities::near_contract_data::Column::BlockHeight,
-                            ])
-                            .update_columns([
-                                entities::near_contract_data::Column::DataValue,
-                                entities::near_contract_data::Column::ChangeType,
-                                entities::near_contract_data::Column::BlockTime,
-                            ])
-                            .to_owned(),
-                        )
-                        .exec(&txn)
-                        .await?;
+                    // Add to batch for later processing after accounts are created
+                    contract_data_inserts.push(data_record);
 
-                    debug!(account_id = %account_id, key_len = key.len(), "contract data deleted");
+                    debug!(account_id = %account_id, key_len = key.len(), "contract data deletion batched");
                 }
                 StateChangeValueView::ContractCodeUpdate { account_id, code } => {
                     let code_hash = format!("{:x}", Sha256::digest(&code));
@@ -473,25 +415,10 @@ impl AccountsModule {
                         cause_receipt_hash: Set(cause_receipt.clone()),
                     };
 
-                    // Insert contract code record with PlanetScale-compatible upsert
-                    entities::near_contract_code::Entity::insert(code_record)
-                        .on_conflict(
-                            OnConflict::columns([
-                                entities::near_contract_code::Column::AccountId,
-                                entities::near_contract_code::Column::BlockHeight,
-                            ])
-                            .update_columns([
-                                entities::near_contract_code::Column::CodeHash,
-                                entities::near_contract_code::Column::Code,
-                                entities::near_contract_code::Column::ChangeType,
-                                entities::near_contract_code::Column::BlockTime,
-                            ])
-                            .to_owned(),
-                        )
-                        .exec(&txn)
-                        .await?;
+                    // Add to batch for later processing after accounts are created
+                    contract_code_inserts.push(code_record);
 
-                    debug!(account_id = %account_id, code_len = code.len(), "contract code updated");
+                    debug!(account_id = %account_id, code_len = code.len(), "contract code batched for update");
                 }
                 StateChangeValueView::ContractCodeDeletion { account_id } => {
                     let code_record = entities::near_contract_code::ActiveModel {
@@ -507,25 +434,10 @@ impl AccountsModule {
                         cause_receipt_hash: Set(cause_receipt.clone()),
                     };
 
-                    // Insert contract code deletion record with PlanetScale-compatible upsert
-                    entities::near_contract_code::Entity::insert(code_record)
-                        .on_conflict(
-                            OnConflict::columns([
-                                entities::near_contract_code::Column::AccountId,
-                                entities::near_contract_code::Column::BlockHeight,
-                            ])
-                            .update_columns([
-                                entities::near_contract_code::Column::CodeHash,
-                                entities::near_contract_code::Column::Code,
-                                entities::near_contract_code::Column::ChangeType,
-                                entities::near_contract_code::Column::BlockTime,
-                            ])
-                            .to_owned(),
-                        )
-                        .exec(&txn)
-                        .await?;
+                    // Add to batch for later processing after accounts are created
+                    contract_code_inserts.push(code_record);
 
-                    debug!(account_id = %account_id, "contract code deleted");
+                    debug!(account_id = %account_id, "contract code deletion batched");
                 }
             }
         }
@@ -630,6 +542,76 @@ impl AccountsModule {
                         AEC::ReceiptHash,
                     ])
                     .update_columns([AEC::BlockTime])
+                    .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // Batch insert access keys after accounts are created
+        if !access_key_inserts.is_empty() {
+            use entities::near_access_keys::Column as AKC;
+            use sea_orm::sea_query::OnConflict;
+            entities::near_access_keys::Entity::insert_many(access_key_inserts)
+                .on_conflict(
+                    OnConflict::columns([
+                        AKC::AccountId,
+                        AKC::PublicKey,
+                        AKC::BlockHeight,
+                    ])
+                    .update_columns([
+                        AKC::AccessKeyType,
+                        AKC::ContractId,
+                        AKC::MethodNames,
+                        AKC::Allowance,
+                        AKC::IsDeleted,
+                        AKC::DeletedAtHeight,
+                        AKC::DeletedAtTime,
+                    ])
+                    .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // Batch insert contract data after accounts are created
+        if !contract_data_inserts.is_empty() {
+            use entities::near_contract_data::Column as CDC;
+            use sea_orm::sea_query::OnConflict;
+            entities::near_contract_data::Entity::insert_many(contract_data_inserts)
+                .on_conflict(
+                    OnConflict::columns([
+                        CDC::AccountId,
+                        CDC::DataKey,
+                        CDC::BlockHeight,
+                    ])
+                    .update_columns([
+                        CDC::DataValue,
+                        CDC::ChangeType,
+                        CDC::BlockTime,
+                    ])
+                    .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // Batch insert contract code after accounts are created
+        if !contract_code_inserts.is_empty() {
+            use entities::near_contract_code::Column as CCC;
+            use sea_orm::sea_query::OnConflict;
+            entities::near_contract_code::Entity::insert_many(contract_code_inserts)
+                .on_conflict(
+                    OnConflict::columns([
+                        CCC::AccountId,
+                        CCC::BlockHeight,
+                    ])
+                    .update_columns([
+                        CCC::CodeHash,
+                        CCC::Code,
+                        CCC::ChangeType,
+                        CCC::BlockTime,
+                    ])
                     .to_owned(),
                 )
                 .exec(&txn)

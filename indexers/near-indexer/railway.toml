@@ -6,7 +6,7 @@ watchPaths = [
   "shared/**",
   "migration/**",
   "Cargo.toml",
-  "Cargo.lock",
+  "Cargo.lock"
 ]
 
 [deploy]
