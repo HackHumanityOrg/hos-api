@@ -23,6 +23,17 @@ pub struct Model {
     pub gas_used: Option<i64>,
     #[sea_orm(column_type = "Decimal(Some((39, 0)))", nullable)]
     pub tokens_burnt: Option<Decimal>,
+    pub executor_id: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((39, 0)))", nullable)]
+    pub priority_fee: Option<Decimal>,
+    pub signature: Option<String>,
+    pub execution_outcome_id: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub logs: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub proof: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub metadata: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -159,6 +159,13 @@ async fn multitoken_events_persist_batches() {
         tokens_burnt: Set(None),
         public_key: NotSet,
         nonce: NotSet,
+        executor_id: NotSet,
+        priority_fee: NotSet,
+        signature: NotSet,
+        execution_outcome_id: NotSet,
+        logs: NotSet,
+        proof: NotSet,
+        metadata: NotSet,
     };
     let _ = entities::near_transactions::Entity::insert(tx_row)
         .exec(&db)

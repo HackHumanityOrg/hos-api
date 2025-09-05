@@ -58,6 +58,13 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(NearTransactions::Nonce).big_integer())
                     .col(ColumnDef::new(NearTransactions::GasUsed).big_integer())
                     .col(ColumnDef::new(NearTransactions::TokensBurnt).decimal_len(39, 0))
+                    .col(ColumnDef::new(NearTransactions::ExecutorId).string_len(128)) // Account that executed the transaction
+                    .col(ColumnDef::new(NearTransactions::PriorityFee).decimal_len(39, 0)) // Priority fee for transaction prioritization
+                    .col(ColumnDef::new(NearTransactions::Signature).string_len(200)) // Cryptographic signature
+                    .col(ColumnDef::new(NearTransactions::ExecutionOutcomeId).string_len(100)) // Execution outcome ID
+                    .col(ColumnDef::new(NearTransactions::Logs).text()) // JSON array of execution logs
+                    .col(ColumnDef::new(NearTransactions::Proof).text()) // JSON array of Merkle proof data
+                    .col(ColumnDef::new(NearTransactions::Metadata).text()) // JSON execution metadata
                     .to_owned(),
             )
             .await?;
@@ -69,6 +76,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_transactions_signer")
                     .table(NearTransactions::Table)
                     .col(NearTransactions::SignerId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -109,6 +117,16 @@ impl MigrationTrait for Migration {
                     .name("idx_near_transactions_status")
                     .table(NearTransactions::Table)
                     .col(NearTransactions::Status)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_transactions_executor_id")
+                    .table(NearTransactions::Table)
+                    .col(NearTransactions::ExecutorId)
                     .to_owned(),
             )
             .await?;
@@ -1793,6 +1811,235 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null(),
                     )
+                    .col(
+                        ColumnDef::new(NearValidatorRewards::Source)
+                            .string_len(16)
+                            .not_null(), // "block" or "chunk"
+                    )
+                    .col(ColumnDef::new(NearValidatorRewards::ShardId).integer()) // For chunk rewards
+                    .to_owned(),
+            )
+            .await?;
+
+        // near_epoch_info - Store epoch-level information
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearEpochInfo::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearEpochInfo::EpochId)
+                            .string_len(64)
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochInfo::EpochHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochInfo::NextEpochId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochInfo::PrevEpochId)
+                            .string_len(64),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochInfo::TotalStake)
+                            .decimal_len(39, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochInfo::ValidatorStakeThreshold)
+                            .decimal_len(39, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochInfo::SeatPrice)
+                            .decimal_len(39, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochInfo::ValidatorCount)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochInfo::FirstSeenHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochInfo::FirstSeenTimestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochInfo::ProtocolVersion)
+                            .integer()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // near_block_validators - Store complete validator sets per block
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearBlockValidators::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearBlockValidators::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockValidators::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockValidators::EpochId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockValidators::ValidatorId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockValidators::Stake)
+                            .decimal_len(39, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockValidators::PublicKey)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockValidators::IsBlockProducer)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockValidators::IsChunkProducer)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockValidators::Timestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // Indexes for new tables
+        // Indexes for near_validator_rewards
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_validator_rewards_validator_id")
+                    .table(NearValidatorRewards::Table)
+                    .col(NearValidatorRewards::ValidatorId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_validator_rewards_epoch_id")
+                    .table(NearValidatorRewards::Table)
+                    .col(NearValidatorRewards::EpochId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_validator_rewards_block_height")
+                    .table(NearValidatorRewards::Table)
+                    .col(NearValidatorRewards::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_validator_rewards_source")
+                    .table(NearValidatorRewards::Table)
+                    .col(NearValidatorRewards::Source)
+                    .to_owned(),
+            )
+            .await?;
+        
+        // Indexes for near_epoch_info
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_epoch_info_first_seen_height")
+                    .table(NearEpochInfo::Table)
+                    .col(NearEpochInfo::FirstSeenHeight)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_epoch_info_protocol_version")
+                    .table(NearEpochInfo::Table)
+                    .col(NearEpochInfo::ProtocolVersion)
+                    .to_owned(),
+            )
+            .await?;
+            
+        // Indexes for near_block_validators
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_block_validators_block_height")
+                    .table(NearBlockValidators::Table)
+                    .col(NearBlockValidators::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_block_validators_validator_id")
+                    .table(NearBlockValidators::Table)
+                    .col(NearBlockValidators::ValidatorId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_near_block_validators_epoch_id")
+                    .table(NearBlockValidators::Table)
+                    .col(NearBlockValidators::EpochId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("ux_near_block_validators_block_validator")
+                    .table(NearBlockValidators::Table)
+                    .col(NearBlockValidators::BlockHeight)
+                    .col(NearBlockValidators::ValidatorId)
+                    .unique()
                     .to_owned(),
             )
             .await?;
@@ -1835,6 +2082,12 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(NearSyncCursors::Table).to_owned())
             .await?;
         // Drop consolidated validator/network tables
+        manager
+            .drop_table(Table::drop().table(NearBlockValidators::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearEpochInfo::Table).to_owned())
+            .await?;
         manager
             .drop_table(Table::drop().table(NearValidatorRewards::Table).to_owned())
             .await?;
@@ -1923,6 +2176,13 @@ enum NearTransactions {
     Nonce,
     GasUsed,
     TokensBurnt,
+    ExecutorId,
+    PriorityFee,
+    Signature,
+    ExecutionOutcomeId,
+    Logs,
+    Proof,
+    Metadata,
 }
 
 #[derive(DeriveIden)]
@@ -2180,5 +2440,37 @@ enum NearValidatorRewards {
     DelegatorRewards,
     CommissionEarned,
     CommissionRate,
+    Timestamp,
+    Source,
+    ShardId,
+}
+
+#[derive(DeriveIden)]
+enum NearEpochInfo {
+    Table,
+    EpochId,
+    EpochHeight,
+    NextEpochId,
+    PrevEpochId,
+    TotalStake,
+    ValidatorStakeThreshold,
+    SeatPrice,
+    ValidatorCount,
+    FirstSeenHeight,
+    FirstSeenTimestamp,
+    ProtocolVersion,
+}
+
+#[derive(DeriveIden)]
+enum NearBlockValidators {
+    Table,
+    Id,
+    BlockHeight,
+    EpochId,
+    ValidatorId,
+    Stake,
+    PublicKey,
+    IsBlockProducer,
+    IsChunkProducer,
     Timestamp,
 }

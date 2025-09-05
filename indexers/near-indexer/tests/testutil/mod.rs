@@ -70,6 +70,39 @@ pub fn outcome_with_logs(executor: &str, logs: Vec<&str>) -> v::ExecutionOutcome
     }
 }
 
+#[allow(dead_code)] 
+pub fn make_chunk_with_producer(height: u64, shard_id: u64, producer: &str, validator_reward: u128) -> nip::IndexerChunkView {
+    let header = v::ChunkHeaderView {
+        chunk_hash: nip::CryptoHash::default(),
+        prev_block_hash: nip::CryptoHash::default(),
+        outcome_root: nip::CryptoHash::default(),
+        prev_state_root: nip::CryptoHash::default(),
+        encoded_merkle_root: nip::CryptoHash::default(),
+        encoded_length: 0,
+        height_created: height,
+        height_included: height,
+        shard_id: shard_id.into(),
+        gas_used: 0,
+        gas_limit: 0,
+        rent_paid: 0,
+        validator_reward,
+        balance_burnt: 0,
+        outgoing_receipts_root: nip::CryptoHash::default(),
+        tx_root: nip::CryptoHash::default(),
+        validator_proposals: vec![],
+        congestion_info: None,
+        bandwidth_requests: None,
+        signature: near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
+    };
+    
+    nip::IndexerChunkView {
+        author: producer.parse().unwrap(),
+        header,
+        transactions: vec![],
+        receipts: vec![],
+    }
+}
+
 #[allow(dead_code)]
 pub fn chunk_header(height: u64, shard_id: u64) -> v::ChunkHeaderView {
     v::ChunkHeaderView {

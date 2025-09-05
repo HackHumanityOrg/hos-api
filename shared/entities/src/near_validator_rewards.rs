@@ -20,6 +20,8 @@ pub struct Model {
     #[sea_orm(column_type = "Decimal(Some((39, 0)))")]
     pub commission_rate: Decimal,
     pub timestamp: i64,
+    pub source: String,
+    pub shard_id: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

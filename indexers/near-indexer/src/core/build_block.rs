@@ -35,6 +35,8 @@ pub fn build_block(msg: &nip::StreamerMessage) -> AdaptedBlock {
 
                 let tokens_burnt =
                     Decimal::from_str_exact(&out.tokens_burnt.to_string()).unwrap_or(Decimal::ZERO);
+                let priority_fee =
+                    Decimal::from_str_exact(&tx.priority_fee.to_string()).unwrap_or(Decimal::ZERO);
 
                 let tx_view = TxView {
                     hash: tx.hash.to_string(),
@@ -48,6 +50,18 @@ pub fn build_block(msg: &nip::StreamerMessage) -> AdaptedBlock {
                     executor_id: out.executor_id.to_string(),
                     public_key: Some(tx.public_key.to_string()),
                     nonce: Some(tx.nonce as i64),
+                    priority_fee,
+                    signature: tx.signature.to_string(),
+                    execution_outcome_id: txo.outcome.execution_outcome.id.to_string(),
+                    logs: out.logs.clone(),
+                    proof: txo
+                        .outcome
+                        .execution_outcome
+                        .proof
+                        .iter()
+                        .map(|p| format!("{:?}", p))
+                        .collect(),
+                    metadata: serde_json::to_string(&out.metadata).unwrap_or("{}".into()),
                 };
                 txs.push(tx_view);
 

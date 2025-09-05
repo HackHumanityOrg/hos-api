@@ -79,3 +79,32 @@ fn tokens_can_be_enabled_via_config() {
     let enabled: Vec<&str> = registry.enabled_modules().map(|m| m.name()).collect();
     assert!(enabled.contains(&"tokens"));
 }
+
+#[test]
+fn validators_can_be_enabled_via_config() {
+    let mut cfg = base_indexer_config();
+    cfg.near = Some(common::config::NearLakeConfig {
+        chain: "mainnet".into(),
+        start_height: 0,
+        concurrency: Some(2),
+        region: None,
+        modules: Some(common::config::NearModulesConfig {
+            accounts: Some(common::config::AccountsModuleConfig {
+                enabled: true,
+                track_implicit: true,
+                track_eth_implicit: true,
+            }),
+            tokens: None,
+            validators: Some(common::config::ValidatorsModuleConfig {
+                enabled: true,
+            }),
+            network: None,
+        }),
+    });
+    let app = common::config::AppConfig::Indexer(cfg);
+    let mut registry = ModuleRegistry::new();
+    modules::register_all_modules(&mut registry, &app);
+
+    let enabled: Vec<&str> = registry.enabled_modules().map(|m| m.name()).collect();
+    assert!(enabled.contains(&"validators"));
+}

@@ -39,6 +39,8 @@ impl TransactionsProcessor {
                 crate::core::lake_types::ExecStatus::Unknown => "unknown",
             };
             let receipt_ids_json = serde_json::to_string(&tx.receipt_ids).unwrap_or("[]".into());
+            let logs_json = serde_json::to_string(&tx.logs).unwrap_or("[]".into());
+            let proof_json = serde_json::to_string(&tx.proof).unwrap_or("[]".into());
             let tx_record = entities::near_transactions::ActiveModel {
                 tx_hash: Set(tx.hash.clone()),
                 signer_id: Set(tx.signer_id.clone()),
@@ -53,14 +55,24 @@ impl TransactionsProcessor {
                 nonce: Set(tx.nonce),
                 gas_used: Set(Some(tx.gas_burnt)),
                 tokens_burnt: Set(Some(tx.tokens_burnt)),
+                executor_id: Set(Some(tx.executor_id.clone())),
+                priority_fee: Set(Some(tx.priority_fee)),
+                signature: Set(Some(tx.signature.clone())),
+                execution_outcome_id: Set(Some(tx.execution_outcome_id.clone())),
+                logs: Set(Some(logs_json)),
+                proof: Set(Some(proof_json)),
+                metadata: Set(Some(tx.metadata.clone())),
             };
             transaction_inserts.push(tx_record);
             debug!(
                 tx_hash = %tx.hash,
                 signer = %tx.signer_id,
                 receiver = %tx.receiver_id,
+                executor = %tx.executor_id,
                 status = status,
                 gas_used = tx.gas_burnt,
+                priority_fee = %tx.priority_fee,
+                logs_count = tx.logs.len(),
                 "processed transaction"
             );
         }

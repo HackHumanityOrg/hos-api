@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use entities::*;
 use near_lake_framework::near_indexer_primitives::views::StateChangeCauseView;
-use near_primitives::views::validator_stake_view::ValidatorStakeView;
+use near_primitives::views::{validator_stake_view::ValidatorStakeView, ChunkHeaderView};
 use rust_decimal::Decimal;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection,
@@ -129,8 +129,14 @@ impl ValidatorsModule {
             };
 
             // Insert/update validator record
-            self.upsert_validator(&account_id, &public_key, context.height, context.timestamp, db)
-                .await?;
+            self.upsert_validator(
+                &account_id,
+                &public_key,
+                context.height,
+                context.timestamp,
+                db,
+            )
+            .await?;
 
             // Insert proposal record
             proposal_models.push(near_validator_proposals::ActiveModel {
@@ -238,6 +244,8 @@ impl ValidatorsModule {
             commission_earned: Set(rust_decimal::Decimal::ZERO), // Not available at block level
             commission_rate: Set(rust_decimal::Decimal::ZERO),   // Not available at block level
             timestamp: Set(timestamp),
+            source: Set("block".to_string()),
+            shard_id: NotSet,
         };
 
         total_reward_model.insert(db).await?;
@@ -254,6 +262,8 @@ impl ValidatorsModule {
             commission_earned: Set(rust_decimal::Decimal::ZERO), // Commission details not available at block level
             commission_rate: Set(rust_decimal::Decimal::ZERO), // Commission rate not available at block level
             timestamp: Set(timestamp),
+            source: Set("block".to_string()),
+            shard_id: NotSet,
         };
 
         producer_reward_model.insert(db).await?;
@@ -268,6 +278,57 @@ impl ValidatorsModule {
 
         Ok(())
     }
+
+    async fn record_chunk_validator_rewards(
+        &self,
+        chunk: &ChunkHeaderView,
+        producer_id: Option<&str>,
+        shard_id: usize,
+        height: i64,
+        epoch_id: &str,
+        timestamp: i64,
+        db: &impl ConnectionTrait,
+    ) -> Result<()> {
+        let validator_reward = chunk.validator_reward;
+        if validator_reward == 0 || producer_id.is_none() {
+            return Ok(());
+        }
+
+        let producer_id = producer_id.unwrap();
+
+        // Record chunk producer reward
+        let chunk_reward_model = entities::near_validator_rewards::ActiveModel {
+            id: NotSet,
+            validator_id: Set(producer_id.to_string()),
+            epoch_id: Set(epoch_id.to_string()),
+            block_height: Set(height),
+            reward_amount: Set(Self::safe_u128_to_decimal(validator_reward)),
+            delegator_rewards: Set(rust_decimal::Decimal::ZERO), // Not available at chunk level
+            commission_earned: Set(rust_decimal::Decimal::ZERO), // Not available at chunk level
+            commission_rate: Set(rust_decimal::Decimal::ZERO),   // Not available at chunk level
+            timestamp: Set(timestamp),
+            source: Set("chunk".to_string()),
+            shard_id: Set(Some(shard_id as i32)),
+        };
+
+        chunk_reward_model.insert(db).await?;
+
+        debug!(
+            height = height,
+            shard_id = shard_id,
+            validator_id = %producer_id,
+            reward_amount = %validator_reward,
+            "Recorded chunk validator reward"
+        );
+
+        Ok(())
+    }
+
+    // TODO: Epoch info functionality will be implemented when we have access to the necessary data structures
+    // For now, we focus on the available data from StreamerMessage
+    //
+    // async fn record_epoch_info(...) { ... }
+    // async fn record_block_validators(...) { ... }
 
     async fn process_validator_state_changes(
         &self,
@@ -340,12 +401,8 @@ impl IndexerModule for ValidatorsModule {
                 source: "block".to_string(),
                 shard_id: None,
             };
-            self.record_validator_proposals(
-                &msg.block.header.validator_proposals,
-                &context,
-                &txn,
-            )
-            .await?;
+            self.record_validator_proposals(&msg.block.header.validator_proposals, &context, &txn)
+                .await?;
         }
 
         // Record validator proposals from chunk headers
@@ -389,6 +446,30 @@ impl IndexerModule for ValidatorsModule {
             &txn,
         )
         .await?;
+
+        // Record chunk validator rewards
+        let b = build_block::build_block(msg);
+        for (shard_idx, shard) in msg.shards.iter().enumerate() {
+            if let Some(chunk) = &shard.chunk {
+                let producer_id = b
+                    .chunk_producers
+                    .get(shard_idx)
+                    .and_then(|cp| cp.producer.as_deref());
+
+                self.record_chunk_validator_rewards(
+                    &chunk.header,
+                    producer_id,
+                    shard_idx,
+                    height,
+                    &epoch_id,
+                    timestamp,
+                    &txn,
+                )
+                .await?;
+            }
+        }
+
+        // TODO: Record epoch info and block validators when data structures are available
 
         // Process validator state changes
         self.process_validator_state_changes(msg, &txn).await?;

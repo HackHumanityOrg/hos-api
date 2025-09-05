@@ -45,6 +45,12 @@ pub struct TxView {
     pub executor_id: String,
     pub public_key: Option<String>,
     pub nonce: Option<i64>,
+    pub priority_fee: Decimal,
+    pub signature: String,
+    pub execution_outcome_id: String,
+    pub logs: Vec<String>,
+    pub proof: Vec<String>,
+    pub metadata: String,
 }
 
 #[derive(Debug, Clone)]
