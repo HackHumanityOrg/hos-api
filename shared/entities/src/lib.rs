@@ -14,7 +14,6 @@ pub mod near_account_events;
 pub mod near_account_state_history;
 pub mod near_accounts;
 pub mod near_block_producers;
-pub mod near_block_validators;
 pub mod near_chunk_producers;
 pub mod near_contract_code;
 pub mod near_contract_data;

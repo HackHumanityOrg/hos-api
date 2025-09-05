@@ -12,7 +12,6 @@ pub use super::near_account_events::Entity as NearAccountEvents;
 pub use super::near_account_state_history::Entity as NearAccountStateHistory;
 pub use super::near_accounts::Entity as NearAccounts;
 pub use super::near_block_producers::Entity as NearBlockProducers;
-pub use super::near_block_validators::Entity as NearBlockValidators;
 pub use super::near_chunk_producers::Entity as NearChunkProducers;
 pub use super::near_contract_code::Entity as NearContractCode;
 pub use super::near_contract_data::Entity as NearContractData;

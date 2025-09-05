@@ -1883,64 +1883,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // near_block_validators - Store complete validator sets per block
-        manager
-            .create_table(
-                Table::create()
-                    .table(NearBlockValidators::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(NearBlockValidators::Id)
-                            .big_integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(NearBlockValidators::BlockHeight)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearBlockValidators::EpochId)
-                            .string_len(64)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearBlockValidators::ValidatorId)
-                            .string_len(128)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearBlockValidators::Stake)
-                            .decimal_len(39, 0)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearBlockValidators::PublicKey)
-                            .string_len(128)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearBlockValidators::IsBlockProducer)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
-                    .col(
-                        ColumnDef::new(NearBlockValidators::IsChunkProducer)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
-                    .col(
-                        ColumnDef::new(NearBlockValidators::Timestamp)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .to_owned(),
-            )
-            .await?;
 
         // Indexes for new tables
         // Indexes for near_validator_rewards
@@ -2001,45 +1943,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // Indexes for near_block_validators
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_block_validators_block_height")
-                    .table(NearBlockValidators::Table)
-                    .col(NearBlockValidators::BlockHeight)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_block_validators_validator_id")
-                    .table(NearBlockValidators::Table)
-                    .col(NearBlockValidators::ValidatorId)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_block_validators_epoch_id")
-                    .table(NearBlockValidators::Table)
-                    .col(NearBlockValidators::EpochId)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                Index::create()
-                    .name("ux_near_block_validators_block_validator")
-                    .table(NearBlockValidators::Table)
-                    .col(NearBlockValidators::BlockHeight)
-                    .col(NearBlockValidators::ValidatorId)
-                    .unique()
-                    .to_owned(),
-            )
-            .await?;
 
         // =================
         // UTILITY TABLES
@@ -2079,9 +1982,6 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(NearSyncCursors::Table).to_owned())
             .await?;
         // Drop consolidated validator/network tables
-        manager
-            .drop_table(Table::drop().table(NearBlockValidators::Table).to_owned())
-            .await?;
         manager
             .drop_table(Table::drop().table(NearEpochInfo::Table).to_owned())
             .await?;
@@ -2458,16 +2358,3 @@ enum NearEpochInfo {
     ProtocolVersion,
 }
 
-#[derive(DeriveIden)]
-enum NearBlockValidators {
-    Table,
-    Id,
-    BlockHeight,
-    EpochId,
-    ValidatorId,
-    Stake,
-    PublicKey,
-    IsBlockProducer,
-    IsChunkProducer,
-    Timestamp,
-}
