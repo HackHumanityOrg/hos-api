@@ -15,7 +15,6 @@ pub use super::near_block_producers::Entity as NearBlockProducers;
 pub use super::near_chunk_producers::Entity as NearChunkProducers;
 pub use super::near_contract_code::Entity as NearContractCode;
 pub use super::near_contract_data::Entity as NearContractData;
-pub use super::near_epoch_info::Entity as NearEpochInfo;
 pub use super::near_epochs::Entity as NearEpochs;
 pub use super::near_network_state::Entity as NearNetworkState;
 pub use super::near_sync_cursors::Entity as NearSyncCursors;

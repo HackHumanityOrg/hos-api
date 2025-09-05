@@ -1821,67 +1821,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // near_epoch_info - Store epoch-level information
-        manager
-            .create_table(
-                Table::create()
-                    .table(NearEpochInfo::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(NearEpochInfo::EpochId)
-                            .string_len(64)
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(NearEpochInfo::EpochHeight)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearEpochInfo::NextEpochId)
-                            .string_len(64)
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(NearEpochInfo::PrevEpochId).string_len(64))
-                    .col(
-                        ColumnDef::new(NearEpochInfo::TotalStake)
-                            .decimal_len(39, 0)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearEpochInfo::ValidatorStakeThreshold)
-                            .decimal_len(39, 0)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearEpochInfo::SeatPrice)
-                            .decimal_len(39, 0)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearEpochInfo::ValidatorCount)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearEpochInfo::FirstSeenHeight)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearEpochInfo::FirstSeenTimestamp)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearEpochInfo::ProtocolVersion)
-                            .integer()
-                            .not_null(),
-                    )
-                    .to_owned(),
-            )
-            .await?;
 
 
         // Indexes for new tables
@@ -1923,25 +1862,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // Indexes for near_epoch_info
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_epoch_info_first_seen_height")
-                    .table(NearEpochInfo::Table)
-                    .col(NearEpochInfo::FirstSeenHeight)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_epoch_info_protocol_version")
-                    .table(NearEpochInfo::Table)
-                    .col(NearEpochInfo::ProtocolVersion)
-                    .to_owned(),
-            )
-            .await?;
 
 
         // =================
@@ -1982,9 +1902,6 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(NearSyncCursors::Table).to_owned())
             .await?;
         // Drop consolidated validator/network tables
-        manager
-            .drop_table(Table::drop().table(NearEpochInfo::Table).to_owned())
-            .await?;
         manager
             .drop_table(Table::drop().table(NearValidatorRewards::Table).to_owned())
             .await?;
@@ -2342,19 +2259,4 @@ enum NearValidatorRewards {
     ShardId,
 }
 
-#[derive(DeriveIden)]
-enum NearEpochInfo {
-    Table,
-    EpochId,
-    EpochHeight,
-    NextEpochId,
-    PrevEpochId,
-    TotalStake,
-    ValidatorStakeThreshold,
-    SeatPrice,
-    ValidatorCount,
-    FirstSeenHeight,
-    FirstSeenTimestamp,
-    ProtocolVersion,
-}
 

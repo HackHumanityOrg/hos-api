@@ -17,7 +17,6 @@ pub mod near_block_producers;
 pub mod near_chunk_producers;
 pub mod near_contract_code;
 pub mod near_contract_data;
-pub mod near_epoch_info;
 pub mod near_epochs;
 pub mod near_network_state;
 pub mod near_sync_cursors;
