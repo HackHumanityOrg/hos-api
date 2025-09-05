@@ -110,7 +110,26 @@ async fn accounts_process_block_persists_basic_state_changes() {
     let test_db = TestDatabase::new().await;
     let db = test_db.db();
 
-    // Only include AccessKey and Data updates to avoid MySQL INSERT IGNORE paths in state history
+    // First create the account, then add access keys and data
+    let account_view = v::AccountView {
+        amount: 1000000000u128,
+        locked: 0u128,
+        code_hash: nip::CryptoHash::default(),
+        storage_usage: 100,
+        global_contract_account_id: None,
+        global_contract_hash: None,
+        storage_paid_at: 0,
+    };
+    let sc1 = v::StateChangeWithCauseView {
+        cause: v::StateChangeCauseView::ReceiptProcessing {
+            receipt_hash: nip::CryptoHash::default(),
+        },
+        value: v::StateChangeValueView::AccountUpdate {
+            account_id: "alice.near".parse().unwrap(),
+            account: account_view,
+        },
+    };
+
     let ak = v::AccessKeyView {
         nonce: 1,
         permission: v::AccessKeyPermissionView::FullAccess,
@@ -143,7 +162,7 @@ async fn accounts_process_block_persists_basic_state_changes() {
         shard_id: 0u64.into(),
         chunk: None,
         receipt_execution_outcomes: vec![],
-        state_changes: vec![sc2, sc3],
+        state_changes: vec![sc1, sc2, sc3],
     };
     let mut msg = make_block(50, 60);
     msg.shards.push(shard);
@@ -180,11 +199,18 @@ async fn accounts_process_block_persists_basic_state_changes() {
     let module = near_indexer::modules::accounts::AccountsModule::new(&cfg);
     module.process_block(&msg, &db).await.unwrap();
 
+    let account_count = entities::near_accounts::Entity::find()
+        .count(&db)
+        .await
+        .unwrap();
+    assert_eq!(account_count, 1);
+
     let ak_count = entities::near_access_keys::Entity::find()
         .count(&db)
         .await
         .unwrap();
     assert_eq!(ak_count, 1);
+
     let data_count = entities::near_contract_data::Entity::find()
         .count(&db)
         .await

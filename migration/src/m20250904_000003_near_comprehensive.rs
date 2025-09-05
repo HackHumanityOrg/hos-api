@@ -136,6 +136,23 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(NearAccounts::IsSystem).boolean().not_null())
+                    .col(
+                        ColumnDef::new(NearAccounts::IsStakingPool)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccounts::IsLockupContract)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccounts::StoragePaidAt)
+                            .big_integer()
+                            .null(),
+                    )
                     .col(ColumnDef::new(NearAccounts::CreatedAtHeight).big_integer())
                     .col(ColumnDef::new(NearAccounts::CreatedAtTime).big_integer())
                     .col(ColumnDef::new(NearAccounts::CreatedCause).string_len(64))
@@ -974,7 +991,7 @@ impl MigrationTrait for Migration {
         // TOKEN TABLES
         // =================
 
-        // near_tokens - Token contract registry for NEP-141 and NEP-171
+        // near_tokens - minimal registry for NEP-141 and NEP-171 contracts we observe
         manager
             .create_table(
                 Table::create()
@@ -991,14 +1008,7 @@ impl MigrationTrait for Migration {
                             .string_len(16)
                             .not_null(), // "nep141" or "nep171"
                     )
-                    .col(ColumnDef::new(NearTokens::Name).string_len(256))
-                    .col(ColumnDef::new(NearTokens::Symbol).string_len(64))
-                    .col(ColumnDef::new(NearTokens::Decimals).integer())
-                    .col(ColumnDef::new(NearTokens::TotalSupply).decimal_len(39, 0))
-                    .col(ColumnDef::new(NearTokens::Icon).text())
-                    .col(ColumnDef::new(NearTokens::Reference).text())
-                    .col(ColumnDef::new(NearTokens::ReferenceHash).string_len(100))
-                    .col(ColumnDef::new(NearTokens::BaseUri).text())
+                    // metadata columns removed for now (we don't populate them yet)
                     .col(ColumnDef::new(NearTokens::FirstSeenHeight).big_integer())
                     .col(ColumnDef::new(NearTokens::FirstSeenTime).big_integer())
                     .col(ColumnDef::new(NearTokens::LastSeenHeight).big_integer())
@@ -1020,7 +1030,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // Indexes for near_tokens
+        // Indexes for near_tokens (only on used columns)
         manager
             .create_index(
                 Index::create()
@@ -1031,15 +1041,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_tokens_symbol")
-                    .table(NearTokens::Table)
-                    .col(NearTokens::Symbol)
-                    .to_owned(),
-            )
-            .await?;
+        // symbol index removed (symbol column removed)
 
         manager
             .create_index(
@@ -1294,180 +1296,11 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // near_nfts - Individual NFT metadata and ownership
-        manager
-            .create_table(
-                Table::create()
-                    .table(NearNfts::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(NearNfts::Id)
-                            .string_len(256)
-                            .not_null()
-                            .primary_key(), // Format: "{contract_id}:{token_id}"
-                    )
-                    .col(
-                        ColumnDef::new(NearNfts::ContractId)
-                            .string_len(128)
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(NearNfts::TokenId).string_len(128).not_null())
-                    .col(ColumnDef::new(NearNfts::OwnerId).string_len(128))
-                    .col(ColumnDef::new(NearNfts::ApprovedAccountIds).text()) // JSON array
-                    .col(ColumnDef::new(NearNfts::MetadataTitle).string_len(512))
-                    .col(ColumnDef::new(NearNfts::MetadataDescription).text())
-                    .col(ColumnDef::new(NearNfts::MetadataMedia).text())
-                    .col(ColumnDef::new(NearNfts::MetadataMediaHash).string_len(100))
-                    .col(ColumnDef::new(NearNfts::MetadataCopies).big_integer())
-                    .col(ColumnDef::new(NearNfts::MetadataIssuedAt).big_integer())
-                    .col(ColumnDef::new(NearNfts::MetadataExpiresAt).big_integer())
-                    .col(ColumnDef::new(NearNfts::MetadataStartsAt).big_integer())
-                    .col(ColumnDef::new(NearNfts::MetadataUpdatedAt).big_integer())
-                    .col(ColumnDef::new(NearNfts::MetadataExtra).text()) // JSON for extra metadata
-                    .col(ColumnDef::new(NearNfts::MetadataReference).text())
-                    .col(ColumnDef::new(NearNfts::MetadataReferenceHash).string_len(100))
-                    .col(ColumnDef::new(NearNfts::MintedHeight).big_integer())
-                    .col(ColumnDef::new(NearNfts::MintedTime).big_integer())
-                    .col(ColumnDef::new(NearNfts::MintedByTxHash).string_len(100))
-                    .col(ColumnDef::new(NearNfts::MintedByReceiptHash).string_len(100))
-                    .col(ColumnDef::new(NearNfts::LastTransferHeight).big_integer())
-                    .col(ColumnDef::new(NearNfts::LastTransferTime).big_integer())
-                    .col(
-                        ColumnDef::new(NearNfts::Burned)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
-                    .col(ColumnDef::new(NearNfts::BurnedHeight).big_integer())
-                    .col(ColumnDef::new(NearNfts::BurnedTime).big_integer())
-                    .to_owned(),
-            )
-            .await?;
+        // near_nfts dropped (not used yet)
 
-        // FK: near_nfts.contract_id -> near_tokens(contract_id)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_nfts_contract")
-                    .from(NearNfts::Table, NearNfts::ContractId)
-                    .to(NearTokens::Table, NearTokens::ContractId)
-                    .on_delete(ForeignKeyAction::Cascade)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
+        // near_nfts FKs dropped
 
-        // FK: near_nfts.owner_id -> near_accounts(account_id)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_nfts_owner")
-                    .from(NearNfts::Table, NearNfts::OwnerId)
-                    .to(NearAccounts::Table, NearAccounts::AccountId)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
-
-        // FK: near_nfts.minted_by_tx_hash -> near_transactions(tx_hash)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_nfts_minted_tx")
-                    .from(NearNfts::Table, NearNfts::MintedByTxHash)
-                    .to(NearTransactions::Table, NearTransactions::TxHash)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
-
-        // Indexes for near_nfts
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_nfts_contract")
-                    .table(NearNfts::Table)
-                    .col(NearNfts::ContractId)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_nfts_owner")
-                    .table(NearNfts::Table)
-                    .col(NearNfts::OwnerId)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_nfts_burned")
-                    .table(NearNfts::Table)
-                    .col(NearNfts::Burned)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_nfts_minted_height")
-                    .table(NearNfts::Table)
-                    .col(NearNfts::MintedHeight)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_nfts_minted_time")
-                    .table(NearNfts::Table)
-                    .col(NearNfts::MintedTime)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_nfts_last_transfer_time")
-                    .table(NearNfts::Table)
-                    .col(NearNfts::LastTransferTime)
-                    .to_owned(),
-            )
-            .await?;
-
-        // Unique constraint on contract_id + token_id
-        manager
-            .create_index(
-                Index::create()
-                    .name("ux_near_nfts_contract_token")
-                    .table(NearNfts::Table)
-                    .col(NearNfts::ContractId)
-                    .col(NearNfts::TokenId)
-                    .unique()
-                    .to_owned(),
-            )
-            .await?;
-
-        // Composite indexes for common queries
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_nfts_owner_contract")
-                    .table(NearNfts::Table)
-                    .col(NearNfts::OwnerId)
-                    .col(NearNfts::ContractId)
-                    .to_owned(),
-            )
-            .await?;
+        // near_nfts indexes dropped
 
         // =================
         // UTILITY TABLES
@@ -1506,9 +1339,7 @@ impl MigrationTrait for Migration {
         manager
             .drop_table(Table::drop().table(NearSyncCursors::Table).to_owned())
             .await?;
-        manager
-            .drop_table(Table::drop().table(NearNfts::Table).to_owned())
-            .await?;
+        // near_nfts drop removed (table not created)
         manager
             .drop_table(Table::drop().table(NearTokenTransfers::Table).to_owned())
             .await?;
@@ -1573,6 +1404,9 @@ enum NearAccounts {
     IsTopLevel,
     IsImplicit,
     IsSystem,
+    IsStakingPool,
+    IsLockupContract,
+    StoragePaidAt,
     CreatedAtHeight,
     CreatedAtTime,
     CreatedCause,
@@ -1674,14 +1508,6 @@ enum NearTokens {
     Table,
     ContractId,
     TokenStandard,
-    Name,
-    Symbol,
-    Decimals,
-    TotalSupply,
-    Icon,
-    Reference,
-    ReferenceHash,
-    BaseUri,
     FirstSeenHeight,
     FirstSeenTime,
     LastSeenHeight,
@@ -1708,36 +1534,7 @@ enum NearTokenTransfers {
     LogIndex,
 }
 
-#[derive(DeriveIden)]
-enum NearNfts {
-    Table,
-    Id,
-    ContractId,
-    TokenId,
-    OwnerId,
-    ApprovedAccountIds,
-    MetadataTitle,
-    MetadataDescription,
-    MetadataMedia,
-    MetadataMediaHash,
-    MetadataCopies,
-    MetadataIssuedAt,
-    MetadataExpiresAt,
-    MetadataStartsAt,
-    MetadataUpdatedAt,
-    MetadataExtra,
-    MetadataReference,
-    MetadataReferenceHash,
-    MintedHeight,
-    MintedTime,
-    MintedByTxHash,
-    MintedByReceiptHash,
-    LastTransferHeight,
-    LastTransferTime,
-    Burned,
-    BurnedHeight,
-    BurnedTime,
-}
+// NearNfts identifiers removed: table dropped in this migration
 
 #[derive(DeriveIden)]
 enum NearSyncCursors {

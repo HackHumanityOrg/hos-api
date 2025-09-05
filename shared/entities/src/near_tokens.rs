@@ -9,18 +9,6 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub contract_id: String,
     pub token_standard: String,
-    pub name: Option<String>,
-    pub symbol: Option<String>,
-    pub decimals: Option<i32>,
-    #[sea_orm(column_type = "Decimal(Some((39, 0)))", nullable)]
-    pub total_supply: Option<Decimal>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub icon: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub reference: Option<String>,
-    pub reference_hash: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub base_uri: Option<String>,
     pub first_seen_height: Option<i64>,
     pub first_seen_time: Option<i64>,
     pub last_seen_height: Option<i64>,
@@ -37,8 +25,6 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     NearAccounts,
-    #[sea_orm(has_many = "super::near_nfts::Entity")]
-    NearNfts,
     #[sea_orm(has_many = "super::near_token_transfers::Entity")]
     NearTokenTransfers,
 }
@@ -46,12 +32,6 @@ pub enum Relation {
 impl Related<super::near_accounts::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::NearAccounts.def()
-    }
-}
-
-impl Related<super::near_nfts::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::NearNfts.def()
     }
 }
 

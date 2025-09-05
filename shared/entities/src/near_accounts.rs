@@ -13,6 +13,9 @@ pub struct Model {
     pub is_top_level: i8,
     pub is_implicit: i8,
     pub is_system: i8,
+    pub is_staking_pool: i8,
+    pub is_lockup_contract: i8,
+    pub storage_paid_at: Option<i64>,
     pub created_at_height: Option<i64>,
     pub created_at_time: Option<i64>,
     pub created_cause: Option<String>,
@@ -41,8 +44,6 @@ pub enum Relation {
     NearContractCode,
     #[sea_orm(has_many = "super::near_contract_data::Entity")]
     NearContractData,
-    #[sea_orm(has_many = "super::near_nfts::Entity")]
-    NearNfts,
     #[sea_orm(has_one = "super::near_tokens::Entity")]
     NearTokens,
     #[sea_orm(
@@ -90,12 +91,6 @@ impl Related<super::near_contract_code::Entity> for Entity {
 impl Related<super::near_contract_data::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::NearContractData.def()
-    }
-}
-
-impl Related<super::near_nfts::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::NearNfts.def()
     }
 }
 

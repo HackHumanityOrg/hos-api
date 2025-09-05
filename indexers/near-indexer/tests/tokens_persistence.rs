@@ -2,7 +2,7 @@ use near_indexer::modules::tokens::TokensModule;
 use near_indexer::IndexerModule;
 use near_lake_framework::near_indexer_primitives as nip;
 use nip::views as v;
-use sea_orm::{EntityTrait, PaginatorTrait, Set};
+use sea_orm::{ActiveValue::NotSet, EntityTrait, PaginatorTrait, Set};
 use std::str::FromStr;
 use test_support::TestDatabase;
 
@@ -50,6 +50,8 @@ fn cfg_enable_tokens() -> common::config::AppConfig {
                     track_nep171: false,
                     contracts: vec![],
                 }),
+                validators: None,
+                network: None,
             }),
         }),
     })
@@ -117,6 +119,9 @@ async fn tokens_process_block_ignores_non_event_logs_and_persists_events() {
         first_seen_time: Set(None),
         last_seen_height: Set(None),
         last_seen_time: Set(None),
+        is_staking_pool: NotSet,
+        is_lockup_contract: NotSet,
+        storage_paid_at: NotSet,
     };
     let _ = entities::near_accounts::Entity::insert(acct)
         .exec(&db)
@@ -146,6 +151,9 @@ async fn tokens_process_block_ignores_non_event_logs_and_persists_events() {
             first_seen_time: Set(None),
             last_seen_height: Set(None),
             last_seen_time: Set(None),
+            is_staking_pool: NotSet,
+            is_lockup_contract: NotSet,
+            storage_paid_at: NotSet,
         };
         let _ = entities::near_accounts::Entity::insert(row)
             .exec(&db)
@@ -156,14 +164,6 @@ async fn tokens_process_block_ignores_non_event_logs_and_persists_events() {
     let token = entities::near_tokens::ActiveModel {
         contract_id: Set("token.near".to_string()),
         token_standard: Set("nep141".to_string()),
-        name: Set(None),
-        symbol: Set(None),
-        decimals: Set(None),
-        total_supply: Set(None),
-        icon: Set(None),
-        reference: Set(None),
-        reference_hash: Set(None),
-        base_uri: Set(None),
         first_seen_height: Set(None),
         first_seen_time: Set(None),
         last_seen_height: Set(None),

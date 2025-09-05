@@ -1,11 +1,12 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use near_lake_framework::near_indexer_primitives::views::ExecutionOutcomeWithIdView;
 use sea_orm::ActiveValue::NotSet;
 use sea_orm::{DatabaseConnection, EntityTrait, Set, TransactionTrait};
 use serde_json::Value;
+// Prefer standard event parsing via near-lake-primitives where possible
+use crate::core::events as lake_events;
 use std::collections::HashMap;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::core::cursor;
 use crate::IndexerModule;
@@ -67,43 +68,13 @@ impl TokensModule {
         }
     }
 
-    /// Parse NEAR event logs from execution outcomes
-    fn parse_event_logs(&self, outcome: &ExecutionOutcomeWithIdView) -> Result<Vec<TokenEvent>> {
-        let mut events = Vec::new();
+    // Note: event parsing is centralized at block-level via collect_block_events
 
-        for log in &outcome.outcome.logs {
-            if !log.starts_with("EVENT_JSON:") {
-                continue;
-            }
-
-            // Remove EVENT_JSON: prefix
-            let json_str = &log[11..];
-
-            match serde_json::from_str::<Value>(json_str) {
-                Ok(event_value) => {
-                    if let Some(event) = self.parse_token_event(&event_value, outcome) {
-                        events.push(event);
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        receipt_id = %outcome.id,
-                        log = %log,
-                        error = %e,
-                        "Failed to parse event log JSON"
-                    );
-                }
-            }
-        }
-
-        Ok(events)
-    }
-
-    /// Parse individual token event from JSON value
-    fn parse_token_event(
+    /// Parse individual token event from JSON value with explicit executor id
+    fn parse_token_event_with_executor(
         &self,
         event_value: &Value,
-        outcome: &ExecutionOutcomeWithIdView,
+        executor_id: &str,
     ) -> Option<TokenEvent> {
         let standard = event_value.get("standard")?.as_str()?;
         let version = event_value.get("version")?.as_str()?;
@@ -112,24 +83,26 @@ impl TokensModule {
 
         match standard {
             "nep141" if self.track_nep141 => {
-                self.parse_nep141_event(event_type, data, outcome, version)
+                self.parse_nep141_event(event_type, data, executor_id, version)
             }
             "nep171" if self.track_nep171 => {
-                self.parse_nep171_event(event_type, data, outcome, version)
+                self.parse_nep171_event(event_type, data, executor_id, version)
             }
             _ => None,
         }
     }
+
+    // parse_token_event_with_executor is the single entry for event mapping
 
     /// Parse NEP-141 fungible token events
     fn parse_nep141_event(
         &self,
         event_type: &str,
         data: &[Value],
-        outcome: &ExecutionOutcomeWithIdView,
+        executor_id: &str,
         _version: &str,
     ) -> Option<TokenEvent> {
-        let contract_id = outcome.outcome.executor_id.to_string();
+        let contract_id = executor_id.to_string();
 
         // Skip if contract filter is set and doesn't include this contract
         if !self.contracts_filter.is_empty() && !self.contracts_filter.contains(&contract_id) {
@@ -215,10 +188,10 @@ impl TokensModule {
         &self,
         event_type: &str,
         data: &[Value],
-        outcome: &ExecutionOutcomeWithIdView,
+        executor_id: &str,
         _version: &str,
     ) -> Option<TokenEvent> {
-        let contract_id = outcome.outcome.executor_id.to_string();
+        let contract_id = executor_id.to_string();
 
         // Skip if contract filter is set and doesn't include this contract
         if !self.contracts_filter.is_empty() && !self.contracts_filter.contains(&contract_id) {
@@ -405,14 +378,6 @@ impl TokensModule {
             let token_contract = entities::near_tokens::ActiveModel {
                 contract_id: Set(contract_id.clone()),
                 token_standard: Set(token_standard.clone()),
-                name: Set(None),
-                symbol: Set(None),
-                decimals: Set(None),
-                total_supply: Set(None),
-                icon: Set(None),
-                reference: Set(None),
-                reference_hash: Set(None),
-                base_uri: Set(None),
                 first_seen_height: Set(Some(block_height)),
                 first_seen_time: Set(Some(block_time)),
                 last_seen_height: Set(Some(block_height)),
@@ -480,47 +445,36 @@ impl IndexerModule for TokensModule {
         }
         let ts = msg.block.header.timestamp_nanosec as i64;
 
-        // Create a map of transaction hashes from chunks
-        let mut tx_hash_map = std::collections::HashMap::new();
-        for shard in &msg.shards {
-            if let Some(chunk) = &shard.chunk {
-                for tx in &chunk.transactions {
-                    let tx_hash = tx.transaction.hash.to_string();
-                    for receipt in &tx.outcome.execution_outcome.outcome.receipt_ids {
-                        tx_hash_map.insert(receipt.to_string(), tx_hash.clone());
-                    }
-                }
-            }
-        }
+        // Unified collection via near-lake-primitives
+        let all_events = lake_events::collect_block_events(msg);
+        for ev in all_events {
+            let raw_val = serde_json::to_value(&ev.raw).unwrap_or_default();
+            let standard = raw_val
+                .get("standard")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let version = raw_val
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let event_type = raw_val.get("event").and_then(|v| v.as_str()).unwrap_or("");
+            let data = raw_val
+                .get("data")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
 
-        // Process receipt execution outcomes
-        for shard in &msg.shards {
-            // Process transactions directly from chunks (for direct token events)
-            if let Some(chunk) = &shard.chunk {
-                for tx in &chunk.transactions {
-                    let tx_hash = tx.transaction.hash.to_string();
-                    let events = self.parse_event_logs(&tx.outcome.execution_outcome)?;
-                    if !events.is_empty() {
-                        // For transaction logs, use transaction hash as receipt hash too
-                        self.process_token_events(events, height, ts, &tx_hash, &tx_hash, db)
-                            .await?;
-                    }
-                }
-            }
-
-            // Process receipt execution outcomes
-            for reo in &shard.receipt_execution_outcomes {
-                let receipt_hash = reo.receipt.receipt_id.to_string();
-                let tx_hash = tx_hash_map.get(&receipt_hash).cloned().unwrap_or_else(|| {
-                    // Fallback: try to extract from receipt's predecessor or use receipt ID
-                    receipt_hash.clone()
-                });
-
-                let events = self.parse_event_logs(&reo.execution_outcome)?;
-                if !events.is_empty() {
-                    self.process_token_events(events, height, ts, &tx_hash, &receipt_hash, db)
-                        .await?;
-                }
+            if let Some(event) = self.parse_token_event_with_executor(
+                &serde_json::json!({
+                    "standard": standard,
+                    "version": version,
+                    "event": event_type,
+                    "data": data,
+                }),
+                &ev.executor_id,
+            ) {
+                self.process_token_events(vec![event], height, ts, &ev.tx_hash, &ev.receipt_id, db)
+                    .await?;
             }
         }
 

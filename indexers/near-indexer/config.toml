@@ -56,3 +56,9 @@ track_nep141 = true
 track_nep171 = true
 # List of specific contracts to track (empty = track all)
 contracts = []
+
+[near.modules.validators]
+enabled = true
+
+[near.modules.network]
+enabled = true

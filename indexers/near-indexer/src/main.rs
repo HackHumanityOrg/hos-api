@@ -65,7 +65,10 @@ async fn main() -> Result<()> {
         )
         .await?;
 
-        global_start_height = global_start_height.min(module_start);
+        // If this is the first module or this module needs to start earlier, update global start
+        if !any_used_cursor || (used_cursor && module_start < global_start_height) {
+            global_start_height = module_start;
+        }
         any_used_cursor = any_used_cursor || used_cursor;
     }
 

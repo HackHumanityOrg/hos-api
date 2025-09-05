@@ -1,6 +1,8 @@
 pub mod accounts;
+pub mod network;
 pub mod tokens;
 pub mod transactions;
+pub mod validators;
 
 use crate::ModuleRegistry;
 
@@ -28,4 +30,12 @@ pub fn register_all_modules(registry: &mut ModuleRegistry, config: &common::conf
     // Register tokens module
     let tokens_module = tokens::TokensModule::new(config);
     registry.register_module(Box::new(tokens_module));
+
+    // Register validators module
+    let validators_module = validators::ValidatorsModule::new(config);
+    registry.register_module(Box::new(validators_module));
+
+    // Register network module
+    let network_module = network::NetworkModule::new(config);
+    registry.register_module(Box::new(network_module));
 }

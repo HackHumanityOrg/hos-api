@@ -30,6 +30,7 @@ near-account-id = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 near-primitives = { workspace = true }
+near-crypto = { workspace = true }
 
 [dev-dependencies]
 testcontainers = { workspace = true }

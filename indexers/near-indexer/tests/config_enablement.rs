@@ -67,6 +67,8 @@ fn tokens_can_be_enabled_via_config() {
                 track_nep171: true,
                 contracts: vec![],
             }),
+            validators: None,
+            network: None,
         }),
     });
     let app = common::config::AppConfig::Indexer(cfg);

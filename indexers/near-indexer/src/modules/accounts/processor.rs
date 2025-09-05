@@ -12,8 +12,6 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, Tr
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::{sync::Semaphore, task::JoinSet};
 use tracing::debug;
 
 use crate::core::cursor;
@@ -24,6 +22,7 @@ const MODULE_NAME: &str = "accounts";
 /// Accounts indexer module
 pub struct AccountsModule {
     enabled: bool,
+    #[allow(dead_code)]
     concurrency: usize,
 }
 
@@ -83,9 +82,9 @@ impl AccountsModule {
         map
     }
 
-    async fn process_shard(
+    async fn process_changes(
         db: &DatabaseConnection,
-        shard: near_lake_framework::near_indexer_primitives::IndexerShard,
+        changes: Vec<near_lake_framework::near_indexer_primitives::views::StateChangeWithCauseView>,
         height: i64,
         ts: i64,
         delete_beneficiaries: &HashMap<String, String>,
@@ -104,7 +103,7 @@ impl AccountsModule {
         let mut contract_data_inserts: Vec<entities::near_contract_data::ActiveModel> = Vec::new();
         let mut contract_code_inserts: Vec<entities::near_contract_code::ActiveModel> = Vec::new();
 
-        for sc in shard.state_changes {
+        for sc in changes {
             let (cause_str, cause_tx, cause_receipt) = match &sc.cause {
                 StateChangeCauseView::NotWritableToDisk => ("not_writable_to_disk", None, None),
                 StateChangeCauseView::InitialState => ("initial_state", None, None),
@@ -164,6 +163,16 @@ impl AccountsModule {
                         (None, 0, false, false, false)
                     };
 
+                    // Account type classification
+                    let is_staking_pool =
+                        acc_str.ends_with(".pool.near") || acc_str.ends_with(".poolv1.near");
+                    let is_lockup_contract = acc_str.ends_with(".lockup.near")
+                        || acc_str.contains("lockup")
+                        || acc_str.starts_with("lockup_");
+
+                    // Extract storage_paid_at from account (new field in AccountView)
+                    let storage_paid_at = account.storage_paid_at as i64;
+
                     // Prepare near_accounts upsert row
                     let model = entities::near_accounts::ActiveModel {
                         account_id: Set(acc_str.clone()),
@@ -172,6 +181,9 @@ impl AccountsModule {
                         is_top_level: Set(if is_top_level { 1 } else { 0 }),
                         is_implicit: Set(if is_implicit { 1 } else { 0 }),
                         is_system: Set(if is_system { 1 } else { 0 }),
+                        is_staking_pool: Set(if is_staking_pool { 1 } else { 0 }),
+                        is_lockup_contract: Set(if is_lockup_contract { 1 } else { 0 }),
+                        storage_paid_at: Set(Some(storage_paid_at)),
                         created_at_height: Set(Some(height)),
                         created_at_time: Set(Some(ts)),
                         created_cause: Set(Some(cause_str.to_string())),
@@ -224,6 +236,9 @@ impl AccountsModule {
                         is_top_level: Set(0),
                         is_implicit: Set(0),
                         is_system: Set(0),
+                        is_staking_pool: Set(0),
+                        is_lockup_contract: Set(0),
+                        storage_paid_at: Set(None),
                         created_at_height: Set(None),
                         created_at_time: Set(None),
                         created_cause: Set(None),
@@ -467,6 +482,9 @@ impl AccountsModule {
                                 AC::IsTopLevel,
                                 AC::IsImplicit,
                                 AC::IsSystem,
+                                AC::IsStakingPool,
+                                AC::IsLockupContract,
+                                AC::StoragePaidAt,
                                 AC::LastSeenHeight,
                                 AC::LastSeenTime,
                             ])
@@ -554,21 +572,17 @@ impl AccountsModule {
             use sea_orm::sea_query::OnConflict;
             entities::near_access_keys::Entity::insert_many(access_key_inserts)
                 .on_conflict(
-                    OnConflict::columns([
-                        AKC::AccountId,
-                        AKC::PublicKey,
-                        AKC::BlockHeight,
-                    ])
-                    .update_columns([
-                        AKC::AccessKeyType,
-                        AKC::ContractId,
-                        AKC::MethodNames,
-                        AKC::Allowance,
-                        AKC::IsDeleted,
-                        AKC::DeletedAtHeight,
-                        AKC::DeletedAtTime,
-                    ])
-                    .to_owned(),
+                    OnConflict::columns([AKC::AccountId, AKC::PublicKey, AKC::BlockHeight])
+                        .update_columns([
+                            AKC::AccessKeyType,
+                            AKC::ContractId,
+                            AKC::MethodNames,
+                            AKC::Allowance,
+                            AKC::IsDeleted,
+                            AKC::DeletedAtHeight,
+                            AKC::DeletedAtTime,
+                        ])
+                        .to_owned(),
                 )
                 .exec(&txn)
                 .await?;
@@ -580,17 +594,9 @@ impl AccountsModule {
             use sea_orm::sea_query::OnConflict;
             entities::near_contract_data::Entity::insert_many(contract_data_inserts)
                 .on_conflict(
-                    OnConflict::columns([
-                        CDC::AccountId,
-                        CDC::DataKey,
-                        CDC::BlockHeight,
-                    ])
-                    .update_columns([
-                        CDC::DataValue,
-                        CDC::ChangeType,
-                        CDC::BlockTime,
-                    ])
-                    .to_owned(),
+                    OnConflict::columns([CDC::AccountId, CDC::DataKey, CDC::BlockHeight])
+                        .update_columns([CDC::DataValue, CDC::ChangeType, CDC::BlockTime])
+                        .to_owned(),
                 )
                 .exec(&txn)
                 .await?;
@@ -602,17 +608,9 @@ impl AccountsModule {
             use sea_orm::sea_query::OnConflict;
             entities::near_contract_code::Entity::insert_many(contract_code_inserts)
                 .on_conflict(
-                    OnConflict::columns([
-                        CCC::AccountId,
-                        CCC::BlockHeight,
-                    ])
-                    .update_columns([
-                        CCC::CodeHash,
-                        CCC::Code,
-                        CCC::ChangeType,
-                        CCC::BlockTime,
-                    ])
-                    .to_owned(),
+                    OnConflict::columns([CCC::AccountId, CCC::BlockHeight])
+                        .update_columns([CCC::CodeHash, CCC::Code, CCC::ChangeType, CCC::BlockTime])
+                        .to_owned(),
                 )
                 .exec(&txn)
                 .await?;
@@ -651,30 +649,12 @@ impl IndexerModule for AccountsModule {
         }
         let ts = msg.block.header.timestamp_nanosec as i64;
 
-        let delete_beneficiaries = Arc::new(Self::pre_scan_delete_beneficiaries(msg));
-
-        // Process shards with concurrency
-        let max_conc = if self.concurrency == 0 {
-            msg.shards.len().max(1)
-        } else {
-            self.concurrency.max(1)
-        };
-        let semaphore = Arc::new(Semaphore::new(max_conc));
-        let mut join_set = JoinSet::new();
-
-        for shard in msg.shards.clone() {
-            let permit = semaphore.clone().acquire_owned().await.expect("semaphore");
-            let db_clone = db.clone();
-            let del_map = delete_beneficiaries.clone();
-            join_set.spawn(async move {
-                let _permit = permit;
-                Self::process_shard(&db_clone, shard, height, ts, &del_map).await
-            });
+        let delete_beneficiaries = Self::pre_scan_delete_beneficiaries(msg);
+        let mut all_changes = Vec::new();
+        for shard in &msg.shards {
+            all_changes.extend(shard.state_changes.clone());
         }
-
-        while let Some(res) = join_set.join_next().await {
-            res??;
-        }
+        Self::process_changes(db, all_changes, height, ts, &delete_beneficiaries).await?;
 
         debug!(height, module = MODULE_NAME, "processed block");
         Ok(())

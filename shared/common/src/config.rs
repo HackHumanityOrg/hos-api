@@ -253,6 +253,12 @@ pub struct NearModulesConfig {
     /// Tokens module configuration
     #[serde(default)]
     pub tokens: Option<TokensModuleConfig>,
+    /// Validators module configuration
+    #[serde(default)]
+    pub validators: Option<ValidatorsModuleConfig>,
+    /// Network module configuration
+    #[serde(default)]
+    pub network: Option<NetworkModuleConfig>,
 }
 
 /// Accounts module configuration
@@ -279,6 +285,20 @@ pub struct TokensModuleConfig {
     pub contracts: Vec<String>,
 }
 
+/// Validators module configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ValidatorsModuleConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+/// Network module configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NetworkModuleConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
 fn default_chain() -> String {
     "mainnet".to_string()
 }
@@ -301,6 +321,8 @@ impl ToLog for NearModulesConfig {
         json!({
             "accounts": self.accounts.as_ref().map(|a| a.to_log()),
             "tokens": self.tokens.as_ref().map(|t| t.to_log()),
+            "validators": self.validators.as_ref().map(|v| v.to_log()),
+            "network": self.network.as_ref().map(|n| n.to_log()),
         })
     }
 }
@@ -326,6 +348,22 @@ impl ToLog for TokensModuleConfig {
             } else {
                 format!("{} contracts", self.contracts.len())
             },
+        })
+    }
+}
+
+impl ToLog for ValidatorsModuleConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "enabled": self.enabled,
+        })
+    }
+}
+
+impl ToLog for NetworkModuleConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "enabled": self.enabled,
         })
     }
 }

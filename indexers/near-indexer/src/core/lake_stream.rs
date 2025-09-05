@@ -36,8 +36,16 @@ pub fn create_lake_stream(config: LakeStreamConfig) -> Result<LakeStreamResult> 
         "Initializing NEAR Lake stream"
     );
 
-    let (handle, stream) =
-        near_lake_framework::streamer(lake_cfg.build().context("Failed to build Lake config")?);
+    let lake_config = lake_cfg.build().context("Failed to build Lake config")?;
+
+    info!(
+        "Lake config built successfully, creating streamer with start_height: {}",
+        config.start_height
+    );
+
+    let (handle, stream) = near_lake_framework::streamer(lake_config);
+
+    info!("NEAR Lake streamer created successfully");
 
     Ok((handle, stream))
 }

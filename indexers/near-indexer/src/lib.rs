@@ -57,6 +57,10 @@ impl ModuleRegistry {
             .map(|m| m.as_ref())
     }
 
+    pub fn enabled_module_names(&self) -> Vec<&str> {
+        self.enabled_modules().map(|m| m.name()).collect()
+    }
+
     pub fn all_modules(&self) -> impl Iterator<Item = &dyn IndexerModule> {
         self.modules.iter().map(|m| m.as_ref())
     }
