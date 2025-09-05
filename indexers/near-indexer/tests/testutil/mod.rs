@@ -70,8 +70,13 @@ pub fn outcome_with_logs(executor: &str, logs: Vec<&str>) -> v::ExecutionOutcome
     }
 }
 
-#[allow(dead_code)] 
-pub fn make_chunk_with_producer(height: u64, shard_id: u64, producer: &str, validator_reward: u128) -> nip::IndexerChunkView {
+#[allow(dead_code)]
+pub fn make_chunk_with_producer(
+    height: u64,
+    shard_id: u64,
+    producer: &str,
+    validator_reward: u128,
+) -> nip::IndexerChunkView {
     let header = v::ChunkHeaderView {
         chunk_hash: nip::CryptoHash::default(),
         prev_block_hash: nip::CryptoHash::default(),
@@ -94,7 +99,7 @@ pub fn make_chunk_with_producer(height: u64, shard_id: u64, producer: &str, vali
         bandwidth_requests: None,
         signature: near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
     };
-    
+
     nip::IndexerChunkView {
         author: producer.parse().unwrap(),
         header,

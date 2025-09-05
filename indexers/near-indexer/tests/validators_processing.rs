@@ -1,9 +1,9 @@
+use entities::*;
 use near_indexer::modules::validators::ValidatorsModule;
 use near_indexer::IndexerModule;
 use near_lake_framework::near_indexer_primitives as nip;
 use sea_orm::EntityTrait;
 use test_support::TestDatabase;
-use entities::*;
 
 mod testutil;
 use testutil::{make_block, make_chunk_with_producer};
@@ -48,12 +48,8 @@ fn cfg_enable_validators() -> common::config::AppConfig {
                     track_eth_implicit: true,
                 }),
                 tokens: None,
-                validators: Some(common::config::ValidatorsModuleConfig {
-                    enabled: true,
-                }),
-                network: Some(common::config::NetworkModuleConfig {
-                    enabled: true,
-                }),
+                validators: Some(common::config::ValidatorsModuleConfig { enabled: true }),
+                network: Some(common::config::NetworkModuleConfig { enabled: true }),
             }),
         }),
     })
@@ -83,16 +79,28 @@ async fn test_block_validator_rewards_persistence() {
     assert_eq!(rewards.len(), 2); // Total and block producer rewards
 
     // Check total reward entry
-    let total_reward = rewards.iter().find(|r| r.validator_id == "*total*").unwrap();
+    let total_reward = rewards
+        .iter()
+        .find(|r| r.validator_id == "*total*")
+        .unwrap();
     assert_eq!(total_reward.source, "block");
-    assert_eq!(total_reward.reward_amount.to_string(), "1000000000000000000");
+    assert_eq!(
+        total_reward.reward_amount.to_string(),
+        "1000000000000000000"
+    );
     assert_eq!(total_reward.block_height, 12345);
     assert!(total_reward.shard_id.is_none());
 
     // Check block producer reward entry
-    let producer_reward = rewards.iter().find(|r| r.validator_id == "block-producer.near").unwrap();
+    let producer_reward = rewards
+        .iter()
+        .find(|r| r.validator_id == "block-producer.near")
+        .unwrap();
     assert_eq!(producer_reward.source, "block");
-    assert_eq!(producer_reward.reward_amount.to_string(), "1000000000000000000");
+    assert_eq!(
+        producer_reward.reward_amount.to_string(),
+        "1000000000000000000"
+    );
     assert_eq!(producer_reward.block_height, 12345);
     assert!(producer_reward.shard_id.is_none());
 }
@@ -104,17 +112,16 @@ async fn test_chunk_validator_rewards_persistence() {
     let validators_module = ValidatorsModule::new(&config);
 
     let mut block = make_block(12345, 1000000000);
-    
+
     // Add chunk with reward
-    let chunk_with_reward = make_chunk_with_producer(12345, 0, "test-producer.near", 500_000_000_000_000_000); // 0.5 NEAR
-    block.shards = vec![
-        nip::IndexerShard {
-            shard_id: 0u64.into(),
-            chunk: Some(chunk_with_reward),
-            receipt_execution_outcomes: vec![],
-            state_changes: vec![],
-        }
-    ];
+    let chunk_with_reward =
+        make_chunk_with_producer(12345, 0, "test-producer.near", 500_000_000_000_000_000); // 0.5 NEAR
+    block.shards = vec![nip::IndexerShard {
+        shard_id: 0u64.into(),
+        chunk: Some(chunk_with_reward),
+        receipt_execution_outcomes: vec![],
+        state_changes: vec![],
+    }];
 
     validators_module
         .process_block(&block, &test_db.db())
@@ -145,13 +152,19 @@ async fn test_validator_approvals_persistence() {
     let validators_module = ValidatorsModule::new(&config);
 
     let mut block = make_block(12345, 1000000000);
-    
+
     // Add some approvals (3 out of 5 validators approved)
     block.block.header.approvals = vec![
-        Some(Box::new(near_crypto::Signature::empty(near_crypto::KeyType::ED25519))),
+        Some(Box::new(near_crypto::Signature::empty(
+            near_crypto::KeyType::ED25519,
+        ))),
         None,
-        Some(Box::new(near_crypto::Signature::empty(near_crypto::KeyType::ED25519))),
-        Some(Box::new(near_crypto::Signature::empty(near_crypto::KeyType::ED25519))),
+        Some(Box::new(near_crypto::Signature::empty(
+            near_crypto::KeyType::ED25519,
+        ))),
+        Some(Box::new(near_crypto::Signature::empty(
+            near_crypto::KeyType::ED25519,
+        ))),
         None,
     ];
 
@@ -210,11 +223,11 @@ async fn test_chunk_producer_persistence() {
     let validators_module = ValidatorsModule::new(&config);
 
     let mut block = make_block(12345, 1000000000);
-    
+
     // Add chunks for multiple shards
     let chunk1 = make_chunk_with_producer(12345, 0, "producer1.near", 100_000_000);
     let chunk2 = make_chunk_with_producer(12345, 1, "producer2.near", 200_000_000);
-    
+
     block.shards = vec![
         nip::IndexerShard {
             shard_id: 0u64.into(),
@@ -227,7 +240,7 @@ async fn test_chunk_producer_persistence() {
             chunk: Some(chunk2),
             receipt_execution_outcomes: vec![],
             state_changes: vec![],
-        }
+        },
     ];
 
     validators_module
@@ -243,15 +256,11 @@ async fn test_chunk_producer_persistence() {
 
     assert_eq!(producers.len(), 2);
 
-    let shard0_producer = producers.iter()
-        .find(|p| p.shard_id == 0)
-        .unwrap();
+    let shard0_producer = producers.iter().find(|p| p.shard_id == 0).unwrap();
     assert_eq!(shard0_producer.producer_id, "producer1.near");
     assert_eq!(shard0_producer.block_height, 12345);
 
-    let shard1_producer = producers.iter()
-        .find(|p| p.shard_id == 1)
-        .unwrap();
+    let shard1_producer = producers.iter().find(|p| p.shard_id == 1).unwrap();
     assert_eq!(shard1_producer.producer_id, "producer2.near");
     assert_eq!(shard1_producer.block_height, 12345);
 }
@@ -264,17 +273,15 @@ async fn test_no_rewards_for_zero_amounts() {
 
     let mut block = make_block(12345, 1000000000);
     block.block.header.validator_reward = 0; // No block reward
-    
+
     // Add chunk with zero reward
     let chunk_no_reward = make_chunk_with_producer(12345, 0, "test-producer.near", 0);
-    block.shards = vec![
-        nip::IndexerShard {
-            shard_id: 0u64.into(),
-            chunk: Some(chunk_no_reward),
-            receipt_execution_outcomes: vec![],
-            state_changes: vec![],
-        }
-    ];
+    block.shards = vec![nip::IndexerShard {
+        shard_id: 0u64.into(),
+        chunk: Some(chunk_no_reward),
+        receipt_execution_outcomes: vec![],
+        state_changes: vec![],
+    }];
 
     validators_module
         .process_block(&block, &test_db.db())
@@ -300,7 +307,7 @@ async fn test_validators_persistence_multiple_blocks() {
     let mut block1 = make_block(12345, 1000000000);
     block1.block.header.validator_reward = 1_000_000_000;
     block1.block.author = "producer1.near".parse().unwrap();
-    
+
     validators_module
         .process_block(&block1, &test_db.db())
         .await
@@ -310,7 +317,7 @@ async fn test_validators_persistence_multiple_blocks() {
     let mut block2 = make_block(12346, 1000000001);
     block2.block.header.validator_reward = 2_000_000_000;
     block2.block.author = "producer2.near".parse().unwrap();
-    
+
     validators_module
         .process_block(&block2, &test_db.db())
         .await
@@ -332,10 +339,16 @@ async fn test_validators_persistence_multiple_blocks() {
         .unwrap();
 
     assert_eq!(producers.len(), 2);
-    
-    let producer1 = producers.iter().find(|p| p.producer_id == "producer1.near").unwrap();
+
+    let producer1 = producers
+        .iter()
+        .find(|p| p.producer_id == "producer1.near")
+        .unwrap();
     assert_eq!(producer1.block_height, 12345);
-    
-    let producer2 = producers.iter().find(|p| p.producer_id == "producer2.near").unwrap();
+
+    let producer2 = producers
+        .iter()
+        .find(|p| p.producer_id == "producer2.near")
+        .unwrap();
     assert_eq!(producer2.block_height, 12346);
 }

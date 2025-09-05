@@ -1843,10 +1843,7 @@ impl MigrationTrait for Migration {
                             .string_len(64)
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearEpochInfo::PrevEpochId)
-                            .string_len(64),
-                    )
+                    .col(ColumnDef::new(NearEpochInfo::PrevEpochId).string_len(64))
                     .col(
                         ColumnDef::new(NearEpochInfo::TotalStake)
                             .decimal_len(39, 0)
@@ -1983,7 +1980,7 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-        
+
         // Indexes for near_epoch_info
         manager
             .create_index(
@@ -2003,7 +2000,7 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-            
+
         // Indexes for near_block_validators
         manager
             .create_index(
