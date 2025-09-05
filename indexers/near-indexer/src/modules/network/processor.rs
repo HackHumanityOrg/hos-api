@@ -62,21 +62,30 @@ impl NetworkModule {
 
     async fn record_network_state(
         &self,
-        height: i64,
-        epoch_id: &str,
-        gas_price: u128,
-        protocol_version: u32,
-        total_supply: u128,
-        timestamp: i64,
+        header: &crate::core::lake_types::BlockHeaderView,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         let network_state = near_network_state::ActiveModel {
-            block_height: Set(height),
-            epoch_id: Set(epoch_id.to_string()),
-            gas_price: Set(Self::safe_u128_to_decimal(gas_price)),
-            protocol_version: Set(protocol_version as i32),
-            total_supply: Set(Self::safe_u128_to_decimal(total_supply)),
-            timestamp: Set(timestamp),
+            block_height: Set(header.height),
+            epoch_id: Set(header.epoch_id.clone()),
+            next_epoch_id: Set(header.next_epoch_id.clone()),
+            block_hash: Set(header.hash.clone()),
+            prev_hash: Set(header.prev_hash.clone()),
+            chunks_included: Set(header.chunks_included),
+            rent_paid: Set(Self::safe_u128_to_decimal(header.rent_paid)),
+            validator_reward: Set(Self::safe_u128_to_decimal(header.validator_reward)),
+            last_final_block: Set(header.last_final_block.clone()),
+            last_ds_final_block: Set(header.last_ds_final_block.clone()),
+            next_bp_hash: Set(header.next_bp_hash.clone()),
+            block_merkle_root: Set(header.block_merkle_root.clone()),
+            random_value: Set(header.random_value.clone()),
+            timestamp: Set(header.timestamp),
+            timestamp_nanosec: Set(header.timestamp_nanosec),
+            block_ordinal: Set(header.block_ordinal),
+            prev_height: Set(header.prev_height),
+            gas_price: Set(Self::safe_u128_to_decimal(header.gas_price)),
+            protocol_version: Set(header.protocol_version as i32),
+            total_supply: Set(Self::safe_u128_to_decimal(header.total_supply)),
         };
 
         network_state.insert(db).await?;
@@ -88,7 +97,7 @@ impl NetworkModule {
         old_epoch_id: &str,
         new_epoch_id: &str,
         height: i64,
-        timestamp: i64,
+        timestamp: u64,
         protocol_version: u32,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
@@ -107,7 +116,7 @@ impl NetworkModule {
         {
             let mut active: near_epochs::ActiveModel = existing_epoch.into();
             active.end_height = Set(Some(height - 1));
-            active.end_timestamp = Set(Some(timestamp));
+            active.end_timestamp = Set(Some(timestamp as i64));
             active.update(db).await?;
         }
 
@@ -115,7 +124,7 @@ impl NetworkModule {
         let new_epoch = near_epochs::ActiveModel {
             epoch_id: Set(new_epoch_id.to_string()),
             start_height: Set(height),
-            start_timestamp: Set(timestamp),
+            start_timestamp: Set(timestamp as i64),
             end_height: Set(None),
             end_timestamp: Set(None),
             protocol_version: Set(protocol_version as i32),
@@ -129,7 +138,7 @@ impl NetworkModule {
         &self,
         current_epoch_id: &str,
         height: i64,
-        timestamp: i64,
+        timestamp: u64,
         protocol_version: u32,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
@@ -153,7 +162,7 @@ impl NetworkModule {
                 let new_epoch = near_epochs::ActiveModel {
                     epoch_id: Set(current_epoch_id.to_string()),
                     start_height: Set(height),
-                    start_timestamp: Set(timestamp),
+                    start_timestamp: Set(timestamp as i64),
                     end_height: Set(None),
                     end_timestamp: Set(None),
                     protocol_version: Set(protocol_version as i32),
@@ -210,32 +219,28 @@ impl IndexerModule for NetworkModule {
         db: &DatabaseConnection,
     ) -> Result<()> {
         let b = build_block::build_block(msg);
-        let height = b.header.height;
-        let epoch_id = b.header.epoch_id.clone();
-        let timestamp = b.header.timestamp_ns;
-        let gas_price = b.header.gas_price;
-        let protocol_version = b.header.protocol_version;
-        let total_supply = b.header.total_supply;
+        let header = &b.header;
 
-        debug!(height, epoch_id, "Processing network state for block");
+        debug!(
+            height = header.height,
+            epoch_id = header.epoch_id,
+            "Processing network state for block"
+        );
 
         let txn = db.begin().await?;
 
         // 1. Check for epoch transitions
-        self.check_epoch_transition(&epoch_id, height, timestamp, protocol_version, &txn)
-            .await?;
-
-        // 2. Record network state
-        self.record_network_state(
-            height,
-            &epoch_id,
-            gas_price,
-            protocol_version,
-            total_supply,
-            timestamp,
+        self.check_epoch_transition(
+            &header.epoch_id,
+            header.height,
+            header.timestamp_nanosec,
+            header.protocol_version,
             &txn,
         )
         .await?;
+
+        // 2. Record network state
+        self.record_network_state(header, &txn).await?;
 
         txn.commit().await?;
 

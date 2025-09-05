@@ -17,6 +17,8 @@ pub struct Model {
     pub locked: Decimal,
     pub storage_usage: i64,
     pub code_hash: String,
+    pub global_contract_account_id: Option<String>,
+    pub global_contract_hash: Option<String>,
     pub cause_type: String,
     pub cause_tx_hash: Option<String>,
     pub cause_receipt_hash: Option<String>,

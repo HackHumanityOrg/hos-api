@@ -11,12 +11,25 @@ pub enum ExecStatus {
 #[derive(Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: i64,
-    pub timestamp_ns: i64,
-    pub hash: String,
     pub epoch_id: String,
+    pub next_epoch_id: String,
+    pub hash: String,
+    pub prev_hash: String,
+    pub chunks_included: u64,
+    pub rent_paid: u128,
+    pub validator_reward: u128,
+    pub last_final_block: String,
+    pub last_ds_final_block: String,
+    pub next_bp_hash: String,
+    pub block_merkle_root: String,
+    pub random_value: String,
+    pub timestamp: u64,
+    pub timestamp_nanosec: u64,
+    pub block_ordinal: Option<u64>,
+    pub prev_height: Option<u64>,
     pub gas_price: u128,
-    pub total_supply: u128,
     pub protocol_version: u32,
+    pub total_supply: u128,
 }
 
 #[derive(Debug, Clone)]
@@ -72,12 +85,25 @@ impl BlockHeaderView {
         let h = &msg.block.header;
         Self {
             height: h.height as i64,
-            timestamp_ns: h.timestamp_nanosec as i64,
-            hash: h.hash.to_string(),
             epoch_id: h.epoch_id.to_string(),
+            next_epoch_id: h.next_epoch_id.to_string(),
+            hash: h.hash.to_string(),
+            prev_hash: h.prev_hash.to_string(),
+            chunks_included: h.chunks_included,
+            rent_paid: h.rent_paid,
+            validator_reward: h.validator_reward,
+            last_final_block: h.last_final_block.to_string(),
+            last_ds_final_block: h.last_ds_final_block.to_string(),
+            next_bp_hash: h.next_bp_hash.to_string(),
+            block_merkle_root: h.block_merkle_root.to_string(),
+            random_value: h.random_value.to_string(),
+            timestamp: h.timestamp,
+            timestamp_nanosec: h.timestamp_nanosec,
+            block_ordinal: h.block_ordinal,
+            prev_height: h.prev_height,
             gas_price: h.gas_price,
-            total_supply: h.total_supply,
             protocol_version: h.latest_protocol_version,
+            total_supply: h.total_supply,
         }
     }
 }

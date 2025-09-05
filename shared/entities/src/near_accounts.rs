@@ -16,6 +16,8 @@ pub struct Model {
     pub is_staking_pool: i8,
     pub is_lockup_contract: i8,
     pub storage_paid_at: Option<i64>,
+    pub global_contract_account_id: Option<String>,
+    pub global_contract_hash: Option<String>,
     pub created_at_height: Option<i64>,
     pub created_at_time: Option<i64>,
     pub created_cause: Option<String>,

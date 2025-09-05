@@ -16,13 +16,13 @@ pub struct Model {
     pub method_names: Option<String>,
     #[sea_orm(column_type = "Decimal(Some((39, 0)))", nullable)]
     pub allowance: Option<Decimal>,
+    pub nonce: Option<i64>,
     pub block_height: i64,
     pub block_time: i64,
     pub change_type: String,
     pub cause_type: String,
     pub cause_tx_hash: Option<String>,
     pub cause_receipt_hash: Option<String>,
-    pub is_deleted: i8,
     pub deleted_at_height: Option<i64>,
     pub deleted_at_time: Option<i64>,
 }

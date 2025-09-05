@@ -82,22 +82,26 @@ impl TokensModule {
         }
 
         // Check for required 'standard' field
-        let standard = event_value.get("standard")
+        let standard = event_value
+            .get("standard")
             .and_then(|v| v.as_str())
             .ok_or("Missing required 'standard' field")?;
 
         // Check for required 'version' field
-        let version = event_value.get("version")
+        let version = event_value
+            .get("version")
             .and_then(|v| v.as_str())
             .ok_or("Missing required 'version' field")?;
 
         // Check for required 'event' field
-        let event_type = event_value.get("event")
+        let event_type = event_value
+            .get("event")
             .and_then(|v| v.as_str())
             .ok_or("Missing required 'event' field")?;
 
         // Check for required 'data' field
-        let data = event_value.get("data")
+        let data = event_value
+            .get("data")
             .and_then(|v| v.as_array())
             .ok_or("Missing required 'data' field or data is not an array")?;
 
@@ -105,7 +109,10 @@ impl TokensModule {
         match standard {
             "nep141" => {
                 if version != "1.0.0" {
-                    return Err(format!("Invalid NEP-141 version: {}, expected 1.0.0", version));
+                    return Err(format!(
+                        "Invalid NEP-141 version: {}, expected 1.0.0",
+                        version
+                    ));
                 }
                 if !["ft_mint", "ft_transfer", "ft_burn"].contains(&event_type) {
                     return Err(format!("Invalid NEP-141 event type: {}", event_type));
@@ -113,7 +120,10 @@ impl TokensModule {
             }
             "nep171" => {
                 if version != "1.0.0" {
-                    return Err(format!("Invalid NEP-171 version: {}, expected 1.0.0", version));
+                    return Err(format!(
+                        "Invalid NEP-171 version: {}, expected 1.0.0",
+                        version
+                    ));
                 }
                 if !["nft_mint", "nft_transfer", "nft_burn"].contains(&event_type) {
                     return Err(format!("Invalid NEP-171 event type: {}", event_type));
@@ -121,7 +131,10 @@ impl TokensModule {
             }
             "nep245" => {
                 if !["1.0.0", "1.1.0"].contains(&version) {
-                    return Err(format!("Invalid NEP-245 version: {}, expected 1.0.0 or 1.1.0", version));
+                    return Err(format!(
+                        "Invalid NEP-245 version: {}, expected 1.0.0 or 1.1.0",
+                        version
+                    ));
                 }
                 if !["mt_mint", "mt_transfer", "mt_burn"].contains(&event_type) {
                     return Err(format!("Invalid NEP-245 event type: {}", event_type));
@@ -194,11 +207,16 @@ impl TokensModule {
             "ft_mint" => {
                 if let Some(item) = data.iter().next() {
                     // Validate required fields per NEP-141
-                    let owner_id = item.get("owner_id")
+                    let owner_id = item
+                        .get("owner_id")
                         .and_then(|v| v.as_str())
-                        .ok_or_else(|| debug!(contract_id = %contract_id, "ft_mint missing owner_id"))
-                        .ok()?.to_string();
-                    let amount = item.get("amount")
+                        .ok_or_else(
+                            || debug!(contract_id = %contract_id, "ft_mint missing owner_id"),
+                        )
+                        .ok()?
+                        .to_string();
+                    let amount = item
+                        .get("amount")
                         .and_then(|v| v.as_str())
                         .ok_or_else(|| debug!(contract_id = %contract_id, "ft_mint missing amount"))
                         .ok()?;
@@ -232,9 +250,12 @@ impl TokensModule {
                         .and_then(|v| v.as_str())
                         .ok_or_else(|| debug!(contract_id = %contract_id, "ft_transfer missing new_owner_id"))
                         .ok()?.to_string();
-                    let amount = item.get("amount")
+                    let amount = item
+                        .get("amount")
                         .and_then(|v| v.as_str())
-                        .ok_or_else(|| debug!(contract_id = %contract_id, "ft_transfer missing amount"))
+                        .ok_or_else(
+                            || debug!(contract_id = %contract_id, "ft_transfer missing amount"),
+                        )
                         .ok()?;
                     let memo = item
                         .get("memo")
@@ -258,11 +279,16 @@ impl TokensModule {
             "ft_burn" => {
                 if let Some(item) = data.iter().next() {
                     // Validate required fields per NEP-141
-                    let owner_id = item.get("owner_id")
+                    let owner_id = item
+                        .get("owner_id")
                         .and_then(|v| v.as_str())
-                        .ok_or_else(|| debug!(contract_id = %contract_id, "ft_burn missing owner_id"))
-                        .ok()?.to_string();
-                    let amount = item.get("amount")
+                        .ok_or_else(
+                            || debug!(contract_id = %contract_id, "ft_burn missing owner_id"),
+                        )
+                        .ok()?
+                        .to_string();
+                    let amount = item
+                        .get("amount")
                         .and_then(|v| v.as_str())
                         .ok_or_else(|| debug!(contract_id = %contract_id, "ft_burn missing amount"))
                         .ok()?;

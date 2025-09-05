@@ -155,6 +155,8 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .null(),
                     )
+                    .col(ColumnDef::new(NearAccounts::GlobalContractAccountId).string_len(128))
+                    .col(ColumnDef::new(NearAccounts::GlobalContractHash).string_len(100))
                     .col(ColumnDef::new(NearAccounts::CreatedAtHeight).big_integer())
                     .col(ColumnDef::new(NearAccounts::CreatedAtTime).big_integer())
                     .col(ColumnDef::new(NearAccounts::CreatedCause).string_len(64))
@@ -380,6 +382,13 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(
+                        ColumnDef::new(NearAccountStateHistory::GlobalContractAccountId)
+                            .string_len(128),
+                    )
+                    .col(
+                        ColumnDef::new(NearAccountStateHistory::GlobalContractHash).string_len(100),
+                    )
+                    .col(
                         ColumnDef::new(NearAccountStateHistory::CauseType)
                             .string_len(64)
                             .not_null(),
@@ -512,6 +521,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(NearAccessKeys::ContractId).string_len(128)) // For function call keys
                     .col(ColumnDef::new(NearAccessKeys::MethodNames).text()) // JSON array for function call keys
                     .col(ColumnDef::new(NearAccessKeys::Allowance).decimal_len(39, 0)) // For function call keys
+                    .col(ColumnDef::new(NearAccessKeys::Nonce).big_integer()) // Access key nonce
                     .col(
                         ColumnDef::new(NearAccessKeys::BlockHeight)
                             .big_integer()
@@ -534,12 +544,6 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(NearAccessKeys::CauseTxHash).string_len(100))
                     .col(ColumnDef::new(NearAccessKeys::CauseReceiptHash).string_len(100))
-                    .col(
-                        ColumnDef::new(NearAccessKeys::IsDeleted)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
                     .col(ColumnDef::new(NearAccessKeys::DeletedAtHeight).big_integer())
                     .col(ColumnDef::new(NearAccessKeys::DeletedAtTime).big_integer())
                     .to_owned(),
@@ -622,16 +626,6 @@ impl MigrationTrait for Migration {
                     .name("idx_near_access_keys_block_time")
                     .table(NearAccessKeys::Table)
                     .col(NearAccessKeys::BlockTime)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_near_access_keys_is_deleted")
-                    .table(NearAccessKeys::Table)
-                    .col(NearAccessKeys::IsDeleted)
                     .to_owned(),
             )
             .await?;
@@ -775,10 +769,10 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(NearContractData::DataKey)
-                            .string_len(512) // Base64 encoded key
+                            .string_len(512) // Hex encoded key
                             .not_null(),
                     )
-                    .col(ColumnDef::new(NearContractData::DataValue).text()) // Base64 encoded value, NULL for deletion
+                    .col(ColumnDef::new(NearContractData::DataValue).text()) // Hex encoded value, NULL for deletion
                     .col(
                         ColumnDef::new(NearContractData::BlockHeight)
                             .big_integer()
@@ -1543,6 +1537,81 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(
+                        ColumnDef::new(NearNetworkState::NextEpochId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::BlockHash)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::PrevHash)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::ChunksIncluded)
+                            .big_unsigned()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::RentPaid)
+                            .decimal_len(39, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::ValidatorReward)
+                            .decimal_len(39, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::LastFinalBlock)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::LastDsFinalBlock)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::NextBpHash)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::BlockMerkleRoot)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::RandomValue)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::Timestamp)
+                            .big_unsigned()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::TimestampNanosec)
+                            .big_unsigned()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::BlockOrdinal)
+                            .big_unsigned()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearNetworkState::PrevHeight)
+                            .big_unsigned()
+                            .null(),
+                    )
+                    .col(
                         ColumnDef::new(NearNetworkState::GasPrice)
                             .decimal_len(39, 0)
                             .not_null(),
@@ -1555,11 +1624,6 @@ impl MigrationTrait for Migration {
                     .col(
                         ColumnDef::new(NearNetworkState::TotalSupply)
                             .decimal_len(39, 0)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearNetworkState::Timestamp)
-                            .big_integer()
                             .not_null(),
                     )
                     .to_owned(),
@@ -1873,6 +1937,8 @@ enum NearAccounts {
     IsStakingPool,
     IsLockupContract,
     StoragePaidAt,
+    GlobalContractAccountId,
+    GlobalContractHash,
     CreatedAtHeight,
     CreatedAtTime,
     CreatedCause,
@@ -1900,6 +1966,8 @@ enum NearAccountStateHistory {
     Locked,
     StorageUsage,
     CodeHash,
+    GlobalContractAccountId,
+    GlobalContractHash,
     CauseType,
     CauseTxHash,
     CauseReceiptHash,
@@ -1915,13 +1983,13 @@ enum NearAccessKeys {
     ContractId,
     MethodNames,
     Allowance,
+    Nonce,
     BlockHeight,
     BlockTime,
     ChangeType,
     CauseType,
     CauseTxHash,
     CauseReceiptHash,
-    IsDeleted,
     DeletedAtHeight,
     DeletedAtTime,
 }
@@ -2081,10 +2149,24 @@ enum NearNetworkState {
     Table,
     BlockHeight,
     EpochId,
+    NextEpochId,
+    BlockHash,
+    PrevHash,
+    ChunksIncluded,
+    RentPaid,
+    ValidatorReward,
+    LastFinalBlock,
+    LastDsFinalBlock,
+    NextBpHash,
+    BlockMerkleRoot,
+    RandomValue,
+    Timestamp,
+    TimestampNanosec,
+    BlockOrdinal,
+    PrevHeight,
     GasPrice,
     ProtocolVersion,
     TotalSupply,
-    Timestamp,
 }
 
 #[derive(DeriveIden)]

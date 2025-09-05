@@ -106,6 +106,11 @@ async fn tokens_process_block_ignores_non_event_logs_and_persists_events() {
         is_top_level: Set(0),
         is_implicit: Set(0),
         is_system: Set(0),
+        is_staking_pool: NotSet,
+        is_lockup_contract: NotSet,
+        storage_paid_at: NotSet,
+        global_contract_account_id: Set(None),
+        global_contract_hash: Set(None),
         created_at_height: Set(None),
         created_at_time: Set(None),
         created_cause: Set(None),
@@ -120,9 +125,6 @@ async fn tokens_process_block_ignores_non_event_logs_and_persists_events() {
         first_seen_time: Set(None),
         last_seen_height: Set(None),
         last_seen_time: Set(None),
-        is_staking_pool: NotSet,
-        is_lockup_contract: NotSet,
-        storage_paid_at: NotSet,
     };
     let _ = entities::near_accounts::Entity::insert(acct)
         .exec(&db)
@@ -138,6 +140,11 @@ async fn tokens_process_block_ignores_non_event_logs_and_persists_events() {
             is_top_level: Set(0),
             is_implicit: Set(0),
             is_system: Set(0),
+            is_staking_pool: Set(0),
+            is_lockup_contract: Set(0),
+            storage_paid_at: Set(None),
+            global_contract_account_id: Set(None),
+            global_contract_hash: Set(None),
             created_at_height: Set(None),
             created_at_time: Set(None),
             created_cause: Set(None),
@@ -152,9 +159,6 @@ async fn tokens_process_block_ignores_non_event_logs_and_persists_events() {
             first_seen_time: Set(None),
             last_seen_height: Set(None),
             last_seen_time: Set(None),
-            is_staking_pool: NotSet,
-            is_lockup_contract: NotSet,
-            storage_paid_at: NotSet,
         };
         let _ = entities::near_accounts::Entity::insert(row)
             .exec(&db)

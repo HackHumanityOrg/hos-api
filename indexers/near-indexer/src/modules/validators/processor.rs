@@ -19,6 +19,15 @@ pub struct ValidatorsModule {
     enabled: bool,
 }
 
+#[derive(Debug, Clone)]
+struct ProposalContext {
+    height: i64,
+    epoch_id: String,
+    timestamp: i64,
+    source: String,
+    shard_id: Option<i32>,
+}
+
 impl ValidatorsModule {
     /// Safely convert u128 to Decimal using string conversion (same as accounts module)
     fn safe_u128_to_decimal(value: u128) -> Decimal {
@@ -82,7 +91,7 @@ impl ValidatorsModule {
         let b = build_block::build_block(msg);
         let height = b.header.height;
         let epoch_id = b.header.epoch_id.clone();
-        let timestamp = b.header.timestamp_ns;
+        let timestamp = b.header.timestamp_nanosec as i64;
 
         let mut models = Vec::new();
         for (idx, cp) in b.chunk_producers.iter().enumerate() {
@@ -108,11 +117,7 @@ impl ValidatorsModule {
     async fn record_validator_proposals(
         &self,
         proposals: &[ValidatorStakeView],
-        height: i64,
-        epoch_id: &str,
-        timestamp: i64,
-        source: &str,
-        shard_id: Option<i32>,
+        context: &ProposalContext,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         let mut proposal_models = Vec::new();
@@ -124,20 +129,20 @@ impl ValidatorsModule {
             };
 
             // Insert/update validator record
-            self.upsert_validator(&account_id, &public_key, height, timestamp, db)
+            self.upsert_validator(&account_id, &public_key, context.height, context.timestamp, db)
                 .await?;
 
             // Insert proposal record
             proposal_models.push(near_validator_proposals::ActiveModel {
                 id: NotSet,
-                block_height: Set(height),
+                block_height: Set(context.height),
                 account_id: Set(account_id),
                 public_key: Set(public_key),
                 stake: Set(Self::safe_u128_to_decimal(stake)),
-                epoch_id: Set(epoch_id.to_string()),
-                timestamp: Set(timestamp),
-                source: Set(source.to_string()),
-                shard_id: Set(shard_id),
+                epoch_id: Set(context.epoch_id.clone()),
+                timestamp: Set(context.timestamp),
+                source: Set(context.source.clone()),
+                shard_id: Set(context.shard_id),
             });
         }
 
@@ -306,7 +311,7 @@ impl IndexerModule for ValidatorsModule {
         let b = build_block::build_block(msg);
         let height = b.header.height;
         let epoch_id = b.header.epoch_id.clone();
-        let timestamp = b.header.timestamp_ns;
+        let timestamp = b.header.timestamp_nanosec as i64;
 
         debug!(height, epoch_id, "Processing validators for block");
 
@@ -328,13 +333,16 @@ impl IndexerModule for ValidatorsModule {
 
         // Record validator proposals from block header
         if !msg.block.header.validator_proposals.is_empty() {
+            let context = ProposalContext {
+                height,
+                epoch_id: epoch_id.clone(),
+                timestamp,
+                source: "block".to_string(),
+                shard_id: None,
+            };
             self.record_validator_proposals(
                 &msg.block.header.validator_proposals,
-                height,
-                &epoch_id,
-                timestamp,
-                "block",
-                None,
+                &context,
                 &txn,
             )
             .await?;
@@ -344,13 +352,16 @@ impl IndexerModule for ValidatorsModule {
         for (shard_idx, shard) in msg.shards.iter().enumerate() {
             if let Some(chunk) = &shard.chunk {
                 if !chunk.header.validator_proposals.is_empty() {
+                    let context = ProposalContext {
+                        height,
+                        epoch_id: epoch_id.clone(),
+                        timestamp,
+                        source: "chunk".to_string(),
+                        shard_id: Some(shard_idx as i32),
+                    };
                     self.record_validator_proposals(
                         &chunk.header.validator_proposals,
-                        height,
-                        &epoch_id,
-                        timestamp,
-                        "chunk",
-                        Some(shard_idx as i32),
+                        &context,
                         &txn,
                     )
                     .await?;

@@ -49,7 +49,6 @@ pub fn collect_block_events(
     msg: &near_lake_framework::near_indexer_primitives::StreamerMessage,
 ) -> Vec<BlockEvent> {
     // no-op: keep API similar; nothing to import here
-    
 
     // Map receipt_id -> tx_hash from chunk transactions
     let mut receipt_to_tx: HashMap<String, String> = HashMap::new();

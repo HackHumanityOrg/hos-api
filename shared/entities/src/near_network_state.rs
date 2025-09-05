@@ -9,12 +9,28 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub block_height: i64,
     pub epoch_id: String,
+    pub next_epoch_id: String,
+    pub block_hash: String,
+    pub prev_hash: String,
+    pub chunks_included: u64,
+    #[sea_orm(column_type = "Decimal(Some((39, 0)))")]
+    pub rent_paid: Decimal,
+    #[sea_orm(column_type = "Decimal(Some((39, 0)))")]
+    pub validator_reward: Decimal,
+    pub last_final_block: String,
+    pub last_ds_final_block: String,
+    pub next_bp_hash: String,
+    pub block_merkle_root: String,
+    pub random_value: String,
+    pub timestamp: u64,
+    pub timestamp_nanosec: u64,
+    pub block_ordinal: Option<u64>,
+    pub prev_height: Option<u64>,
     #[sea_orm(column_type = "Decimal(Some((39, 0)))")]
     pub gas_price: Decimal,
     pub protocol_version: i32,
     #[sea_orm(column_type = "Decimal(Some((39, 0)))")]
     pub total_supply: Decimal,
-    pub timestamp: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

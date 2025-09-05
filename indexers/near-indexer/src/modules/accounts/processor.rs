@@ -173,6 +173,15 @@ impl AccountsModule {
                     // Extract storage_paid_at from account (new field in AccountView)
                     let storage_paid_at = account.storage_paid_at as i64;
 
+                    let global_contract_account_id = account
+                        .global_contract_account_id
+                        .as_ref()
+                        .map(|id| id.to_string());
+                    let global_contract_hash = account
+                        .global_contract_hash
+                        .as_ref()
+                        .map(|hash| hash.to_string());
+
                     // Prepare near_accounts upsert row
                     let model = entities::near_accounts::ActiveModel {
                         account_id: Set(acc_str.clone()),
@@ -184,6 +193,8 @@ impl AccountsModule {
                         is_staking_pool: Set(if is_staking_pool { 1 } else { 0 }),
                         is_lockup_contract: Set(if is_lockup_contract { 1 } else { 0 }),
                         storage_paid_at: Set(Some(storage_paid_at)),
+                        global_contract_account_id: Set(global_contract_account_id.clone()),
+                        global_contract_hash: Set(global_contract_hash.clone()),
                         created_at_height: Set(Some(height)),
                         created_at_time: Set(Some(ts)),
                         created_cause: Set(Some(cause_str.to_string())),
@@ -220,6 +231,8 @@ impl AccountsModule {
                         locked: Set(locked_dec),
                         storage_usage: Set(storage_usage),
                         code_hash: Set(code_hash),
+                        global_contract_account_id: Set(global_contract_account_id),
+                        global_contract_hash: Set(global_contract_hash),
                         cause_type: Set(cause_str.to_string()),
                         cause_tx_hash: Set(cause_tx.clone()),
                         cause_receipt_hash: Set(cause_receipt.clone()),
@@ -239,6 +252,8 @@ impl AccountsModule {
                         is_staking_pool: Set(0),
                         is_lockup_contract: Set(0),
                         storage_paid_at: Set(None),
+                        global_contract_account_id: Set(None),
+                        global_contract_hash: Set(None),
                         created_at_height: Set(None),
                         created_at_time: Set(None),
                         created_cause: Set(None),
@@ -323,13 +338,13 @@ impl AccountsModule {
                         contract_id: Set(contract_id),
                         method_names: Set(method_names),
                         allowance: Set(allowance),
+                        nonce: Set(Some(access_key.nonce as i64)),
                         block_height: Set(height),
                         block_time: Set(ts),
                         change_type: Set("add".to_string()),
                         cause_type: Set(cause_str.to_string()),
                         cause_tx_hash: Set(cause_tx.clone()),
                         cause_receipt_hash: Set(cause_receipt.clone()),
-                        is_deleted: Set(0),
                         deleted_at_height: Set(None),
                         deleted_at_time: Set(None),
                     };
@@ -351,13 +366,13 @@ impl AccountsModule {
                         contract_id: Set(None),
                         method_names: Set(None),
                         allowance: Set(None),
+                        nonce: Set(None),
                         block_height: Set(height),
                         block_time: Set(ts),
                         change_type: Set("delete".to_string()),
                         cause_type: Set(cause_str.to_string()),
                         cause_tx_hash: Set(cause_tx.clone()),
                         cause_receipt_hash: Set(cause_receipt.clone()),
-                        is_deleted: Set(1),
                         deleted_at_height: Set(Some(height)),
                         deleted_at_time: Set(Some(ts)),
                     };
@@ -372,14 +387,14 @@ impl AccountsModule {
                     key,
                     value,
                 } => {
-                    let key_base64 = hex::encode(key.as_ref() as &[u8]);
-                    let value_base64 = hex::encode(value.as_ref() as &[u8]);
+                    let key_hex = hex::encode(key.as_ref() as &[u8]);
+                    let value_hex = hex::encode(value.as_ref() as &[u8]);
 
                     let data_record = entities::near_contract_data::ActiveModel {
                         id: NotSet,
                         account_id: Set(account_id.to_string()),
-                        data_key: Set(key_base64),
-                        data_value: Set(Some(value_base64)),
+                        data_key: Set(key_hex),
+                        data_value: Set(Some(value_hex)),
                         block_height: Set(height),
                         block_time: Set(ts),
                         change_type: Set("update".to_string()),
@@ -394,12 +409,12 @@ impl AccountsModule {
                     debug!(account_id = %account_id, key_len = key.len(), "contract data batched for update");
                 }
                 StateChangeValueView::DataDeletion { account_id, key } => {
-                    let key_base64 = hex::encode(key.as_ref() as &[u8]);
+                    let key_hex = hex::encode(key.as_ref() as &[u8]);
 
                     let data_record = entities::near_contract_data::ActiveModel {
                         id: NotSet,
                         account_id: Set(account_id.to_string()),
-                        data_key: Set(key_base64),
+                        data_key: Set(key_hex),
                         data_value: Set(None), // NULL indicates deletion
                         block_height: Set(height),
                         block_time: Set(ts),
@@ -578,7 +593,6 @@ impl AccountsModule {
                             AKC::ContractId,
                             AKC::MethodNames,
                             AKC::Allowance,
-                            AKC::IsDeleted,
                             AKC::DeletedAtHeight,
                             AKC::DeletedAtTime,
                         ])
