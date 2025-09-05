@@ -189,6 +189,8 @@ async fn tokens_process_block_ignores_non_event_logs_and_persists_events() {
         receipt_ids: Set(None),
         gas_used: Set(Some(0)),
         tokens_burnt: Set(None),
+        public_key: NotSet,
+        nonce: NotSet,
     };
     let _ = entities::near_transactions::Entity::insert(tx_row)
         .exec(&db)

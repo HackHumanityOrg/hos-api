@@ -18,6 +18,8 @@ pub struct Model {
     pub status: String,
     #[sea_orm(column_type = "Text", nullable)]
     pub receipt_ids: Option<String>,
+    pub public_key: Option<String>,
+    pub nonce: Option<i64>,
     pub gas_used: Option<i64>,
     #[sea_orm(column_type = "Decimal(Some((39, 0)))", nullable)]
     pub tokens_burnt: Option<Decimal>,

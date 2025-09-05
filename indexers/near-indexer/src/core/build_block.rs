@@ -46,6 +46,8 @@ pub fn build_block(msg: &nip::StreamerMessage) -> AdaptedBlock {
                     actions_json: serde_json::to_string(&tx.actions).unwrap_or("[]".into()),
                     receipt_ids: out.receipt_ids.iter().map(|h| h.to_string()).collect(),
                     executor_id: out.executor_id.to_string(),
+                    public_key: Some(tx.public_key.to_string()),
+                    nonce: Some(tx.nonce as i64),
                 };
                 txs.push(tx_view);
 

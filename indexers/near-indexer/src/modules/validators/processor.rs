@@ -209,117 +209,10 @@ impl ValidatorsModule {
         Ok(())
     }
 
-    async fn process_validator_kickouts(
-        &self,
-        challenges_result: &[near_primitives::challenge::SlashedValidator],
-        height: i64,
-        epoch_id: &str,
-        timestamp: i64,
-        db: &impl ConnectionTrait,
-    ) -> Result<()> {
-        if challenges_result.is_empty() {
-            return Ok(());
-        }
-
-        let mut kickout_models = Vec::new();
-
-        for slashed_validator in challenges_result {
-            // Extract validator account id and reason
-            let validator_id = slashed_validator.account_id.to_string();
-            let reason = match &slashed_validator.is_double_sign {
-                true => "double_sign".to_string(),
-                false => "other".to_string(), // Could be refined based on actual SlashedValidator fields
-            };
-
-            // Record the kickout
-            kickout_models.push(entities::near_validator_kickouts::ActiveModel {
-                id: NotSet,
-                validator_id: Set(validator_id.clone()),
-                epoch_id: Set(epoch_id.to_string()),
-                block_height: Set(height),
-                reason: Set(reason),
-                stake_returned: Set(Decimal::ZERO),
-                timestamp: Set(timestamp),
-            });
-
-            debug!(
-                validator_id = %validator_id,
-                epoch_id = %epoch_id,
-                "Validator kickout recorded"
-            );
-        }
-
-        if !kickout_models.is_empty() {
-            entities::near_validator_kickouts::Entity::insert_many(kickout_models)
-                .exec(db)
-                .await?;
-        }
-
-        Ok(())
-    }
-
-    async fn update_validator_seat_prices(
-        &self,
-        validator_proposals: &[near_primitives::views::validator_stake_view::ValidatorStakeView],
-        height: i64,
-        epoch_id: &str,
-        timestamp: i64,
-        db: &impl ConnectionTrait,
-    ) -> Result<()> {
-        if validator_proposals.is_empty() {
-            return Ok(());
-        }
-
-        // Calculate total stake and validator count
-        let mut stakes: Vec<u128> = validator_proposals
-            .iter()
-            .map(|v| match v {
-                ValidatorStakeView::V1(v1) => v1.stake,
-            })
-            .collect();
-
-        // Sort stakes in ascending order to find the seat price (typically the lowest stake that gets a seat)
-        stakes.sort();
-
-        let total_stake: u128 = stakes.iter().sum();
-        let validator_count = stakes.len() as i32;
-
-        // The seat price is typically the minimum stake needed to become a validator
-        // In NEAR, this is usually determined by the number of available seats vs proposals
-        let seat_price = stakes.first().copied().unwrap_or(0);
-
-        // Check if we already have a record for this epoch
-        let existing = entities::near_validator_seat_prices::Entity::find()
-            .filter(entities::near_validator_seat_prices::Column::EpochId.eq(epoch_id))
-            .one(db)
-            .await?;
-
-        if existing.is_none() {
-            let seat_price_model = entities::near_validator_seat_prices::ActiveModel {
-                epoch_id: Set(epoch_id.to_string()),
-                seat_price: Set(Self::safe_u128_to_decimal(seat_price)),
-                total_stake: Set(Self::safe_u128_to_decimal(total_stake)),
-                validator_count: Set(validator_count),
-                start_height: Set(height),
-                start_timestamp: Set(timestamp),
-            };
-
-            seat_price_model.insert(db).await?;
-
-            debug!(
-                epoch_id = %epoch_id,
-                seat_price = %seat_price,
-                validator_count = validator_count,
-                "Validator seat prices recorded"
-            );
-        }
-
-        Ok(())
-    }
-
     async fn record_validator_rewards(
         &self,
         validator_reward: u128,
+        block_producer: &str,
         height: i64,
         epoch_id: &str,
         timestamp: i64,
@@ -329,12 +222,12 @@ impl ValidatorsModule {
             return Ok(());
         }
 
-        // Store the total validator reward for this block
-        // Using special validator_id "*total*" to indicate this is the aggregate reward for all validators
-        let reward_model = entities::near_validator_rewards::ActiveModel {
+        // Record total reward for the epoch (aggregated)
+        let total_reward_model = entities::near_validator_rewards::ActiveModel {
             id: NotSet,
             validator_id: Set("*total*".to_string()),
             epoch_id: Set(epoch_id.to_string()),
+            block_height: Set(height),
             reward_amount: Set(Self::safe_u128_to_decimal(validator_reward)),
             delegator_rewards: Set(rust_decimal::Decimal::ZERO), // Not available at block level
             commission_earned: Set(rust_decimal::Decimal::ZERO), // Not available at block level
@@ -342,13 +235,30 @@ impl ValidatorsModule {
             timestamp: Set(timestamp),
         };
 
-        reward_model.insert(db).await?;
+        total_reward_model.insert(db).await?;
+
+        // Record individual block producer reward
+        // In NEAR, the block producer gets the validator reward for producing this block
+        let producer_reward_model = entities::near_validator_rewards::ActiveModel {
+            id: NotSet,
+            validator_id: Set(block_producer.to_string()),
+            epoch_id: Set(epoch_id.to_string()),
+            block_height: Set(height),
+            reward_amount: Set(Self::safe_u128_to_decimal(validator_reward)),
+            delegator_rewards: Set(rust_decimal::Decimal::ZERO), // Individual delegator rewards not available
+            commission_earned: Set(rust_decimal::Decimal::ZERO), // Commission details not available at block level
+            commission_rate: Set(rust_decimal::Decimal::ZERO), // Commission rate not available at block level
+            timestamp: Set(timestamp),
+        };
+
+        producer_reward_model.insert(db).await?;
 
         debug!(
             height = height,
             epoch_id = %epoch_id,
+            block_producer = %block_producer,
             validator_reward = %validator_reward,
-            "Total validator reward recorded for block"
+            "Validator rewards recorded for block producer"
         );
 
         Ok(())
@@ -402,7 +312,7 @@ impl IndexerModule for ValidatorsModule {
 
         let txn = db.begin().await?;
 
-        // 1. Record block producer
+        // Record block producer
         self.record_block_producer(
             msg.block.author.as_ref(),
             height,
@@ -413,10 +323,10 @@ impl IndexerModule for ValidatorsModule {
         )
         .await?;
 
-        // 2. Record chunk producers
+        // Record chunk producers
         self.record_chunk_producers(msg, &txn).await?;
 
-        // 3. Record validator proposals from block header
+        // Record validator proposals from block header
         if !msg.block.header.validator_proposals.is_empty() {
             self.record_validator_proposals(
                 &msg.block.header.validator_proposals,
@@ -430,7 +340,7 @@ impl IndexerModule for ValidatorsModule {
             .await?;
         }
 
-        // 4. Record validator proposals from chunk headers
+        // Record validator proposals from chunk headers
         for (shard_idx, shard) in msg.shards.iter().enumerate() {
             if let Some(chunk) = &shard.chunk {
                 if !chunk.header.validator_proposals.is_empty() {
@@ -448,7 +358,7 @@ impl IndexerModule for ValidatorsModule {
             }
         }
 
-        // 5. Record validator approvals
+        // Record validator approvals
         self.record_validator_approvals(
             &msg.block.header.approvals,
             height,
@@ -458,29 +368,10 @@ impl IndexerModule for ValidatorsModule {
         )
         .await?;
 
-        // 6. Process validator kickouts from challenges_result
-        self.process_validator_kickouts(
-            &msg.block.header.challenges_result,
-            height,
-            &epoch_id,
-            timestamp,
-            &txn,
-        )
-        .await?;
-
-        // 7. Calculate validator seat price for this epoch
-        self.update_validator_seat_prices(
-            &msg.block.header.validator_proposals,
-            height,
-            &epoch_id,
-            timestamp,
-            &txn,
-        )
-        .await?;
-
-        // 8. Record validator rewards for this block
+        // Record validator rewards for this block
         self.record_validator_rewards(
             msg.block.header.validator_reward,
+            msg.block.author.as_ref(), // Pass the block producer
             height,
             &epoch_id,
             timestamp,
@@ -488,7 +379,7 @@ impl IndexerModule for ValidatorsModule {
         )
         .await?;
 
-        // 9. Process validator state changes
+        // Process validator state changes
         self.process_validator_state_changes(msg, &txn).await?;
 
         txn.commit().await?;

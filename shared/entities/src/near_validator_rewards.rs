@@ -10,6 +10,7 @@ pub struct Model {
     pub id: i64,
     pub validator_id: String,
     pub epoch_id: String,
+    pub block_height: i64,
     #[sea_orm(column_type = "Decimal(Some((39, 0)))")]
     pub reward_amount: Decimal,
     #[sea_orm(column_type = "Decimal(Some((39, 0)))")]

@@ -24,8 +24,6 @@ pub mod near_token_events;
 pub mod near_tokens;
 pub mod near_transactions;
 pub mod near_validator_approvals;
-pub mod near_validator_kickouts;
 pub mod near_validator_proposals;
 pub mod near_validator_rewards;
-pub mod near_validator_seat_prices;
 pub mod near_validators;

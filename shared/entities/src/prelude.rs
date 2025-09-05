@@ -22,8 +22,6 @@ pub use super::near_token_events::Entity as NearTokenEvents;
 pub use super::near_tokens::Entity as NearTokens;
 pub use super::near_transactions::Entity as NearTransactions;
 pub use super::near_validator_approvals::Entity as NearValidatorApprovals;
-pub use super::near_validator_kickouts::Entity as NearValidatorKickouts;
 pub use super::near_validator_proposals::Entity as NearValidatorProposals;
 pub use super::near_validator_rewards::Entity as NearValidatorRewards;
-pub use super::near_validator_seat_prices::Entity as NearValidatorSeatPrices;
 pub use super::near_validators::Entity as NearValidators;

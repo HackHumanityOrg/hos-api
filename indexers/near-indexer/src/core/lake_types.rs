@@ -30,6 +30,8 @@ pub struct TxView {
     pub actions_json: String,
     pub receipt_ids: Vec<String>,
     pub executor_id: String,
+    pub public_key: Option<String>,
+    pub nonce: Option<i64>,
 }
 
 #[derive(Debug, Clone)]

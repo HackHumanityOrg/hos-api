@@ -49,6 +49,8 @@ impl TransactionsProcessor {
                 actions: Set(Some(tx.actions_json.clone())),
                 status: Set(status.to_string()),
                 receipt_ids: Set(Some(receipt_ids_json)),
+                public_key: Set(tx.public_key.clone()),
+                nonce: Set(tx.nonce),
                 gas_used: Set(Some(tx.gas_burnt)),
                 tokens_burnt: Set(Some(tx.tokens_burnt)),
             };
