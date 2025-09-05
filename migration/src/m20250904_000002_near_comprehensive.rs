@@ -1053,62 +1053,63 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // near_token_transfers - All token transfer events (NEP-141 and NEP-171)
+        // near_token_events - All token events (NEP-141/171/245)
         manager
             .create_table(
                 Table::create()
-                    .table(NearTokenTransfers::Table)
+                    .table(NearTokenEvents::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(NearTokenTransfers::Id)
+                        ColumnDef::new(NearTokenEvents::Id)
                             .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(NearTokenTransfers::ContractId)
+                        ColumnDef::new(NearTokenEvents::ContractId)
                             .string_len(128)
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(NearTokenTransfers::TokenStandard)
+                        ColumnDef::new(NearTokenEvents::TokenStandard)
                             .string_len(16)
                             .not_null(), // "nep141" or "nep171"
                     )
                     .col(
-                        ColumnDef::new(NearTokenTransfers::EventType)
+                        ColumnDef::new(NearTokenEvents::EventType)
                             .string_len(32)
                             .not_null(), // "ft_mint", "ft_transfer", "ft_burn", "nft_mint", "nft_transfer", "nft_burn"
                     )
-                    .col(ColumnDef::new(NearTokenTransfers::FromAccountId).string_len(128)) // NULL for mint
-                    .col(ColumnDef::new(NearTokenTransfers::ToAccountId).string_len(128)) // NULL for burn
-                    .col(ColumnDef::new(NearTokenTransfers::Amount).decimal_len(39, 0)) // For NEP-141 transfers
-                    .col(ColumnDef::new(NearTokenTransfers::TokenIds).text()) // JSON array for NEP-171
-                    .col(ColumnDef::new(NearTokenTransfers::Memo).text())
-                    .col(ColumnDef::new(NearTokenTransfers::AuthorizedId).string_len(128)) // For NFT burns
+                    .col(ColumnDef::new(NearTokenEvents::FromAccountId).string_len(128)) // NULL for mint
+                    .col(ColumnDef::new(NearTokenEvents::ToAccountId).string_len(128)) // NULL for burn
+                    .col(ColumnDef::new(NearTokenEvents::Amount).decimal_len(39, 0)) // For NEP-141 transfers
+                    .col(ColumnDef::new(NearTokenEvents::Amounts).text()) // JSON array for NEP-245 batch amounts
+                    .col(ColumnDef::new(NearTokenEvents::TokenIds).text()) // JSON array for NEP-171/245
+                    .col(ColumnDef::new(NearTokenEvents::Memo).text())
+                    .col(ColumnDef::new(NearTokenEvents::AuthorizedId).string_len(128)) // For NFT burns
                     .col(
-                        ColumnDef::new(NearTokenTransfers::BlockHeight)
+                        ColumnDef::new(NearTokenEvents::BlockHeight)
                             .big_integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(NearTokenTransfers::BlockTime)
+                        ColumnDef::new(NearTokenEvents::BlockTime)
                             .big_integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(NearTokenTransfers::TxHash)
+                        ColumnDef::new(NearTokenEvents::TxHash)
                             .string_len(100)
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(NearTokenTransfers::ReceiptHash)
+                        ColumnDef::new(NearTokenEvents::ReceiptHash)
                             .string_len(100)
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(NearTokenTransfers::LogIndex)
+                        ColumnDef::new(NearTokenEvents::LogIndex)
                             .integer()
                             .not_null(),
                     )
@@ -1116,12 +1117,12 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_token_transfers.contract_id -> near_tokens(contract_id)
+        // FK: near_token_events.contract_id -> near_tokens(contract_id)
         manager
             .create_foreign_key(
                 ForeignKey::create()
-                    .name("fk_near_token_transfers_contract")
-                    .from(NearTokenTransfers::Table, NearTokenTransfers::ContractId)
+                    .name("fk_near_token_events_contract")
+                    .from(NearTokenEvents::Table, NearTokenEvents::ContractId)
                     .to(NearTokens::Table, NearTokens::ContractId)
                     .on_delete(ForeignKeyAction::Cascade)
                     .on_update(ForeignKeyAction::Cascade)
@@ -1129,12 +1130,12 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_token_transfers.tx_hash -> near_transactions(tx_hash)
+        // FK: near_token_events.tx_hash -> near_transactions(tx_hash)
         manager
             .create_foreign_key(
                 ForeignKey::create()
-                    .name("fk_near_token_transfers_tx")
-                    .from(NearTokenTransfers::Table, NearTokenTransfers::TxHash)
+                    .name("fk_near_token_events_tx")
+                    .from(NearTokenEvents::Table, NearTokenEvents::TxHash)
                     .to(NearTransactions::Table, NearTransactions::TxHash)
                     .on_delete(ForeignKeyAction::Cascade)
                     .on_update(ForeignKeyAction::Cascade)
@@ -1142,12 +1143,12 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_token_transfers.from_account_id -> near_accounts(account_id)
+        // FK: near_token_events.from_account_id -> near_accounts(account_id)
         manager
             .create_foreign_key(
                 ForeignKey::create()
-                    .name("fk_near_token_transfers_from")
-                    .from(NearTokenTransfers::Table, NearTokenTransfers::FromAccountId)
+                    .name("fk_near_token_events_from")
+                    .from(NearTokenEvents::Table, NearTokenEvents::FromAccountId)
                     .to(NearAccounts::Table, NearAccounts::AccountId)
                     .on_delete(ForeignKeyAction::SetNull)
                     .on_update(ForeignKeyAction::Cascade)
@@ -1155,12 +1156,12 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_token_transfers.to_account_id -> near_accounts(account_id)
+        // FK: near_token_events.to_account_id -> near_accounts(account_id)
         manager
             .create_foreign_key(
                 ForeignKey::create()
-                    .name("fk_near_token_transfers_to")
-                    .from(NearTokenTransfers::Table, NearTokenTransfers::ToAccountId)
+                    .name("fk_near_token_events_to")
+                    .from(NearTokenEvents::Table, NearTokenEvents::ToAccountId)
                     .to(NearAccounts::Table, NearAccounts::AccountId)
                     .on_delete(ForeignKeyAction::SetNull)
                     .on_update(ForeignKeyAction::Cascade)
@@ -1168,13 +1169,13 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // Indexes for near_token_transfers
+        // Indexes for near_token_events
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_token_transfers_contract")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::ContractId)
+                    .name("idx_near_token_events_contract")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::ContractId)
                     .to_owned(),
             )
             .await?;
@@ -1182,9 +1183,9 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_token_transfers_from_account")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::FromAccountId)
+                    .name("idx_near_token_events_from_account")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::FromAccountId)
                     .to_owned(),
             )
             .await?;
@@ -1192,9 +1193,9 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_token_transfers_to_account")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::ToAccountId)
+                    .name("idx_near_token_events_to_account")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::ToAccountId)
                     .to_owned(),
             )
             .await?;
@@ -1202,9 +1203,9 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_token_transfers_event_type")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::EventType)
+                    .name("idx_near_token_events_event_type")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::EventType)
                     .to_owned(),
             )
             .await?;
@@ -1212,9 +1213,9 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_token_transfers_standard")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::TokenStandard)
+                    .name("idx_near_token_events_standard")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::TokenStandard)
                     .to_owned(),
             )
             .await?;
@@ -1222,9 +1223,9 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_token_transfers_block_height")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::BlockHeight)
+                    .name("idx_near_token_events_block_height")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::BlockHeight)
                     .to_owned(),
             )
             .await?;
@@ -1232,9 +1233,9 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_token_transfers_block_time")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::BlockTime)
+                    .name("idx_near_token_events_block_time")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::BlockTime)
                     .to_owned(),
             )
             .await?;
@@ -1242,9 +1243,9 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_token_transfers_tx_hash")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::TxHash)
+                    .name("idx_near_token_events_tx_hash")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::TxHash)
                     .to_owned(),
             )
             .await?;
@@ -1252,9 +1253,9 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_token_transfers_receipt_hash")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::ReceiptHash)
+                    .name("idx_near_token_events_receipt_hash")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::ReceiptHash)
                     .to_owned(),
             )
             .await?;
@@ -1263,11 +1264,11 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("ux_near_token_transfers_dedup")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::ReceiptHash)
-                    .col(NearTokenTransfers::LogIndex)
-                    .col(NearTokenTransfers::EventType)
+                    .name("ux_near_token_events_dedup")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::ReceiptHash)
+                    .col(NearTokenEvents::LogIndex)
+                    .col(NearTokenEvents::EventType)
                     .unique()
                     .to_owned(),
             )
@@ -1277,10 +1278,10 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_token_transfers_contract_event")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::ContractId)
-                    .col(NearTokenTransfers::EventType)
+                    .name("idx_near_token_events_contract_event")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::ContractId)
+                    .col(NearTokenEvents::EventType)
                     .to_owned(),
             )
             .await?;
@@ -1288,13 +1289,168 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_near_token_transfers_contract_time")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::ContractId)
-                    .col(NearTokenTransfers::BlockTime)
+                    .name("idx_near_token_events_contract_time")
+                    .table(NearTokenEvents::Table)
+                    .col(NearTokenEvents::ContractId)
+                    .col(NearTokenEvents::BlockTime)
                     .to_owned(),
             )
             .await?;
+
+        // =================
+        // VALIDATOR TABLES
+        // =================
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearValidators::Table)
+                    .if_not_exists()
+                    .col(ColumnDef::new(NearValidators::AccountId).string_len(128).not_null().primary_key())
+                    .col(ColumnDef::new(NearValidators::PublicKey).string_len(128))
+                    .col(ColumnDef::new(NearValidators::FirstSeenHeight).big_integer().not_null())
+                    .col(ColumnDef::new(NearValidators::FirstSeenTimestamp).big_integer().not_null())
+                    .col(ColumnDef::new(NearValidators::LastSeenHeight).big_integer())
+                    .col(ColumnDef::new(NearValidators::LastSeenTimestamp).big_integer())
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearValidatorProposals::Table)
+                    .if_not_exists()
+                    .col(ColumnDef::new(NearValidatorProposals::Id).big_integer().not_null().auto_increment().primary_key())
+                    .col(ColumnDef::new(NearValidatorProposals::BlockHeight).big_integer().not_null())
+                    .col(ColumnDef::new(NearValidatorProposals::AccountId).string_len(128).not_null())
+                    .col(ColumnDef::new(NearValidatorProposals::PublicKey).string_len(128).not_null())
+                    .col(ColumnDef::new(NearValidatorProposals::Stake).decimal_len(39, 0).not_null())
+                    .col(ColumnDef::new(NearValidatorProposals::EpochId).string_len(64).not_null())
+                    .col(ColumnDef::new(NearValidatorProposals::Timestamp).big_integer().not_null())
+                    .col(ColumnDef::new(NearValidatorProposals::Source).string_len(16).not_null())
+                    .col(ColumnDef::new(NearValidatorProposals::ShardId).integer())
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearBlockProducers::Table)
+                    .if_not_exists()
+                    .col(ColumnDef::new(NearBlockProducers::BlockHeight).big_integer().not_null().primary_key())
+                    .col(ColumnDef::new(NearBlockProducers::ProducerId).string_len(128).not_null())
+                    .col(ColumnDef::new(NearBlockProducers::EpochId).string_len(64).not_null())
+                    .col(ColumnDef::new(NearBlockProducers::Timestamp).big_integer().not_null())
+                    .col(ColumnDef::new(NearBlockProducers::GasPrice).decimal_len(39, 0).not_null())
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearChunkProducers::Table)
+                    .if_not_exists()
+                    .col(ColumnDef::new(NearChunkProducers::Id).big_integer().not_null().auto_increment().primary_key())
+                    .col(ColumnDef::new(NearChunkProducers::BlockHeight).big_integer().not_null())
+                    .col(ColumnDef::new(NearChunkProducers::ShardId).integer().not_null())
+                    .col(ColumnDef::new(NearChunkProducers::ProducerId).string_len(128).not_null())
+                    .col(ColumnDef::new(NearChunkProducers::EpochId).string_len(64).not_null())
+                    .col(ColumnDef::new(NearChunkProducers::Timestamp).big_integer().not_null())
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearValidatorApprovals::Table)
+                    .if_not_exists()
+                    .col(ColumnDef::new(NearValidatorApprovals::BlockHeight).big_integer().not_null().primary_key())
+                    .col(ColumnDef::new(NearValidatorApprovals::TotalApprovals).integer().not_null())
+                    .col(ColumnDef::new(NearValidatorApprovals::TotalSlots).integer().not_null())
+                    .col(ColumnDef::new(NearValidatorApprovals::EpochId).string_len(64).not_null())
+                    .col(ColumnDef::new(NearValidatorApprovals::Timestamp).big_integer().not_null())
+                    .to_owned(),
+            )
+            .await?;
+
+        // NETWORK TABLES
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearEpochs::Table)
+                    .if_not_exists()
+                    .col(ColumnDef::new(NearEpochs::EpochId).string_len(64).not_null().primary_key())
+                    .col(ColumnDef::new(NearEpochs::StartHeight).big_integer().not_null())
+                    .col(ColumnDef::new(NearEpochs::StartTimestamp).big_integer().not_null())
+                    .col(ColumnDef::new(NearEpochs::EndHeight).big_integer())
+                    .col(ColumnDef::new(NearEpochs::EndTimestamp).big_integer())
+                    .col(ColumnDef::new(NearEpochs::ProtocolVersion).integer().not_null())
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearNetworkState::Table)
+                    .if_not_exists()
+                    .col(ColumnDef::new(NearNetworkState::BlockHeight).big_integer().not_null().primary_key())
+                    .col(ColumnDef::new(NearNetworkState::EpochId).string_len(64).not_null())
+                    .col(ColumnDef::new(NearNetworkState::GasPrice).decimal_len(39, 0).not_null())
+                    .col(ColumnDef::new(NearNetworkState::ProtocolVersion).integer().not_null())
+                    .col(ColumnDef::new(NearNetworkState::TotalSupply).decimal_len(39, 0).not_null())
+                    .col(ColumnDef::new(NearNetworkState::Timestamp).big_integer().not_null())
+                    .to_owned(),
+            )
+            .await?;
+
+        // Indexes
+        manager.create_index(Index::create().name("idx_near_validators_first_seen_height").table(NearValidators::Table).col(NearValidators::FirstSeenHeight).to_owned()).await?;
+        manager.create_index(Index::create().name("idx_near_validators_last_seen_height").table(NearValidators::Table).col(NearValidators::LastSeenHeight).to_owned()).await?;
+        manager.create_index(Index::create().name("idx_near_validator_proposals_block_height").table(NearValidatorProposals::Table).col(NearValidatorProposals::BlockHeight).to_owned()).await?;
+        manager.create_index(Index::create().name("idx_near_validator_proposals_account_id").table(NearValidatorProposals::Table).col(NearValidatorProposals::AccountId).to_owned()).await?;
+        manager.create_index(Index::create().name("idx_near_validator_proposals_epoch_id").table(NearValidatorProposals::Table).col(NearValidatorProposals::EpochId).to_owned()).await?;
+        manager.create_index(Index::create().name("idx_near_block_producers_producer_id").table(NearBlockProducers::Table).col(NearBlockProducers::ProducerId).to_owned()).await?;
+        manager.create_index(Index::create().name("idx_near_block_producers_epoch_id").table(NearBlockProducers::Table).col(NearBlockProducers::EpochId).to_owned()).await?;
+        manager.create_index(Index::create().name("idx_near_chunk_producers_block_shard").table(NearChunkProducers::Table).col(NearChunkProducers::BlockHeight).col(NearChunkProducers::ShardId).to_owned()).await?;
+        manager.create_index(Index::create().name("idx_near_chunk_producers_producer_id").table(NearChunkProducers::Table).col(NearChunkProducers::ProducerId).to_owned()).await?;
+        manager.create_index(Index::create().name("idx_near_validator_approvals_epoch_id").table(NearValidatorApprovals::Table).col(NearValidatorApprovals::EpochId).to_owned()).await?;
+        manager.create_index(Index::create().name("idx_near_epochs_start_height").table(NearEpochs::Table).col(NearEpochs::StartHeight).to_owned()).await?;
+        manager.create_index(Index::create().name("idx_near_network_state_epoch_id").table(NearNetworkState::Table).col(NearNetworkState::EpochId).to_owned()).await?;
+
+        // Enhanced validator tables
+        manager.create_table(Table::create().table(NearValidatorKickouts::Table).if_not_exists()
+            .col(ColumnDef::new(NearValidatorKickouts::Id).big_integer().not_null().auto_increment().primary_key())
+            .col(ColumnDef::new(NearValidatorKickouts::ValidatorId).string_len(128).not_null())
+            .col(ColumnDef::new(NearValidatorKickouts::EpochId).string_len(64).not_null())
+            .col(ColumnDef::new(NearValidatorKickouts::BlockHeight).big_integer().not_null())
+            .col(ColumnDef::new(NearValidatorKickouts::Reason).string_len(128).not_null())
+            .col(ColumnDef::new(NearValidatorKickouts::StakeReturned).decimal_len(39, 0).not_null())
+            .col(ColumnDef::new(NearValidatorKickouts::Timestamp).big_integer().not_null())
+            .to_owned()).await?;
+
+        manager.create_table(Table::create().table(NearValidatorRewards::Table).if_not_exists()
+            .col(ColumnDef::new(NearValidatorRewards::Id).big_integer().not_null().auto_increment().primary_key())
+            .col(ColumnDef::new(NearValidatorRewards::ValidatorId).string_len(128).not_null())
+            .col(ColumnDef::new(NearValidatorRewards::EpochId).string_len(64).not_null())
+            .col(ColumnDef::new(NearValidatorRewards::RewardAmount).decimal_len(39, 0).not_null())
+            .col(ColumnDef::new(NearValidatorRewards::DelegatorRewards).decimal_len(39, 0).not_null())
+            .col(ColumnDef::new(NearValidatorRewards::CommissionEarned).decimal_len(39, 0).not_null())
+            .col(ColumnDef::new(NearValidatorRewards::CommissionRate).decimal_len(39, 0).not_null())
+            .col(ColumnDef::new(NearValidatorRewards::Timestamp).big_integer().not_null())
+            .to_owned()).await?;
+
+        manager.create_table(Table::create().table(NearValidatorSeatPrices::Table).if_not_exists()
+            .col(ColumnDef::new(NearValidatorSeatPrices::EpochId).string_len(64).not_null().primary_key())
+            .col(ColumnDef::new(NearValidatorSeatPrices::SeatPrice).decimal_len(39, 0).not_null())
+            .col(ColumnDef::new(NearValidatorSeatPrices::TotalStake).decimal_len(39, 0).not_null())
+            .col(ColumnDef::new(NearValidatorSeatPrices::ValidatorCount).integer().not_null())
+            .col(ColumnDef::new(NearValidatorSeatPrices::StartHeight).big_integer().not_null())
+            .col(ColumnDef::new(NearValidatorSeatPrices::StartTimestamp).big_integer().not_null())
+            .to_owned()).await?;
 
         // near_nfts dropped (not used yet)
 
@@ -1336,12 +1492,21 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager
-            .drop_table(Table::drop().table(NearSyncCursors::Table).to_owned())
-            .await?;
+        manager.drop_table(Table::drop().table(NearSyncCursors::Table).to_owned()).await?;
+        // Drop consolidated validator/network tables
+        manager.drop_table(Table::drop().table(NearValidatorSeatPrices::Table).to_owned()).await?;
+        manager.drop_table(Table::drop().table(NearValidatorRewards::Table).to_owned()).await?;
+        manager.drop_table(Table::drop().table(NearValidatorKickouts::Table).to_owned()).await?;
+        manager.drop_table(Table::drop().table(NearNetworkState::Table).to_owned()).await?;
+        manager.drop_table(Table::drop().table(NearEpochs::Table).to_owned()).await?;
+        manager.drop_table(Table::drop().table(NearValidatorApprovals::Table).to_owned()).await?;
+        manager.drop_table(Table::drop().table(NearChunkProducers::Table).to_owned()).await?;
+        manager.drop_table(Table::drop().table(NearBlockProducers::Table).to_owned()).await?;
+        manager.drop_table(Table::drop().table(NearValidatorProposals::Table).to_owned()).await?;
+        manager.drop_table(Table::drop().table(NearValidators::Table).to_owned()).await?;
         // near_nfts drop removed (table not created)
         manager
-            .drop_table(Table::drop().table(NearTokenTransfers::Table).to_owned())
+            .drop_table(Table::drop().table(NearTokenEvents::Table).to_owned())
             .await?;
         manager
             .drop_table(Table::drop().table(NearTokens::Table).to_owned())
@@ -1515,7 +1680,7 @@ enum NearTokens {
 }
 
 #[derive(DeriveIden)]
-enum NearTokenTransfers {
+enum NearTokenEvents {
     Table,
     Id,
     ContractId,
@@ -1524,6 +1689,7 @@ enum NearTokenTransfers {
     FromAccountId,
     ToAccountId,
     Amount,
+    Amounts,
     TokenIds,
     Memo,
     AuthorizedId,
@@ -1542,4 +1708,118 @@ enum NearSyncCursors {
     StreamName,
     BlockHeight,
     UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum NearValidators {
+    Table,
+    AccountId,
+    PublicKey,
+    FirstSeenHeight,
+    FirstSeenTimestamp,
+    LastSeenHeight,
+    LastSeenTimestamp,
+}
+
+#[derive(DeriveIden)]
+enum NearValidatorProposals {
+    Table,
+    Id,
+    BlockHeight,
+    AccountId,
+    PublicKey,
+    Stake,
+    EpochId,
+    Timestamp,
+    Source,
+    ShardId,
+}
+
+#[derive(DeriveIden)]
+enum NearBlockProducers {
+    Table,
+    BlockHeight,
+    ProducerId,
+    EpochId,
+    Timestamp,
+    GasPrice,
+}
+
+#[derive(DeriveIden)]
+enum NearChunkProducers {
+    Table,
+    Id,
+    BlockHeight,
+    ShardId,
+    ProducerId,
+    EpochId,
+    Timestamp,
+}
+
+#[derive(DeriveIden)]
+enum NearValidatorApprovals {
+    Table,
+    BlockHeight,
+    TotalApprovals,
+    TotalSlots,
+    EpochId,
+    Timestamp,
+}
+
+#[derive(DeriveIden)]
+enum NearEpochs {
+    Table,
+    EpochId,
+    StartHeight,
+    StartTimestamp,
+    EndHeight,
+    EndTimestamp,
+    ProtocolVersion,
+}
+
+#[derive(DeriveIden)]
+enum NearNetworkState {
+    Table,
+    BlockHeight,
+    EpochId,
+    GasPrice,
+    ProtocolVersion,
+    TotalSupply,
+    Timestamp,
+}
+
+#[derive(DeriveIden)]
+enum NearValidatorKickouts {
+    Table,
+    Id,
+    ValidatorId,
+    EpochId,
+    BlockHeight,
+    Reason,
+    StakeReturned,
+    Timestamp,
+}
+
+#[derive(DeriveIden)]
+enum NearValidatorRewards {
+    Table,
+    Id,
+    ValidatorId,
+    EpochId,
+    RewardAmount,
+    DelegatorRewards,
+    CommissionEarned,
+    CommissionRate,
+    Timestamp,
+}
+
+#[derive(DeriveIden)]
+enum NearValidatorSeatPrices {
+    Table,
+    EpochId,
+    SeatPrice,
+    TotalStake,
+    ValidatorCount,
+    StartHeight,
+    StartTimestamp,
 }

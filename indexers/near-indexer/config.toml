@@ -54,6 +54,8 @@ enabled = true
 track_nep141 = true
 # Track NEP-171 NFTs
 track_nep171 = true
+# Track NEP-245 MultiToken
+track_nep245 = true
 # List of specific contracts to track (empty = track all)
 contracts = []
 

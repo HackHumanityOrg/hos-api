@@ -238,7 +238,7 @@ impl ValidatorsModule {
                 epoch_id: Set(epoch_id.to_string()),
                 block_height: Set(height),
                 reason: Set(reason),
-                stake_returned: Set(None), // May not be available in this context
+                stake_returned: Set(Decimal::ZERO),
                 timestamp: Set(timestamp),
             });
 

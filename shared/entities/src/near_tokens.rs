@@ -25,8 +25,8 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     NearAccounts,
-    #[sea_orm(has_many = "super::near_token_transfers::Entity")]
-    NearTokenTransfers,
+    #[sea_orm(has_many = "super::near_token_events::Entity")]
+    NearTokenEvents,
 }
 
 impl Related<super::near_accounts::Entity> for Entity {
@@ -35,9 +35,9 @@ impl Related<super::near_accounts::Entity> for Entity {
     }
 }
 
-impl Related<super::near_token_transfers::Entity> for Entity {
+impl Related<super::near_token_events::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::NearTokenTransfers.def()
+        Relation::NearTokenEvents.def()
     }
 }
 

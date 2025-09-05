@@ -4,7 +4,7 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "near_token_transfers")]
+#[sea_orm(table_name = "near_token_events")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
@@ -15,6 +15,8 @@ pub struct Model {
     pub to_account_id: Option<String>,
     #[sea_orm(column_type = "Decimal(Some((39, 0)))", nullable)]
     pub amount: Option<Decimal>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub amounts: Option<String>,
     #[sea_orm(column_type = "Text", nullable)]
     pub token_ids: Option<String>,
     #[sea_orm(column_type = "Text", nullable)]

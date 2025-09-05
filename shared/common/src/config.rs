@@ -281,6 +281,8 @@ pub struct TokensModuleConfig {
     pub track_nep141: bool,
     #[serde(default = "default_true")]
     pub track_nep171: bool,
+    #[serde(default = "default_true")]
+    pub track_nep245: bool,
     #[serde(default)]
     pub contracts: Vec<String>,
 }
@@ -343,6 +345,7 @@ impl ToLog for TokensModuleConfig {
             "enabled": self.enabled,
             "track_nep141": self.track_nep141,
             "track_nep171": self.track_nep171,
+            "track_nep245": self.track_nep245,
             "contracts": if self.contracts.is_empty() {
                 "all".to_string()
             } else {

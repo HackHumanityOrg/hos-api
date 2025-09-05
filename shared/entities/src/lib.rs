@@ -20,7 +20,7 @@ pub mod near_contract_data;
 pub mod near_epochs;
 pub mod near_network_state;
 pub mod near_sync_cursors;
-pub mod near_token_transfers;
+pub mod near_token_events;
 pub mod near_tokens;
 pub mod near_transactions;
 pub mod near_validator_approvals;

@@ -48,6 +48,7 @@ fn cfg_enable_tokens() -> common::config::AppConfig {
                     enabled: true,
                     track_nep141: true,
                     track_nep171: false,
+                    track_nep245: true,
                     contracts: vec![],
                 }),
                 validators: None,
@@ -197,7 +198,7 @@ async fn tokens_process_block_ignores_non_event_logs_and_persists_events() {
     let module = TokensModule::new(&cfg_enable_tokens());
     module.process_block(&msg, &db).await.unwrap();
 
-    let count = entities::near_token_transfers::Entity::find()
+    let count = entities::near_token_events::Entity::find()
         .count(&db)
         .await
         .unwrap();

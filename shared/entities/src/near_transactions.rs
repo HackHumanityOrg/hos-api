@@ -35,8 +35,8 @@ pub enum Relation {
     NearContractCode,
     #[sea_orm(has_many = "super::near_contract_data::Entity")]
     NearContractData,
-    #[sea_orm(has_many = "super::near_token_transfers::Entity")]
-    NearTokenTransfers,
+    #[sea_orm(has_many = "super::near_token_events::Entity")]
+    NearTokenEvents,
 }
 
 impl Related<super::near_access_keys::Entity> for Entity {
@@ -69,9 +69,9 @@ impl Related<super::near_contract_data::Entity> for Entity {
     }
 }
 
-impl Related<super::near_token_transfers::Entity> for Entity {
+impl Related<super::near_token_events::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::NearTokenTransfers.def()
+        Relation::NearTokenEvents.def()
     }
 }
 

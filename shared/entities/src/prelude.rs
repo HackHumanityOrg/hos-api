@@ -18,7 +18,7 @@ pub use super::near_contract_data::Entity as NearContractData;
 pub use super::near_epochs::Entity as NearEpochs;
 pub use super::near_network_state::Entity as NearNetworkState;
 pub use super::near_sync_cursors::Entity as NearSyncCursors;
-pub use super::near_token_transfers::Entity as NearTokenTransfers;
+pub use super::near_token_events::Entity as NearTokenEvents;
 pub use super::near_tokens::Entity as NearTokens;
 pub use super::near_transactions::Entity as NearTransactions;
 pub use super::near_validator_approvals::Entity as NearValidatorApprovals;

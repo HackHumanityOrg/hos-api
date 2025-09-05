@@ -12,8 +12,8 @@ pub struct Model {
     pub epoch_id: String,
     pub block_height: i64,
     pub reason: String,
-    #[sea_orm(column_type = "Decimal(Some((39, 0)))", nullable)]
-    pub stake_returned: Option<Decimal>,
+    #[sea_orm(column_type = "Decimal(Some((39, 0)))")]
+    pub stake_returned: Decimal,
     pub timestamp: i64,
 }
 

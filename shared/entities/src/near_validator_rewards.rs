@@ -16,7 +16,7 @@ pub struct Model {
     pub delegator_rewards: Decimal,
     #[sea_orm(column_type = "Decimal(Some((39, 0)))")]
     pub commission_earned: Decimal,
-    #[sea_orm(column_type = "Decimal(Some((5, 2)))")]
+    #[sea_orm(column_type = "Decimal(Some((39, 0)))")]
     pub commission_rate: Decimal,
     pub timestamp: i64,
 }

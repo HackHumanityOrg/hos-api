@@ -18,12 +18,13 @@ pub struct TokensModule {
     enabled: bool,
     track_nep141: bool,
     track_nep171: bool,
+    track_nep245: bool,
     contracts_filter: Vec<String>,
 }
 
 impl TokensModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
-        let (enabled, track_nep141, track_nep171, contracts_filter) = match config {
+        let (enabled, track_nep141, track_nep171, track_nep245, contracts_filter) = match config {
             common::config::AppConfig::Indexer(idx) => {
                 let near_config = idx.near.as_ref();
 
@@ -35,6 +36,7 @@ impl TokensModule {
                         enabled: false,
                         track_nep141: false,
                         track_nep171: false,
+                        track_nep245: false,
                         contracts_filter: Vec::new(),
                     };
                 }
@@ -49,21 +51,23 @@ impl TokensModule {
                         tc.enabled,
                         tc.track_nep141,
                         tc.track_nep171,
+                        tc.track_nep245,
                         tc.contracts.clone(),
                     ),
                     None => {
                         // Default configuration when not specified
-                        (false, true, true, Vec::new())
+                        (false, true, true, true, Vec::new())
                     }
                 }
             }
-            _ => (false, false, false, Vec::new()),
+            _ => (false, false, false, false, Vec::new()),
         };
 
         Self {
             enabled,
             track_nep141,
             track_nep171,
+            track_nep245,
             contracts_filter,
         }
     }
@@ -88,11 +92,12 @@ impl TokensModule {
             "nep171" if self.track_nep171 => {
                 self.parse_nep171_event(event_type, data, executor_id, version)
             }
+            "nep245" if self.track_nep245 => {
+                self.parse_nep245_event(event_type, data, executor_id, version)
+            }
             _ => None,
         }
     }
-
-    // parse_token_event_with_executor is the single entry for event mapping
 
     /// Parse NEP-141 fungible token events
     fn parse_nep141_event(
@@ -127,6 +132,7 @@ impl TokensModule {
                         to_account_id: Some(owner_id),
                         amount: Some(amount.to_string()),
                         token_ids: None,
+                        amounts: None,
                         memo,
                         authorized_id: None,
                     });
@@ -150,6 +156,7 @@ impl TokensModule {
                         to_account_id: Some(new_owner_id),
                         amount: Some(amount.to_string()),
                         token_ids: None,
+                        amounts: None,
                         memo,
                         authorized_id: None,
                     });
@@ -172,6 +179,7 @@ impl TokensModule {
                         to_account_id: None,
                         amount: Some(amount.to_string()),
                         token_ids: None,
+                        amounts: None,
                         memo,
                         authorized_id: None,
                     });
@@ -180,6 +188,138 @@ impl TokensModule {
             _ => return None,
         }
 
+        None
+    }
+
+    /// Parse NEP-245 MultiToken events (batch token_ids + amounts arrays)
+    fn parse_nep245_event(
+        &self,
+        event_type: &str,
+        data: &[Value],
+        executor_id: &str,
+        _version: &str,
+    ) -> Option<TokenEvent> {
+        let contract_id = executor_id.to_string();
+
+        if !self.contracts_filter.is_empty() && !self.contracts_filter.contains(&contract_id) {
+            return None;
+        }
+
+        // We compress arrays to JSON strings in TokenEvent
+        match event_type {
+            "mt_mint" => {
+                if let Some(item) = data.iter().next() {
+                    let owner_id = item.get("owner_id")?.as_str()?.to_string();
+                    let token_ids = item.get("token_ids")?.as_array()?;
+                    let amounts = item.get("amounts")?.as_array()?;
+                    if token_ids.len() != amounts.len() {
+                        return None;
+                    }
+                    let token_ids = token_ids
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>();
+                    let amounts = amounts
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>();
+                    let memo = item
+                        .get("memo")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    return Some(TokenEvent {
+                        contract_id: contract_id.clone(),
+                        token_standard: "nep245".to_string(),
+                        event_type: "mt_mint".to_string(),
+                        from_account_id: None,
+                        to_account_id: Some(owner_id),
+                        amount: None,
+                        token_ids: Some(serde_json::to_string(&token_ids).unwrap()),
+                        amounts: Some(serde_json::to_string(&amounts).unwrap()),
+                        memo,
+                        authorized_id: None,
+                    });
+                }
+            }
+            "mt_transfer" => {
+                if let Some(item) = data.iter().next() {
+                    let old_owner_id = item.get("old_owner_id")?.as_str()?.to_string();
+                    let new_owner_id = item.get("new_owner_id")?.as_str()?.to_string();
+                    let token_ids = item.get("token_ids")?.as_array()?;
+                    let amounts = item.get("amounts")?.as_array()?;
+                    if token_ids.len() != amounts.len() {
+                        return None;
+                    }
+                    let token_ids = token_ids
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>();
+                    let amounts = amounts
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>();
+                    let memo = item
+                        .get("memo")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let authorized_id = item
+                        .get("authorized_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    return Some(TokenEvent {
+                        contract_id: contract_id.clone(),
+                        token_standard: "nep245".to_string(),
+                        event_type: "mt_transfer".to_string(),
+                        from_account_id: Some(old_owner_id),
+                        to_account_id: Some(new_owner_id),
+                        amount: None,
+                        token_ids: Some(serde_json::to_string(&token_ids).unwrap()),
+                        amounts: Some(serde_json::to_string(&amounts).unwrap()),
+                        memo,
+                        authorized_id,
+                    });
+                }
+            }
+            "mt_burn" => {
+                if let Some(item) = data.iter().next() {
+                    let owner_id = item.get("owner_id")?.as_str()?.to_string();
+                    let token_ids = item.get("token_ids")?.as_array()?;
+                    let amounts = item.get("amounts")?.as_array()?;
+                    if token_ids.len() != amounts.len() {
+                        return None;
+                    }
+                    let token_ids = token_ids
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>();
+                    let amounts = amounts
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>();
+                    let memo = item
+                        .get("memo")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let authorized_id = item
+                        .get("authorized_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    return Some(TokenEvent {
+                        contract_id: contract_id.clone(),
+                        token_standard: "nep245".to_string(),
+                        event_type: "mt_burn".to_string(),
+                        from_account_id: Some(owner_id),
+                        to_account_id: None,
+                        amount: None,
+                        token_ids: Some(serde_json::to_string(&token_ids).unwrap()),
+                        amounts: Some(serde_json::to_string(&amounts).unwrap()),
+                        memo,
+                        authorized_id,
+                    });
+                }
+            }
+            _ => return None,
+        }
         None
     }
 
@@ -221,6 +361,7 @@ impl TokensModule {
                         to_account_id: Some(owner_id),
                         amount: None,
                         token_ids: Some(serde_json::to_string(&token_ids).unwrap()),
+                        amounts: None,
                         memo,
                         authorized_id: None,
                     });
@@ -253,6 +394,7 @@ impl TokensModule {
                         to_account_id: Some(new_owner_id),
                         amount: None,
                         token_ids: Some(serde_json::to_string(&token_ids).unwrap()),
+                        amounts: None,
                         memo,
                         authorized_id,
                     });
@@ -284,6 +426,7 @@ impl TokensModule {
                         to_account_id: None,
                         amount: None,
                         token_ids: Some(serde_json::to_string(&token_ids).unwrap()),
+                        amounts: None,
                         memo,
                         authorized_id,
                     });
@@ -334,7 +477,7 @@ impl TokensModule {
                 .as_ref()
                 .and_then(|a| rust_decimal::Decimal::from_str_exact(a).ok());
 
-            let transfer = entities::near_token_transfers::ActiveModel {
+            let transfer = entities::near_token_events::ActiveModel {
                 id: NotSet,
                 contract_id: Set(event.contract_id.clone()),
                 token_standard: Set(event.token_standard.clone()),
@@ -343,6 +486,7 @@ impl TokensModule {
                 to_account_id: Set(event.to_account_id.clone()),
                 amount: Set(amount_decimal),
                 token_ids: Set(event.token_ids.clone()),
+                amounts: Set(event.amounts.clone()),
                 memo: Set(event.memo.clone()),
                 authorized_id: Set(event.authorized_id.clone()),
                 block_height: Set(block_height),
@@ -354,9 +498,9 @@ impl TokensModule {
 
             // Prevent duplicate inserts on replay by ignoring conflicts against
             // the unique index (receipt_hash, log_index, event_type).
-            use entities::near_token_transfers::Column as TTC;
+            use entities::near_token_events::Column as TTC;
             use sea_orm::sea_query::OnConflict;
-            entities::near_token_transfers::Entity::insert(transfer)
+            entities::near_token_events::Entity::insert(transfer)
                 .on_conflict(
                     OnConflict::columns([TTC::ReceiptHash, TTC::LogIndex, TTC::EventType])
                         // No-op style update to satisfy MySQL (ON DUPLICATE KEY UPDATE)
@@ -412,6 +556,7 @@ struct TokenEvent {
     to_account_id: Option<String>,
     amount: Option<String>,
     token_ids: Option<String>, // JSON array for NFTs
+    amounts: Option<String>,   // JSON array for NEP-245 batch amounts
     memo: Option<String>,
     authorized_id: Option<String>,
 }
@@ -445,7 +590,7 @@ impl IndexerModule for TokensModule {
         }
         let ts = msg.block.header.timestamp_nanosec as i64;
 
-        // Unified collection via near-lake-primitives
+        // Unified collection via block-wide event collector
         let all_events = lake_events::collect_block_events(msg);
         for ev in all_events {
             let raw_val = serde_json::to_value(&ev.raw).unwrap_or_default();

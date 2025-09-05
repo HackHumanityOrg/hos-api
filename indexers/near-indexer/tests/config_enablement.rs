@@ -65,6 +65,7 @@ fn tokens_can_be_enabled_via_config() {
                 enabled: true,
                 track_nep141: true,
                 track_nep171: true,
+                track_nep245: true,
                 contracts: vec![],
             }),
             validators: None,
