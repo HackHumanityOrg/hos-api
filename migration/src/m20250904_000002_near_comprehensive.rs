@@ -701,7 +701,7 @@ impl MigrationTrait for Migration {
                             .string_len(100)
                             .not_null(),
                     )
-                    .col(ColumnDef::new(NearContractCode::Code).custom(MySqlType::LongBlob)) // Contract binary code (4MB NEAR limit)
+                    .col(ColumnDef::new(NearContractCode::Code).blob()) // Contract binary code (4MB NEAR limit)
                     .col(
                         ColumnDef::new(NearContractCode::BlockHeight)
                             .big_integer()
