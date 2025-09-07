@@ -10,8 +10,8 @@ pub struct Model {
     pub id: i64,
     pub account_id: String,
     pub code_hash: String,
-    #[sea_orm(column_type = "Binary(1)", nullable)]
-    pub code: Option<Vec<u8>>,
+    #[sea_orm(column_type = "custom(\"longblob\")", nullable)]
+    pub code: Option<String>,
     pub block_height: i64,
     pub block_time: i64,
     pub change_type: String,

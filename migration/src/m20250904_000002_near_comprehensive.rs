@@ -1,4 +1,5 @@
 use sea_orm_migration::prelude::*;
+use sea_query::extension::mysql::MySqlType;
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -87,6 +88,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_transactions_receiver")
                     .table(NearTransactions::Table)
                     .col(NearTransactions::ReceiverId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -97,6 +99,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_transactions_block_height")
                     .table(NearTransactions::Table)
                     .col(NearTransactions::BlockHeight)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -107,6 +110,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_transactions_block_time")
                     .table(NearTransactions::Table)
                     .col(NearTransactions::BlockTime)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -117,6 +121,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_transactions_status")
                     .table(NearTransactions::Table)
                     .col(NearTransactions::Status)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -127,6 +132,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_transactions_executor_id")
                     .table(NearTransactions::Table)
                     .col(NearTransactions::ExecutorId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -226,6 +232,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_deleted_beneficiary")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::DeletedBeneficiaryId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -235,6 +242,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_created_height")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::CreatedAtHeight)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -244,6 +252,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_deleted_height")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::DeletedAtHeight)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -255,6 +264,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_is_implicit")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::IsImplicit)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -264,6 +274,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_is_system")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::IsSystem)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -273,6 +284,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_is_top_level")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::IsTopLevel)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -284,6 +296,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_created_by_tx")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::CreatedByTxHash)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -293,6 +306,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_deleted_by_tx")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::DeletedByTxHash)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -302,6 +316,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_created_by_receipt")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::CreatedByReceiptHash)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -311,6 +326,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_deleted_by_receipt")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::DeletedByReceiptHash)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -322,6 +338,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_first_seen_time")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::FirstSeenTime)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -331,6 +348,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_accounts_last_seen_time")
                     .table(NearAccounts::Table)
                     .col(NearAccounts::LastSeenTime)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -343,6 +361,7 @@ impl MigrationTrait for Migration {
                     .table(NearAccounts::Table)
                     .col(NearAccounts::ParentAccountId)
                     .col(NearAccounts::Depth)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -457,6 +476,7 @@ impl MigrationTrait for Migration {
                     .col(NearAccountStateHistory::AccountId)
                     .col(NearAccountStateHistory::BlockHeight)
                     .unique()
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -466,6 +486,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_account_state_height")
                     .table(NearAccountStateHistory::Table)
                     .col(NearAccountStateHistory::BlockHeight)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -476,6 +497,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_account_state_block_time")
                     .table(NearAccountStateHistory::Table)
                     .col(NearAccountStateHistory::BlockTime)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -486,6 +508,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_account_state_cause_type")
                     .table(NearAccountStateHistory::Table)
                     .col(NearAccountStateHistory::CauseType)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -495,6 +518,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_account_state_cause_tx")
                     .table(NearAccountStateHistory::Table)
                     .col(NearAccountStateHistory::CauseTxHash)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -504,6 +528,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_account_state_cause_receipt")
                     .table(NearAccountStateHistory::Table)
                     .col(NearAccountStateHistory::CauseReceiptHash)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -604,6 +629,7 @@ impl MigrationTrait for Migration {
                     .col(NearAccessKeys::PublicKey)
                     .col(NearAccessKeys::BlockHeight)
                     .unique()
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -614,6 +640,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_access_keys_public_key")
                     .table(NearAccessKeys::Table)
                     .col(NearAccessKeys::PublicKey)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -624,6 +651,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_access_keys_type")
                     .table(NearAccessKeys::Table)
                     .col(NearAccessKeys::AccessKeyType)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -634,6 +662,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_access_keys_change_type")
                     .table(NearAccessKeys::Table)
                     .col(NearAccessKeys::ChangeType)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -644,6 +673,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_access_keys_block_time")
                     .table(NearAccessKeys::Table)
                     .col(NearAccessKeys::BlockTime)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -671,7 +701,7 @@ impl MigrationTrait for Migration {
                             .string_len(100)
                             .not_null(),
                     )
-                    .col(ColumnDef::new(NearContractCode::Code).binary()) // Contract binary code
+                    .col(ColumnDef::new(NearContractCode::Code).custom(MySqlType::LongBlob)) // Contract binary code (4MB NEAR limit)
                     .col(
                         ColumnDef::new(NearContractCode::BlockHeight)
                             .big_integer()
@@ -733,6 +763,7 @@ impl MigrationTrait for Migration {
                     .col(NearContractCode::AccountId)
                     .col(NearContractCode::BlockHeight)
                     .unique()
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -743,6 +774,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_contract_code_hash")
                     .table(NearContractCode::Table)
                     .col(NearContractCode::CodeHash)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -753,6 +785,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_contract_code_block_time")
                     .table(NearContractCode::Table)
                     .col(NearContractCode::BlockTime)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -763,6 +796,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_contract_code_change_type")
                     .table(NearContractCode::Table)
                     .col(NearContractCode::ChangeType)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -853,6 +887,7 @@ impl MigrationTrait for Migration {
                     .col(NearContractData::DataKey)
                     .col(NearContractData::BlockHeight)
                     .unique()
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -863,6 +898,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_contract_data_block_time")
                     .table(NearContractData::Table)
                     .col(NearContractData::BlockTime)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -873,6 +909,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_contract_data_change_type")
                     .table(NearContractData::Table)
                     .col(NearContractData::ChangeType)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -953,6 +990,7 @@ impl MigrationTrait for Migration {
                     .col(NearAccountEvents::BlockHeight)
                     .col(NearAccountEvents::ReceiptHash)
                     .unique()
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -964,6 +1002,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_account_events_block_time")
                     .table(NearAccountEvents::Table)
                     .col(NearAccountEvents::BlockTime)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -975,6 +1014,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_account_events_tx_hash")
                     .table(NearAccountEvents::Table)
                     .col(NearAccountEvents::TxHash)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -985,6 +1025,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_account_events_receipt_hash")
                     .table(NearAccountEvents::Table)
                     .col(NearAccountEvents::ReceiptHash)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -997,6 +1038,7 @@ impl MigrationTrait for Migration {
                     .table(NearAccountEvents::Table)
                     .col(NearAccountEvents::EventType)
                     .col(NearAccountEvents::BlockTime)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1051,6 +1093,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_tokens_standard")
                     .table(NearTokens::Table)
                     .col(NearTokens::TokenStandard)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1063,6 +1106,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_tokens_first_seen_height")
                     .table(NearTokens::Table)
                     .col(NearTokens::FirstSeenHeight)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1190,6 +1234,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_token_events_contract")
                     .table(NearTokenEvents::Table)
                     .col(NearTokenEvents::ContractId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1200,6 +1245,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_token_events_from_account")
                     .table(NearTokenEvents::Table)
                     .col(NearTokenEvents::FromAccountId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1210,6 +1256,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_token_events_to_account")
                     .table(NearTokenEvents::Table)
                     .col(NearTokenEvents::ToAccountId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1220,6 +1267,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_token_events_event_type")
                     .table(NearTokenEvents::Table)
                     .col(NearTokenEvents::EventType)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1230,6 +1278,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_token_events_standard")
                     .table(NearTokenEvents::Table)
                     .col(NearTokenEvents::TokenStandard)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1240,6 +1289,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_token_events_block_height")
                     .table(NearTokenEvents::Table)
                     .col(NearTokenEvents::BlockHeight)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1250,6 +1300,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_token_events_block_time")
                     .table(NearTokenEvents::Table)
                     .col(NearTokenEvents::BlockTime)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1260,6 +1311,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_token_events_tx_hash")
                     .table(NearTokenEvents::Table)
                     .col(NearTokenEvents::TxHash)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1270,6 +1322,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_token_events_receipt_hash")
                     .table(NearTokenEvents::Table)
                     .col(NearTokenEvents::ReceiptHash)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1284,6 +1337,7 @@ impl MigrationTrait for Migration {
                     .col(NearTokenEvents::LogIndex)
                     .col(NearTokenEvents::EventType)
                     .unique()
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1296,6 +1350,7 @@ impl MigrationTrait for Migration {
                     .table(NearTokenEvents::Table)
                     .col(NearTokenEvents::ContractId)
                     .col(NearTokenEvents::EventType)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1307,6 +1362,7 @@ impl MigrationTrait for Migration {
                     .table(NearTokenEvents::Table)
                     .col(NearTokenEvents::ContractId)
                     .col(NearTokenEvents::BlockTime)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1655,6 +1711,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_validators_first_seen_height")
                     .table(NearValidators::Table)
                     .col(NearValidators::FirstSeenHeight)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1664,6 +1721,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_validators_last_seen_height")
                     .table(NearValidators::Table)
                     .col(NearValidators::LastSeenHeight)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1673,6 +1731,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_validator_proposals_block_height")
                     .table(NearValidatorProposals::Table)
                     .col(NearValidatorProposals::BlockHeight)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1682,6 +1741,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_validator_proposals_account_id")
                     .table(NearValidatorProposals::Table)
                     .col(NearValidatorProposals::AccountId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1691,6 +1751,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_validator_proposals_epoch_id")
                     .table(NearValidatorProposals::Table)
                     .col(NearValidatorProposals::EpochId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1700,6 +1761,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_block_producers_producer_id")
                     .table(NearBlockProducers::Table)
                     .col(NearBlockProducers::ProducerId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1709,6 +1771,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_block_producers_epoch_id")
                     .table(NearBlockProducers::Table)
                     .col(NearBlockProducers::EpochId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1719,6 +1782,7 @@ impl MigrationTrait for Migration {
                     .table(NearChunkProducers::Table)
                     .col(NearChunkProducers::BlockHeight)
                     .col(NearChunkProducers::ShardId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1728,6 +1792,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_chunk_producers_producer_id")
                     .table(NearChunkProducers::Table)
                     .col(NearChunkProducers::ProducerId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1737,6 +1802,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_validator_approvals_epoch_id")
                     .table(NearValidatorApprovals::Table)
                     .col(NearValidatorApprovals::EpochId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1746,6 +1812,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_epochs_start_height")
                     .table(NearEpochs::Table)
                     .col(NearEpochs::StartHeight)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1755,6 +1822,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_network_state_epoch_id")
                     .table(NearNetworkState::Table)
                     .col(NearNetworkState::EpochId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1831,6 +1899,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_validator_rewards_validator_id")
                     .table(NearValidatorRewards::Table)
                     .col(NearValidatorRewards::ValidatorId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1840,6 +1909,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_validator_rewards_epoch_id")
                     .table(NearValidatorRewards::Table)
                     .col(NearValidatorRewards::EpochId)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1849,6 +1919,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_validator_rewards_block_height")
                     .table(NearValidatorRewards::Table)
                     .col(NearValidatorRewards::BlockHeight)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1858,6 +1929,7 @@ impl MigrationTrait for Migration {
                     .name("idx_near_validator_rewards_source")
                     .table(NearValidatorRewards::Table)
                     .col(NearValidatorRewards::Source)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
