@@ -3,9 +3,9 @@
 
 [database]
 # DATABASE_URL is loaded from environment variable
-# Connection pool and timeout settings
-max_connections = 10
-min_connections = 1
+# Connection pool optimized for concurrent processing
+max_connections = 50  # Increased for concurrent block processing
+min_connections = 5   # Higher minimum to avoid connection setup overhead
 connection_timeout = 30
 acquire_timeout = 30  
 idle_timeout = 600
@@ -37,7 +37,7 @@ export_interval_sec = 10
 chain = "mainnet"
 # Starting block height (0 for genesis, or specific height)
 start_height = 0
-# Concurrency for shard processing (0 = auto based on shard count)
+# Concurrency for block processing (0 = auto = 20, recommended: 10-20 for start)
 concurrency = 0
 
 # Module configurations

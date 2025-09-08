@@ -37,55 +37,6 @@ pub struct Model {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(has_many = "super::near_access_keys::Entity")]
-    NearAccessKeys,
-    #[sea_orm(has_many = "super::near_account_events::Entity")]
-    NearAccountEvents,
-    #[sea_orm(has_many = "super::near_account_state_history::Entity")]
-    NearAccountStateHistory,
-    #[sea_orm(has_many = "super::near_contract_code::Entity")]
-    NearContractCode,
-    #[sea_orm(has_many = "super::near_contract_data::Entity")]
-    NearContractData,
-    #[sea_orm(has_many = "super::near_token_events::Entity")]
-    NearTokenEvents,
-}
-
-impl Related<super::near_access_keys::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::NearAccessKeys.def()
-    }
-}
-
-impl Related<super::near_account_events::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::NearAccountEvents.def()
-    }
-}
-
-impl Related<super::near_account_state_history::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::NearAccountStateHistory.def()
-    }
-}
-
-impl Related<super::near_contract_code::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::NearContractCode.def()
-    }
-}
-
-impl Related<super::near_contract_data::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::NearContractData.def()
-    }
-}
-
-impl Related<super::near_token_events::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::NearTokenEvents.def()
-    }
-}
+pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -1,5 +1,4 @@
 use sea_orm_migration::prelude::*;
-use sea_query::extension::mysql::MySqlType;
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -199,31 +198,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_accounts.created_by_tx_hash -> near_transactions(tx_hash)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_accounts_created_tx")
-                    .from(NearAccounts::Table, NearAccounts::CreatedByTxHash)
-                    .to(NearTransactions::Table, NearTransactions::TxHash)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
-
-        // FK: near_accounts.deleted_by_tx_hash -> near_transactions(tx_hash)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_accounts_deleted_tx")
-                    .from(NearAccounts::Table, NearAccounts::DeletedByTxHash)
-                    .to(NearTransactions::Table, NearTransactions::TxHash)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
+        // Foreign keys removed to eliminate row dependencies
 
         // Performance indexes for near_accounts
         manager
@@ -436,37 +411,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_account_state_history.account_id -> near_accounts(account_id)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_account_state_account")
-                    .from(
-                        NearAccountStateHistory::Table,
-                        NearAccountStateHistory::AccountId,
-                    )
-                    .to(NearAccounts::Table, NearAccounts::AccountId)
-                    .on_delete(ForeignKeyAction::Cascade)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
-
-        // FK: near_account_state_history.cause_tx_hash -> near_transactions(tx_hash)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_account_state_cause_tx")
-                    .from(
-                        NearAccountStateHistory::Table,
-                        NearAccountStateHistory::CauseTxHash,
-                    )
-                    .to(NearTransactions::Table, NearTransactions::TxHash)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
+        // FK removed: near_account_state_history foreign keys
 
         manager
             .create_index(
@@ -593,31 +538,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_access_keys.account_id -> near_accounts(account_id)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_access_keys_account")
-                    .from(NearAccessKeys::Table, NearAccessKeys::AccountId)
-                    .to(NearAccounts::Table, NearAccounts::AccountId)
-                    .on_delete(ForeignKeyAction::Cascade)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
-
-        // FK: near_access_keys.cause_tx_hash -> near_transactions(tx_hash)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_access_keys_cause_tx")
-                    .from(NearAccessKeys::Table, NearAccessKeys::CauseTxHash)
-                    .to(NearTransactions::Table, NearTransactions::TxHash)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
+        // FK removed: near_access_keys foreign keys
 
         // Indexes for near_access_keys
         manager
@@ -728,31 +649,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_contract_code.account_id -> near_accounts(account_id)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_contract_code_account")
-                    .from(NearContractCode::Table, NearContractCode::AccountId)
-                    .to(NearAccounts::Table, NearAccounts::AccountId)
-                    .on_delete(ForeignKeyAction::Cascade)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
-
-        // FK: near_contract_code.cause_tx_hash -> near_transactions(tx_hash)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_contract_code_cause_tx")
-                    .from(NearContractCode::Table, NearContractCode::CauseTxHash)
-                    .to(NearTransactions::Table, NearTransactions::TxHash)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
+        // FK removed: near_contract_code foreign keys
 
         // Indexes for near_contract_code
         manager
@@ -851,31 +748,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_contract_data.account_id -> near_accounts(account_id)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_contract_data_account")
-                    .from(NearContractData::Table, NearContractData::AccountId)
-                    .to(NearAccounts::Table, NearAccounts::AccountId)
-                    .on_delete(ForeignKeyAction::Cascade)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
-
-        // FK: near_contract_data.cause_tx_hash -> near_transactions(tx_hash)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_contract_data_cause_tx")
-                    .from(NearContractData::Table, NearContractData::CauseTxHash)
-                    .to(NearTransactions::Table, NearTransactions::TxHash)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
+        // FK removed: near_contract_data foreign keys
 
         // Indexes for near_contract_data
         manager
@@ -954,31 +827,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_account_events.account_id -> near_accounts(account_id)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_account_events_account")
-                    .from(NearAccountEvents::Table, NearAccountEvents::AccountId)
-                    .to(NearAccounts::Table, NearAccounts::AccountId)
-                    .on_delete(ForeignKeyAction::Cascade)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
-
-        // FK: near_account_events.tx_hash -> near_transactions(tx_hash)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_account_events_tx")
-                    .from(NearAccountEvents::Table, NearAccountEvents::TxHash)
-                    .to(NearTransactions::Table, NearTransactions::TxHash)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
+        // FK removed: near_account_events foreign keys
 
         manager
             .create_index(
@@ -1073,18 +922,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_tokens.contract_id -> near_accounts(account_id)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_tokens_account")
-                    .from(NearTokens::Table, NearTokens::ContractId)
-                    .to(NearAccounts::Table, NearAccounts::AccountId)
-                    .on_delete(ForeignKeyAction::Cascade)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
+        // FK removed: near_tokens foreign keys
 
         // Indexes for near_tokens (only on used columns)
         manager
@@ -1175,57 +1013,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // FK: near_token_events.contract_id -> near_tokens(contract_id)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_token_events_contract")
-                    .from(NearTokenEvents::Table, NearTokenEvents::ContractId)
-                    .to(NearTokens::Table, NearTokens::ContractId)
-                    .on_delete(ForeignKeyAction::Cascade)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
-
-        // FK: near_token_events.tx_hash -> near_transactions(tx_hash)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_token_events_tx")
-                    .from(NearTokenEvents::Table, NearTokenEvents::TxHash)
-                    .to(NearTransactions::Table, NearTransactions::TxHash)
-                    .on_delete(ForeignKeyAction::Cascade)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
-
-        // FK: near_token_events.from_account_id -> near_accounts(account_id)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_token_events_from")
-                    .from(NearTokenEvents::Table, NearTokenEvents::FromAccountId)
-                    .to(NearAccounts::Table, NearAccounts::AccountId)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
-
-        // FK: near_token_events.to_account_id -> near_accounts(account_id)
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_near_token_events_to")
-                    .from(NearTokenEvents::Table, NearTokenEvents::ToAccountId)
-                    .to(NearAccounts::Table, NearAccounts::AccountId)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .on_update(ForeignKeyAction::Cascade)
-                    .to_owned(),
-            )
-            .await?;
+        // FK removed: near_token_events foreign keys
 
         // Indexes for near_token_events
         manager
@@ -2330,5 +2118,3 @@ enum NearValidatorRewards {
     Source,
     ShardId,
 }
-
-

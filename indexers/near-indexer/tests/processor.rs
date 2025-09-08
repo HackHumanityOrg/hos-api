@@ -105,26 +105,26 @@ async fn run_processing_loop_retries_until_success_with_backoff() {
     tx.send(msg.clone()).await.unwrap();
     drop(tx);
 
-    let loop_res = run_processing_loop(registry, db, rx).await;
+    let loop_res = run_processing_loop(registry, db, rx, 1).await;
     assert!(loop_res.is_ok());
     assert_eq!(failing.processed.load(Ordering::SeqCst), 1);
     assert_eq!(failing.updated.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
-async fn process_streamer_message_stops_on_error() {
+async fn process_streamer_message_fails_on_any_module_error() {
     let test_db = TestDatabase::new().await;
     let db = test_db.db();
 
     let failing = TestModule {
-        name: "fail_first",
+        name: "failing_module",
         enabled: true,
         fail_for: Arc::new(AtomicUsize::new(1)),
         processed: Arc::new(AtomicUsize::new(0)),
         updated: Arc::new(AtomicUsize::new(0)),
     };
-    let later = TestModule {
-        name: "later",
+    let success = TestModule {
+        name: "success_module",
         enabled: true,
         fail_for: Arc::new(AtomicUsize::new(0)),
         processed: Arc::new(AtomicUsize::new(0)),
@@ -133,13 +133,21 @@ async fn process_streamer_message_stops_on_error() {
 
     let mut registry = ModuleRegistry::new();
     registry.register_module(Box::new(failing.clone()));
-    registry.register_module(Box::new(later.clone()));
+    registry.register_module(Box::new(success.clone()));
     let msg = make_block(1, 2);
-    let _ = process_streamer_message(&registry, &db, msg)
-        .await
-        .unwrap_err();
+    
+    // With parallel processing, the overall operation should fail if any module fails
+    let result = process_streamer_message(&registry, &db, msg).await;
+    assert!(result.is_err(), "Expected error when any module fails");
+    
+    // Both modules start processing concurrently
+    // The failing module will fail (processed=0)
+    // The success module might complete before the error is detected
     assert_eq!(failing.processed.load(Ordering::SeqCst), 0);
-    assert_eq!(later.processed.load(Ordering::SeqCst), 0);
+    // Note: success module may or may not complete depending on timing
+    // This is acceptable behavior in parallel processing
+    
+    // No cursors should be updated if any module fails
     assert_eq!(failing.updated.load(Ordering::SeqCst), 0);
-    assert_eq!(later.updated.load(Ordering::SeqCst), 0);
+    assert_eq!(success.updated.load(Ordering::SeqCst), 0);
 }
