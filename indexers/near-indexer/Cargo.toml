@@ -14,6 +14,8 @@ serde_json = { workspace = true }
 sea-orm = { workspace = true }
 entities = { workspace = true }
 async-trait = { workspace = true }
+futures = { workspace = true }
+tokio-stream = { workspace = true }
 
 # Decimal for amounts
 rust_decimal = { workspace = true }

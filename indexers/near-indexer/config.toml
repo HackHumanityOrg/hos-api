@@ -7,7 +7,7 @@
 max_connections = 10
 min_connections = 1
 connection_timeout = 30
-acquire_timeout = 30  
+acquire_timeout = 30
 idle_timeout = 600
 max_lifetime = 1800
 
@@ -37,8 +37,8 @@ export_interval_sec = 10
 chain = "mainnet"
 # Starting block height (0 for genesis, or specific height)
 start_height = 0
-# Concurrency for shard processing (0 = auto based on shard count)
-concurrency = 0
+# Concurrency for parallel block processing (number of blocks to process simultaneously)
+concurrency = 20
 
 # Module configurations
 [near.modules.accounts]

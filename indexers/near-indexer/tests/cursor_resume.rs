@@ -1,9 +1,9 @@
-use near_indexer::core::cursor::{choose_module_start_height, upsert_module_cursor};
+use near_indexer::core::cursor::{get_module_cursor, upsert_module_cursor};
 use sea_orm::{ActiveValue::NotSet, EntityTrait, Set};
 pub use test_support::TestDatabase;
 
 #[tokio::test]
-async fn choose_module_start_height_prefers_cursor_plus_one() {
+async fn get_module_cursor_returns_correct_height() {
     let test_db = TestDatabase::new().await;
     let db = test_db.db();
 
@@ -18,19 +18,17 @@ async fn choose_module_start_height_prefers_cursor_plus_one() {
         .await
         .expect("insert cursor");
 
-    // Configured start lower than cursor+1; expect 101
-    let (start, used_cursor) = choose_module_start_height(&db, "accounts", 90)
+    // Should return the cursor height
+    let cursor = get_module_cursor(&db, "accounts")
         .await
-        .expect("choose");
-    assert!(used_cursor);
-    assert_eq!(start, 101);
+        .expect("get cursor");
+    assert_eq!(cursor, Some(100));
 
-    // Configured start higher than cursor+1; expect configured start
-    let (start2, used_cursor2) = choose_module_start_height(&db, "accounts", 200)
+    // Non-existent module should return None
+    let no_cursor = get_module_cursor(&db, "nonexistent")
         .await
-        .expect("choose2");
-    assert!(used_cursor2);
-    assert_eq!(start2, 200);
+        .expect("get nonexistent cursor");
+    assert_eq!(no_cursor, None);
 }
 
 #[tokio::test]
@@ -69,7 +67,7 @@ async fn upsert_module_cursor_inserts_then_updates_timestamp() {
 }
 
 #[tokio::test]
-async fn negative_cursor_treated_as_zero() {
+async fn negative_cursor_can_be_retrieved() {
     let test_db = TestDatabase::new().await;
     let db = test_db.db();
 
@@ -84,10 +82,9 @@ async fn negative_cursor_treated_as_zero() {
         .await
         .expect("insert neg cursor");
 
-    // Configured start lower than 1; expect start = 1
-    let (start, used_cursor) = choose_module_start_height(&db, "test", 0)
+    // Should return the negative cursor value
+    let cursor = get_module_cursor(&db, "test")
         .await
-        .expect("choose neg");
-    assert!(used_cursor);
-    assert_eq!(start, 1);
+        .expect("get negative cursor");
+    assert_eq!(cursor, Some(-5));
 }

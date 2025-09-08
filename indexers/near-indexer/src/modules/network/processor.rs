@@ -88,7 +88,10 @@ impl NetworkModule {
             total_supply: Set(Self::safe_u128_to_decimal(header.total_supply)),
         };
 
-        network_state.insert(db).await?;
+        near_network_state::Entity::insert(network_state)
+            .on_conflict_do_nothing()
+            .exec(db)
+            .await?;
         Ok(())
     }
 
@@ -130,7 +133,10 @@ impl NetworkModule {
             protocol_version: Set(protocol_version as i32),
         };
 
-        new_epoch.insert(db).await?;
+        near_epochs::Entity::insert(new_epoch)
+            .on_conflict_do_nothing()
+            .exec(db)
+            .await?;
         Ok(())
     }
 
@@ -168,7 +174,10 @@ impl NetworkModule {
                     protocol_version: Set(protocol_version as i32),
                 };
 
-                new_epoch.insert(db).await?;
+                near_epochs::Entity::insert(new_epoch)
+            .on_conflict_do_nothing()
+            .exec(db)
+            .await?;
                 debug!(height, epoch_id = current_epoch_id, "First epoch recorded");
             }
             _ => {

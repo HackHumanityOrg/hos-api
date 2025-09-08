@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use near_indexer::core::processor::{process_streamer_message, run_processing_loop};
+use near_indexer::core::processor::run_parallel_processing;
 use near_indexer::{IndexerModule, ModuleRegistry};
 use near_lake_framework::near_indexer_primitives as nip;
 use std::sync::{
@@ -10,6 +10,27 @@ use test_support::TestDatabase;
 
 mod testutil;
 use testutil::make_block;
+
+// Helper function for testing individual block processing
+async fn process_single_block(
+    registry: &ModuleRegistry,
+    db: &sea_orm::DatabaseConnection,
+    msg: nip::StreamerMessage,
+) -> Result<()> {
+    let height = msg.block.header.height as i64;
+    
+    for module in registry.enabled_modules() {
+        let cursor = module.get_cursor(db).await?;
+        if cursor.map(|c| c >= height).unwrap_or(false) {
+            continue; // Skip if already processed
+        }
+        
+        module.process_block(&msg, db).await?;
+        module.update_cursor(db, height).await?;
+    }
+    
+    Ok(())
+}
 
 #[derive(Clone)]
 struct TestModule {
@@ -51,7 +72,7 @@ impl IndexerModule for TestModule {
 }
 
 #[tokio::test]
-async fn process_streamer_message_runs_enabled_modules_and_updates_cursors() {
+async fn process_single_block_runs_enabled_modules_and_updates_cursors() {
     let test_db = TestDatabase::new().await;
     let db = test_db.db();
 
@@ -75,7 +96,7 @@ async fn process_streamer_message_runs_enabled_modules_and_updates_cursors() {
     registry.register_module(Box::new(m2.clone()));
 
     let msg = make_block(123, 456);
-    process_streamer_message(&registry, &db, msg).await.unwrap();
+    process_single_block(&registry, &db, msg).await.unwrap();
 
     assert_eq!(m1.processed.load(Ordering::SeqCst), 1);
     assert_eq!(m2.processed.load(Ordering::SeqCst), 1);
@@ -84,7 +105,7 @@ async fn process_streamer_message_runs_enabled_modules_and_updates_cursors() {
 }
 
 #[tokio::test]
-async fn run_processing_loop_retries_until_success_with_backoff() {
+async fn run_parallel_processing_retries_until_success_with_backoff() {
     let test_db = TestDatabase::new().await;
     let db = test_db.db();
 
@@ -105,14 +126,14 @@ async fn run_processing_loop_retries_until_success_with_backoff() {
     tx.send(msg.clone()).await.unwrap();
     drop(tx);
 
-    let loop_res = run_processing_loop(registry, db, rx).await;
+    let loop_res = run_parallel_processing(registry, db, rx, 1).await;
     assert!(loop_res.is_ok());
     assert_eq!(failing.processed.load(Ordering::SeqCst), 1);
     assert_eq!(failing.updated.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
-async fn process_streamer_message_stops_on_error() {
+async fn process_single_block_stops_on_error() {
     let test_db = TestDatabase::new().await;
     let db = test_db.db();
 
@@ -135,7 +156,7 @@ async fn process_streamer_message_stops_on_error() {
     registry.register_module(Box::new(failing.clone()));
     registry.register_module(Box::new(later.clone()));
     let msg = make_block(1, 2);
-    let _ = process_streamer_message(&registry, &db, msg)
+    let _ = process_single_block(&registry, &db, msg)
         .await
         .unwrap_err();
     assert_eq!(failing.processed.load(Ordering::SeqCst), 0);

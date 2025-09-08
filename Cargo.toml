@@ -21,6 +21,7 @@ opt-level = "z"
 [workspace.dependencies]
 # Core async runtime
 tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
 
 # Database & ORM (MySQL + PlanetScale compatible)
 sea-orm = { version = "1.1", features = [
