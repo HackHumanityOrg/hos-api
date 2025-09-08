@@ -6,7 +6,7 @@ use near_indexer::{modules, ModuleRegistry};
 use std::sync::Arc;
 use tracing::info;
 
-#[tokio::main(worker_threads = 8)]  // Configure worker threads for optimal performance
+#[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
@@ -47,12 +47,10 @@ async fn main() -> Result<()> {
                 n.map(|c| c.chain.clone())
                     .unwrap_or_else(|| "mainnet".to_string()),
                 n.map(|c| c.start_height).unwrap_or(0),
-                n.and_then(|c| c.concurrency)
-                    .map(|c| if c == 0 { 20 } else { c })  // Auto mode defaults to 20
-                    .unwrap_or(20),
+                n.and_then(|c| c.concurrency).unwrap_or(1),
             )
         }
-        _ => ("mainnet".to_string(), 0, 20),
+        _ => ("mainnet".to_string(), 0, 1),
     };
 
     // Determine the earliest start height needed by any module
@@ -91,8 +89,8 @@ async fn main() -> Result<()> {
 
     let (_handle, stream) = near_indexer::core::lake_stream::create_lake_stream(lake_config)?;
 
-    // Start the concurrent processing loop
-    near_indexer::core::processor::run_processing_loop(registry, db, stream, concurrency).await?;
+    // Start the processing loop
+    near_indexer::core::processor::run_processing_loop(registry, db, stream).await?;
 
     Ok(())
 }

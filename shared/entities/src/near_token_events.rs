@@ -30,6 +30,51 @@ pub struct Model {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::near_accounts::Entity",
+        from = "Column::FromAccountId",
+        to = "super::near_accounts::Column::AccountId",
+        on_update = "Cascade",
+        on_delete = "SetNull"
+    )]
+    NearAccounts2,
+    #[sea_orm(
+        belongs_to = "super::near_accounts::Entity",
+        from = "Column::ToAccountId",
+        to = "super::near_accounts::Column::AccountId",
+        on_update = "Cascade",
+        on_delete = "SetNull"
+    )]
+    NearAccounts1,
+    #[sea_orm(
+        belongs_to = "super::near_tokens::Entity",
+        from = "Column::ContractId",
+        to = "super::near_tokens::Column::ContractId",
+        on_update = "Cascade",
+        on_delete = "Cascade"
+    )]
+    NearTokens,
+    #[sea_orm(
+        belongs_to = "super::near_transactions::Entity",
+        from = "Column::TxHash",
+        to = "super::near_transactions::Column::TxHash",
+        on_update = "Cascade",
+        on_delete = "Cascade"
+    )]
+    NearTransactions,
+}
+
+impl Related<super::near_tokens::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::NearTokens.def()
+    }
+}
+
+impl Related<super::near_transactions::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::NearTransactions.def()
+    }
+}
 
 impl ActiveModelBehavior for ActiveModel {}

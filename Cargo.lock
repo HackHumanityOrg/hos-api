@@ -3332,7 +3332,6 @@ dependencies = [
  "db-core",
  "dotenvy",
  "entities",
- "futures",
  "hex",
  "migration",
  "near-account-id",
@@ -3348,7 +3347,6 @@ dependencies = [
  "testcontainers",
  "testcontainers-modules",
  "tokio",
- "tokio-stream",
  "tracing",
  "tracing-subscriber",
 ]

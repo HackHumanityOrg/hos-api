@@ -16,6 +16,29 @@ pub struct Model {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::near_accounts::Entity",
+        from = "Column::ContractId",
+        to = "super::near_accounts::Column::AccountId",
+        on_update = "Cascade",
+        on_delete = "Cascade"
+    )]
+    NearAccounts,
+    #[sea_orm(has_many = "super::near_token_events::Entity")]
+    NearTokenEvents,
+}
+
+impl Related<super::near_accounts::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::NearAccounts.def()
+    }
+}
+
+impl Related<super::near_token_events::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::NearTokenEvents.def()
+    }
+}
 
 impl ActiveModelBehavior for ActiveModel {}
