@@ -88,7 +88,10 @@ impl NetworkModule {
             total_supply: Set(Self::safe_u128_to_decimal(header.total_supply)),
         };
 
-        network_state.insert(db).await?;
+        entities::near_network_state::Entity::insert(network_state)
+            .on_conflict_do_nothing()
+            .exec(db)
+            .await?;
         Ok(())
     }
 
@@ -130,7 +133,11 @@ impl NetworkModule {
             protocol_version: Set(protocol_version as i32),
         };
 
-        new_epoch.insert(db).await?;
+        // Use upsert to handle race conditions in parallel processing
+        entities::near_epochs::Entity::insert(new_epoch)
+            .on_conflict_do_nothing()
+            .exec(db)
+            .await?;
         Ok(())
     }
 
@@ -168,7 +175,18 @@ impl NetworkModule {
                     protocol_version: Set(protocol_version as i32),
                 };
 
-                new_epoch.insert(db).await?;
+                // Use upsert to handle race conditions in parallel processing
+                entities::near_epochs::Entity::insert(new_epoch)
+                    .on_conflict_do_nothing()
+                    .exec(db)
+                    .await
+                    .or_else(|e| {
+                        // Handle the case where insert was ignored due to conflict
+                        match e {
+                            sea_orm::DbErr::RecordNotInserted => Ok(sea_orm::TryInsertResult::Inserted(sea_orm::InsertResult { last_insert_id: "0".to_string() })),
+                            _ => Err(e),
+                        }
+                    })?;
                 debug!(height, epoch_id = current_epoch_id, "First epoch recorded");
             }
             _ => {
