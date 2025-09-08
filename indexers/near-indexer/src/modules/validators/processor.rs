@@ -79,11 +79,7 @@ impl ValidatorsModule {
             gas_price: Set(Self::safe_u128_to_decimal(gas_price)),
         };
 
-        // Use upsert to handle race conditions in parallel processing
-        entities::near_block_producers::Entity::insert(block_producer)
-            .on_conflict_do_nothing()
-            .exec(db)
-            .await?;
+        block_producer.insert(db).await?;
         Ok(())
     }
 
@@ -195,11 +191,7 @@ impl ValidatorsModule {
                 last_seen_height: Set(Some(height)),
                 last_seen_timestamp: Set(Some(timestamp)),
             };
-            // Use upsert to handle race conditions in parallel processing
-            entities::near_validators::Entity::insert(new_validator)
-                .on_conflict_do_nothing()
-                .exec(db)
-                .await?;
+            new_validator.insert(db).await?;
         }
 
         Ok(())
@@ -224,11 +216,7 @@ impl ValidatorsModule {
             timestamp: Set(timestamp),
         };
 
-        // Use upsert to handle race conditions in parallel processing
-        entities::near_validator_approvals::Entity::insert(approval_record)
-            .on_conflict_do_nothing()
-            .exec(db)
-            .await?;
+        approval_record.insert(db).await?;
         Ok(())
     }
 
@@ -260,10 +248,7 @@ impl ValidatorsModule {
             shard_id: NotSet,
         };
 
-        entities::near_validator_rewards::Entity::insert(total_reward_model)
-            .on_conflict_do_nothing()
-            .exec(db)
-            .await?;
+        total_reward_model.insert(db).await?;
 
         // Record individual block producer reward
         // In NEAR, the block producer gets the validator reward for producing this block
@@ -281,10 +266,7 @@ impl ValidatorsModule {
             shard_id: NotSet,
         };
 
-        entities::near_validator_rewards::Entity::insert(producer_reward_model)
-            .on_conflict_do_nothing()
-            .exec(db)
-            .await?;
+        producer_reward_model.insert(db).await?;
 
         debug!(
             height = height,
@@ -329,10 +311,7 @@ impl ValidatorsModule {
             shard_id: Set(Some(shard_id as i32)),
         };
 
-        entities::near_validator_rewards::Entity::insert(chunk_reward_model)
-            .on_conflict_do_nothing()
-            .exec(db)
-            .await?;
+        chunk_reward_model.insert(db).await?;
 
         debug!(
             height = height,
