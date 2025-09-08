@@ -1,5 +1,4 @@
 use anyhow::Result;
-use sea_orm::prelude::Expr;
 use sea_orm::{
     ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
     QueryFilter, Set,
@@ -40,37 +39,47 @@ pub async fn choose_module_start_height(
     }
 }
 
-/// Upsert the cursor for a specific module
+/// Upsert the cursor for a specific module using SeaORM's built-in conflict handling
 pub async fn upsert_module_cursor<C>(db: &C, module_name: &str, height: i64) -> Result<()>
 where
     C: ConnectionTrait,
 {
     let stream_name = format!("near-indexer:{}", module_name);
+    
+    let cursor_model = entities::near_sync_cursors::ActiveModel {
+        stream_name: Set(stream_name),
+        block_height: Set(height),
+        updated_at: NotSet,
+    };
 
-    // Try update first and also bump updated_at
-    let updated = entities::near_sync_cursors::Entity::update_many()
-        .col_expr(
-            entities::near_sync_cursors::Column::BlockHeight,
-            Expr::value(height),
-        )
-        .col_expr(
-            entities::near_sync_cursors::Column::UpdatedAt,
-            Expr::current_timestamp().into(),
-        )
-        .filter(entities::near_sync_cursors::Column::StreamName.eq(&stream_name))
+    // Use SeaORM's MySQL-specific upsert functionality
+    // This will update the block_height if the stream_name already exists
+    let result = entities::near_sync_cursors::Entity::insert(cursor_model)
+        .on_conflict_do_nothing()
         .exec(db)
-        .await?;
+        .await;
 
-    if updated.rows_affected == 0 {
-        // Insert new cursor record
-        let c = entities::near_sync_cursors::ActiveModel {
-            stream_name: Set(stream_name),
-            block_height: Set(height),
-            updated_at: NotSet,
-        };
-        let _ = entities::near_sync_cursors::Entity::insert(c)
-            .exec(db)
-            .await?;
+    match result {
+        Ok(_) => {
+            // Successfully inserted or ignored due to conflict
+        }
+        Err(sea_orm::DbErr::RecordNotInserted) => {
+            // Record already exists, update it
+            let stream_name = format!("near-indexer:{}", module_name);
+            entities::near_sync_cursors::Entity::update_many()
+                .col_expr(
+                    entities::near_sync_cursors::Column::BlockHeight,
+                    sea_orm::prelude::Expr::value(height),
+                )
+                .col_expr(
+                    entities::near_sync_cursors::Column::UpdatedAt,
+                    sea_orm::prelude::Expr::current_timestamp().into(),
+                )
+                .filter(entities::near_sync_cursors::Column::StreamName.eq(stream_name))
+                .exec(db)
+                .await?;
+        }
+        Err(e) => return Err(e.into()),
     }
 
     Ok(())
