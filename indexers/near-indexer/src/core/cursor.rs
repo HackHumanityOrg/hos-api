@@ -52,58 +52,34 @@ where
         updated_at: NotSet,
     };
 
-    // Always try to update first (most common case for running indexer)
-    let stream_name = format!("near-indexer:{}", module_name);
-    let updated = entities::near_sync_cursors::Entity::update_many()
-        .col_expr(
-            entities::near_sync_cursors::Column::BlockHeight,
-            sea_orm::prelude::Expr::value(height),
-        )
-        .col_expr(
-            entities::near_sync_cursors::Column::UpdatedAt,
-            sea_orm::prelude::Expr::current_timestamp().into(),
-        )
-        .filter(entities::near_sync_cursors::Column::StreamName.eq(&stream_name))
+    // Use SeaORM's MySQL-specific upsert functionality
+    // This will update the block_height if the stream_name already exists
+    let result = entities::near_sync_cursors::Entity::insert(cursor_model)
+        .on_conflict_do_nothing()
         .exec(db)
-        .await?;
+        .await;
 
-    if updated.rows_affected == 0 {
-        // Record doesn't exist, try to insert it
-        // Use on_conflict_do_nothing to handle race conditions where another 
-        // process inserts the same record between our update and insert
-        let result = entities::near_sync_cursors::Entity::insert(cursor_model)
-            .on_conflict_do_nothing()
-            .exec(db)
-            .await;
-
-        // If the insert was ignored due to conflict, that's fine - another process created it
-        // and we'll update it on the next call
-        match result {
-            Ok(_) => {
-                // Successfully inserted
-                tracing::debug!(
-                    stream_name = %stream_name,
-                    height = height,
-                    "Created new cursor record"
-                );
-            }
-            Err(sea_orm::DbErr::RecordNotInserted) => {
-                // Another process created the record, that's fine
-                tracing::debug!(
-                    stream_name = %stream_name,
-                    height = height,
-                    "Cursor record created by another process"
-                );
-            }
-            Err(e) => return Err(e.into()),
+    match result {
+        Ok(_) => {
+            // Successfully inserted or ignored due to conflict
         }
-    } else {
-        tracing::info!(
-            stream_name = %stream_name,
-            height = height,
-            rows_affected = updated.rows_affected,
-            "Updated existing cursor record"
-        );
+        Err(sea_orm::DbErr::RecordNotInserted) => {
+            // Record already exists, update it
+            let stream_name = format!("near-indexer:{}", module_name);
+            entities::near_sync_cursors::Entity::update_many()
+                .col_expr(
+                    entities::near_sync_cursors::Column::BlockHeight,
+                    sea_orm::prelude::Expr::value(height),
+                )
+                .col_expr(
+                    entities::near_sync_cursors::Column::UpdatedAt,
+                    sea_orm::prelude::Expr::current_timestamp().into(),
+                )
+                .filter(entities::near_sync_cursors::Column::StreamName.eq(stream_name))
+                .exec(db)
+                .await?;
+        }
+        Err(e) => return Err(e.into()),
     }
 
     Ok(())

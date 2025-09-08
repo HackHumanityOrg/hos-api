@@ -124,8 +124,12 @@ impl IndexerModule for TransactionsProcessor {
     }
 
     async fn update_cursor(&self, db: &DatabaseConnection, height: i64) -> Result<()> {
-        // Synchronization is handled by can_module_process_block, so we can safely update
-        cursor::upsert_module_cursor(db, MODULE_NAME, height).await
+        // Only advance cursor when moving forward
+        let current = self.get_cursor(db).await?;
+        if current.map(|h| height > h).unwrap_or(true) {
+            cursor::upsert_module_cursor(db, MODULE_NAME, height).await?;
+        }
+        Ok(())
     }
 
     async fn initialize(&self, _db: &DatabaseConnection) -> Result<()> {
