@@ -27,7 +27,7 @@ pub async fn upsert_topics_bulk(
                 instance: Set(instance.to_string()),
                 external_id: Set(t.id),
                 title: Set(t.title.clone()),
-                fancy_title: Set(t.fancy_title.clone()),
+                fancy_title: Set(t.fancy_title.clone().unwrap_or_else(|| t.title.clone())),
                 slug: Set(t.slug.clone()),
                 posts_count: Set(t.posts_count),
                 reply_count: Set(t.reply_count),

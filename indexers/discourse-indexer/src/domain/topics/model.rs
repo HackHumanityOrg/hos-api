@@ -17,7 +17,7 @@ pub struct Topic {
     // Fields from OpenAPI spec for /latest.json
     pub id: i32,
     pub title: String,
-    pub fancy_title: String,
+    pub fancy_title: Option<String>,
     pub slug: String,
     pub posts_count: i32,
     pub reply_count: i32,
