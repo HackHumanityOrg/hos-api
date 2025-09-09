@@ -125,6 +125,11 @@ async fn tokens_process_block_ignores_non_event_logs_and_persists_events() {
         first_seen_time: Set(None),
         last_seen_height: Set(None),
         last_seen_time: Set(None),
+        // New enhanced fields
+        is_eth_implicit: Set(0),
+        permanent_storage_bytes: Set(None),
+        has_eth_wallet_contract: Set(0),
+        account_id_length: Set(10), // "token.near".len()
     };
     let _ = entities::near_accounts::Entity::insert(acct)
         .exec(&db)
@@ -159,6 +164,11 @@ async fn tokens_process_block_ignores_non_event_logs_and_persists_events() {
             first_seen_time: Set(None),
             last_seen_height: Set(None),
             last_seen_time: Set(None),
+            // New enhanced fields
+            is_eth_implicit: Set(0),
+            permanent_storage_bytes: Set(None),
+            has_eth_wallet_contract: Set(0),
+            account_id_length: Set(acc.len() as i32),
         };
         let _ = entities::near_accounts::Entity::insert(row)
             .exec(&db)

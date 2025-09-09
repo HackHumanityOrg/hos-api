@@ -127,6 +127,25 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(NearAccounts::FirstSeenTime).big_integer())
                     .col(ColumnDef::new(NearAccounts::LastSeenHeight).big_integer())
                     .col(ColumnDef::new(NearAccounts::LastSeenTime).big_integer())
+                    .col(
+                        ColumnDef::new(NearAccounts::IsEthImplicit)
+                            .boolean()
+                            .not_null()
+                            .default(false)
+                    )
+                    .col(ColumnDef::new(NearAccounts::PermanentStorageBytes).big_integer())
+                    .col(
+                        ColumnDef::new(NearAccounts::HasEthWalletContract)
+                            .boolean()
+                            .not_null()
+                            .default(false)
+                    )
+                    .col(
+                        ColumnDef::new(NearAccounts::AccountIdLength)
+                            .integer()
+                            .not_null()
+                            .default(0)
+                    )
                     .to_owned(),
             )
             .await?;
@@ -253,6 +272,13 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(NearAccessKeys::CauseReceiptHash).string_len(100))
                     .col(ColumnDef::new(NearAccessKeys::DeletedAtHeight).big_integer())
                     .col(ColumnDef::new(NearAccessKeys::DeletedAtTime).big_integer())
+                    .col(ColumnDef::new(NearAccessKeys::LastUsedNonce).big_integer())
+                    .col(
+                        ColumnDef::new(NearAccessKeys::UsageCount)
+                            .integer()
+                            .not_null()
+                            .default(0)
+                    )
                     .to_owned(),
             )
             .await?;
@@ -303,6 +329,8 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(NearContractCode::CauseTxHash).string_len(100))
                     .col(ColumnDef::new(NearContractCode::CauseReceiptHash).string_len(100))
+                    .col(ColumnDef::new(NearContractCode::CodeSize).integer())
+                    .col(ColumnDef::new(NearContractCode::MethodSignatures).text())
                     .to_owned(),
             )
             .await?;
@@ -1042,6 +1070,10 @@ enum NearAccounts {
     FirstSeenTime,
     LastSeenHeight,
     LastSeenTime,
+    IsEthImplicit,
+    PermanentStorageBytes,
+    HasEthWalletContract,
+    AccountIdLength,
 }
 
 #[derive(DeriveIden)]
@@ -1081,6 +1113,8 @@ enum NearAccessKeys {
     CauseReceiptHash,
     DeletedAtHeight,
     DeletedAtTime,
+    LastUsedNonce,
+    UsageCount,
 }
 
 #[derive(DeriveIden)]
@@ -1096,6 +1130,8 @@ enum NearContractCode {
     CauseType,
     CauseTxHash,
     CauseReceiptHash,
+    CodeSize,
+    MethodSignatures,
 }
 
 #[derive(DeriveIden)]

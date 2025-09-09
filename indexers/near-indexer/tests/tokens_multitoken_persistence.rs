@@ -125,6 +125,11 @@ async fn multitoken_events_persist_batches() {
             first_seen_time: Set(None),
             last_seen_height: Set(None),
             last_seen_time: Set(None),
+            // New enhanced fields
+            is_eth_implicit: Set(0),
+            permanent_storage_bytes: Set(None),
+            has_eth_wallet_contract: Set(0),
+            account_id_length: Set(acc.len() as i32),
         };
         let _ = entities::near_accounts::Entity::insert(row)
             .exec(&db)

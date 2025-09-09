@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use entities;
-use near_account_id::AccountIdRef;
+use near_account_id;
 use near_lake_framework::near_indexer_primitives::views::{
     AccessKeyPermissionView, ActionView, ReceiptEnumView, StateChangeCauseView,
     StateChangeValueView,
@@ -18,6 +18,21 @@ use crate::core::cursor;
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "accounts";
+
+/// Account type classification and validation
+#[derive(Debug, Clone)]
+struct AccountAnalysis {
+    parent_account_id: Option<String>,
+    depth: i32,
+    is_top_level: bool,
+    is_implicit: bool,
+    is_eth_implicit: bool,
+    is_system: bool,
+    is_staking_pool: bool,
+    is_lockup_contract: bool,
+    has_eth_wallet_contract: bool,
+    account_id_length: i32,
+}
 
 /// Accounts indexer module
 pub struct AccountsModule {
@@ -60,6 +75,76 @@ impl AccountsModule {
             enabled,
             concurrency,
         }
+    }
+
+    /// Analyze an account ID and classify it
+    fn analyze_account(account_id: &str) -> Result<AccountAnalysis> {
+        let account_id_length = account_id.len() as i32;
+
+        // ETH-implicit account detection (0x + 40 hex chars)
+        let is_eth_implicit = Self::is_eth_implicit_account(account_id);
+
+        // NEAR-implicit account detection (64 hex chars, no dots)
+        let is_near_implicit = Self::is_near_implicit_account(account_id);
+        let is_implicit = is_near_implicit || is_eth_implicit;
+
+        // Use near-account-id for standard validation and properties
+        let aid = near_account_id::AccountIdRef::new(account_id).ok();
+        let (parent, depth, is_top_level, is_system) = if let Some(a) = aid {
+            let parent = a.get_parent_account_id().map(|p| p.as_str().to_string());
+            let depth = if account_id.is_empty() {
+                0
+            } else {
+                account_id.matches('.').count() as i32 + 1
+            };
+            let is_top_level = a.is_top_level();
+            let is_system = a.is_system();
+            (parent, depth, is_top_level, is_system)
+        } else {
+            // For ETH-implicit accounts or invalid IDs, provide basic info
+            (None, 0, false, false)
+        };
+
+        // Account type classification
+        let is_staking_pool =
+            account_id.ends_with(".pool.near") || account_id.ends_with(".poolv1.near");
+        let is_lockup_contract = account_id.ends_with(".lockup.near")
+            || account_id.contains("lockup")
+            || account_id.starts_with("lockup_");
+
+        // ETH wallet contract detection (placeholder - would need contract analysis)
+        let has_eth_wallet_contract = is_eth_implicit; // Simplified assumption
+
+        Ok(AccountAnalysis {
+            parent_account_id: parent,
+            depth,
+            is_top_level,
+            is_implicit,
+            is_eth_implicit,
+            is_system,
+            is_staking_pool,
+            is_lockup_contract,
+            has_eth_wallet_contract,
+            account_id_length,
+        })
+    }
+
+    /// Check if account ID is a NEAR-implicit account (64 hex chars, no dots)
+    fn is_near_implicit_account(account_id: &str) -> bool {
+        account_id.len() == 64
+            && !account_id.contains('.')
+            && account_id
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase()))
+    }
+
+    /// Check if account ID is an ETH-implicit account (0x + 40 hex chars)
+    fn is_eth_implicit_account(account_id: &str) -> bool {
+        account_id.len() == 42
+            && account_id.starts_with("0x")
+            && account_id[2..]
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase()))
     }
 
     /// Extract a map of deleted account -> beneficiary for the entire block.
@@ -145,30 +230,26 @@ impl AccountsModule {
                 } => {
                     let acc_str = account_id.to_string();
 
-                    // Hierarchy and classification via near-account-id
-                    let aid = AccountIdRef::new(&acc_str).ok();
-                    let (parent, depth, is_top_level, is_system, is_implicit) = if let Some(a) = aid
-                    {
-                        let parent = a.get_parent_account_id().map(|p| p.as_str().to_string());
-                        let depth = if acc_str.is_empty() {
-                            0
-                        } else {
-                            acc_str.matches('.').count() as i32 + 1
-                        };
-                        let is_top_level = a.is_top_level();
-                        let is_system = a.is_system();
-                        let is_implicit = a.get_account_type().is_implicit();
-                        (parent, depth, is_top_level, is_system, is_implicit)
-                    } else {
-                        (None, 0, false, false, false)
+                    // Use enhanced account analysis
+                    let analysis = match Self::analyze_account(&acc_str) {
+                        Ok(analysis) => analysis,
+                        Err(e) => {
+                            tracing::warn!(account_id = %acc_str, error = %e, "Failed to analyze account");
+                            // Fallback to basic analysis
+                            AccountAnalysis {
+                                parent_account_id: None,
+                                depth: 0,
+                                is_top_level: false,
+                                is_implicit: false,
+                                is_eth_implicit: false,
+                                is_system: false,
+                                is_staking_pool: false,
+                                is_lockup_contract: false,
+                                has_eth_wallet_contract: false,
+                                account_id_length: acc_str.len() as i32,
+                            }
+                        }
                     };
-
-                    // Account type classification
-                    let is_staking_pool =
-                        acc_str.ends_with(".pool.near") || acc_str.ends_with(".poolv1.near");
-                    let is_lockup_contract = acc_str.ends_with(".lockup.near")
-                        || acc_str.contains("lockup")
-                        || acc_str.starts_with("lockup_");
 
                     // Extract storage_paid_at from account (new field in AccountView)
                     let storage_paid_at = account.storage_paid_at as i64;
@@ -182,16 +263,19 @@ impl AccountsModule {
                         .as_ref()
                         .map(|hash| hash.to_string());
 
+                    // Extract permanent storage bytes if available (for global contracts)
+                    let permanent_storage_bytes = None; // TODO: Extract from AccountView if available
+
                     // Prepare near_accounts upsert row
                     let model = entities::near_accounts::ActiveModel {
                         account_id: Set(acc_str.clone()),
-                        parent_account_id: Set(parent.clone()),
-                        depth: Set(depth),
-                        is_top_level: Set(if is_top_level { 1 } else { 0 }),
-                        is_implicit: Set(if is_implicit { 1 } else { 0 }),
-                        is_system: Set(if is_system { 1 } else { 0 }),
-                        is_staking_pool: Set(if is_staking_pool { 1 } else { 0 }),
-                        is_lockup_contract: Set(if is_lockup_contract { 1 } else { 0 }),
+                        parent_account_id: Set(analysis.parent_account_id.clone()),
+                        depth: Set(analysis.depth),
+                        is_top_level: Set(if analysis.is_top_level { 1 } else { 0 }),
+                        is_implicit: Set(if analysis.is_implicit { 1 } else { 0 }),
+                        is_system: Set(if analysis.is_system { 1 } else { 0 }),
+                        is_staking_pool: Set(if analysis.is_staking_pool { 1 } else { 0 }),
+                        is_lockup_contract: Set(if analysis.is_lockup_contract { 1 } else { 0 }),
                         storage_paid_at: Set(Some(storage_paid_at)),
                         global_contract_account_id: Set(global_contract_account_id.clone()),
                         global_contract_hash: Set(global_contract_hash.clone()),
@@ -209,17 +293,46 @@ impl AccountsModule {
                         first_seen_time: Set(Some(ts)),
                         last_seen_height: Set(Some(height)),
                         last_seen_time: Set(Some(ts)),
+                        // New enhanced fields
+                        is_eth_implicit: Set(if analysis.is_eth_implicit { 1 } else { 0 }),
+                        permanent_storage_bytes: Set(permanent_storage_bytes),
+                        has_eth_wallet_contract: Set(if analysis.has_eth_wallet_contract {
+                            1
+                        } else {
+                            0
+                        }),
+                        account_id_length: Set(analysis.account_id_length),
                     };
-                    account_upserts_updates.push((depth, model));
+                    account_upserts_updates.push((analysis.depth, model));
 
                     // Insert full state history if unique
                     let code_hash = account.code_hash.to_string();
                     let amount_dec =
-                        rust_decimal::Decimal::from_str_exact(&account.amount.to_string())
-                            .unwrap_or(rust_decimal::Decimal::ZERO);
+                        match rust_decimal::Decimal::from_str_exact(&account.amount.to_string()) {
+                            Ok(dec) => dec,
+                            Err(e) => {
+                                tracing::warn!(
+                                    account_id = %acc_str,
+                                    amount = %account.amount,
+                                    error = %e,
+                                    "Failed to parse account amount, using zero"
+                                );
+                                rust_decimal::Decimal::ZERO
+                            }
+                        };
                     let locked_dec =
-                        rust_decimal::Decimal::from_str_exact(&account.locked.to_string())
-                            .unwrap_or(rust_decimal::Decimal::ZERO);
+                        match rust_decimal::Decimal::from_str_exact(&account.locked.to_string()) {
+                            Ok(dec) => dec,
+                            Err(e) => {
+                                tracing::warn!(
+                                    account_id = %acc_str,
+                                    locked = %account.locked,
+                                    error = %e,
+                                    "Failed to parse account locked amount, using zero"
+                                );
+                                rust_decimal::Decimal::ZERO
+                            }
+                        };
                     let storage_usage = account.storage_usage as i64;
 
                     let history = entities::near_account_state_history::ActiveModel {
@@ -268,6 +381,11 @@ impl AccountsModule {
                         first_seen_time: Set(Some(ts)),
                         last_seen_height: Set(Some(height)),
                         last_seen_time: Set(Some(ts)),
+                        // New enhanced fields for deleted account
+                        is_eth_implicit: Set(0),
+                        permanent_storage_bytes: Set(None),
+                        has_eth_wallet_contract: Set(0),
+                        account_id_length: Set(acc_str.len() as i32),
                     };
                     account_upserts_deletes.push((0, model));
 
@@ -347,6 +465,8 @@ impl AccountsModule {
                         cause_receipt_hash: Set(cause_receipt.clone()),
                         deleted_at_height: Set(None),
                         deleted_at_time: Set(None),
+                        last_used_nonce: Set(Some(access_key.nonce as i64)),
+                        usage_count: Set(0), // New key, no usage yet
                     };
 
                     // Add to batch for later processing after accounts are created
@@ -375,6 +495,8 @@ impl AccountsModule {
                         cause_receipt_hash: Set(cause_receipt.clone()),
                         deleted_at_height: Set(Some(height)),
                         deleted_at_time: Set(Some(ts)),
+                        last_used_nonce: Set(None), // Unknown for deleted key
+                        usage_count: Set(0),        // Reset for deleted key
                     };
 
                     // Add to batch for later processing after accounts are created
@@ -443,6 +565,8 @@ impl AccountsModule {
                         cause_type: Set(cause_str.to_string()),
                         cause_tx_hash: Set(cause_tx.clone()),
                         cause_receipt_hash: Set(cause_receipt.clone()),
+                        code_size: Set(Some(code.len() as i32)),
+                        method_signatures: Set(None), // TODO: Extract method signatures if possible
                     };
 
                     // Add to batch for later processing after accounts are created
@@ -462,6 +586,8 @@ impl AccountsModule {
                         cause_type: Set(cause_str.to_string()),
                         cause_tx_hash: Set(cause_tx.clone()),
                         cause_receipt_hash: Set(cause_receipt.clone()),
+                        code_size: Set(Some(0)), // Code deleted, size is 0
+                        method_signatures: Set(None),
                     };
 
                     // Add to batch for later processing after accounts are created
@@ -684,5 +810,100 @@ impl IndexerModule for AccountsModule {
             cursor::upsert_module_cursor(db, MODULE_NAME, height).await?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_eth_implicit_detection() {
+        // Valid ETH address: 0x + 40 hex chars = 42 total
+        assert!(AccountsModule::is_eth_implicit_account(
+            "0x1234567890abcdef1234567890abcdef1234abcd"
+        ));
+        assert!(!AccountsModule::is_eth_implicit_account("0x123")); // Too short
+        assert!(!AccountsModule::is_eth_implicit_account(
+            "1234567890abcdef1234567890abcdef1234abcd"
+        )); // No 0x prefix
+        assert!(!AccountsModule::is_eth_implicit_account(
+            "0x1234567890ABCDEF1234567890ABCDEF1234ABCD"
+        )); // Uppercase
+    }
+
+    #[test]
+    fn test_near_implicit_detection() {
+        // Valid NEAR implicit: exactly 64 hex chars
+        assert!(AccountsModule::is_near_implicit_account(
+            "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+        ));
+        assert!(!AccountsModule::is_near_implicit_account("alice.near")); // Has dots
+        assert!(!AccountsModule::is_near_implicit_account("123")); // Too short
+        assert!(!AccountsModule::is_near_implicit_account(
+            "1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
+        )); // Uppercase
+    }
+
+    #[test]
+    fn test_account_analysis() {
+        // Test ETH-implicit
+        let analysis =
+            AccountsModule::analyze_account("0x1234567890abcdef1234567890abcdef1234abcd").unwrap();
+        assert!(analysis.is_eth_implicit);
+        assert!(analysis.is_implicit);
+        assert_eq!(analysis.account_id_length, 42);
+
+        // Test NEAR-implicit
+        let analysis = AccountsModule::analyze_account(
+            "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        )
+        .unwrap();
+        assert!(!analysis.is_eth_implicit);
+        assert!(analysis.is_implicit);
+        assert_eq!(analysis.account_id_length, 64);
+
+        // Test named account (subaccount)
+        let analysis = AccountsModule::analyze_account("alice.near").unwrap();
+        assert!(!analysis.is_eth_implicit);
+        assert!(!analysis.is_implicit);
+        assert!(!analysis.is_top_level); // alice.near is a subaccount of near
+        assert_eq!(analysis.depth, 2);
+        assert_eq!(analysis.account_id_length, 10);
+
+        // Test top-level account
+        let analysis = AccountsModule::analyze_account("toplevel").unwrap();
+        assert!(!analysis.is_eth_implicit);
+        assert!(!analysis.is_implicit);
+        assert!(analysis.is_top_level);
+        assert_eq!(analysis.depth, 1);
+        assert_eq!(analysis.account_id_length, 8);
+    }
+
+    #[test]
+    fn test_staking_pool_detection() {
+        let analysis = AccountsModule::analyze_account("validator.pool.near").unwrap();
+        assert!(analysis.is_staking_pool);
+
+        let analysis = AccountsModule::analyze_account("oldvalidator.poolv1.near").unwrap();
+        assert!(analysis.is_staking_pool);
+
+        let analysis = AccountsModule::analyze_account("alice.near").unwrap();
+        assert!(!analysis.is_staking_pool);
+    }
+
+    #[test]
+    fn test_lockup_contract_detection() {
+        let analysis = AccountsModule::analyze_account("account.lockup.near").unwrap();
+        assert!(analysis.is_lockup_contract);
+
+        let analysis = AccountsModule::analyze_account("lockup_account").unwrap();
+        assert!(analysis.is_lockup_contract);
+
+        let analysis = AccountsModule::analyze_account("my_lockup_contract").unwrap();
+        assert!(analysis.is_lockup_contract);
+
+        let analysis = AccountsModule::analyze_account("alice.near").unwrap();
+        assert!(!analysis.is_lockup_contract);
     }
 }

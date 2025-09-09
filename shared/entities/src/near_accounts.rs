@@ -32,6 +32,10 @@ pub struct Model {
     pub first_seen_time: Option<i64>,
     pub last_seen_height: Option<i64>,
     pub last_seen_time: Option<i64>,
+    pub is_eth_implicit: i8,
+    pub permanent_storage_bytes: Option<i64>,
+    pub has_eth_wallet_contract: i8,
+    pub account_id_length: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -25,6 +25,8 @@ pub struct Model {
     pub cause_receipt_hash: Option<String>,
     pub deleted_at_height: Option<i64>,
     pub deleted_at_time: Option<i64>,
+    pub last_used_nonce: Option<i64>,
+    pub usage_count: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
