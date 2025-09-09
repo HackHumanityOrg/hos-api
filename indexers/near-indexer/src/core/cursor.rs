@@ -5,6 +5,16 @@ use sea_orm::{
     ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
     QueryFilter, Set,
 };
+use std::collections::HashMap;
+use std::sync::{RwLock, OnceLock};
+use std::time::{Duration, Instant};
+
+/// Global state to track last write time per cursor to rate limit database writes
+static CURSOR_RATE_LIMITER: OnceLock<RwLock<HashMap<String, Instant>>> = OnceLock::new();
+
+fn get_rate_limiter() -> &'static RwLock<HashMap<String, Instant>> {
+    CURSOR_RATE_LIMITER.get_or_init(|| RwLock::new(HashMap::new()))
+}
 
 /// Get the cursor for a specific module
 pub async fn get_module_cursor(db: &DatabaseConnection, module_name: &str) -> Result<Option<i64>> {
@@ -41,11 +51,32 @@ pub async fn choose_module_start_height(
     }
 }
 
-/// Upsert the cursor for a specific module (parallel-safe)
+/// Upsert the cursor for a specific module (rate limited to once per second per cursor)
 pub async fn upsert_module_cursor<C>(db: &C, module_name: &str, height: i64) -> Result<()>
 where
     C: ConnectionTrait,
 {
+    let rate_limiter = get_rate_limiter();
+    let now = Instant::now();
+    let key = module_name.to_string();
+    
+    // Check if we should rate limit this cursor update
+    {
+        let last_writes = rate_limiter.read().unwrap();
+        if let Some(&last_write_time) = last_writes.get(&key) {
+            if now.duration_since(last_write_time) < Duration::from_secs(1) {
+                // Rate limited - skip database write
+                return Ok(());
+            }
+        }
+    } // Read lock dropped here
+    
+    // Update the last write time before doing the database write
+    {
+        let mut last_writes = rate_limiter.write().unwrap();
+        last_writes.insert(key, now);
+    } // Write lock dropped here
+
     let stream_name = format!("near-indexer:{}", module_name);
 
     // Use ON DUPLICATE KEY UPDATE to handle parallel cursor updates safely
