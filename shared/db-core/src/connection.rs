@@ -23,7 +23,7 @@ pub async fn establish_connection(
         .max_lifetime(Duration::from_secs(config.max_lifetime.unwrap_or(1800)))
         // Configure SQLx logging to provide meaningful database query messages
         .sqlx_logging(true)
-        .sqlx_logging_level(tracing::log::LevelFilter::Info);
+        .sqlx_logging_level(tracing::log::LevelFilter::Warn);
 
     let db = Database::connect(opt)
         .await

@@ -196,10 +196,6 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
         .add_directive("opentelemetry_sdk=info".parse()?)
         .add_directive("opentelemetry_otlp=info".parse()?)
         .add_directive("opentelemetry_appender_tracing=info".parse()?)
-        // Disable SeaORM/SQLx query logs to reduce log volume (Railway rate limiting)
-        .add_directive("sqlx::query=warn".parse()?)
-        .add_directive("sea_orm::database=warn".parse()?)
-        .add_directive("sea_orm=warn".parse()?)
         // Reduce other potentially noisy logs
         .add_directive("tokio_util=info".parse()?)
         .add_directive("tower=info".parse()?)
@@ -266,23 +262,17 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
 pub fn init_basic_tracing(log_level: &str) -> Result<()> {
     let env_filter = EnvFilter::try_new(log_level)
         .context("Invalid log level filter")?
-        // Reduce database logging to prevent rate limiting
-        .add_directive("sqlx::query=warn".parse()?)
-        .add_directive("sea_orm::database=warn".parse()?)
-        .add_directive("sea_orm=warn".parse()?)
         // Reduce other potentially noisy logs
         .add_directive("tokio_util=info".parse()?)
         .add_directive("tower=info".parse()?)
         .add_directive("h2=info".parse()?);
-        
-    let subscriber = Registry::default()
-        .with(env_filter)
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_target(true)
-                .with_thread_ids(false)
-                .with_thread_names(false),
-        );
+
+    let subscriber = Registry::default().with(env_filter).with(
+        tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_thread_ids(false)
+            .with_thread_names(false),
+    );
 
     subscriber
         .try_init()
