@@ -3,22 +3,22 @@
 
 [database]
 # DATABASE_URL is loaded from environment variable
-# Connection pool and timeout settings
-max_connections = 15
-min_connections = 2
-connection_timeout = 30
-acquire_timeout = 30  
-idle_timeout = 600
-max_lifetime = 1800
+# Connection pool and timeout settings - optimized for concurrent processing
+max_connections = 100       # Increased from 15 to handle concurrent operations
+min_connections = 5         # Increased from 2 for ready connections  
+connection_timeout = 15     # Reduced from 30 to fail faster
+acquire_timeout = 5         # Reduced from 30 to prevent pile-ups
+idle_timeout = 120          # Reduced from 600 to force connection recycling
+max_lifetime = 300          # Reduced from 1800 to prevent stale connections
 
 [[discourse.instances]]
 key = "NEAR"
 base_url = "https://gov.near.org"
 enabled = true
 max_http_concurrency = 8
-max_post_tasks = 10
-likes_concurrency = 10
-revisions_concurrency = 5
+max_post_tasks = 5          # Reduced from 10 to decrease database load
+likes_concurrency = 5       # Reduced from 10 to prevent deadlocks
+revisions_concurrency = 3   # Reduced from 5 to decrease database load
 recent_topic_pages_cap = 3
 full_refresh_interval_sec = 86400  # 24h for this instance
 recent_update_interval_sec = 300   # 5m for this instance

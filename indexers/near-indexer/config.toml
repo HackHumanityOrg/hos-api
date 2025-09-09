@@ -3,13 +3,13 @@
 
 [database]
 # DATABASE_URL is loaded from environment variable
-# Connection pool and timeout settings
-max_connections = 10
-min_connections = 1
-connection_timeout = 30
-acquire_timeout = 30
-idle_timeout = 600
-max_lifetime = 1800
+# Connection pool and timeout settings - optimized for concurrent processing
+max_connections = 150       # Increased from 10 to handle concurrent blocks
+min_connections = 10        # Increased from 1 for ready connections
+connection_timeout = 15     # Reduced from 30 to fail faster
+acquire_timeout = 5         # Reduced from 30 to prevent pile-ups
+idle_timeout = 120          # Reduced from 600 to force connection recycling
+max_lifetime = 300          # Reduced from 1800 to prevent stale connections
 
 [logging]
 level = "info"
@@ -38,7 +38,8 @@ chain = "mainnet"
 # Starting block height (0 for genesis, or specific height)
 start_height = 0
 # Concurrency for parallel block processing (number of blocks to process simultaneously)
-concurrency = 20
+# Reduced from 20 to 4 to prevent database connection exhaustion
+concurrency = 4
 
 # Module configurations
 [near.modules.accounts]
