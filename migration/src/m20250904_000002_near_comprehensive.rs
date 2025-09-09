@@ -131,20 +131,20 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(NearAccounts::IsEthImplicit)
                             .boolean()
                             .not_null()
-                            .default(false)
+                            .default(false),
                     )
                     .col(ColumnDef::new(NearAccounts::PermanentStorageBytes).big_integer())
                     .col(
                         ColumnDef::new(NearAccounts::HasEthWalletContract)
                             .boolean()
                             .not_null()
-                            .default(false)
+                            .default(false),
                     )
                     .col(
                         ColumnDef::new(NearAccounts::AccountIdLength)
                             .integer()
                             .not_null()
-                            .default(0)
+                            .default(0),
                     )
                     .to_owned(),
             )
@@ -277,7 +277,7 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(NearAccessKeys::UsageCount)
                             .integer()
                             .not_null()
-                            .default(0)
+                            .default(0),
                     )
                     .to_owned(),
             )
@@ -330,7 +330,6 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(NearContractCode::CauseTxHash).string_len(100))
                     .col(ColumnDef::new(NearContractCode::CauseReceiptHash).string_len(100))
                     .col(ColumnDef::new(NearContractCode::CodeSize).integer())
-                    .col(ColumnDef::new(NearContractCode::MethodSignatures).text())
                     .to_owned(),
             )
             .await?;
@@ -911,6 +910,171 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        // near_chunks - Track chunk production per shard
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearChunks::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearChunks::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearChunks::ChunkHash)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearChunks::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearChunks::ShardId).big_integer().not_null())
+                    .col(ColumnDef::new(NearChunks::ChunkProducer).string_len(128))
+                    .col(
+                        ColumnDef::new(NearChunks::GasUsed)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearChunks::GasLimit)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearChunks::TransactionsCount)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearChunks::ReceiptsCount)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearChunks::Timestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearChunks::ValidatorReward)
+                            .decimal_len(39, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // near_gas_prices - Track gas price dynamics over time
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearGasPrices::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearGasPrices::BlockHeight)
+                            .big_integer()
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearGasPrices::GasPrice)
+                            .decimal_len(39, 0)
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearGasPrices::PrevGasPrice).decimal_len(39, 0))
+                    .col(
+                        ColumnDef::new(NearGasPrices::GasUsed)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearGasPrices::GasLimit)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(ColumnDef::new(NearGasPrices::UtilizationRatio).decimal_len(10, 6))
+                    .col(ColumnDef::new(NearGasPrices::PriceAdjustmentPercent).decimal_len(5, 2))
+                    .col(
+                        ColumnDef::new(NearGasPrices::Timestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // near_block_metrics - Track block-level performance metrics
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearBlockMetrics::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearBlockMetrics::BlockHeight)
+                            .big_integer()
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(NearBlockMetrics::BlockTimeMs).big_integer())
+                    .col(
+                        ColumnDef::new(NearBlockMetrics::ChunksProduced)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockMetrics::ChunksMissing)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockMetrics::TotalGasUsed)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockMetrics::TotalGasLimit)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearBlockMetrics::TotalTransactions)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(ColumnDef::new(NearBlockMetrics::ApprovalsCount).integer())
+                    .col(
+                        ColumnDef::new(NearBlockMetrics::ChallengesCount)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(ColumnDef::new(NearBlockMetrics::EpochProgressPercent).decimal_len(5, 2))
+                    .col(
+                        ColumnDef::new(NearBlockMetrics::Timestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
         // near_sync_cursors
         manager
             .create_table(
@@ -943,6 +1107,16 @@ impl MigrationTrait for Migration {
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
             .drop_table(Table::drop().table(NearSyncCursors::Table).to_owned())
+            .await?;
+        // Drop new network tables
+        manager
+            .drop_table(Table::drop().table(NearBlockMetrics::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearGasPrices::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearChunks::Table).to_owned())
             .await?;
         // Drop consolidated validator/network tables
         manager
@@ -1131,7 +1305,6 @@ enum NearContractCode {
     CauseTxHash,
     CauseReceiptHash,
     CodeSize,
-    MethodSignatures,
 }
 
 #[derive(DeriveIden)]
@@ -1308,4 +1481,49 @@ enum NearValidatorRewards {
     Timestamp,
     Source,
     ShardId,
+}
+
+#[derive(DeriveIden)]
+enum NearChunks {
+    Table,
+    Id,
+    ChunkHash,
+    BlockHeight,
+    ShardId,
+    ChunkProducer,
+    GasUsed,
+    GasLimit,
+    TransactionsCount,
+    ReceiptsCount,
+    Timestamp,
+    ValidatorReward,
+}
+
+#[derive(DeriveIden)]
+enum NearGasPrices {
+    Table,
+    BlockHeight,
+    GasPrice,
+    PrevGasPrice,
+    GasUsed,
+    GasLimit,
+    UtilizationRatio,
+    PriceAdjustmentPercent,
+    Timestamp,
+}
+
+#[derive(DeriveIden)]
+enum NearBlockMetrics {
+    Table,
+    BlockHeight,
+    BlockTimeMs,
+    ChunksProduced,
+    ChunksMissing,
+    TotalGasUsed,
+    TotalGasLimit,
+    TotalTransactions,
+    ApprovalsCount,
+    ChallengesCount,
+    EpochProgressPercent,
+    Timestamp,
 }
