@@ -292,6 +292,40 @@ pub struct TokensModuleConfig {
 pub struct ValidatorsModuleConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// RPC updater configuration
+    #[serde(default)]
+    pub rpc_updater: Option<RpcUpdaterConfig>,
+}
+
+/// RPC updater configuration for staking pool data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcUpdaterConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// RPC endpoint URL (defaults to mainnet archival RPC for historical data support)
+    #[serde(default = "default_rpc_url")]
+    pub rpc_url: String,
+    /// Update interval in minutes (defaults to 60 minutes)
+    #[serde(default = "default_update_interval")]
+    pub update_interval_minutes: u64,
+}
+
+impl Default for RpcUpdaterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            rpc_url: default_rpc_url(),
+            update_interval_minutes: default_update_interval(),
+        }
+    }
+}
+
+fn default_rpc_url() -> String {
+    "https://archival-rpc.mainnet.near.org".to_string()
+}
+
+fn default_update_interval() -> u64 {
+    60 // 60 minutes
 }
 
 /// Network module configuration
@@ -359,6 +393,17 @@ impl ToLog for ValidatorsModuleConfig {
     fn to_log(&self) -> JsonValue {
         json!({
             "enabled": self.enabled,
+            "rpc_updater": self.rpc_updater.as_ref().map(|r| r.to_log()),
+        })
+    }
+}
+
+impl ToLog for RpcUpdaterConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "enabled": self.enabled,
+            "rpc_url": self.rpc_url,
+            "update_interval_minutes": self.update_interval_minutes,
         })
     }
 }

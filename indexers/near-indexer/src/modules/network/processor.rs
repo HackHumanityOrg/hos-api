@@ -257,16 +257,25 @@ impl NetworkModule {
         msg: &near_lake_framework::near_indexer_primitives::StreamerMessage,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
-        let current_gas_price = Self::safe_u128_to_decimal(header.gas_price);
+        // NEAR gas price minimum floor: 100,000,000 yoctoNEAR per gas (0.0001 NEAR per TGas)
+        const MIN_GAS_PRICE: u128 = 100_000_000;
+        let raw_gas_price = header.gas_price.max(MIN_GAS_PRICE);
+        let current_gas_price = Self::safe_u128_to_decimal(raw_gas_price);
         
         // Calculate total gas used/limit across all shards
         let mut total_gas_used = 0u64;
         let mut total_gas_limit = 0u64;
         
+        // In NEAR, each shard has a gas limit of 1 PetaGas (10^15) regardless of whether chunks are present
+        const SHARD_GAS_LIMIT: u64 = 1_000_000_000_000_000; // 1 PetaGas
+        
         for shard in &msg.shards {
             if let Some(chunk) = &shard.chunk {
                 total_gas_used += chunk.header.gas_used;
                 total_gas_limit += chunk.header.gas_limit;
+            } else {
+                // Missing chunk: gas_used = 0, but gas_limit still applies
+                total_gas_limit += SHARD_GAS_LIMIT;
             }
         }
 
@@ -280,7 +289,7 @@ impl NetworkModule {
             // NEAR gas price adjustment formula: 1% adjustment based on utilization vs 50%
             let adjustment = if let Some(_prev_price) = &prev_gas_price {
                 let target_utilization = Decimal::from_str_exact("0.5").unwrap(); // 50%
-                let adjustment_factor = (ratio - target_utilization) * Decimal::from_str_exact("1.0").unwrap(); // 1%
+                let adjustment_factor = (ratio - target_utilization) * Decimal::from_str_exact("0.01").unwrap(); // 1% (0.01 factor)
                 Some(adjustment_factor.round_dp_with_strategy(2, RoundingStrategy::MidpointNearestEven))
             } else {
                 None
@@ -312,7 +321,8 @@ impl NetworkModule {
 
         debug!(
             height = header.height,
-            gas_price = %header.gas_price,
+            gas_price = %raw_gas_price,
+            original_gas_price = %header.gas_price,
             gas_used = total_gas_used,
             gas_limit = total_gas_limit,
             utilization = ?utilization_ratio,
@@ -332,7 +342,11 @@ impl NetworkModule {
         // Calculate block timing
         let mut block_time_ms_guard = self.last_block_timestamp.write().await;
         let block_time_ms = if let Some(last_timestamp) = *block_time_ms_guard {
-            Some((header.timestamp_nanosec - last_timestamp) / 1_000_000) // Convert to ms
+            if header.timestamp_nanosec > last_timestamp {
+                Some((header.timestamp_nanosec - last_timestamp) / 1_000_000) // Convert to ms
+            } else {
+                Some(0) // Block time is 0 or negative, likely out-of-order processing
+            }
         } else {
             None
         };

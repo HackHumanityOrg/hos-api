@@ -3,6 +3,9 @@ name = "near-indexer"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+live_rpc_tests = []
+
 [dependencies]
 anyhow = { workspace = true }
 tokio = { workspace = true }
@@ -33,6 +36,9 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 near-primitives = { workspace = true }
 near-crypto = { workspace = true }
+base64 = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+chrono = { workspace = true }
 
 [dev-dependencies]
 testcontainers = { workspace = true }
@@ -42,3 +48,5 @@ db-core = { workspace = true }
 common = { workspace = true }
 test-support = { workspace = true }
 near-crypto = { workspace = true }
+wiremock = { workspace = true }
+futures = { workspace = true }

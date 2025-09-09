@@ -1,0 +1,774 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        // =================
+        // NEAR STAKING POOLS TABLE
+        // =================
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearStakingPools::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearStakingPools::PoolId)
+                            .string_len(128)
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::ValidatorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::FactoryContract)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::OwnerId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::PublicKey)
+                            .string_len(100)
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::CommissionRate)
+                            .decimal_len(10, 4)
+                            .not_null()
+                            .default(0.05), // Default 5%
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::TotalStaked)
+                            .decimal_len(40, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::TotalDelegators)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::FirstSeenHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::FirstSeenTimestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::LastSeenHeight)
+                            .big_integer()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::LastSeenTimestamp)
+                            .big_integer()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::IsActive)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPools::KickoutReason)
+                            .string_len(100)
+                            .null(),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_staking_pools_validator")
+                            .col(NearStakingPools::ValidatorAccountId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_staking_pools_factory")
+                            .col(NearStakingPools::FactoryContract),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_staking_pools_active")
+                            .col(NearStakingPools::IsActive),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // =================
+        // NEAR DELEGATORS TABLE
+        // =================
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearDelegators::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearDelegators::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegators::DelegatorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegators::ValidatorPoolId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegators::FirstDelegationHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegators::FirstDelegationTimestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegators::LastActionHeight)
+                            .big_integer()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegators::LastActionTimestamp)
+                            .big_integer()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegators::IsActive)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegators::TotalDelegated)
+                            .decimal_len(40, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegators::TotalRewardsEarned)
+                            .decimal_len(40, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegators_account")
+                            .col(NearDelegators::DelegatorAccountId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegators_pool")
+                            .col(NearDelegators::ValidatorPoolId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegators_composite")
+                            .col(NearDelegators::DelegatorAccountId)
+                            .col(NearDelegators::ValidatorPoolId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegators_active")
+                            .col(NearDelegators::IsActive),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_delegators_pool")
+                            .from(NearDelegators::Table, NearDelegators::ValidatorPoolId)
+                            .to(NearStakingPools::Table, NearStakingPools::PoolId)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // =================
+        // NEAR DELEGATION ACTIONS TABLE
+        // =================
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearDelegationActions::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearDelegationActions::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::DelegatorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::ValidatorPoolId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::ActionType)
+                            .string_len(50)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::Amount)
+                            .decimal_len(40, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::Timestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::EpochId)
+                            .string_len(100)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::TransactionHash)
+                            .string_len(100)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::ReceiptId)
+                            .string_len(100)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::GasUsed)
+                            .big_integer()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::Success)
+                            .boolean()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationActions::ArgsJson)
+                            .json()
+                            .null(),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_actions_delegator")
+                            .col(NearDelegationActions::DelegatorAccountId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_actions_pool")
+                            .col(NearDelegationActions::ValidatorPoolId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_actions_type")
+                            .col(NearDelegationActions::ActionType),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_actions_height")
+                            .col(NearDelegationActions::BlockHeight),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_actions_epoch")
+                            .col(NearDelegationActions::EpochId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_actions_tx")
+                            .col(NearDelegationActions::TransactionHash),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_delegation_actions_pool")
+                            .from(NearDelegationActions::Table, NearDelegationActions::ValidatorPoolId)
+                            .to(NearStakingPools::Table, NearStakingPools::PoolId)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // =================
+        // NEAR DELEGATION BALANCES TABLE
+        // =================
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearDelegationBalances::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearDelegationBalances::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationBalances::DelegatorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationBalances::ValidatorPoolId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationBalances::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationBalances::Timestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationBalances::EpochId)
+                            .string_len(100)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationBalances::StakedBalance)
+                            .decimal_len(40, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationBalances::UnstakedBalance)
+                            .decimal_len(40, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationBalances::TotalBalance)
+                            .decimal_len(40, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationBalances::BalanceSource)
+                            .string_len(20)
+                            .not_null()
+                            .default("lake_framework"),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_balances_delegator")
+                            .col(NearDelegationBalances::DelegatorAccountId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_balances_pool")
+                            .col(NearDelegationBalances::ValidatorPoolId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_balances_height")
+                            .col(NearDelegationBalances::BlockHeight),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_balances_epoch")
+                            .col(NearDelegationBalances::EpochId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_balances_composite")
+                            .col(NearDelegationBalances::DelegatorAccountId)
+                            .col(NearDelegationBalances::ValidatorPoolId)
+                            .col(NearDelegationBalances::BlockHeight),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_delegation_balances_pool")
+                            .from(NearDelegationBalances::Table, NearDelegationBalances::ValidatorPoolId)
+                            .to(NearStakingPools::Table, NearStakingPools::PoolId)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // =================
+        // NEAR DELEGATION REWARDS TABLE
+        // =================
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearDelegationRewards::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearDelegationRewards::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationRewards::DelegatorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationRewards::ValidatorPoolId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationRewards::EpochId)
+                            .string_len(100)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationRewards::EpochStartHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationRewards::EpochEndHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationRewards::RewardAmount)
+                            .decimal_len(40, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationRewards::CommissionPaid)
+                            .decimal_len(40, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationRewards::NetReward)
+                            .decimal_len(40, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationRewards::StakedAmount)
+                            .decimal_len(40, 0)
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearDelegationRewards::Timestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_rewards_delegator")
+                            .col(NearDelegationRewards::DelegatorAccountId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_rewards_pool")
+                            .col(NearDelegationRewards::ValidatorPoolId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_rewards_epoch")
+                            .col(NearDelegationRewards::EpochId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_delegation_rewards_composite")
+                            .col(NearDelegationRewards::DelegatorAccountId)
+                            .col(NearDelegationRewards::ValidatorPoolId)
+                            .col(NearDelegationRewards::EpochId),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_delegation_rewards_pool")
+                            .from(NearDelegationRewards::Table, NearDelegationRewards::ValidatorPoolId)
+                            .to(NearStakingPools::Table, NearStakingPools::PoolId)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // =================
+        // NEAR VALIDATOR APY TABLE
+        // =================
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearValidatorApy::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearValidatorApy::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::ValidatorPoolId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::EpochId)
+                            .string_len(100)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::EpochStartHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::EpochEndHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::TotalStaked)
+                            .decimal_len(40, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::TotalRewards)
+                            .decimal_len(40, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::CommissionRate)
+                            .decimal_len(10, 4)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::GrossApr)
+                            .decimal_len(10, 4)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::GrossApy)
+                            .decimal_len(10, 4)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::NetApr)
+                            .decimal_len(10, 4)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::NetApy)
+                            .decimal_len(10, 4)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::CalculationTimestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorApy::EpochsInCalculation)
+                            .integer()
+                            .not_null()
+                            .default(1),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_validator_apy_pool")
+                            .col(NearValidatorApy::ValidatorPoolId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_validator_apy_epoch")
+                            .col(NearValidatorApy::EpochId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_validator_apy_composite")
+                            .col(NearValidatorApy::ValidatorPoolId)
+                            .col(NearValidatorApy::EpochId),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_validator_apy_timestamp")
+                            .col(NearValidatorApy::CalculationTimestamp),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_validator_apy_pool")
+                            .from(NearValidatorApy::Table, NearValidatorApy::ValidatorPoolId)
+                            .to(NearStakingPools::Table, NearStakingPools::PoolId)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        // Drop tables in reverse order to handle foreign key constraints
+        manager
+            .drop_table(Table::drop().table(NearValidatorApy::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearDelegationRewards::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearDelegationBalances::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearDelegationActions::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearDelegators::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearStakingPools::Table).to_owned())
+            .await?;
+
+        Ok(())
+    }
+}
+
+// Table enums for the migration
+#[derive(DeriveIden)]
+enum NearStakingPools {
+    Table,
+    PoolId,
+    ValidatorAccountId,
+    FactoryContract,
+    OwnerId,
+    PublicKey,
+    CommissionRate,
+    TotalStaked,
+    TotalDelegators,
+    FirstSeenHeight,
+    FirstSeenTimestamp,
+    LastSeenHeight,
+    LastSeenTimestamp,
+    IsActive,
+    KickoutReason,
+}
+
+#[derive(DeriveIden)]
+enum NearDelegators {
+    Table,
+    Id,
+    DelegatorAccountId,
+    ValidatorPoolId,
+    FirstDelegationHeight,
+    FirstDelegationTimestamp,
+    LastActionHeight,
+    LastActionTimestamp,
+    IsActive,
+    TotalDelegated,
+    TotalRewardsEarned,
+}
+
+#[derive(DeriveIden)]
+enum NearDelegationActions {
+    Table,
+    Id,
+    DelegatorAccountId,
+    ValidatorPoolId,
+    ActionType,
+    Amount,
+    BlockHeight,
+    Timestamp,
+    EpochId,
+    TransactionHash,
+    ReceiptId,
+    GasUsed,
+    Success,
+    ArgsJson,
+}
+
+#[derive(DeriveIden)]
+enum NearDelegationBalances {
+    Table,
+    Id,
+    DelegatorAccountId,
+    ValidatorPoolId,
+    BlockHeight,
+    Timestamp,
+    EpochId,
+    StakedBalance,
+    UnstakedBalance,
+    TotalBalance,
+    BalanceSource,
+}
+
+#[derive(DeriveIden)]
+enum NearDelegationRewards {
+    Table,
+    Id,
+    DelegatorAccountId,
+    ValidatorPoolId,
+    EpochId,
+    EpochStartHeight,
+    EpochEndHeight,
+    RewardAmount,
+    CommissionPaid,
+    NetReward,
+    StakedAmount,
+    Timestamp,
+}
+
+#[derive(DeriveIden)]
+enum NearValidatorApy {
+    Table,
+    Id,
+    ValidatorPoolId,
+    EpochId,
+    EpochStartHeight,
+    EpochEndHeight,
+    TotalStaked,
+    TotalRewards,
+    CommissionRate,
+    GrossApr,
+    GrossApy,
+    NetApr,
+    NetApy,
+    CalculationTimestamp,
+    EpochsInCalculation,
+}
