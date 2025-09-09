@@ -755,10 +755,13 @@ impl Default for DatabaseConfig {
         Self {
             // URL will be loaded from DATABASE_URL environment variable
             url: String::new(),
-            max_connections: Some(10),
-            min_connections: Some(1),
+            // Increased for concurrent indexer workload: 10 concurrent blocks × 5 modules × 3 ops = 150 potential connections
+            // Set to 100 to provide sufficient headroom while being conservative 
+            max_connections: Some(100),
+            min_connections: Some(5),
             connection_timeout: Some(30),
-            acquire_timeout: Some(30),
+            // Reduced acquire timeout to fail fast rather than pile up waiting requests
+            acquire_timeout: Some(10), 
             idle_timeout: Some(600),  // 10 minutes
             max_lifetime: Some(1800), // 30 minutes
         }
