@@ -1,7 +1,7 @@
 use crate::domain::revisions::model::Revision;
 use crate::domain::util::bool_i8;
-use crate::domain::util::with_deadlock_retry;
 use anyhow::Result;
+use db_core::with_db_retry;
 use entities::discourse_post_revisions;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -43,7 +43,7 @@ pub async fn upsert_revision(
         version_count: Set(revision.version_count),
         ..Default::default()
     };
-    with_deadlock_retry(|| async {
+    with_db_retry(|| async {
         discourse_post_revisions::Entity::insert(am.clone())
             .on_conflict(
                 OrmOnConflict::columns([

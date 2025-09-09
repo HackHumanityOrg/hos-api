@@ -1,9 +1,9 @@
 use crate::domain::likes::model::PostLikeResponse;
 use crate::domain::users::model::UserProfile;
 use crate::domain::users::repo::upsert_user_profiles_bulk;
-use crate::domain::util::with_deadlock_retry;
 use anyhow::Result;
 use chrono::Utc;
+use db_core::with_db_retry;
 use entities::discourse_post_likes;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -58,7 +58,7 @@ pub async fn upsert_post_likes_batch(
                 ..Default::default()
             })
             .collect();
-        with_deadlock_retry(|| async {
+        with_db_retry(|| async {
             discourse_post_likes::Entity::insert_many(ams.clone())
                 .on_conflict(
                     OrmOnConflict::columns([

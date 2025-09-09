@@ -1642,6 +1642,7 @@ dependencies = [
  "entities",
  "figment",
  "migration",
+ "rand 0.8.5",
  "sea-orm",
  "testcontainers",
  "testcontainers-modules",

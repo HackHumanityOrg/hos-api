@@ -1,9 +1,9 @@
 use crate::domain::posts::model::Post;
 use crate::domain::users::model::UserProfile;
 use crate::domain::users::repo::upsert_user_profiles_bulk;
-use crate::domain::util::with_deadlock_retry;
 use crate::domain::util::{bool_i8, opt_string};
 use anyhow::Result;
+use db_core::with_db_retry;
 use entities::discourse_posts;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -88,7 +88,7 @@ pub async fn upsert_posts_bulk(
                 ..Default::default()
             })
             .collect();
-        with_deadlock_retry(|| async {
+        with_db_retry(|| async {
             discourse_posts::Entity::insert_many(ams.clone())
                 .on_conflict(
                     OrmOnConflict::columns([

@@ -268,7 +268,7 @@ async fn test_retry_after_header() {
     // The retry_after is handled internally but not exposed in this method
 }
 
-// REMOVED: test_rate_limiting_timing  
+// REMOVED: test_rate_limiting_timing
 // Manual rate limiting timing is now handled by reqwest-middleware
 // The middleware handles rate limiting internally with proper backoff
 
@@ -654,7 +654,10 @@ mod live_api_tests {
         println!("Total time for {} requests: {:?}", num_requests, elapsed);
 
         // Note: Rate limiting is now handled by middleware, so we don't enforce timing
-        println!("✅ All requests completed successfully (took {:?})", elapsed);
+        println!(
+            "✅ All requests completed successfully (took {:?})",
+            elapsed
+        );
     }
 
     #[tokio::test]
@@ -692,10 +695,7 @@ mod live_api_tests {
                 );
             }
             Err(e) => {
-                println!(
-                    "ℹ️ Block hash query failed as expected: {}",
-                    e
-                );
+                println!("ℹ️ Block hash query failed as expected: {}", e);
             }
         }
     }

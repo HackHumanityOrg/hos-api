@@ -757,12 +757,12 @@ impl Default for DatabaseConfig {
             url: String::new(),
             // Much more aggressive settings for MySQL connection pool issues
             // MySQL has known issues with connections not being returned to pool
-            max_connections: Some(200), // Increased significantly
-            min_connections: Some(10),  // Higher minimum to keep connections ready
+            max_connections: Some(200),   // Increased significantly
+            min_connections: Some(10),    // Higher minimum to keep connections ready
             connection_timeout: Some(15), // Reduced from 30 to fail faster
-            acquire_timeout: Some(5),   // Very short - fail fast if pool exhausted
-            idle_timeout: Some(120),    // Much shorter - 2 minutes instead of 10
-            max_lifetime: Some(300),    // Much shorter - 5 minutes to force connection recycling
+            acquire_timeout: Some(5),     // Very short - fail fast if pool exhausted
+            idle_timeout: Some(120),      // Much shorter - 2 minutes instead of 10
+            max_lifetime: Some(300),      // Much shorter - 5 minutes to force connection recycling
         }
     }
 }

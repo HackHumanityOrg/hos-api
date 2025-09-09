@@ -71,7 +71,10 @@ pub async fn run_parallel_processing(
     >,
     concurrency: usize,
 ) -> Result<()> {
-    info!(concurrency, "Starting NEAR parallel indexer processing with aggressive connection pool settings");
+    info!(
+        concurrency,
+        "Starting NEAR parallel indexer processing with aggressive connection pool settings"
+    );
 
     ReceiverStream::new(stream)
         .map(|msg| {
@@ -94,9 +97,10 @@ pub async fn run_parallel_processing(
                             return Ok::<_, anyhow::Error>(());
                         }
                         Err(e) => {
-                            let is_pool_error = e.to_string().contains("Connection pool timed out") ||
-                                              e.to_string().contains("Failed to acquire connection from pool");
-                            
+                            let is_pool_error = e.to_string().contains("Connection pool timed out")
+                                || e.to_string()
+                                    .contains("Failed to acquire connection from pool");
+
                             error!(
                                 error = %e,
                                 height,
@@ -132,4 +136,3 @@ pub async fn run_parallel_processing(
     info!("NEAR parallel indexer processing ended");
     Ok(())
 }
-

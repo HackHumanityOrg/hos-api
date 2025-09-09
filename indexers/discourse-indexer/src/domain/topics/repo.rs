@@ -1,6 +1,7 @@
 use crate::domain::topics::model::Topic;
-use crate::domain::util::{opt_bool_i8, opt_string, with_deadlock_retry};
+use crate::domain::util::{opt_bool_i8, opt_string};
 use anyhow::Result;
+use db_core::with_db_retry;
 use entities::discourse_topics;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -55,7 +56,7 @@ pub async fn upsert_topics_bulk(
                 ..Default::default()
             })
             .collect();
-        with_deadlock_retry(|| async {
+        with_db_retry(|| async {
             discourse_topics::Entity::insert_many(ams.clone())
                 .on_conflict(
                     OrmOnConflict::columns([

@@ -1,5 +1,5 @@
-use crate::domain::util::with_deadlock_retry;
 use anyhow::Result;
+use db_core::with_db_retry;
 use entities::discourse_instances;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -15,7 +15,7 @@ pub async fn register_instance(
         enabled: Set(1),
         ..Default::default()
     };
-    with_deadlock_retry(|| async {
+    with_db_retry(|| async {
         discourse_instances::Entity::insert(am.clone())
             .on_conflict(
                 OrmOnConflict::column(discourse_instances::Column::Key)

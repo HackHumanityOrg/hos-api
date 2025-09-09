@@ -5,6 +5,8 @@
 //! transaction methods directly.
 
 pub mod connection;
+pub mod retry;
 
 // Re-export commonly used types
 pub use connection::*;
+pub use retry::*;

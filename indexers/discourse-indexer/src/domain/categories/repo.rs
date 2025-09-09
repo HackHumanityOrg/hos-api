@@ -1,6 +1,7 @@
 use crate::domain::categories::model::Category;
-use crate::domain::util::{bool_i8, opt_bool_to_i8, with_deadlock_retry};
+use crate::domain::util::{bool_i8, opt_bool_to_i8};
 use anyhow::Result;
+use db_core::with_db_retry;
 use entities::discourse_categories;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -48,7 +49,7 @@ pub async fn upsert_category(
         is_uncategorized: Set(opt_bool_to_i8(c.is_uncategorized)),
         ..Default::default()
     };
-    with_deadlock_retry(|| async {
+    with_db_retry(|| async {
         discourse_categories::Entity::insert(am.clone())
             .on_conflict(
                 OrmOnConflict::columns([
