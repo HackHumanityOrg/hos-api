@@ -247,6 +247,9 @@ pub struct NearLakeConfig {
 /// NEAR indexer modules configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NearModulesConfig {
+    /// Raw data module configuration
+    #[serde(default)]
+    pub raw: Option<RawModuleConfig>,
     /// Accounts module configuration
     #[serde(default)]
     pub accounts: Option<AccountsModuleConfig>,
@@ -261,15 +264,18 @@ pub struct NearModulesConfig {
     pub network: Option<NetworkModuleConfig>,
 }
 
+/// Raw data module configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RawModuleConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
 /// Accounts module configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AccountsModuleConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_true")]
-    pub track_implicit: bool,
-    #[serde(default = "default_true")]
-    pub track_eth_implicit: bool,
 }
 
 /// Tokens module configuration
@@ -443,6 +449,7 @@ impl ToLog for NearLakeConfig {
 impl ToLog for NearModulesConfig {
     fn to_log(&self) -> JsonValue {
         json!({
+            "raw": self.raw.as_ref().map(|r| r.to_log()),
             "accounts": self.accounts.as_ref().map(|a| a.to_log()),
             "tokens": self.tokens.as_ref().map(|t| t.to_log()),
             "validators": self.validators.as_ref().map(|v| v.to_log()),
@@ -451,12 +458,18 @@ impl ToLog for NearModulesConfig {
     }
 }
 
+impl ToLog for RawModuleConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "enabled": self.enabled,
+        })
+    }
+}
+
 impl ToLog for AccountsModuleConfig {
     fn to_log(&self) -> JsonValue {
         json!({
             "enabled": self.enabled,
-            "track_implicit": self.track_implicit,
-            "track_eth_implicit": self.track_eth_implicit,
         })
     }
 }

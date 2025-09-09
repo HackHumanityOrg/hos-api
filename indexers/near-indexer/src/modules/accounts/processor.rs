@@ -1,49 +1,28 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use entities;
-use near_account_id;
-use near_lake_framework::near_indexer_primitives::views::{
-    AccessKeyPermissionView, ActionView, ReceiptEnumView, StateChangeCauseView,
-    StateChangeValueView,
+use entities::*;
+use near_indexer_primitives::{IndexerShard, StreamerMessage};
+use near_primitives::views::StateChangeValueView;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    Set, TransactionTrait,
 };
-use sea_orm::sea_query::OnConflict;
-use sea_orm::ActiveValue::NotSet;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, TransactionTrait};
-use serde_json::json;
-use sha2::{Digest, Sha256};
-use std::collections::HashMap;
-use tracing::debug;
+use serde_json;
+use std::collections::{HashMap, HashSet};
+use tracing::{debug, info};
 
 use crate::core::cursor;
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "accounts";
 
-/// Account type classification and validation
-#[derive(Debug, Clone)]
-struct AccountAnalysis {
-    parent_account_id: Option<String>,
-    depth: i32,
-    is_top_level: bool,
-    is_implicit: bool,
-    is_eth_implicit: bool,
-    is_system: bool,
-    is_staking_pool: bool,
-    is_lockup_contract: bool,
-    has_eth_wallet_contract: bool,
-    account_id_length: i32,
-}
-
-/// Accounts indexer module
 pub struct AccountsModule {
     enabled: bool,
-    #[allow(dead_code)]
-    concurrency: usize,
 }
 
 impl AccountsModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
-        let (enabled, concurrency) = match config {
+        let enabled = match config {
             common::config::AppConfig::Indexer(idx) => {
                 let near_config = idx.near.as_ref();
 
@@ -51,710 +30,674 @@ impl AccountsModule {
                 let near_enabled = near_config.map(|c| c.chain != "disabled").unwrap_or(false);
 
                 if !near_enabled {
-                    return Self {
-                        enabled: false,
-                        concurrency: 1,
-                    };
+                    return Self { enabled: false };
                 }
-
-                let concurrency = near_config.and_then(|c| c.concurrency).unwrap_or(1);
 
                 // Get accounts module configuration
-                let accounts_config = near_config
-                    .and_then(|nc| nc.modules.as_ref())
-                    .and_then(|mc| mc.accounts.as_ref());
-
-                let enabled = accounts_config.map(|ac| ac.enabled).unwrap_or(true); // Default to enabled for backward compatibility
-
-                (enabled, concurrency)
+                near_config
+                    .and_then(|c| c.modules.as_ref())
+                    .and_then(|m| m.accounts.as_ref())
+                    .map(|a| a.enabled)
+                    .unwrap_or(true) // Default enabled if not specified
             }
-            _ => (false, 1),
+            _ => false,
         };
 
-        Self {
-            enabled,
-            concurrency,
+        Self { enabled }
+    }
+
+    /// Classify account type based on account ID pattern
+    fn classify_account(&self, account_id: &str) -> String {
+        if account_id == "system" {
+            return "system".to_string();
         }
-    }
 
-    /// Analyze an account ID and classify it
-    fn analyze_account(account_id: &str) -> Result<AccountAnalysis> {
-        let account_id_length = account_id.len() as i32;
+        // ETH-implicit accounts (0x + 40 hex chars)
+        if account_id.starts_with("0x") && account_id.len() == 42 {
+            if account_id[2..]
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
+            {
+                return "eth_implicit".to_string();
+            }
+        }
 
-        // ETH-implicit account detection (0x + 40 hex chars)
-        let is_eth_implicit = Self::is_eth_implicit_account(account_id);
-
-        // NEAR-implicit account detection (64 hex chars, no dots)
-        let is_near_implicit = Self::is_near_implicit_account(account_id);
-        let is_implicit = is_near_implicit || is_eth_implicit;
-
-        // Use near-account-id for standard validation and properties
-        let aid = near_account_id::AccountIdRef::new(account_id).ok();
-        let (parent, depth, is_top_level, is_system) = if let Some(a) = aid {
-            let parent = a.get_parent_account_id().map(|p| p.as_str().to_string());
-            let depth = if account_id.is_empty() {
-                0
-            } else {
-                account_id.matches('.').count() as i32 + 1
-            };
-            let is_top_level = a.is_top_level();
-            let is_system = a.is_system();
-            (parent, depth, is_top_level, is_system)
-        } else {
-            // For ETH-implicit accounts or invalid IDs, provide basic info
-            (None, 0, false, false)
-        };
-
-        // Account type classification
-        let is_staking_pool =
-            account_id.ends_with(".pool.near") || account_id.ends_with(".poolv1.near");
-        let is_lockup_contract = account_id.ends_with(".lockup.near")
-            || account_id.contains("lockup")
-            || account_id.starts_with("lockup_");
-
-        // ETH wallet contract detection (placeholder - would need contract analysis)
-        let has_eth_wallet_contract = is_eth_implicit; // Simplified assumption
-
-        Ok(AccountAnalysis {
-            parent_account_id: parent,
-            depth,
-            is_top_level,
-            is_implicit,
-            is_eth_implicit,
-            is_system,
-            is_staking_pool,
-            is_lockup_contract,
-            has_eth_wallet_contract,
-            account_id_length,
-        })
-    }
-
-    /// Check if account ID is a NEAR-implicit account (64 hex chars, no dots)
-    fn is_near_implicit_account(account_id: &str) -> bool {
-        account_id.len() == 64
-            && !account_id.contains('.')
+        // NEAR-implicit accounts (64 hex chars)
+        if account_id.len() == 64
             && account_id
                 .chars()
-                .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase()))
+                .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
+        {
+            return "implicit".to_string();
+        }
+
+        // Check for lockup contract pattern
+        if account_id.contains("lockup") {
+            return "lockup".to_string();
+        }
+
+        // Named accounts
+        "named".to_string()
     }
 
-    /// Check if account ID is an ETH-implicit account (0x + 40 hex chars)
-    fn is_eth_implicit_account(account_id: &str) -> bool {
-        account_id.len() == 42
-            && account_id.starts_with("0x")
-            && account_id[2..]
+    /// Extract parent account ID for sub-accounts
+    fn get_parent_account(&self, account_id: &str) -> Option<String> {
+        if account_id.contains('.') {
+            let parts: Vec<&str> = account_id.split('.').collect();
+            if parts.len() > 1 {
+                return Some(parts[1..].join("."));
+            }
+        }
+        None
+    }
+
+    /// Validate account ID format according to NEAR Protocol rules
+    fn validate_account_id(&self, account_id: &str) -> Result<()> {
+        // Account ID must be non-empty and at most 64 characters
+        if account_id.is_empty() {
+            return Err(anyhow::anyhow!("Account ID cannot be empty"));
+        }
+
+        if account_id.len() > 64 {
+            return Err(anyhow::anyhow!(
+                "Account ID cannot be longer than 64 characters"
+            ));
+        }
+
+        // Implicit accounts (64 hex characters) - allow them
+        if account_id.len() == 64
+            && account_id
                 .chars()
-                .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase()))
+                .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
+        {
+            return Ok(());
+        }
+
+        // ETH-implicit accounts (0x + 40 hex characters) - allow them
+        if account_id.starts_with("0x") && account_id.len() == 42 {
+            if account_id[2..]
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
+            {
+                return Ok(());
+            }
+        }
+
+        // Named accounts - must contain only valid characters
+        for char in account_id.chars() {
+            if !char.is_ascii_lowercase()
+                && !char.is_ascii_digit()
+                && char != '-'
+                && char != '_'
+                && char != '.'
+            {
+                return Err(anyhow::anyhow!(
+                    "Account ID contains invalid character: {}",
+                    char
+                ));
+            }
+        }
+
+        Ok(())
     }
 
-    /// Extract a map of deleted account -> beneficiary for the entire block.
-    fn pre_scan_delete_beneficiaries(
-        msg: &near_lake_framework::near_indexer_primitives::StreamerMessage,
-    ) -> HashMap<String, String> {
-        let mut map = HashMap::new();
-        for shard in &msg.shards {
-            for reo in &shard.receipt_execution_outcomes {
-                if let ReceiptEnumView::Action { actions, .. } = &reo.receipt.receipt {
-                    let receiver_id = reo.receipt.receiver_id.clone();
-                    for action in actions {
-                        if let ActionView::DeleteAccount { beneficiary_id } = action {
-                            map.insert(receiver_id.to_string(), beneficiary_id.to_string());
+    /// Validate public key format
+    fn validate_public_key(&self, public_key: &str) -> Result<()> {
+        if public_key.is_empty() {
+            return Err(anyhow::anyhow!("Public key cannot be empty"));
+        }
+
+        // Basic length check - NEAR public keys are typically base58 encoded
+        // Ed25519 keys are usually around 43-44 characters when base58 encoded
+        // Secp256k1 keys can be longer
+        if public_key.len() < 20 || public_key.len() > 128 {
+            return Err(anyhow::anyhow!(
+                "Public key has invalid length: {}",
+                public_key.len()
+            ));
+        }
+
+        // Check that it contains valid base58 characters
+        for char in public_key.chars() {
+            if !char.is_ascii_alphanumeric() {
+                // Base58 excludes 0, O, I, l to avoid confusion
+                if "0OIl".contains(char) {
+                    return Err(anyhow::anyhow!(
+                        "Public key contains invalid base58 character: {}",
+                        char
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Extract transaction/receipt hash from state change cause
+    fn extract_transaction_context(
+        &self,
+        cause: &near_primitives::views::StateChangeCauseView,
+    ) -> (Option<String>, Option<String>) {
+        match cause {
+            near_primitives::views::StateChangeCauseView::TransactionProcessing { tx_hash } => {
+                (Some(tx_hash.to_string()), None)
+            }
+            near_primitives::views::StateChangeCauseView::ActionReceiptProcessingStarted {
+                receipt_hash,
+            } => (None, Some(receipt_hash.to_string())),
+            near_primitives::views::StateChangeCauseView::ActionReceiptGasReward {
+                receipt_hash,
+            } => (None, Some(receipt_hash.to_string())),
+            near_primitives::views::StateChangeCauseView::ReceiptProcessing { receipt_hash } => {
+                (None, Some(receipt_hash.to_string()))
+            }
+            near_primitives::views::StateChangeCauseView::PostponedReceipt { receipt_hash } => {
+                (None, Some(receipt_hash.to_string()))
+            }
+            _ => (None, None),
+        }
+    }
+
+    /// Process state changes to extract account-related data
+    async fn process_state_changes(
+        &self,
+        shards: &[IndexerShard],
+        block_height: i64,
+        block_timestamp: i64,
+        db: &impl ConnectionTrait,
+        known_accounts: &mut HashSet<String>,
+    ) -> Result<()> {
+        let mut accounts_to_create = HashMap::new();
+        let mut account_balances = Vec::new();
+        let mut account_events = Vec::new();
+
+        for shard in shards {
+            // Use state changes directly - they're already parsed
+            for state_change in &shard.state_changes {
+                let (tx_hash, receipt_hash) = self.extract_transaction_context(&state_change.cause);
+
+                match &state_change.value {
+                    StateChangeValueView::AccountUpdate {
+                        account_id,
+                        account,
+                    } => {
+                        let account_id_str = account_id.to_string();
+
+                        // Validate account ID format
+                        if let Err(e) = self.validate_account_id(&account_id_str) {
+                            debug!(account_id = %account_id_str, error = %e, "Invalid account ID format, skipping");
+                            continue;
                         }
+
+                        // Check if this is a new account (first check cache, then database)
+                        let is_new_account = if known_accounts.contains(&account_id_str) {
+                            false
+                        } else {
+                            // Check database for existing account
+                            let existing = near_accounts::Entity::find()
+                                .filter(near_accounts::Column::AccountId.eq(&account_id_str))
+                                .one(db)
+                                .await
+                                .context("Failed to check for existing account")?;
+                            existing.is_none()
+                        };
+
+                        if is_new_account {
+                            let account_type = self.classify_account(&account_id_str);
+                            let parent_account = self.get_parent_account(&account_id_str);
+                            let is_contract =
+                                account.code_hash != near_primitives::hash::CryptoHash::default();
+
+                            accounts_to_create.insert(
+                                account_id_str.clone(),
+                                (account_type, parent_account, is_contract),
+                            );
+
+                            // Add to known accounts cache
+                            known_accounts.insert(account_id_str.clone());
+
+                            // Record account creation event
+                            account_events.push((
+                                account_id_str.clone(),
+                                "created".to_string(),
+                                tx_hash.clone(),
+                                receipt_hash.clone(),
+                                serde_json::json!({"cause": state_change.cause}),
+                            ));
+                        } else {
+                            // Add to cache even if it already exists in DB
+                            known_accounts.insert(account_id_str.clone());
+                        }
+
+                        // Always record balance update
+                        account_balances.push((
+                            account_id_str.clone(),
+                            account.amount.to_string(),
+                            account.locked.to_string(),
+                            account.storage_usage as i64,
+                            account.code_hash.to_string(),
+                        ));
+
+                        // Record contract deployment event if code changed
+                        let is_contract =
+                            account.code_hash != near_primitives::hash::CryptoHash::default();
+                        if is_contract {
+                            account_events.push((
+                                account_id_str.clone(),
+                                "contract_deployed".to_string(),
+                                tx_hash.clone(),
+                                receipt_hash.clone(),
+                                serde_json::json!({
+                                    "code_hash": account.code_hash.to_string(),
+                                    "cause": state_change.cause
+                                }),
+                            ));
+                        }
+                    }
+                    StateChangeValueView::AccountDeletion { account_id } => {
+                        let account_id_str = account_id.to_string();
+
+                        // Update the account record to mark it as deleted
+                        self.mark_account_deleted(
+                            &account_id_str,
+                            block_height,
+                            block_timestamp,
+                            db,
+                        )
+                        .await
+                        .context("Failed to mark account as deleted")?;
+
+                        // Record account deletion event
+                        account_events.push((
+                            account_id_str.clone(),
+                            "deleted".to_string(),
+                            tx_hash.clone(),
+                            receipt_hash.clone(),
+                            serde_json::json!({"cause": state_change.cause}),
+                        ));
+
+                        // Remove from known accounts cache
+                        known_accounts.remove(&account_id_str);
+                    }
+                    StateChangeValueView::AccessKeyUpdate {
+                        account_id,
+                        public_key,
+                        access_key,
+                    } => {
+                        let account_id_str = account_id.to_string();
+                        let public_key_str = public_key.to_string();
+
+                        // Validate account ID and public key format
+                        if let Err(e) = self.validate_account_id(&account_id_str) {
+                            debug!(account_id = %account_id_str, error = %e, "Invalid account ID format for access key, skipping");
+                            continue;
+                        }
+
+                        if let Err(e) = self.validate_public_key(&public_key_str) {
+                            debug!(account_id = %account_id_str, public_key = %public_key_str, error = %e, "Invalid public key format, skipping");
+                            continue;
+                        }
+                        let (permission_type, allowance, receiver_id, method_names) =
+                            match &access_key.permission {
+                                near_primitives::views::AccessKeyPermissionView::FullAccess => {
+                                    ("FullAccess".to_string(), None, None, None)
+                                }
+                                near_primitives::views::AccessKeyPermissionView::FunctionCall {
+                                    allowance,
+                                    receiver_id,
+                                    method_names,
+                                } => (
+                                    "FunctionCall".to_string(),
+                                    allowance.map(|a| a.to_string()),
+                                    Some(receiver_id.clone()),
+                                    serde_json::to_value(method_names).ok(),
+                                ),
+                            };
+
+                        // Handle access key upsert directly in the database
+                        self.upsert_access_key(
+                            &account_id_str,
+                            &public_key_str,
+                            permission_type,
+                            allowance,
+                            receiver_id,
+                            method_names,
+                            access_key.nonce as i64,
+                            block_height,
+                            db,
+                        )
+                        .await
+                        .context("Failed to upsert access key")?;
+                    }
+                    StateChangeValueView::AccessKeyDeletion {
+                        account_id,
+                        public_key,
+                    } => {
+                        let account_id_str = account_id.to_string();
+                        let public_key_str = public_key.to_string();
+
+                        // Validate account ID and public key format
+                        if let Err(e) = self.validate_account_id(&account_id_str) {
+                            debug!(account_id = %account_id_str, error = %e, "Invalid account ID format for access key deletion, skipping");
+                            continue;
+                        }
+
+                        if let Err(e) = self.validate_public_key(&public_key_str) {
+                            debug!(account_id = %account_id_str, public_key = %public_key_str, error = %e, "Invalid public key format for deletion, skipping");
+                            continue;
+                        }
+
+                        // Mark access key as deleted in the database
+                        self.mark_access_key_deleted(
+                            &account_id_str,
+                            &public_key_str,
+                            block_height,
+                            db,
+                        )
+                        .await
+                        .context("Failed to mark access key as deleted")?;
+                    }
+                    StateChangeValueView::ContractCodeUpdate { account_id, .. } => {
+                        // Record contract update event
+                        account_events.push((
+                            account_id.to_string(),
+                            "contract_updated".to_string(),
+                            tx_hash.clone(),
+                            receipt_hash.clone(),
+                            serde_json::json!({"cause": state_change.cause}),
+                        ));
+                    }
+                    StateChangeValueView::ContractCodeDeletion { account_id } => {
+                        // Record contract deletion event
+                        account_events.push((
+                            account_id.to_string(),
+                            "contract_deleted".to_string(),
+                            tx_hash.clone(),
+                            receipt_hash.clone(),
+                            serde_json::json!({"cause": state_change.cause}),
+                        ));
+                    }
+                    _ => {
+                        // Other state changes (DataUpdate, DataDeletion)
+                        // are not directly account-related for our purposes
                     }
                 }
             }
         }
-        map
+
+        // Batch insert all the collected data
+        self.store_accounts(accounts_to_create, block_height, block_timestamp, db)
+            .await?;
+        self.store_account_balances(account_balances, block_height, block_timestamp, db)
+            .await?;
+        self.store_account_events(account_events, block_height, block_timestamp, db)
+            .await?;
+
+        Ok(())
     }
 
-    async fn process_changes(
-        db: &DatabaseConnection,
-        changes: Vec<near_lake_framework::near_indexer_primitives::views::StateChangeWithCauseView>,
-        height: i64,
-        ts: i64,
-        delete_beneficiaries: &HashMap<String, String>,
+    /// Store new accounts
+    async fn store_accounts(
+        &self,
+        accounts: HashMap<String, (String, Option<String>, bool)>,
+        block_height: i64,
+        block_timestamp: i64,
+        db: &impl ConnectionTrait,
     ) -> Result<()> {
-        let txn = db.begin().await?;
+        if accounts.is_empty() {
+            return Ok(());
+        }
 
-        // Accumulate rows for batch operations
-        let mut account_upserts_updates: Vec<(i32, entities::near_accounts::ActiveModel)> =
-            Vec::new();
-        let mut account_upserts_deletes: Vec<(i32, entities::near_accounts::ActiveModel)> =
-            Vec::new();
-        let mut state_history_inserts: Vec<entities::near_account_state_history::ActiveModel> =
-            Vec::new();
-        let mut event_inserts_receipt: Vec<entities::near_account_events::ActiveModel> = Vec::new();
-        let mut access_key_inserts: Vec<entities::near_access_keys::ActiveModel> = Vec::new();
-        let mut contract_data_inserts: Vec<entities::near_contract_data::ActiveModel> = Vec::new();
-        let mut contract_code_inserts: Vec<entities::near_contract_code::ActiveModel> = Vec::new();
+        let mut account_records = Vec::new();
 
-        for sc in changes {
-            let (cause_str, cause_tx, cause_receipt) = match &sc.cause {
-                StateChangeCauseView::NotWritableToDisk => ("not_writable_to_disk", None, None),
-                StateChangeCauseView::InitialState => ("initial_state", None, None),
-                StateChangeCauseView::TransactionProcessing { tx_hash } => {
-                    ("transaction_processing", Some(tx_hash.to_string()), None)
-                }
-                StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash } => (
-                    "action_receipt_processing_started",
-                    None,
-                    Some(receipt_hash.to_string()),
-                ),
-                StateChangeCauseView::ActionReceiptGasReward { receipt_hash } => (
-                    "action_receipt_gas_reward",
-                    None,
-                    Some(receipt_hash.to_string()),
-                ),
-                StateChangeCauseView::ReceiptProcessing { receipt_hash } => {
-                    ("receipt_processing", None, Some(receipt_hash.to_string()))
-                }
-                StateChangeCauseView::PostponedReceipt { receipt_hash } => {
-                    ("postponed_receipt", None, Some(receipt_hash.to_string()))
-                }
-                StateChangeCauseView::UpdatedDelayedReceipts => {
-                    ("updated_delayed_receipts", None, None)
-                }
-                StateChangeCauseView::ValidatorAccountsUpdate => {
-                    ("validator_accounts_update", None, None)
-                }
-                StateChangeCauseView::Migration => ("migration", None, None),
-                StateChangeCauseView::BandwidthSchedulerStateUpdate => {
-                    ("bandwidth_scheduler_state_update", None, None)
-                }
+        for (account_id, (account_type, parent_account, is_contract)) in accounts {
+            let account_record = near_accounts::ActiveModel {
+                account_id: Set(account_id),
+                account_type: Set(account_type),
+                created_at_height: Set(block_height),
+                created_at_timestamp: Set(block_timestamp),
+                deleted_at_height: Set(None),
+                deleted_at_timestamp: Set(None),
+                parent_account_id: Set(parent_account),
+                is_contract: Set(if is_contract { 1 } else { 0 }),
+            };
+            account_records.push(account_record);
+        }
+
+        if !account_records.is_empty() {
+            near_accounts::Entity::insert_many(account_records)
+                .on_conflict_do_nothing()
+                .exec(db)
+                .await
+                .context("Failed to insert account records")?;
+        }
+
+        Ok(())
+    }
+
+    /// Store account balance updates
+    async fn store_account_balances(
+        &self,
+        balances: Vec<(String, String, String, i64, String)>,
+        block_height: i64,
+        block_timestamp: i64,
+        db: &impl ConnectionTrait,
+    ) -> Result<()> {
+        if balances.is_empty() {
+            return Ok(());
+        }
+
+        let mut balance_records = Vec::new();
+
+        for (account_id, amount, locked, storage_usage, code_hash) in balances {
+            let balance_record = near_account_balances::ActiveModel {
+                id: sea_orm::ActiveValue::NotSet,
+                account_id: Set(account_id),
+                block_height: Set(block_height),
+                timestamp: Set(block_timestamp),
+                amount: Set(amount),
+                locked: Set(locked),
+                storage_usage: Set(storage_usage),
+                code_hash: Set(code_hash),
+            };
+            balance_records.push(balance_record);
+        }
+
+        near_account_balances::Entity::insert_many(balance_records)
+            .exec(db)
+            .await
+            .context("Failed to insert account balance records")?;
+
+        Ok(())
+    }
+
+    /// Store account events
+    async fn store_account_events(
+        &self,
+        events: Vec<(
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            serde_json::Value,
+        )>,
+        block_height: i64,
+        block_timestamp: i64,
+        db: &impl ConnectionTrait,
+    ) -> Result<()> {
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        let mut event_records = Vec::new();
+
+        for (account_id, event_type, transaction_hash, receipt_id, metadata) in events {
+            let event_record = near_account_events::ActiveModel {
+                id: sea_orm::ActiveValue::NotSet,
+                account_id: Set(account_id),
+                event_type: Set(event_type),
+                block_height: Set(block_height),
+                timestamp: Set(block_timestamp),
+                transaction_hash: Set(transaction_hash),
+                receipt_id: Set(receipt_id),
+                metadata: Set(Some(metadata)),
+            };
+            event_records.push(event_record);
+        }
+
+        near_account_events::Entity::insert_many(event_records)
+            .exec(db)
+            .await
+            .context("Failed to insert account event records")?;
+
+        Ok(())
+    }
+
+    /// Mark an account as deleted in the database
+    async fn mark_account_deleted(
+        &self,
+        account_id: &str,
+        block_height: i64,
+        block_timestamp: i64,
+        db: &impl ConnectionTrait,
+    ) -> Result<()> {
+        // Find and update the account record
+        if let Some(account) = near_accounts::Entity::find()
+            .filter(near_accounts::Column::AccountId.eq(account_id))
+            .one(db)
+            .await?
+        {
+            let mut account: near_accounts::ActiveModel = account.into();
+            account.deleted_at_height = Set(Some(block_height));
+            account.deleted_at_timestamp = Set(Some(block_timestamp));
+
+            account
+                .update(db)
+                .await
+                .context("Failed to update account deletion")?;
+            debug!(account_id, block_height, "Marked account as deleted");
+        } else {
+            // Account not found in database - this could happen if we're processing
+            // a deletion before the creation, which shouldn't happen in normal operation
+            debug!(
+                account_id,
+                "Account not found when trying to mark as deleted"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Upsert an access key (insert if new, update if exists)
+    async fn upsert_access_key(
+        &self,
+        account_id: &str,
+        public_key: &str,
+        permission_type: String,
+        allowance: Option<String>,
+        receiver_id: Option<String>,
+        method_names: Option<serde_json::Value>,
+        nonce: i64,
+        block_height: i64,
+        db: &impl ConnectionTrait,
+    ) -> Result<()> {
+        // Check if access key already exists
+        if let Some(existing_key) = near_access_keys::Entity::find()
+            .filter(near_access_keys::Column::AccountId.eq(account_id))
+            .filter(near_access_keys::Column::PublicKey.eq(public_key))
+            .filter(near_access_keys::Column::IsActive.eq(1))
+            .one(db)
+            .await?
+        {
+            // Update existing key
+            let mut existing_key: near_access_keys::ActiveModel = existing_key.into();
+            existing_key.permission_type = Set(permission_type);
+            existing_key.allowance = Set(allowance);
+            existing_key.receiver_id = Set(receiver_id);
+            existing_key.method_names = Set(method_names);
+            existing_key.nonce = Set(nonce);
+
+            existing_key
+                .update(db)
+                .await
+                .context("Failed to update access key")?;
+            debug!(account_id, public_key, "Updated existing access key");
+        } else {
+            // Insert new key
+            let new_key = near_access_keys::ActiveModel {
+                id: sea_orm::ActiveValue::NotSet,
+                account_id: Set(account_id.to_string()),
+                public_key: Set(public_key.to_string()),
+                permission_type: Set(permission_type),
+                allowance: Set(allowance),
+                receiver_id: Set(receiver_id),
+                method_names: Set(method_names),
+                nonce: Set(nonce),
+                created_at_height: Set(block_height),
+                deleted_at_height: Set(None),
+                is_active: Set(1),
             };
 
-            match sc.value {
-                StateChangeValueView::AccountUpdate {
-                    account_id,
-                    account,
-                } => {
-                    let acc_str = account_id.to_string();
-
-                    // Use enhanced account analysis
-                    let analysis = match Self::analyze_account(&acc_str) {
-                        Ok(analysis) => analysis,
-                        Err(e) => {
-                            tracing::warn!(account_id = %acc_str, error = %e, "Failed to analyze account");
-                            // Fallback to basic analysis
-                            AccountAnalysis {
-                                parent_account_id: None,
-                                depth: 0,
-                                is_top_level: false,
-                                is_implicit: false,
-                                is_eth_implicit: false,
-                                is_system: false,
-                                is_staking_pool: false,
-                                is_lockup_contract: false,
-                                has_eth_wallet_contract: false,
-                                account_id_length: acc_str.len() as i32,
-                            }
-                        }
-                    };
-
-                    // Extract storage_paid_at from account (new field in AccountView)
-                    let storage_paid_at = account.storage_paid_at as i64;
-
-                    let global_contract_account_id = account
-                        .global_contract_account_id
-                        .as_ref()
-                        .map(|id| id.to_string());
-                    let global_contract_hash = account
-                        .global_contract_hash
-                        .as_ref()
-                        .map(|hash| hash.to_string());
-
-                    // Extract permanent storage bytes if available (for global contracts)
-                    let permanent_storage_bytes = None; // TODO: Extract from AccountView if available
-
-                    // Prepare near_accounts upsert row
-                    let model = entities::near_accounts::ActiveModel {
-                        account_id: Set(acc_str.clone()),
-                        parent_account_id: Set(analysis.parent_account_id.clone()),
-                        depth: Set(analysis.depth),
-                        is_top_level: Set(if analysis.is_top_level { 1 } else { 0 }),
-                        is_implicit: Set(if analysis.is_implicit { 1 } else { 0 }),
-                        is_system: Set(if analysis.is_system { 1 } else { 0 }),
-                        is_staking_pool: Set(if analysis.is_staking_pool { 1 } else { 0 }),
-                        is_lockup_contract: Set(if analysis.is_lockup_contract { 1 } else { 0 }),
-                        storage_paid_at: Set(Some(storage_paid_at)),
-                        global_contract_account_id: Set(global_contract_account_id.clone()),
-                        global_contract_hash: Set(global_contract_hash.clone()),
-                        created_at_height: Set(Some(height)),
-                        created_at_time: Set(Some(ts)),
-                        created_cause: Set(Some(cause_str.to_string())),
-                        created_by_tx_hash: Set(cause_tx.clone()),
-                        created_by_receipt_hash: Set(cause_receipt.clone()),
-                        deleted_at_height: Set(None),
-                        deleted_at_time: Set(None),
-                        deleted_beneficiary_id: Set(None),
-                        deleted_by_tx_hash: Set(None),
-                        deleted_by_receipt_hash: Set(None),
-                        first_seen_height: Set(Some(height)),
-                        first_seen_time: Set(Some(ts)),
-                        last_seen_height: Set(Some(height)),
-                        last_seen_time: Set(Some(ts)),
-                        // New enhanced fields
-                        is_eth_implicit: Set(if analysis.is_eth_implicit { 1 } else { 0 }),
-                        permanent_storage_bytes: Set(permanent_storage_bytes),
-                        has_eth_wallet_contract: Set(if analysis.has_eth_wallet_contract {
-                            1
-                        } else {
-                            0
-                        }),
-                        account_id_length: Set(analysis.account_id_length),
-                    };
-                    account_upserts_updates.push((analysis.depth, model));
-
-                    // Insert full state history if unique
-                    let code_hash = account.code_hash.to_string();
-                    let amount_dec =
-                        match rust_decimal::Decimal::from_str_exact(&account.amount.to_string()) {
-                            Ok(dec) => dec,
-                            Err(e) => {
-                                tracing::warn!(
-                                    account_id = %acc_str,
-                                    amount = %account.amount,
-                                    error = %e,
-                                    "Failed to parse account amount, using zero"
-                                );
-                                rust_decimal::Decimal::ZERO
-                            }
-                        };
-                    let locked_dec =
-                        match rust_decimal::Decimal::from_str_exact(&account.locked.to_string()) {
-                            Ok(dec) => dec,
-                            Err(e) => {
-                                tracing::warn!(
-                                    account_id = %acc_str,
-                                    locked = %account.locked,
-                                    error = %e,
-                                    "Failed to parse account locked amount, using zero"
-                                );
-                                rust_decimal::Decimal::ZERO
-                            }
-                        };
-                    let storage_usage = account.storage_usage as i64;
-
-                    let history = entities::near_account_state_history::ActiveModel {
-                        id: NotSet,
-                        account_id: Set(acc_str.clone()),
-                        block_height: Set(height),
-                        block_time: Set(ts),
-                        amount: Set(amount_dec),
-                        locked: Set(locked_dec),
-                        storage_usage: Set(storage_usage),
-                        code_hash: Set(code_hash),
-                        global_contract_account_id: Set(global_contract_account_id),
-                        global_contract_hash: Set(global_contract_hash),
-                        cause_type: Set(cause_str.to_string()),
-                        cause_tx_hash: Set(cause_tx.clone()),
-                        cause_receipt_hash: Set(cause_receipt.clone()),
-                    };
-                    state_history_inserts.push(history);
-                }
-                StateChangeValueView::AccountDeletion { account_id } => {
-                    let acc_str = account_id.to_string();
-                    let beneficiary = delete_beneficiaries.get(&acc_str).cloned();
-                    let model = entities::near_accounts::ActiveModel {
-                        account_id: Set(acc_str.clone()),
-                        parent_account_id: Set(None),
-                        depth: Set(0),
-                        is_top_level: Set(0),
-                        is_implicit: Set(0),
-                        is_system: Set(0),
-                        is_staking_pool: Set(0),
-                        is_lockup_contract: Set(0),
-                        storage_paid_at: Set(None),
-                        global_contract_account_id: Set(None),
-                        global_contract_hash: Set(None),
-                        created_at_height: Set(None),
-                        created_at_time: Set(None),
-                        created_cause: Set(None),
-                        created_by_tx_hash: Set(None),
-                        created_by_receipt_hash: Set(None),
-                        deleted_at_height: Set(Some(height)),
-                        deleted_at_time: Set(Some(ts)),
-                        deleted_beneficiary_id: Set(beneficiary.clone()),
-                        deleted_by_tx_hash: Set(cause_tx.clone()),
-                        deleted_by_receipt_hash: Set(cause_receipt.clone()),
-                        first_seen_height: Set(Some(height)),
-                        first_seen_time: Set(Some(ts)),
-                        last_seen_height: Set(Some(height)),
-                        last_seen_time: Set(Some(ts)),
-                        // New enhanced fields for deleted account
-                        is_eth_implicit: Set(0),
-                        permanent_storage_bytes: Set(None),
-                        has_eth_wallet_contract: Set(0),
-                        account_id_length: Set(acc_str.len() as i32),
-                    };
-                    account_upserts_deletes.push((0, model));
-
-                    let meta = json!({ "beneficiary_id": beneficiary }).to_string();
-                    let has_receipt = cause_receipt.is_some();
-                    let evt = entities::near_account_events::ActiveModel {
-                        id: NotSet,
-                        account_id: Set(acc_str.clone()),
-                        event_type: Set("delete".to_string()),
-                        block_height: Set(height),
-                        block_time: Set(ts),
-                        tx_hash: Set(cause_tx.clone()),
-                        receipt_hash: Set(cause_receipt.clone()),
-                        metadata: Set(Some(meta)),
-                    };
-                    if has_receipt {
-                        event_inserts_receipt.push(evt);
-                    } else {
-                        // Fallback: perform select+insert for NULL receipt_hash case
-                        let exists = entities::near_account_events::Entity::find()
-                            .filter(
-                                entities::near_account_events::Column::AccountId
-                                    .eq(acc_str.clone()),
-                            )
-                            .filter(entities::near_account_events::Column::EventType.eq("delete"))
-                            .filter(entities::near_account_events::Column::BlockHeight.eq(height))
-                            .filter(entities::near_account_events::Column::ReceiptHash.is_null())
-                            .one(&txn)
-                            .await?;
-                        if exists.is_none() {
-                            let _ = entities::near_account_events::Entity::insert(evt)
-                                .exec(&txn)
-                                .await?;
-                        }
-                    }
-                }
-                StateChangeValueView::AccessKeyUpdate {
-                    account_id,
-                    public_key,
-                    access_key,
-                } => {
-                    let access_key_type = match &access_key.permission {
-                        AccessKeyPermissionView::FullAccess => "full_access",
-                        AccessKeyPermissionView::FunctionCall { .. } => "function_call",
-                    };
-
-                    let (contract_id, method_names, allowance) = match &access_key.permission {
-                        AccessKeyPermissionView::FunctionCall {
-                            allowance: maybe_allowance,
-                            receiver_id,
-                            method_names: methods,
-                        } => {
-                            let allowance = maybe_allowance.map(|a| {
-                                rust_decimal::Decimal::from_str_exact(&a.to_string())
-                                    .unwrap_or_default()
-                            });
-                            let methods_json = serde_json::to_string(methods).unwrap_or_default();
-                            (Some(receiver_id.to_string()), Some(methods_json), allowance)
-                        }
-                        _ => (None, None, None),
-                    };
-
-                    let access_key_record = entities::near_access_keys::ActiveModel {
-                        id: NotSet,
-                        account_id: Set(account_id.to_string()),
-                        public_key: Set(public_key.to_string()),
-                        access_key_type: Set(access_key_type.to_string()),
-                        contract_id: Set(contract_id),
-                        method_names: Set(method_names),
-                        allowance: Set(allowance),
-                        nonce: Set(Some(access_key.nonce as i64)),
-                        block_height: Set(height),
-                        block_time: Set(ts),
-                        change_type: Set("add".to_string()),
-                        cause_type: Set(cause_str.to_string()),
-                        cause_tx_hash: Set(cause_tx.clone()),
-                        cause_receipt_hash: Set(cause_receipt.clone()),
-                        deleted_at_height: Set(None),
-                        deleted_at_time: Set(None),
-                        last_used_nonce: Set(Some(access_key.nonce as i64)),
-                        usage_count: Set(0), // New key, no usage yet
-                    };
-
-                    // Add to batch for later processing after accounts are created
-                    access_key_inserts.push(access_key_record);
-
-                    debug!(account_id = %account_id, public_key = %public_key, "access key batched for update");
-                }
-                StateChangeValueView::AccessKeyDeletion {
-                    account_id,
-                    public_key,
-                } => {
-                    let access_key_record = entities::near_access_keys::ActiveModel {
-                        id: NotSet,
-                        account_id: Set(account_id.to_string()),
-                        public_key: Set(public_key.to_string()),
-                        access_key_type: Set("unknown".to_string()), // We don't know the type on deletion
-                        contract_id: Set(None),
-                        method_names: Set(None),
-                        allowance: Set(None),
-                        nonce: Set(None),
-                        block_height: Set(height),
-                        block_time: Set(ts),
-                        change_type: Set("delete".to_string()),
-                        cause_type: Set(cause_str.to_string()),
-                        cause_tx_hash: Set(cause_tx.clone()),
-                        cause_receipt_hash: Set(cause_receipt.clone()),
-                        deleted_at_height: Set(Some(height)),
-                        deleted_at_time: Set(Some(ts)),
-                        last_used_nonce: Set(None), // Unknown for deleted key
-                        usage_count: Set(0),        // Reset for deleted key
-                    };
-
-                    // Add to batch for later processing after accounts are created
-                    access_key_inserts.push(access_key_record);
-
-                    debug!(account_id = %account_id, public_key = %public_key, "access key deletion batched");
-                }
-                StateChangeValueView::DataUpdate {
-                    account_id,
-                    key,
-                    value,
-                } => {
-                    let key_hex = hex::encode(key.as_ref() as &[u8]);
-                    let value_hex = hex::encode(value.as_ref() as &[u8]);
-
-                    let data_record = entities::near_contract_data::ActiveModel {
-                        id: NotSet,
-                        account_id: Set(account_id.to_string()),
-                        data_key: Set(key_hex),
-                        data_value: Set(Some(value_hex)),
-                        block_height: Set(height),
-                        block_time: Set(ts),
-                        change_type: Set("update".to_string()),
-                        cause_type: Set(cause_str.to_string()),
-                        cause_tx_hash: Set(cause_tx.clone()),
-                        cause_receipt_hash: Set(cause_receipt.clone()),
-                    };
-
-                    // Add to batch for later processing after accounts are created
-                    contract_data_inserts.push(data_record);
-
-                    debug!(account_id = %account_id, key_len = key.len(), "contract data batched for update");
-                }
-                StateChangeValueView::DataDeletion { account_id, key } => {
-                    let key_hex = hex::encode(key.as_ref() as &[u8]);
-
-                    let data_record = entities::near_contract_data::ActiveModel {
-                        id: NotSet,
-                        account_id: Set(account_id.to_string()),
-                        data_key: Set(key_hex),
-                        data_value: Set(None), // NULL indicates deletion
-                        block_height: Set(height),
-                        block_time: Set(ts),
-                        change_type: Set("delete".to_string()),
-                        cause_type: Set(cause_str.to_string()),
-                        cause_tx_hash: Set(cause_tx.clone()),
-                        cause_receipt_hash: Set(cause_receipt.clone()),
-                    };
-
-                    // Add to batch for later processing after accounts are created
-                    contract_data_inserts.push(data_record);
-
-                    debug!(account_id = %account_id, key_len = key.len(), "contract data deletion batched");
-                }
-                StateChangeValueView::ContractCodeUpdate { account_id, code } => {
-                    let code_hash = format!("{:x}", Sha256::digest(&code));
-
-                    let code_record = entities::near_contract_code::ActiveModel {
-                        id: NotSet,
-                        account_id: Set(account_id.to_string()),
-                        code_hash: Set(code_hash),
-                        code: Set(Some(code.clone())),
-                        block_height: Set(height),
-                        block_time: Set(ts),
-                        change_type: Set("deploy".to_string()),
-                        cause_type: Set(cause_str.to_string()),
-                        cause_tx_hash: Set(cause_tx.clone()),
-                        cause_receipt_hash: Set(cause_receipt.clone()),
-                        code_size: Set(Some(code.len() as i32)),
-                    };
-
-                    // Add to batch for later processing after accounts are created
-                    contract_code_inserts.push(code_record);
-
-                    debug!(account_id = %account_id, code_len = code.len(), "contract code batched for update");
-                }
-                StateChangeValueView::ContractCodeDeletion { account_id } => {
-                    let code_record = entities::near_contract_code::ActiveModel {
-                        id: NotSet,
-                        account_id: Set(account_id.to_string()),
-                        code_hash: Set("deleted".to_string()),
-                        code: Set(None), // NULL indicates deletion
-                        block_height: Set(height),
-                        block_time: Set(ts),
-                        change_type: Set("delete".to_string()),
-                        cause_type: Set(cause_str.to_string()),
-                        cause_tx_hash: Set(cause_tx.clone()),
-                        cause_receipt_hash: Set(cause_receipt.clone()),
-                        code_size: Set(Some(0)), // Code deleted, size is 0
-                    };
-
-                    // Add to batch for later processing after accounts are created
-                    contract_code_inserts.push(code_record);
-
-                    debug!(account_id = %account_id, "contract code deletion batched");
-                }
-            }
+            new_key
+                .insert(db)
+                .await
+                .context("Failed to insert new access key")?;
+            debug!(account_id, public_key, "Inserted new access key");
         }
 
-        // Batch upserts for account updates
-        if !account_upserts_updates.is_empty() {
-            use entities::near_accounts::Column as AC;
-            account_upserts_updates.sort_by_key(|(d, _)| *d);
-            let mut i = 0;
-            while i < account_upserts_updates.len() {
-                let depth = account_upserts_updates[i].0;
-                let mut j = i;
-                while j < account_upserts_updates.len() && account_upserts_updates[j].0 == depth {
-                    j += 1;
-                }
-                let batch: Vec<entities::near_accounts::ActiveModel> = account_upserts_updates
-                    [i..j]
-                    .iter()
-                    .map(|(_, m)| m.clone())
-                    .collect();
-                entities::near_accounts::Entity::insert_many(batch)
-                    .on_conflict(
-                        OnConflict::column(AC::AccountId)
-                            .update_columns([
-                                AC::ParentAccountId,
-                                AC::Depth,
-                                AC::IsTopLevel,
-                                AC::IsImplicit,
-                                AC::IsSystem,
-                                AC::IsStakingPool,
-                                AC::IsLockupContract,
-                                AC::StoragePaidAt,
-                                AC::LastSeenHeight,
-                                AC::LastSeenTime,
-                            ])
-                            .to_owned(),
-                    )
-                    .exec(&txn)
-                    .await?;
-                i = j;
-            }
+        Ok(())
+    }
+
+    /// Mark an access key as deleted in the database
+    async fn mark_access_key_deleted(
+        &self,
+        account_id: &str,
+        public_key: &str,
+        block_height: i64,
+        db: &impl ConnectionTrait,
+    ) -> Result<()> {
+        // Find and update the access key record
+        if let Some(access_key) = near_access_keys::Entity::find()
+            .filter(near_access_keys::Column::AccountId.eq(account_id))
+            .filter(near_access_keys::Column::PublicKey.eq(public_key))
+            .filter(near_access_keys::Column::IsActive.eq(1))
+            .one(db)
+            .await?
+        {
+            let mut access_key: near_access_keys::ActiveModel = access_key.into();
+            access_key.deleted_at_height = Set(Some(block_height));
+            access_key.is_active = Set(0);
+
+            access_key
+                .update(db)
+                .await
+                .context("Failed to update access key deletion")?;
+            debug!(
+                account_id,
+                public_key, block_height, "Marked access key as deleted"
+            );
+        } else {
+            // Access key not found in database
+            debug!(
+                account_id,
+                public_key, "Access key not found when trying to mark as deleted"
+            );
         }
 
-        // Batch upserts for account deletions
-        if !account_upserts_deletes.is_empty() {
-            use entities::near_accounts::Column as AC;
-            account_upserts_deletes.sort_by_key(|(d, _)| *d);
-            let mut i = 0;
-            while i < account_upserts_deletes.len() {
-                let depth = account_upserts_deletes[i].0;
-                let mut j = i;
-                while j < account_upserts_deletes.len() && account_upserts_deletes[j].0 == depth {
-                    j += 1;
-                }
-                let batch: Vec<entities::near_accounts::ActiveModel> = account_upserts_deletes
-                    [i..j]
-                    .iter()
-                    .map(|(_, m)| m.clone())
-                    .collect();
-                entities::near_accounts::Entity::insert_many(batch)
-                    .on_conflict(
-                        OnConflict::column(AC::AccountId)
-                            .update_columns([
-                                AC::DeletedAtHeight,
-                                AC::DeletedAtTime,
-                                AC::DeletedBeneficiaryId,
-                                AC::DeletedByTxHash,
-                                AC::DeletedByReceiptHash,
-                                AC::LastSeenHeight,
-                                AC::LastSeenTime,
-                            ])
-                            .to_owned(),
-                    )
-                    .exec(&txn)
-                    .await?;
-                i = j;
-            }
-        }
+        Ok(())
+    }
 
-        // Batch insert for state history
-        if !state_history_inserts.is_empty() {
-            use entities::near_account_state_history::Column as ASHC;
-            use sea_orm::sea_query::OnConflict;
-            entities::near_account_state_history::Entity::insert_many(state_history_inserts)
-                .on_conflict(
-                    OnConflict::columns([ASHC::AccountId, ASHC::BlockHeight])
-                        // Update to same columns to emulate no-op on duplicate
-                        .update_columns([ASHC::BlockTime])
-                        .to_owned(),
-                )
-                .exec(&txn)
-                .await?;
-        }
+    /// Load existing accounts from database to populate cache
+    async fn load_existing_accounts(&self, _db: &DatabaseConnection) -> Result<()> {
+        // This is a simplified approach - in production you might want to be more selective
+        // or use a more efficient caching strategy
+        debug!("Loading existing accounts into cache...");
 
-        // Batch insert for events with receipt hash
-        if !event_inserts_receipt.is_empty() {
-            use entities::near_account_events::Column as AEC;
-            use sea_orm::sea_query::OnConflict;
-            entities::near_account_events::Entity::insert_many(event_inserts_receipt)
-                .on_conflict(
-                    OnConflict::columns([
-                        AEC::AccountId,
-                        AEC::EventType,
-                        AEC::BlockHeight,
-                        AEC::ReceiptHash,
-                    ])
-                    .update_columns([AEC::BlockTime])
-                    .to_owned(),
-                )
-                .exec(&txn)
-                .await?;
-        }
+        // For now, we'll start with an empty cache and build it as we process
+        // In a production system, you might want to load from the database
+        // Note: cache will be passed as mutable parameter to process_state_changes
 
-        // Batch insert access keys after accounts are created
-        if !access_key_inserts.is_empty() {
-            use entities::near_access_keys::Column as AKC;
-            use sea_orm::sea_query::OnConflict;
-            entities::near_access_keys::Entity::insert_many(access_key_inserts)
-                .on_conflict(
-                    OnConflict::columns([AKC::AccountId, AKC::PublicKey, AKC::BlockHeight])
-                        .update_columns([
-                            AKC::AccessKeyType,
-                            AKC::ContractId,
-                            AKC::MethodNames,
-                            AKC::Allowance,
-                            AKC::DeletedAtHeight,
-                            AKC::DeletedAtTime,
-                        ])
-                        .to_owned(),
-                )
-                .exec(&txn)
-                .await?;
-        }
-
-        // Batch insert contract data after accounts are created
-        if !contract_data_inserts.is_empty() {
-            use entities::near_contract_data::Column as CDC;
-            use sea_orm::sea_query::OnConflict;
-            entities::near_contract_data::Entity::insert_many(contract_data_inserts)
-                .on_conflict(
-                    OnConflict::columns([CDC::AccountId, CDC::DataKey, CDC::BlockHeight])
-                        .update_columns([CDC::DataValue, CDC::ChangeType, CDC::BlockTime])
-                        .to_owned(),
-                )
-                .exec(&txn)
-                .await?;
-        }
-
-        // Batch insert contract code after accounts are created
-        if !contract_code_inserts.is_empty() {
-            use entities::near_contract_code::Column as CCC;
-            use sea_orm::sea_query::OnConflict;
-            entities::near_contract_code::Entity::insert_many(contract_code_inserts)
-                .on_conflict(
-                    OnConflict::columns([CCC::AccountId, CCC::BlockHeight])
-                        .update_columns([CCC::CodeHash, CCC::Code, CCC::ChangeType, CCC::BlockTime])
-                        .to_owned(),
-                )
-                .exec(&txn)
-                .await?;
-        }
-
-        txn.commit().await?;
+        debug!("Account cache initialized");
         Ok(())
     }
 }
@@ -769,32 +712,41 @@ impl IndexerModule for AccountsModule {
         self.enabled
     }
 
-    async fn process_block(
-        &self,
-        msg: &near_lake_framework::near_indexer_primitives::StreamerMessage,
-        db: &DatabaseConnection,
-    ) -> Result<()> {
-        let height = msg.block.header.height as i64;
-        if let Some(prev) = self.get_cursor(db).await? {
-            if height <= prev {
-                debug!(
-                    height,
-                    module = MODULE_NAME,
-                    "skipping block at/before cursor"
-                );
-                return Ok(());
-            }
-        }
-        let ts = msg.block.header.timestamp_nanosec as i64;
+    async fn initialize(&self, db: &DatabaseConnection) -> Result<()> {
+        self.load_existing_accounts(db).await?;
+        info!("Accounts module initialized");
+        Ok(())
+    }
 
-        let delete_beneficiaries = Self::pre_scan_delete_beneficiaries(msg);
-        let mut all_changes = Vec::new();
-        for shard in &msg.shards {
-            all_changes.extend(shard.state_changes.clone());
-        }
-        Self::process_changes(db, all_changes, height, ts, &delete_beneficiaries).await?;
+    async fn process_block(&self, msg: &StreamerMessage, db: &DatabaseConnection) -> Result<()> {
+        let block_height = msg.block.header.height as i64;
+        let block_timestamp = msg.block.header.timestamp_nanosec as i64;
 
-        debug!(height, module = MODULE_NAME, "processed block");
+        info!(height = block_height, "Processing accounts for block");
+
+        let txn = db.begin().await?;
+
+        // Use a local cache for this block processing
+        let mut known_accounts = HashSet::new();
+
+        self.process_state_changes(
+            &msg.shards,
+            block_height,
+            block_timestamp,
+            &txn,
+            &mut known_accounts,
+        )
+        .await
+        .context("Failed to process state changes for accounts")?;
+
+        txn.commit().await?;
+
+        debug!(
+            height = block_height,
+            accounts_processed = known_accounts.len(),
+            "Successfully processed accounts for block"
+        );
+
         Ok(())
     }
 
@@ -803,105 +755,6 @@ impl IndexerModule for AccountsModule {
     }
 
     async fn update_cursor(&self, db: &DatabaseConnection, height: i64) -> Result<()> {
-        let current = self.get_cursor(db).await?;
-        if current.map(|h| height > h).unwrap_or(true) {
-            cursor::upsert_module_cursor(db, MODULE_NAME, height).await?;
-        }
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_eth_implicit_detection() {
-        // Valid ETH address: 0x + 40 hex chars = 42 total
-        assert!(AccountsModule::is_eth_implicit_account(
-            "0x1234567890abcdef1234567890abcdef1234abcd"
-        ));
-        assert!(!AccountsModule::is_eth_implicit_account("0x123")); // Too short
-        assert!(!AccountsModule::is_eth_implicit_account(
-            "1234567890abcdef1234567890abcdef1234abcd"
-        )); // No 0x prefix
-        assert!(!AccountsModule::is_eth_implicit_account(
-            "0x1234567890ABCDEF1234567890ABCDEF1234ABCD"
-        )); // Uppercase
-    }
-
-    #[test]
-    fn test_near_implicit_detection() {
-        // Valid NEAR implicit: exactly 64 hex chars
-        assert!(AccountsModule::is_near_implicit_account(
-            "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-        ));
-        assert!(!AccountsModule::is_near_implicit_account("alice.near")); // Has dots
-        assert!(!AccountsModule::is_near_implicit_account("123")); // Too short
-        assert!(!AccountsModule::is_near_implicit_account(
-            "1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"
-        )); // Uppercase
-    }
-
-    #[test]
-    fn test_account_analysis() {
-        // Test ETH-implicit
-        let analysis =
-            AccountsModule::analyze_account("0x1234567890abcdef1234567890abcdef1234abcd").unwrap();
-        assert!(analysis.is_eth_implicit);
-        assert!(analysis.is_implicit);
-        assert_eq!(analysis.account_id_length, 42);
-
-        // Test NEAR-implicit
-        let analysis = AccountsModule::analyze_account(
-            "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-        )
-        .unwrap();
-        assert!(!analysis.is_eth_implicit);
-        assert!(analysis.is_implicit);
-        assert_eq!(analysis.account_id_length, 64);
-
-        // Test named account (subaccount)
-        let analysis = AccountsModule::analyze_account("alice.near").unwrap();
-        assert!(!analysis.is_eth_implicit);
-        assert!(!analysis.is_implicit);
-        assert!(!analysis.is_top_level); // alice.near is a subaccount of near
-        assert_eq!(analysis.depth, 2);
-        assert_eq!(analysis.account_id_length, 10);
-
-        // Test top-level account
-        let analysis = AccountsModule::analyze_account("toplevel").unwrap();
-        assert!(!analysis.is_eth_implicit);
-        assert!(!analysis.is_implicit);
-        assert!(analysis.is_top_level);
-        assert_eq!(analysis.depth, 1);
-        assert_eq!(analysis.account_id_length, 8);
-    }
-
-    #[test]
-    fn test_staking_pool_detection() {
-        let analysis = AccountsModule::analyze_account("validator.pool.near").unwrap();
-        assert!(analysis.is_staking_pool);
-
-        let analysis = AccountsModule::analyze_account("oldvalidator.poolv1.near").unwrap();
-        assert!(analysis.is_staking_pool);
-
-        let analysis = AccountsModule::analyze_account("alice.near").unwrap();
-        assert!(!analysis.is_staking_pool);
-    }
-
-    #[test]
-    fn test_lockup_contract_detection() {
-        let analysis = AccountsModule::analyze_account("account.lockup.near").unwrap();
-        assert!(analysis.is_lockup_contract);
-
-        let analysis = AccountsModule::analyze_account("lockup_account").unwrap();
-        assert!(analysis.is_lockup_contract);
-
-        let analysis = AccountsModule::analyze_account("my_lockup_contract").unwrap();
-        assert!(analysis.is_lockup_contract);
-
-        let analysis = AccountsModule::analyze_account("alice.near").unwrap();
-        assert!(!analysis.is_lockup_contract);
+        cursor::upsert_module_cursor(db, MODULE_NAME, height).await
     }
 }

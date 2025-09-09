@@ -1,41 +1,15 @@
 pub mod accounts;
-pub mod network;
-pub mod tokens;
-pub mod transactions;
-pub mod validators;
+pub mod raw;
 
 use crate::ModuleRegistry;
 
 /// Register all available modules
 pub fn register_all_modules(registry: &mut ModuleRegistry, config: &common::config::AppConfig) {
-    // Register transactions module first (needed by other modules for foreign keys)
-    let transactions_enabled = match config {
-        common::config::AppConfig::Indexer(indexer_config) => {
-            indexer_config
-                .near
-                .as_ref()
-                .and_then(|near_config| near_config.modules.as_ref())
-                .map(|_modules| true) // For now, always enable if modules config exists
-                .unwrap_or(true)
-        }
-        _ => true,
-    };
-    let transactions_module = transactions::TransactionsProcessor::new(transactions_enabled);
-    registry.register_module(Box::new(transactions_module));
+    // Register raw data module - stores all NEAR blockchain data as-is
+    let raw_module = raw::RawModule::new(config);
+    registry.register_module(Box::new(raw_module));
 
-    // Register accounts module
+    // Register accounts module - tracks account lifecycle and metadata
     let accounts_module = accounts::AccountsModule::new(config);
     registry.register_module(Box::new(accounts_module));
-
-    // Register tokens module
-    let tokens_module = tokens::TokensModule::new(config);
-    registry.register_module(Box::new(tokens_module));
-
-    // Register validators module
-    let validators_module = validators::ValidatorsModule::new(config);
-    registry.register_module(Box::new(validators_module));
-
-    // Register network module
-    let network_module = network::NetworkModule::new(config);
-    registry.register_module(Box::new(network_module));
 }

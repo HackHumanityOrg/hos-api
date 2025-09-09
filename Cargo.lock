@@ -3370,6 +3370,7 @@ dependencies = [
  "migration",
  "near-account-id",
  "near-crypto",
+ "near-indexer-primitives",
  "near-lake-framework",
  "near-primitives",
  "reqwest",

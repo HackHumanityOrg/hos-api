@@ -7,33 +7,20 @@ use serde::{Deserialize, Serialize};
 #[sea_orm(table_name = "near_transactions")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub tx_hash: String,
-    pub signer_id: String,
-    pub receiver_id: String,
+    pub hash: String,
     pub block_height: i64,
-    pub block_time: i64,
-    pub block_hash: String,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub actions: Option<String>,
-    pub status: String,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub receipt_ids: Option<String>,
-    pub public_key: Option<String>,
-    pub nonce: Option<i64>,
-    pub gas_used: Option<i64>,
-    #[sea_orm(column_type = "Decimal(Some((39, 0)))", nullable)]
-    pub tokens_burnt: Option<Decimal>,
-    pub executor_id: Option<String>,
-    #[sea_orm(column_type = "Decimal(Some((39, 0)))", nullable)]
-    pub priority_fee: Option<Decimal>,
-    pub signature: Option<String>,
-    pub execution_outcome_id: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub logs: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub proof: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub metadata: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    pub signer_id: String,
+    #[sea_orm(column_type = "Text")]
+    pub receiver_id: String,
+    pub nonce: i64,
+    pub priority_fee: i64,
+    #[sea_orm(column_type = "Text")]
+    pub public_key: String,
+    #[sea_orm(column_type = "Text")]
+    pub signature: String,
+    pub actions: Json,
+    pub raw_data: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

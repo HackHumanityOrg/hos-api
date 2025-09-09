@@ -4,15 +4,17 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "near_tokens")]
+#[sea_orm(table_name = "near_receipts")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub contract_id: String,
-    pub token_standard: String,
-    pub first_seen_height: Option<i64>,
-    pub first_seen_time: Option<i64>,
-    pub last_seen_height: Option<i64>,
-    pub last_seen_time: Option<i64>,
+    pub receipt_id: String,
+    pub block_height: i64,
+    #[sea_orm(column_type = "Text")]
+    pub predecessor_id: String,
+    #[sea_orm(column_type = "Text")]
+    pub receiver_id: String,
+    pub receipt: Json,
+    pub raw_data: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

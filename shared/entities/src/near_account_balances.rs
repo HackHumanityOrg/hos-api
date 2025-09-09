@@ -4,21 +4,19 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "near_contract_code")]
+#[sea_orm(table_name = "near_account_balances")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub account_id: String,
-    pub code_hash: String,
-    #[sea_orm(column_type = "Binary(255)", nullable)]
-    pub code: Option<Vec<u8>>,
     pub block_height: i64,
-    pub block_time: i64,
-    pub change_type: String,
-    pub cause_type: String,
-    pub cause_tx_hash: Option<String>,
-    pub cause_receipt_hash: Option<String>,
-    pub code_size: Option<i32>,
+    pub timestamp: i64,
+    #[sea_orm(column_type = "Text")]
+    pub amount: String,
+    #[sea_orm(column_type = "Text")]
+    pub locked: String,
+    pub storage_usage: i64,
+    pub code_hash: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

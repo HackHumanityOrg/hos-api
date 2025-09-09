@@ -10,23 +10,15 @@ pub struct Model {
     pub id: i64,
     pub account_id: String,
     pub public_key: String,
-    pub access_key_type: String,
-    pub contract_id: Option<String>,
+    pub permission_type: String,
     #[sea_orm(column_type = "Text", nullable)]
-    pub method_names: Option<String>,
-    #[sea_orm(column_type = "Decimal(Some((39, 0)))", nullable)]
-    pub allowance: Option<Decimal>,
-    pub nonce: Option<i64>,
-    pub block_height: i64,
-    pub block_time: i64,
-    pub change_type: String,
-    pub cause_type: String,
-    pub cause_tx_hash: Option<String>,
-    pub cause_receipt_hash: Option<String>,
+    pub allowance: Option<String>,
+    pub receiver_id: Option<String>,
+    pub method_names: Option<Json>,
+    pub nonce: i64,
+    pub created_at_height: i64,
     pub deleted_at_height: Option<i64>,
-    pub deleted_at_time: Option<i64>,
-    pub last_used_nonce: Option<i64>,
-    pub usage_count: i32,
+    pub is_active: i8,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

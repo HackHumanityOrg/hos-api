@@ -11,11 +11,10 @@ pub struct Model {
     pub account_id: String,
     pub event_type: String,
     pub block_height: i64,
-    pub block_time: i64,
-    pub tx_hash: Option<String>,
-    pub receipt_hash: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub metadata: Option<String>,
+    pub timestamp: i64,
+    pub transaction_hash: Option<String>,
+    pub receipt_id: Option<String>,
+    pub metadata: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

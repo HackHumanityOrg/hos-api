@@ -6,19 +6,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "near_chunks")]
 pub struct Model {
-    #[sea_orm(primary_key)]
-    pub id: i64,
+    #[sea_orm(primary_key, auto_increment = false)]
     pub chunk_hash: String,
     pub block_height: i64,
     pub shard_id: i64,
-    pub chunk_producer: Option<String>,
+    pub height_created: i64,
+    pub height_included: i64,
     pub gas_used: i64,
     pub gas_limit: i64,
-    pub transactions_count: i32,
-    pub receipts_count: i32,
-    pub timestamp: i64,
-    #[sea_orm(column_type = "Decimal(Some((39, 0)))")]
-    pub validator_reward: Decimal,
+    #[sea_orm(column_type = "Text")]
+    pub validator_reward: String,
+    pub raw_data: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

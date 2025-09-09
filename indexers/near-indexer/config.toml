@@ -42,45 +42,11 @@ start_height = 0
 concurrency = 4
 
 # Module configurations
+
+# Raw data module - stores all NEAR blockchain data as-is
+[near.modules.raw]
+enabled = true
+
+# Accounts module - tracks account lifecycle and metadata  
 [near.modules.accounts]
-enabled = true
-# Track implicit accounts (64-char hex addresses)
-track_implicit = true
-# Track ETH-implicit accounts (Ethereum-style addresses)
-track_eth_implicit = true
-
-[near.modules.tokens]
-enabled = true
-# Track NEP-141 fungible tokens
-track_nep141 = true
-# Track NEP-171 NFTs
-track_nep171 = true
-# Track NEP-245 MultiToken
-track_nep245 = true
-# List of specific contracts to track (empty = track all)
-contracts = []
-
-[near.modules.validators]
-enabled = true
-
-[near.modules.validators.rpc_updater]
-enabled = true
-rpc_url = "https://free.rpc.fastnear.com"
-update_interval_minutes = 60
-
-# Retry configuration for RPC requests
-[near.modules.validators.rpc_updater.retry]
-max_retries = 5
-initial_backoff_ms = 100
-max_backoff_ms = 60000
-multiplier = 2.0
-jitter = true
-
-# Rate limiting configuration
-[near.modules.validators.rpc_updater.rate_limit]
-requests_per_second = 10
-burst_size = 20
-honor_server_headers = true
-
-[near.modules.network]
 enabled = true

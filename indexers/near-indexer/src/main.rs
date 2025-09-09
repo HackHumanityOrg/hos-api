@@ -29,11 +29,11 @@ async fn main() -> Result<()> {
 
     // Initialize all modules
     registry.initialize_all(&db).await?;
-    
+
     // Initialize cursor storage from database
     near_indexer::core::cursor::initialize_cursor_storage(&db).await?;
     info!("Cursor storage initialized from database");
-    
+
     let registry = Arc::new(registry);
 
     // Check if any modules are enabled

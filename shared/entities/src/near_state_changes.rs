@@ -4,15 +4,13 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "near_validators")]
+#[sea_orm(table_name = "near_state_changes")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = false)]
-    pub account_id: String,
-    pub public_key: Option<String>,
-    pub first_seen_height: i64,
-    pub first_seen_timestamp: i64,
-    pub last_seen_height: Option<i64>,
-    pub last_seen_timestamp: Option<i64>,
+    #[sea_orm(primary_key)]
+    pub id: i64,
+    pub block_height: i64,
+    pub shard_id: i64,
+    pub state_changes: Json,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

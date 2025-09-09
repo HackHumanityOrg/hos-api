@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 #[sea_orm(table_name = "near_sync_cursors")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub stream_name: String,
-    pub block_height: i64,
-    pub updated_at: Option<DateTimeUtc>,
+    pub module_name: String,
+    pub last_processed_height: i64,
+    pub updated_at: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

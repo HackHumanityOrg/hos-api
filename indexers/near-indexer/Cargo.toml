@@ -43,6 +43,7 @@ reqwest-middleware = { workspace = true }
 reqwest-retry = { workspace = true }
 reqwest-tracing = { workspace = true }
 thiserror = { workspace = true }
+near-indexer-primitives = "0.31.1"
 
 [dev-dependencies]
 testcontainers = { workspace = true }
