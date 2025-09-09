@@ -18,17 +18,17 @@ async fn process_single_block(
     msg: nip::StreamerMessage,
 ) -> Result<()> {
     let height = msg.block.header.height as i64;
-    
+
     for module in registry.enabled_modules() {
         let cursor = module.get_cursor(db).await?;
         if cursor.map(|c| c >= height).unwrap_or(false) {
             continue; // Skip if already processed
         }
-        
+
         module.process_block(&msg, db).await?;
         module.update_cursor(db, height).await?;
     }
-    
+
     Ok(())
 }
 
@@ -156,9 +156,7 @@ async fn process_single_block_stops_on_error() {
     registry.register_module(Box::new(failing.clone()));
     registry.register_module(Box::new(later.clone()));
     let msg = make_block(1, 2);
-    let _ = process_single_block(&registry, &db, msg)
-        .await
-        .unwrap_err();
+    let _ = process_single_block(&registry, &db, msg).await.unwrap_err();
     assert_eq!(failing.processed.load(Ordering::SeqCst), 0);
     assert_eq!(later.processed.load(Ordering::SeqCst), 0);
     assert_eq!(failing.updated.load(Ordering::SeqCst), 0);

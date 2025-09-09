@@ -95,7 +95,7 @@ fn validators_can_be_enabled_via_config() {
                 track_eth_implicit: true,
             }),
             tokens: None,
-            validators: Some(common::config::ValidatorsModuleConfig { 
+            validators: Some(common::config::ValidatorsModuleConfig {
                 enabled: true,
                 rpc_updater: None,
             }),

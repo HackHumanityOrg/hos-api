@@ -181,9 +181,9 @@ impl NetworkModule {
                 };
 
                 near_epochs::Entity::insert(new_epoch)
-            .on_conflict_do_nothing()
-            .exec(db)
-            .await?;
+                    .on_conflict_do_nothing()
+                    .exec(db)
+                    .await?;
                 debug!(height, epoch_id = current_epoch_id, "First epoch recorded");
             }
             _ => {
@@ -211,15 +211,21 @@ impl NetworkModule {
         for (idx, chunk_producer) in chunk_producers.iter().enumerate() {
             // Find corresponding shard data
             let shard = msg.shards.get(idx).context("Shard index out of bounds")?;
-            
-            let (gas_used, gas_limit, tx_count, receipt_count, validator_reward) = 
+
+            let (gas_used, gas_limit, tx_count, receipt_count, validator_reward) =
                 if let Some(chunk) = &shard.chunk {
                     let gas_used = chunk.header.gas_used;
                     let gas_limit = chunk.header.gas_limit;
                     let tx_count = chunk.transactions.len() as i32;
                     let receipt_count = shard.receipt_execution_outcomes.len() as i32;
                     let validator_reward = chunk.header.validator_reward;
-                    (gas_used, gas_limit, tx_count, receipt_count, validator_reward)
+                    (
+                        gas_used,
+                        gas_limit,
+                        tx_count,
+                        receipt_count,
+                        validator_reward,
+                    )
                 } else {
                     (0, 0, 0, 0, 0)
                 };
@@ -261,14 +267,14 @@ impl NetworkModule {
         const MIN_GAS_PRICE: u128 = 100_000_000;
         let raw_gas_price = header.gas_price.max(MIN_GAS_PRICE);
         let current_gas_price = Self::safe_u128_to_decimal(raw_gas_price);
-        
+
         // Calculate total gas used/limit across all shards
         let mut total_gas_used = 0u64;
         let mut total_gas_limit = 0u64;
-        
+
         // In NEAR, each shard has a gas limit of 1 PetaGas (10^15) regardless of whether chunks are present
         const SHARD_GAS_LIMIT: u64 = 1_000_000_000_000_000; // 1 PetaGas
-        
+
         for shard in &msg.shards {
             if let Some(chunk) = &shard.chunk {
                 total_gas_used += chunk.header.gas_used;
@@ -281,7 +287,7 @@ impl NetworkModule {
 
         // Get previous gas price
         let mut prev_gas_price_guard = self.last_gas_price.write().await;
-        let prev_gas_price = prev_gas_price_guard.clone();
+        let prev_gas_price = *prev_gas_price_guard;
 
         // Calculate utilization ratio and price adjustment
         let (utilization_ratio, price_adjustment_percent) = if total_gas_limit > 0 {
@@ -289,20 +295,27 @@ impl NetworkModule {
             // NEAR gas price adjustment formula: 1% adjustment based on utilization vs 50%
             let adjustment = if let Some(_prev_price) = &prev_gas_price {
                 let target_utilization = Decimal::from_str_exact("0.5").unwrap(); // 50%
-                let adjustment_factor = (ratio - target_utilization) * Decimal::from_str_exact("0.01").unwrap(); // 1% (0.01 factor)
-                Some(adjustment_factor.round_dp_with_strategy(2, RoundingStrategy::MidpointNearestEven))
+                let adjustment_factor =
+                    (ratio - target_utilization) * Decimal::from_str_exact("0.01").unwrap(); // 1% (0.01 factor)
+                Some(
+                    adjustment_factor
+                        .round_dp_with_strategy(2, RoundingStrategy::MidpointNearestEven),
+                )
             } else {
                 None
             };
-            (Some(ratio.round_dp_with_strategy(6, RoundingStrategy::MidpointNearestEven)), adjustment)
+            (
+                Some(ratio.round_dp_with_strategy(6, RoundingStrategy::MidpointNearestEven)),
+                adjustment,
+            )
         } else {
             (None, None)
         };
 
         let gas_price_record = near_gas_prices::ActiveModel {
             block_height: Set(header.height),
-            gas_price: Set(current_gas_price.clone()),
-            prev_gas_price: Set(prev_gas_price.clone()),
+            gas_price: Set(current_gas_price),
+            prev_gas_price: Set(prev_gas_price),
             gas_used: Set(total_gas_used as i64),
             gas_limit: Set(total_gas_limit as i64),
             utilization_ratio: Set(utilization_ratio),
@@ -353,7 +366,8 @@ impl NetworkModule {
         *block_time_ms_guard = Some(header.timestamp_nanosec);
 
         // Count chunks produced vs missing
-        let chunks_produced = chunk_producers.iter()
+        let chunks_produced = chunk_producers
+            .iter()
             .filter(|cp| cp.chunk_hash.is_some() && cp.producer.is_some())
             .count() as i32;
         let total_shards = msg.shards.len() as i32;
@@ -377,15 +391,21 @@ impl NetworkModule {
             // Epoch is typically 43200 blocks
             let blocks_in_epoch = header.height - (prev_height as i64);
             let estimated_progress = (blocks_in_epoch % 43200) as f64 / 43200.0 * 100.0;
-            Some(Decimal::from_f64_retain(estimated_progress)
-                .unwrap_or(Decimal::ZERO)
-                .round_dp_with_strategy(2, RoundingStrategy::MidpointNearestEven))
+            Some(
+                Decimal::from_f64_retain(estimated_progress)
+                    .unwrap_or(Decimal::ZERO)
+                    .round_dp_with_strategy(2, RoundingStrategy::MidpointNearestEven),
+            )
         } else {
             None
         };
 
         // Extract approvals count from block header
-        let approvals_count = msg.block.header.approvals.iter()
+        let approvals_count = msg
+            .block
+            .header
+            .approvals
+            .iter()
             .filter(|approval| approval.is_some())
             .count() as i32;
 

@@ -116,6 +116,7 @@ sha2 = "0.10"
 near-crypto = "0.31.1"
 base64 = "0.22"
 wiremock = "0.6"
+tokio-retry2 = "0.6"
 
 # Development tools (managed by cargo-run-bin)
 [workspace.metadata.bin]

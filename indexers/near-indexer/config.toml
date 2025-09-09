@@ -62,5 +62,24 @@ contracts = []
 [near.modules.validators]
 enabled = true
 
+[near.modules.validators.rpc_updater]
+enabled = true
+rpc_url = "https://free.rpc.fastnear.com"
+update_interval_minutes = 60
+
+# Retry configuration for RPC requests
+[near.modules.validators.rpc_updater.retry]
+max_retries = 5
+initial_backoff_ms = 100
+max_backoff_ms = 60000
+multiplier = 2.0
+jitter = true
+
+# Rate limiting configuration
+[near.modules.validators.rpc_updater.rate_limit]
+requests_per_second = 10
+burst_size = 20
+honor_server_headers = true
+
 [near.modules.network]
 enabled = true

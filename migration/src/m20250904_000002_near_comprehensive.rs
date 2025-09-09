@@ -1096,10 +1096,7 @@ impl MigrationTrait for Migration {
                             .decimal_len(39, 0)
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearEpochValidators::PublicKey)
-                            .string_len(128),
-                    )
+                    .col(ColumnDef::new(NearEpochValidators::PublicKey).string_len(128))
                     .col(
                         ColumnDef::new(NearEpochValidators::ValidatorType)
                             .string_len(32)
@@ -1112,10 +1109,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(false),
                     )
-                    .col(
-                        ColumnDef::new(NearEpochValidators::SeatPrice)
-                            .decimal_len(39, 0),
-                    )
+                    .col(ColumnDef::new(NearEpochValidators::SeatPrice).decimal_len(39, 0))
                     .col(
                         ColumnDef::new(NearEpochValidators::ExpectedBlocks)
                             .integer()
@@ -1128,11 +1122,12 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    .col(
-                        ColumnDef::new(NearEpochValidators::ExpectedChunksPerShard)
-                            .json(),
+                    .col(ColumnDef::new(NearEpochValidators::ExpectedChunksPerShard).json())
+                    .primary_key(
+                        Index::create()
+                            .col(NearEpochValidators::EpochId)
+                            .col(NearEpochValidators::ValidatorAccountId),
                     )
-                    .primary_key(Index::create().col(NearEpochValidators::EpochId).col(NearEpochValidators::ValidatorAccountId))
                     .to_owned(),
             )
             .await?;
@@ -1177,10 +1172,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    .col(
-                        ColumnDef::new(NearValidatorPerformance::NumChunksProducedPerShard)
-                            .json(),
-                    )
+                    .col(ColumnDef::new(NearValidatorPerformance::NumChunksProducedPerShard).json())
                     .col(
                         ColumnDef::new(NearValidatorPerformance::UptimePercentage)
                             .decimal_len(5, 2),
@@ -1191,20 +1183,18 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(false),
                     )
-                    .col(
-                        ColumnDef::new(NearValidatorPerformance::KickoutReason)
-                            .string_len(64),
-                    )
+                    .col(ColumnDef::new(NearValidatorPerformance::KickoutReason).string_len(64))
                     .col(
                         ColumnDef::new(NearValidatorPerformance::EpochStartHeight)
                             .big_integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearValidatorPerformance::EpochEndHeight)
-                            .big_integer(),
+                    .col(ColumnDef::new(NearValidatorPerformance::EpochEndHeight).big_integer())
+                    .primary_key(
+                        Index::create()
+                            .col(NearValidatorPerformance::EpochId)
+                            .col(NearValidatorPerformance::ValidatorAccountId),
                     )
-                    .primary_key(Index::create().col(NearValidatorPerformance::EpochId).col(NearValidatorPerformance::ValidatorAccountId))
                     .to_owned(),
             )
             .await?;
@@ -1294,7 +1284,11 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(NearValidatorSlashing::Table).to_owned())
             .await?;
         manager
-            .drop_table(Table::drop().table(NearValidatorPerformance::Table).to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(NearValidatorPerformance::Table)
+                    .to_owned(),
+            )
             .await?;
         manager
             .drop_table(Table::drop().table(NearEpochValidators::Table).to_owned())

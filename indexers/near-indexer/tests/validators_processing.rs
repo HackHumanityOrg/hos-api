@@ -48,7 +48,7 @@ fn cfg_enable_validators() -> common::config::AppConfig {
                     track_eth_implicit: true,
                 }),
                 tokens: None,
-                validators: Some(common::config::ValidatorsModuleConfig { 
+                validators: Some(common::config::ValidatorsModuleConfig {
                     enabled: true,
                     rpc_updater: None,
                 }),

@@ -611,7 +611,7 @@ impl ValidatorsModule {
                 num_chunks_produced: Set(perf.chunks_produced as i32),
                 num_chunks_expected: Set(perf.expected_chunks as i32),
                 num_chunks_produced_per_shard: Set(Some(
-                    serde_json::to_value(&perf.chunks_per_shard).unwrap().into(),
+                    serde_json::to_value(&perf.chunks_per_shard).unwrap(),
                 )),
                 uptime_percentage: Set(Some(
                     Decimal::from_f64_retain(uptime)
@@ -797,7 +797,7 @@ impl ValidatorsModule {
                             );
 
                             if is_staking_method {
-                                let parsed_args = self.parse_staking_args(&args);
+                                let parsed_args = self.parse_staking_args(args);
                                 let amount = if *deposit > 0 {
                                     Some(*deposit)
                                 } else {
@@ -848,7 +848,7 @@ impl ValidatorsModule {
     }
 
     /// Find transaction hash for a given receipt
-    /// 
+    ///
     /// NOTE: This is a simplified implementation that uses receipt_id as a fallback.
     /// A complete implementation would track the relationship between transactions and receipts
     /// by building a mapping from receipt outcomes in the streamer message.
@@ -889,7 +889,7 @@ impl ValidatorsModule {
                 receipt_id: Set(action.receipt_id.clone()),
                 gas_used: Set(None), // Could be extracted from execution outcome if needed
                 success: Set(if action.success { 1 } else { 0 }),
-                args_json: Set(action.args.map(sea_orm::prelude::Json::from)),
+                args_json: Set(action.args),
             });
 
             // Track for delegator updates

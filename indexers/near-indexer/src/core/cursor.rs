@@ -1,10 +1,10 @@
 use anyhow::Result;
 use sea_orm::prelude::Expr;
+use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
     QueryFilter, Set,
 };
-use sea_orm::sea_query::OnConflict;
 
 /// Get the cursor for a specific module
 pub async fn get_module_cursor(db: &DatabaseConnection, module_name: &str) -> Result<Option<i64>> {
@@ -66,8 +66,14 @@ where
                     entities::near_sync_cursors::Column::UpdatedAt,
                 ])
                 .values([
-                    (entities::near_sync_cursors::Column::BlockHeight, Expr::value(height).into()),
-                    (entities::near_sync_cursors::Column::UpdatedAt, Expr::current_timestamp().into()),
+                    (
+                        entities::near_sync_cursors::Column::BlockHeight,
+                        Expr::value(height),
+                    ),
+                    (
+                        entities::near_sync_cursors::Column::UpdatedAt,
+                        Expr::current_timestamp().into(),
+                    ),
                 ])
                 .to_owned(),
         )
@@ -76,4 +82,3 @@ where
 
     Ok(())
 }
-

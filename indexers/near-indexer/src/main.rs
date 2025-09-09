@@ -59,13 +59,13 @@ async fn main() -> Result<()> {
 
     for module in registry.enabled_modules() {
         let cursor = near_indexer::core::cursor::get_module_cursor(&db, module.name()).await?;
-        
+
         if let Some(height) = cursor {
             let next_height = (height as u64).saturating_add(1);
             // Stream needs to start from the earliest position any module needs
             stream_start_height = stream_start_height.min(next_height);
             any_module_has_cursor = true;
-            
+
             info!(
                 module = module.name(),
                 cursor = height,

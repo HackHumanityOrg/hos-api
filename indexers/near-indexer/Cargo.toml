@@ -39,6 +39,10 @@ near-crypto = { workspace = true }
 base64 = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 chrono = { workspace = true }
+reqwest-middleware = "0.4"
+reqwest-retry = "0.7"
+reqwest-tracing = "0.5"
+thiserror = { workspace = true }
 
 [dev-dependencies]
 testcontainers = { workspace = true }

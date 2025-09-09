@@ -313,7 +313,10 @@ impl MigrationTrait for Migration {
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_delegation_actions_pool")
-                            .from(NearDelegationActions::Table, NearDelegationActions::ValidatorPoolId)
+                            .from(
+                                NearDelegationActions::Table,
+                                NearDelegationActions::ValidatorPoolId,
+                            )
                             .to(NearStakingPools::Table, NearStakingPools::PoolId)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade),
@@ -416,7 +419,10 @@ impl MigrationTrait for Migration {
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_delegation_balances_pool")
-                            .from(NearDelegationBalances::Table, NearDelegationBalances::ValidatorPoolId)
+                            .from(
+                                NearDelegationBalances::Table,
+                                NearDelegationBalances::ValidatorPoolId,
+                            )
                             .to(NearStakingPools::Table, NearStakingPools::PoolId)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade),
@@ -519,7 +525,10 @@ impl MigrationTrait for Migration {
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_delegation_rewards_pool")
-                            .from(NearDelegationRewards::Table, NearDelegationRewards::ValidatorPoolId)
+                            .from(
+                                NearDelegationRewards::Table,
+                                NearDelegationRewards::ValidatorPoolId,
+                            )
                             .to(NearStakingPools::Table, NearStakingPools::PoolId)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade),
@@ -654,7 +663,11 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(NearDelegationRewards::Table).to_owned())
             .await?;
         manager
-            .drop_table(Table::drop().table(NearDelegationBalances::Table).to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(NearDelegationBalances::Table)
+                    .to_owned(),
+            )
             .await?;
         manager
             .drop_table(Table::drop().table(NearDelegationActions::Table).to_owned())

@@ -29,10 +29,7 @@ async fn process_block_independent(
             continue;
         }
 
-        debug!(
-            module = module.name(),
-            height, "Processing block in module"
-        );
+        debug!(module = module.name(), height, "Processing block in module");
 
         // Process block and update cursor
         if let Err(e) = module.process_block(&msg, &db).await {
@@ -74,26 +71,24 @@ pub async fn run_parallel_processing(
     >,
     concurrency: usize,
 ) -> Result<()> {
-    info!(
-        concurrency,
-        "Starting NEAR parallel indexer processing"
-    );
+    info!(concurrency, "Starting NEAR parallel indexer processing");
 
     ReceiverStream::new(stream)
         .map(|msg| {
             let registry = registry.clone();
             let db = db.clone();
-            
+
             async move {
                 let height = msg.block.header.height;
                 info!(height, "Processing block");
-                
+
                 // Process block with exponential backoff retry
                 let mut backoff_ms: u64 = 250;
                 let max_backoff_ms: u64 = 30_000;
-                
+
                 loop {
-                    match process_block_independent(registry.clone(), db.clone(), msg.clone()).await {
+                    match process_block_independent(registry.clone(), db.clone(), msg.clone()).await
+                    {
                         Ok(_) => {
                             info!(height, "Block processed successfully");
                             return Ok::<_, anyhow::Error>(());
