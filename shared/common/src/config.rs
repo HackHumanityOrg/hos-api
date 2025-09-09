@@ -755,15 +755,14 @@ impl Default for DatabaseConfig {
         Self {
             // URL will be loaded from DATABASE_URL environment variable
             url: String::new(),
-            // Increased for concurrent indexer workload: 10 concurrent blocks × 5 modules × 3 ops = 150 potential connections
-            // Set to 100 to provide sufficient headroom while being conservative 
-            max_connections: Some(100),
-            min_connections: Some(5),
-            connection_timeout: Some(30),
-            // Reduced acquire timeout to fail fast rather than pile up waiting requests
-            acquire_timeout: Some(10), 
-            idle_timeout: Some(600),  // 10 minutes
-            max_lifetime: Some(1800), // 30 minutes
+            // Much more aggressive settings for MySQL connection pool issues
+            // MySQL has known issues with connections not being returned to pool
+            max_connections: Some(200), // Increased significantly
+            min_connections: Some(10),  // Higher minimum to keep connections ready
+            connection_timeout: Some(15), // Reduced from 30 to fail faster
+            acquire_timeout: Some(5),   // Very short - fail fast if pool exhausted
+            idle_timeout: Some(120),    // Much shorter - 2 minutes instead of 10
+            max_lifetime: Some(300),    // Much shorter - 5 minutes to force connection recycling
         }
     }
 }

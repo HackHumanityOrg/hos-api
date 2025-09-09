@@ -31,11 +31,13 @@ pub async fn establish_connection(
             message: e.to_string(),
         })?;
 
-    info!("Database connection established successfully with max_connections={}, min_connections={}, connection_timeout={}s, idle_timeout={}s",
+    info!("Database connection established successfully with max_connections={}, min_connections={}, connection_timeout={}s, acquire_timeout={}s, idle_timeout={}s, max_lifetime={}s",
           config.max_connections.unwrap_or(10),
           config.min_connections.unwrap_or(1),
           config.connection_timeout.unwrap_or(30),
-          config.idle_timeout.unwrap_or(600));
+          config.acquire_timeout.unwrap_or(30),
+          config.idle_timeout.unwrap_or(600),
+          config.max_lifetime.unwrap_or(1800));
     Ok(db)
 }
 

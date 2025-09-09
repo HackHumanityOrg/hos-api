@@ -71,7 +71,7 @@ pub async fn run_parallel_processing(
     >,
     concurrency: usize,
 ) -> Result<()> {
-    info!(concurrency, "Starting NEAR parallel indexer processing");
+    info!(concurrency, "Starting NEAR parallel indexer processing with aggressive connection pool settings");
 
     ReceiverStream::new(stream)
         .map(|msg| {
@@ -94,12 +94,22 @@ pub async fn run_parallel_processing(
                             return Ok::<_, anyhow::Error>(());
                         }
                         Err(e) => {
+                            let is_pool_error = e.to_string().contains("Connection pool timed out") ||
+                                              e.to_string().contains("Failed to acquire connection from pool");
+                            
                             error!(
                                 error = %e,
                                 height,
                                 backoff_ms,
+                                is_pool_error,
                                 "Block processing failed, retrying with backoff"
                             );
+
+                            // For pool errors, add extra delay to allow connections to be recycled
+                            if is_pool_error {
+                                backoff_ms = backoff_ms.max(5000); // Minimum 5 second delay for pool errors
+                                error!(height, "Connection pool error - using extended backoff");
+                            }
 
                             // Exponential backoff with jitter
                             let now = std::time::SystemTime::now()
@@ -122,3 +132,4 @@ pub async fn run_parallel_processing(
     info!("NEAR parallel indexer processing ended");
     Ok(())
 }
+

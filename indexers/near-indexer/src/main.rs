@@ -47,10 +47,10 @@ async fn main() -> Result<()> {
                 n.map(|c| c.chain.clone())
                     .unwrap_or_else(|| "mainnet".to_string()),
                 n.map(|c| c.start_height).unwrap_or(0),
-                n.and_then(|c| c.concurrency).unwrap_or(8), // Default to 8 for parallel processing (reduced from 10 to be more conservative with DB connections)
+                n.and_then(|c| c.concurrency).unwrap_or(6), // Default to 6 for parallel processing (conservative with large connection pool)
             )
         }
-        _ => ("mainnet".to_string(), 0, 8),
+        _ => ("mainnet".to_string(), 0, 6),
     };
 
     // Find the minimum cursor across all modules to determine stream start point
