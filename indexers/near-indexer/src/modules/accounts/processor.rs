@@ -566,7 +566,6 @@ impl AccountsModule {
                         cause_tx_hash: Set(cause_tx.clone()),
                         cause_receipt_hash: Set(cause_receipt.clone()),
                         code_size: Set(Some(code.len() as i32)),
-                        method_signatures: Set(None), // TODO: Extract method signatures if possible
                     };
 
                     // Add to batch for later processing after accounts are created
@@ -587,7 +586,6 @@ impl AccountsModule {
                         cause_tx_hash: Set(cause_tx.clone()),
                         cause_receipt_hash: Set(cause_receipt.clone()),
                         code_size: Set(Some(0)), // Code deleted, size is 0
-                        method_signatures: Set(None),
                     };
 
                     // Add to batch for later processing after accounts are created

@@ -1075,6 +1075,187 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        // near_epoch_validators - Track validator sets per epoch
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearEpochValidators::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearEpochValidators::EpochId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochValidators::ValidatorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochValidators::StakeAmount)
+                            .decimal_len(39, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochValidators::PublicKey)
+                            .string_len(128),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochValidators::ValidatorType)
+                            .string_len(32)
+                            .not_null()
+                            .default("block_producer"),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochValidators::IsNewValidator)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochValidators::SeatPrice)
+                            .decimal_len(39, 0),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochValidators::ExpectedBlocks)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochValidators::ExpectedChunks)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearEpochValidators::ExpectedChunksPerShard)
+                            .json(),
+                    )
+                    .primary_key(Index::create().col(NearEpochValidators::EpochId).col(NearEpochValidators::ValidatorAccountId))
+                    .to_owned(),
+            )
+            .await?;
+
+        // near_validator_performance - Track per-epoch performance
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearValidatorPerformance::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::EpochId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::ValidatorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::NumBlocksProduced)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::NumBlocksExpected)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::NumChunksProduced)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::NumChunksExpected)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::NumChunksProducedPerShard)
+                            .json(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::UptimePercentage)
+                            .decimal_len(5, 2),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::IsKickedOut)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::KickoutReason)
+                            .string_len(64),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::EpochStartHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorPerformance::EpochEndHeight)
+                            .big_integer(),
+                    )
+                    .primary_key(Index::create().col(NearValidatorPerformance::EpochId).col(NearValidatorPerformance::ValidatorAccountId))
+                    .to_owned(),
+            )
+            .await?;
+
+        // near_validator_slashing - Track slashing events
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearValidatorSlashing::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearValidatorSlashing::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorSlashing::ValidatorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorSlashing::EpochId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorSlashing::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorSlashing::SlashAmount)
+                            .decimal_len(39, 0)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorSlashing::SlashReason)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearValidatorSlashing::Timestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
         // near_sync_cursors
         manager
             .create_table(
@@ -1107,6 +1288,16 @@ impl MigrationTrait for Migration {
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
             .drop_table(Table::drop().table(NearSyncCursors::Table).to_owned())
+            .await?;
+        // Drop new validator tables
+        manager
+            .drop_table(Table::drop().table(NearValidatorSlashing::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearValidatorPerformance::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(NearEpochValidators::Table).to_owned())
             .await?;
         // Drop new network tables
         manager
@@ -1525,5 +1716,49 @@ enum NearBlockMetrics {
     ApprovalsCount,
     ChallengesCount,
     EpochProgressPercent,
+    Timestamp,
+}
+
+#[derive(DeriveIden)]
+enum NearEpochValidators {
+    Table,
+    EpochId,
+    ValidatorAccountId,
+    StakeAmount,
+    PublicKey,
+    ValidatorType,
+    IsNewValidator,
+    SeatPrice,
+    ExpectedBlocks,
+    ExpectedChunks,
+    ExpectedChunksPerShard,
+}
+
+#[derive(DeriveIden)]
+enum NearValidatorPerformance {
+    Table,
+    EpochId,
+    ValidatorAccountId,
+    NumBlocksProduced,
+    NumBlocksExpected,
+    NumChunksProduced,
+    NumChunksExpected,
+    NumChunksProducedPerShard,
+    UptimePercentage,
+    IsKickedOut,
+    KickoutReason,
+    EpochStartHeight,
+    EpochEndHeight,
+}
+
+#[derive(DeriveIden)]
+enum NearValidatorSlashing {
+    Table,
+    Id,
+    ValidatorAccountId,
+    EpochId,
+    BlockHeight,
+    SlashAmount,
+    SlashReason,
     Timestamp,
 }

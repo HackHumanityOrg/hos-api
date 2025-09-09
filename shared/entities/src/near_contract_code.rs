@@ -19,8 +19,6 @@ pub struct Model {
     pub cause_tx_hash: Option<String>,
     pub cause_receipt_hash: Option<String>,
     pub code_size: Option<i32>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub method_signatures: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
