@@ -2,31 +2,48 @@ use anyhow::Result;
 use sea_orm::prelude::Expr;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
-    QueryFilter, Set,
+    ActiveValue::NotSet, ConnectionTrait, DatabaseConnection, EntityTrait, Set,
 };
 use std::collections::HashMap;
 use std::sync::{RwLock, OnceLock};
 use std::time::{Duration, Instant};
 
-/// Global state to track last write time per cursor to rate limit database writes
-static CURSOR_RATE_LIMITER: OnceLock<RwLock<HashMap<String, Instant>>> = OnceLock::new();
+/// Global in-memory cursor cache
+static CURSORS: OnceLock<RwLock<HashMap<String, i64>>> = OnceLock::new();
 
-fn get_rate_limiter() -> &'static RwLock<HashMap<String, Instant>> {
-    CURSOR_RATE_LIMITER.get_or_init(|| RwLock::new(HashMap::new()))
+/// Global rate limiter for DB writes
+static LAST_WRITES: OnceLock<RwLock<HashMap<String, Instant>>> = OnceLock::new();
+
+fn get_cursors() -> &'static RwLock<HashMap<String, i64>> {
+    CURSORS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-/// Get the cursor for a specific module
-pub async fn get_module_cursor(db: &DatabaseConnection, module_name: &str) -> Result<Option<i64>> {
-    let cursor = entities::near_sync_cursors::Entity::find()
-        .filter(
-            entities::near_sync_cursors::Column::StreamName
-                .eq(format!("near-indexer:{}", module_name)),
-        )
-        .one(db)
-        .await?;
+fn get_last_writes() -> &'static RwLock<HashMap<String, Instant>> {
+    LAST_WRITES.get_or_init(|| RwLock::new(HashMap::new()))
+}
 
-    Ok(cursor.map(|c| c.block_height))
+/// Initialize cursors from database
+pub async fn initialize_cursor_storage(db: &DatabaseConnection) -> Result<()> {
+    // Load all cursors from database
+    let all_cursors = entities::near_sync_cursors::Entity::find().all(db).await?;
+    
+    let cursors = get_cursors();
+    let mut cursor_map = cursors.write().unwrap();
+    for cursor_row in all_cursors {
+        let module_name = cursor_row.stream_name
+            .strip_prefix("near-indexer:")
+            .unwrap_or(&cursor_row.stream_name);
+        cursor_map.insert(module_name.to_string(), cursor_row.block_height);
+    }
+    
+    Ok(())
+}
+
+/// Get the cursor for a specific module (from memory)
+pub async fn get_module_cursor(_db: &DatabaseConnection, module_name: &str) -> Result<Option<i64>> {
+    let cursors = get_cursors();
+    let cursor_map = cursors.read().unwrap();
+    Ok(cursor_map.get(module_name).copied())
 }
 
 /// Determine the start height for a module using stored cursor or configured start
@@ -36,13 +53,8 @@ pub async fn choose_module_start_height(
     configured_start: u64,
 ) -> Result<(u64, bool)> {
     let cursor = get_module_cursor(db, module_name).await?;
-
     if let Some(last_height) = cursor {
-        let last = if last_height < 0 {
-            0u64
-        } else {
-            last_height as u64
-        };
+        let last = if last_height < 0 { 0u64 } else { last_height as u64 };
         let next = last.saturating_add(1);
         let chosen = std::cmp::max(configured_start, next);
         Ok((chosen, true))
@@ -51,65 +63,70 @@ pub async fn choose_module_start_height(
     }
 }
 
-/// Upsert the cursor for a specific module (rate limited to once per second per cursor)
+/// Update the cursor for a specific module (rate limited to max once per second per cursor)
 pub async fn upsert_module_cursor<C>(db: &C, module_name: &str, height: i64) -> Result<()>
 where
     C: ConnectionTrait,
 {
-    let rate_limiter = get_rate_limiter();
-    let now = Instant::now();
-    let key = module_name.to_string();
+    let cursors = get_cursors();
+    let last_writes = get_last_writes();
     
-    // Check if we should rate limit this cursor update
+    // Update in memory
     {
-        let last_writes = rate_limiter.read().unwrap();
-        if let Some(&last_write_time) = last_writes.get(&key) {
-            if now.duration_since(last_write_time) < Duration::from_secs(1) {
-                // Rate limited - skip database write
-                return Ok(());
-            }
+        let mut cursor_map = cursors.write().unwrap();
+        if cursor_map.get(module_name).map_or(true, |&current| height > current) {
+            cursor_map.insert(module_name.to_string(), height);
         }
-    } // Read lock dropped here
+    }
     
-    // Update the last write time before doing the database write
+    // Check if we should write to DB (rate limited)
+    let now = Instant::now();
+    let should_write = {
+        let writes = last_writes.read().unwrap();
+        writes.get(module_name)
+            .map_or(true, |&last| now.duration_since(last) >= Duration::from_secs(1))
+    };
+    
+    if !should_write {
+        return Ok(());
+    }
+    
+    // Update last write time
     {
-        let mut last_writes = rate_limiter.write().unwrap();
-        last_writes.insert(key, now);
-    } // Write lock dropped here
-
+        let mut writes = last_writes.write().unwrap();
+        writes.insert(module_name.to_string(), now);
+    }
+    
+    // Write to database
     let stream_name = format!("near-indexer:{}", module_name);
-
-    // Use ON DUPLICATE KEY UPDATE to handle parallel cursor updates safely
-    // This will insert if not exists, or update if exists
-    let cursor_record = entities::near_sync_cursors::ActiveModel {
+    entities::near_sync_cursors::Entity::insert(entities::near_sync_cursors::ActiveModel {
         stream_name: Set(stream_name),
         block_height: Set(height),
-        updated_at: NotSet, // Will be set by database default/trigger
-    };
-
-    // Use on_conflict to handle parallel inserts gracefully
-    // For MySQL this generates: INSERT ... ON DUPLICATE KEY UPDATE block_height = VALUES(block_height)
-    entities::near_sync_cursors::Entity::insert(cursor_record)
-        .on_conflict(
-            OnConflict::column(entities::near_sync_cursors::Column::StreamName)
-                .update_columns([
-                    entities::near_sync_cursors::Column::BlockHeight,
-                    entities::near_sync_cursors::Column::UpdatedAt,
-                ])
-                .values([
-                    (
-                        entities::near_sync_cursors::Column::BlockHeight,
-                        Expr::value(height),
-                    ),
-                    (
-                        entities::near_sync_cursors::Column::UpdatedAt,
-                        Expr::current_timestamp().into(),
-                    ),
-                ])
-                .to_owned(),
-        )
-        .exec(db)
-        .await?;
-
+        updated_at: NotSet,
+    })
+    .on_conflict(
+        OnConflict::column(entities::near_sync_cursors::Column::StreamName)
+            .update_columns([
+                entities::near_sync_cursors::Column::BlockHeight,
+                entities::near_sync_cursors::Column::UpdatedAt,
+            ])
+            .values([
+                (entities::near_sync_cursors::Column::BlockHeight, Expr::value(height)),
+                (entities::near_sync_cursors::Column::UpdatedAt, Expr::current_timestamp().into()),
+            ])
+            .to_owned(),
+    )
+    .exec(db)
+    .await?;
+    
     Ok(())
+}
+
+pub fn reset_cursor_storage() {
+    if let Some(cursors) = CURSORS.get() {
+        cursors.write().unwrap().clear();
+    }
+    if let Some(last_writes) = LAST_WRITES.get() {
+        last_writes.write().unwrap().clear();
+    }
 }
