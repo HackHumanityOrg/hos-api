@@ -250,7 +250,17 @@ impl TokenStateManager {
     fn extract_transfer_data(
         event: &ParsedTokenEvent,
     ) -> Result<(Option<String>, Option<String>, Vec<TransferData>)> {
-        let data = &event.data;
+        let data_array = event
+            .data
+            .as_array()
+            .ok_or_else(|| anyhow!("Event data should be an array"))?;
+
+        if data_array.is_empty() {
+            return Err(anyhow!("Event data array is empty"));
+        }
+
+        // Get the first data element (most transfer events have single data object)
+        let data = &data_array[0];
 
         let from_account = data
             .get("old_owner_id")
@@ -338,7 +348,17 @@ impl TokenStateManager {
     }
 
     fn extract_mint_data(event: &ParsedTokenEvent) -> Result<(String, Vec<TransferData>)> {
-        let data = &event.data;
+        let data_array = event
+            .data
+            .as_array()
+            .ok_or_else(|| anyhow!("Event data should be an array"))?;
+
+        if data_array.is_empty() {
+            return Err(anyhow!("Event data array is empty"));
+        }
+
+        // Get the first data element (most mint events have single data object)
+        let data = &data_array[0];
 
         let owner_id = data
             .get("owner_id")

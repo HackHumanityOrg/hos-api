@@ -278,7 +278,6 @@ async fn test_real_lake_stream_raw(#[future] test_db: TestDatabase) {
                             println!("     Hash: {}", sample.hash);
                             println!("     Timestamp: {}", sample.timestamp);
                             println!("     Gas price: {}", sample.gas_price);
-                            println!("     Has raw data: {}", sample.raw_data.is_some());
 
                             // Validate against expected data if available
                             if sample.height as u64 == EXPECTED_BLOCK.block_height {
@@ -291,19 +290,6 @@ async fn test_real_lake_stream_raw(#[future] test_db: TestDatabase) {
                                     "Indexed gas price should match expected"
                                 );
                                 println!("     ✅ Indexed block data matches expected values");
-                            }
-
-                            // Validate raw data is stored
-                            assert!(sample.raw_data.is_some(), "Raw block data should be stored");
-
-                            // Basic validation of raw data structure
-                            if let Some(raw_data) = &sample.raw_data {
-                                assert!(
-                                    raw_data.as_str().map(|s| !s.is_empty()).unwrap_or(true),
-                                    "Raw data should not be empty"
-                                );
-                                let data_size = raw_data.as_str().map(|s| s.len()).unwrap_or(0);
-                                println!("     ✅ Raw block data stored ({} bytes)", data_size);
                             }
                         }
                     }

@@ -29,10 +29,22 @@ pub async fn sync_recent(
     instance: &str,
     recent_topic_cap: u32,
     conc: &Concurrency,
+    max_pages_per_run: u32,
+    recent_lookback_hours: i64,
 ) -> Result<()> {
     // categories and recent users
     services_helpers::sync_categories(db, client, instance).await?;
-    services_helpers::sync_topics(db, client, instance, true, recent_topic_cap, conc).await
+    services_helpers::sync_topics(
+        db,
+        client,
+        instance,
+        true,
+        recent_topic_cap,
+        conc,
+        max_pages_per_run,
+        Some(recent_lookback_hours),
+    )
+    .await
 }
 
 #[tracing::instrument(skip(db, client, conc))]
@@ -41,10 +53,21 @@ pub async fn sync_full(
     client: &discourse_api::DiscourseClient,
     instance: &str,
     conc: &Concurrency,
+    max_pages_per_run: u32,
 ) -> Result<()> {
     services_helpers::sync_categories(db, client, instance).await?;
     services_helpers::sync_directory_users(db, client, instance, false, u32::MAX, u32::MAX).await?;
-    services_helpers::sync_topics(db, client, instance, false, 0, conc).await
+    services_helpers::sync_topics(
+        db,
+        client,
+        instance,
+        false,
+        0,
+        conc,
+        max_pages_per_run,
+        None,
+    )
+    .await
 }
 
 mod services_helpers {
@@ -90,11 +113,23 @@ mod services_helpers {
         recent: bool,
         recent_topic_cap: u32,
         conc: &Concurrency,
+        max_pages_per_run: u32,
+        recent_lookback_hours: Option<i64>,
     ) -> Result<()> {
         use crate::domain::topics::model::TopicResponse;
         let mut page: u32 = 0;
         let mut prev_ids: Option<Vec<i32>> = None;
+        let mut pages_fetched: u32 = 0;
+        let lookback_cutoff = if recent {
+            recent_lookback_hours.map(|h| chrono::Utc::now() - chrono::Duration::hours(h))
+        } else {
+            None
+        };
         loop {
+            // Global hard cap on pages for safety
+            if pages_fetched >= max_pages_per_run {
+                break;
+            }
             let resp: TopicResponse = if recent {
                 match domain::topics::adapter::fetch_topics_recent_page(client, page).await {
                     Ok(r) => r,
@@ -122,6 +157,7 @@ mod services_helpers {
                     }
                 }
             };
+            pages_fetched += 1;
             if resp.topic_list.topics.is_empty() {
                 break;
             }
@@ -136,9 +172,19 @@ mod services_helpers {
                 }
                 prev_ids = Some(ids);
             }
+            // Early-break for recent mode if all topics are outside lookback window
+            if recent {
+                if let Some(cutoff) = lookback_cutoff {
+                    let all_old = resp.topic_list.topics.iter().all(|t| t.bumped_at < cutoff);
+                    if all_old {
+                        break;
+                    }
+                }
+            }
             domain::topics::repo::upsert_topics_bulk(db, instance, &resp.topic_list.topics).await?;
             for t in resp.topic_list.topics {
-                sync_posts_for_topic(db, client, instance, t.id, recent, conc).await?;
+                sync_posts_for_topic(db, client, instance, t.id, recent, conc, max_pages_per_run)
+                    .await?;
             }
             // Recent: cap to a few pages; Full: continue until empty or repeat
             if recent {
@@ -147,7 +193,8 @@ mod services_helpers {
                 } else {
                     recent_topic_cap
                 };
-                if page >= cap {
+                // Fix off-by-one: pages are 0-indexed; cap is number of pages to fetch
+                if (page + 1) >= cap {
                     break;
                 }
             }
@@ -164,13 +211,18 @@ mod services_helpers {
         topic_id: i32,
         recent: bool,
         conc: &Concurrency,
+        max_pages_per_run: u32,
     ) -> Result<()> {
         use crate::domain::posts::model::PostResponse;
         let mut page: u32 = 0;
         let mut processed = 0i32;
         let mut total: Option<i32> = None;
         let mut prev_post_ids: Option<Vec<i32>> = None;
+        let mut pages_fetched: u32 = 0;
         loop {
+            if pages_fetched >= max_pages_per_run {
+                break;
+            }
             let r: PostResponse =
                 match domain::posts::adapter::fetch_posts_page(client, topic_id, page).await {
                     Ok(r) => r,
@@ -184,6 +236,7 @@ mod services_helpers {
                         return Err(e);
                     }
                 };
+            pages_fetched += 1;
             if total.is_none() {
                 total = r.posts_count;
             }

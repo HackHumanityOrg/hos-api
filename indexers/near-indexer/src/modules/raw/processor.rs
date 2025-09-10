@@ -63,7 +63,6 @@ impl RawModule {
             chunks_included: Set(header.chunks_included as i64),
             block_ordinal: Set(header.block_ordinal.map(|bo| bo as i64)),
             prev_height: Set(header.prev_height.map(|ph| ph as i64)),
-            raw_data: Set(serde_json::to_value(block).ok()),
         };
 
         near_blocks::Entity::insert(block_record)
@@ -94,7 +93,6 @@ impl RawModule {
                     gas_used: Set(header.gas_used as i64),
                     gas_limit: Set(header.gas_limit as i64),
                     validator_reward: Set(header.validator_reward.to_string()),
-                    raw_data: Set(serde_json::to_value(chunk).ok()),
                 };
 
                 near_chunks::Entity::insert(chunk_record)

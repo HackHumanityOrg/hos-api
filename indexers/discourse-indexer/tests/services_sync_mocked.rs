@@ -245,7 +245,7 @@ async fn test_sync_recent_with_mock_server_inserts_topic_and_post(#[future] test
     let client = DiscourseClient::new(base);
     let conc = Concurrency::new(2, 2, 2);
     // Use small caps
-    sync::sync_recent(&db, &client, "mock.instance", 1, &conc)
+    sync::sync_recent(&db, &client, "mock.instance", 1, &conc, 10, 2)
         .await
         .expect("sync_recent");
 

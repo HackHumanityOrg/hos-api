@@ -240,9 +240,15 @@ impl DiscourseClient {
                 }
                 let jitter: u64 =
                     rand::thread_rng().gen_range(self.jitter_min_ms..=self.jitter_max_ms);
-                delay = retry_hint.unwrap_or(delay);
-                delay = std::cmp::min(delay * 2, Duration::from_secs(60))
-                    + Duration::from_millis(jitter);
+                
+                if let Some(hint) = retry_hint {
+                    // Use the server's explicit retry hint with just jitter
+                    delay = hint + Duration::from_millis(jitter);
+                } else {
+                    // Apply exponential backoff with jitter
+                    delay = std::cmp::min(delay * 2, Duration::from_secs(60))
+                        + Duration::from_millis(jitter);
+                }
                 tokio::time::sleep(delay).await;
                 continue;
             }

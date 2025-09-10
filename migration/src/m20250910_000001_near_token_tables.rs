@@ -73,32 +73,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // Add unique constraint for receipt_id + log_index
-        manager
-            .create_index(
-                Index::create()
-                    .if_not_exists()
-                    .name("idx_near_token_events_raw_receipt_log")
-                    .table(NearTokenEventsRaw::Table)
-                    .col(NearTokenEventsRaw::ReceiptId)
-                    .col(NearTokenEventsRaw::LogIndex)
-                    .unique()
-                    .to_owned(),
-            )
-            .await?;
-
-        // Add index for block height
-        manager
-            .create_index(
-                Index::create()
-                    .if_not_exists()
-                    .name("idx_near_token_events_raw_block_height")
-                    .table(NearTokenEventsRaw::Table)
-                    .col(NearTokenEventsRaw::BlockHeight)
-                    .to_owned(),
-            )
-            .await?;
-
         // Layer 2: Parsed Token Events
         manager
             .create_table(
@@ -160,31 +134,6 @@ impl MigrationTrait for Migration {
                             .to(NearTokenEventsRaw::Table, NearTokenEventsRaw::Id)
                             .on_delete(ForeignKeyAction::Cascade),
                     )
-                    .to_owned(),
-            )
-            .await?;
-
-        // Indexes for parsed events
-        manager
-            .create_index(
-                Index::create()
-                    .if_not_exists()
-                    .name("idx_near_token_events_contract")
-                    .table(NearTokenEvents::Table)
-                    .col(NearTokenEvents::ContractId)
-                    .col(NearTokenEvents::BlockHeight)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .if_not_exists()
-                    .name("idx_near_token_events_type")
-                    .table(NearTokenEvents::Table)
-                    .col(NearTokenEvents::EventType)
-                    .col((NearTokenEvents::BlockHeight, IndexOrder::Desc))
                     .to_owned(),
             )
             .await?;
@@ -269,31 +218,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // Indexes for balances
-        manager
-            .create_index(
-                Index::create()
-                    .if_not_exists()
-                    .name("idx_near_token_balances_account")
-                    .table(NearTokenBalances::Table)
-                    .col(NearTokenBalances::AccountId)
-                    .col(NearTokenBalances::ContractId)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .if_not_exists()
-                    .name("idx_near_token_balances_token")
-                    .table(NearTokenBalances::Table)
-                    .col(NearTokenBalances::ContractId)
-                    .col(NearTokenBalances::TokenId)
-                    .to_owned(),
-            )
-            .await?;
-
         // Layer 5: Transfer History (Unified view)
         manager
             .create_table(
@@ -345,44 +269,6 @@ impl MigrationTrait for Migration {
                             .to(NearTokenEvents::Table, NearTokenEvents::Id)
                             .on_delete(ForeignKeyAction::Cascade),
                     )
-                    .to_owned(),
-            )
-            .await?;
-
-        // Indexes for transfers
-        manager
-            .create_index(
-                Index::create()
-                    .if_not_exists()
-                    .name("idx_near_token_transfers_from")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::FromAccount)
-                    .col((NearTokenTransfers::BlockHeight, IndexOrder::Desc))
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .if_not_exists()
-                    .name("idx_near_token_transfers_to")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::ToAccount)
-                    .col((NearTokenTransfers::BlockHeight, IndexOrder::Desc))
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .if_not_exists()
-                    .name("idx_near_token_transfers_token")
-                    .table(NearTokenTransfers::Table)
-                    .col(NearTokenTransfers::ContractId)
-                    .col(NearTokenTransfers::TokenId)
-                    .col((NearTokenTransfers::BlockHeight, IndexOrder::Desc))
                     .to_owned(),
             )
             .await?;

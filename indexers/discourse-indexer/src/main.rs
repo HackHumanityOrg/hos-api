@@ -93,7 +93,8 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
         let recent_every = inst
             .recent_update_interval_sec
             .unwrap_or(discourse.recent_update_interval_sec);
-        let _max_pages = discourse.max_pages_per_run;
+        let max_pages = discourse.max_pages_per_run;
+        let lookback_hours = discourse.recent_lookback_hours;
 
         let db_clone = db.clone();
         let cfg_telemetry = config.telemetry().enabled;
@@ -142,6 +143,8 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
                         &instance_key,
                         recent_topic_cap,
                         &conc,
+                        max_pages,
+                        lookback_hours,
                     )
                     .await
                     {
@@ -180,7 +183,8 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
                 loop {
                     tick.tick().await;
                     if let Err(e) =
-                        services::sync_full(&db_clone, &client, &instance_key, &conc).await
+                        services::sync_full(&db_clone, &client, &instance_key, &conc, max_pages)
+                            .await
                     {
                         error!(instance = %instance_key, error = ?e, "full indexing failed");
                     } else if cfg_telemetry {

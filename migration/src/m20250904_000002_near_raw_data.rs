@@ -76,9 +76,6 @@ impl MigrationTrait for Migration {
                             .null(),
                     )
                     .col(ColumnDef::new(NearBlocks::PrevHeight).big_integer().null())
-                    .col(
-                        ColumnDef::new(NearBlocks::RawData).json().null(), // Store complete BlockView as JSON
-                    )
                     .to_owned(),
             )
             .await?;
@@ -122,9 +119,6 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(NearChunks::ValidatorReward)
                             .text()
                             .not_null(), // Store Balance as string to preserve precision
-                    )
-                    .col(
-                        ColumnDef::new(NearChunks::RawData).json().null(), // Store complete IndexerChunkView as JSON
                     )
                     .to_owned(),
             )
@@ -309,11 +303,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // =================
-        // INDICES - Commented out to avoid conflicts with existing tables
-        // =================
-        // Indices can be added later if needed after tables are created successfully
-
         Ok(())
     }
 
@@ -363,7 +352,6 @@ enum NearBlocks {
     ChunksIncluded,
     BlockOrdinal,
     PrevHeight,
-    RawData,
 }
 
 #[derive(DeriveIden)]
@@ -378,7 +366,6 @@ enum NearChunks {
     GasUsed,
     GasLimit,
     ValidatorReward,
-    RawData,
 }
 
 #[derive(DeriveIden)]
