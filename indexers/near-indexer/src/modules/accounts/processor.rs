@@ -13,6 +13,7 @@ use tracing::{debug, info};
 
 use crate::core::cursor;
 use crate::IndexerModule;
+use super::classification::{classify_account, validate_account_id, get_parent_account};
 
 const MODULE_NAME: &str = "accounts";
 
@@ -46,98 +47,6 @@ impl AccountsModule {
         Self { enabled }
     }
 
-    /// Classify account type based on account ID pattern
-    fn classify_account(&self, account_id: &str) -> String {
-        if account_id == "system" {
-            return "system".to_string();
-        }
-
-        // ETH-implicit accounts (0x + 40 hex chars)
-        if account_id.starts_with("0x") && account_id.len() == 42
-            && account_id[2..]
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
-            {
-                return "eth_implicit".to_string();
-            }
-
-        // NEAR-implicit accounts (64 hex chars)
-        if account_id.len() == 64
-            && account_id
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
-        {
-            return "implicit".to_string();
-        }
-
-        // Check for lockup contract pattern
-        if account_id.contains("lockup") {
-            return "lockup".to_string();
-        }
-
-        // Named accounts
-        "named".to_string()
-    }
-
-    /// Extract parent account ID for sub-accounts
-    fn get_parent_account(&self, account_id: &str) -> Option<String> {
-        if account_id.contains('.') {
-            let parts: Vec<&str> = account_id.split('.').collect();
-            if parts.len() > 1 {
-                return Some(parts[1..].join("."));
-            }
-        }
-        None
-    }
-
-    /// Validate account ID format according to NEAR Protocol rules
-    fn validate_account_id(&self, account_id: &str) -> Result<()> {
-        // Account ID must be non-empty and at most 64 characters
-        if account_id.is_empty() {
-            return Err(anyhow::anyhow!("Account ID cannot be empty"));
-        }
-
-        if account_id.len() > 64 {
-            return Err(anyhow::anyhow!(
-                "Account ID cannot be longer than 64 characters"
-            ));
-        }
-
-        // Implicit accounts (64 hex characters) - allow them
-        if account_id.len() == 64
-            && account_id
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
-        {
-            return Ok(());
-        }
-
-        // ETH-implicit accounts (0x + 40 hex characters) - allow them
-        if account_id.starts_with("0x") && account_id.len() == 42
-            && account_id[2..]
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
-            {
-                return Ok(());
-            }
-
-        // Named accounts - must contain only valid characters
-        for char in account_id.chars() {
-            if !char.is_ascii_lowercase()
-                && !char.is_ascii_digit()
-                && char != '-'
-                && char != '_'
-                && char != '.'
-            {
-                return Err(anyhow::anyhow!(
-                    "Account ID contains invalid character: {}",
-                    char
-                ));
-            }
-        }
-
-        Ok(())
-    }
 
     /// Validate public key format
     fn validate_public_key(&self, public_key: &str) -> Result<()> {
@@ -222,7 +131,7 @@ impl AccountsModule {
                         let account_id_str = account_id.to_string();
 
                         // Validate account ID format
-                        if let Err(e) = self.validate_account_id(&account_id_str) {
+                        if let Err(e) = validate_account_id(&account_id_str) {
                             debug!(account_id = %account_id_str, error = %e, "Invalid account ID format, skipping");
                             continue;
                         }
@@ -241,8 +150,8 @@ impl AccountsModule {
                         };
 
                         if is_new_account {
-                            let account_type = self.classify_account(&account_id_str);
-                            let parent_account = self.get_parent_account(&account_id_str);
+                            let account_type = classify_account(&account_id_str).into();
+                            let parent_account = get_parent_account(&account_id_str);
                             let is_contract =
                                 account.code_hash != near_primitives::hash::CryptoHash::default();
 
@@ -326,7 +235,7 @@ impl AccountsModule {
                         let public_key_str = public_key.to_string();
 
                         // Validate account ID and public key format
-                        if let Err(e) = self.validate_account_id(&account_id_str) {
+                        if let Err(e) = validate_account_id(&account_id_str) {
                             debug!(account_id = %account_id_str, error = %e, "Invalid account ID format for access key, skipping");
                             continue;
                         }
@@ -375,7 +284,7 @@ impl AccountsModule {
                         let public_key_str = public_key.to_string();
 
                         // Validate account ID and public key format
-                        if let Err(e) = self.validate_account_id(&account_id_str) {
+                        if let Err(e) = validate_account_id(&account_id_str) {
                             debug!(account_id = %account_id_str, error = %e, "Invalid account ID format for access key deletion, skipping");
                             continue;
                         }

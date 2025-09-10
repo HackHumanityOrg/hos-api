@@ -287,8 +287,6 @@ pub struct TokensModuleConfig {
     pub contracts: Vec<String>,
 }
 
-
-
 fn default_chain() -> String {
     "mainnet".to_string()
 }
@@ -347,8 +345,6 @@ impl ToLog for TokensModuleConfig {
         })
     }
 }
-
-
 
 /// Unified configuration enum for type safety
 #[derive(Debug, Clone)]

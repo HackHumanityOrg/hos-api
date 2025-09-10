@@ -12,7 +12,7 @@ const TEST_BLOCK_HEIGHT: BlockHeight = 100000000; // Block with general activity
 #[fixture]
 async fn test_db() -> TestDatabase {
     // Load environment variables for AWS credentials
-    dotenvy::from_filename("/Users/andrei/git/data-commons/.env").ok();
+    dotenvy::dotenv().ok();
     TestDatabase::new().await
 }
 
@@ -28,9 +28,7 @@ fn create_test_raw_module() -> RawModule {
             concurrency: None,
             region: None,
             modules: Some(common::config::NearModulesConfig {
-                raw: Some(common::config::RawModuleConfig {
-                    enabled: true,
-                }),
+                raw: Some(common::config::RawModuleConfig { enabled: true }),
                 accounts: None,
                 tokens: None,
             }),
@@ -55,14 +53,20 @@ async fn test_raw_module_basic(#[future] test_db: TestDatabase) {
     assert_eq!(raw_module.name(), "raw");
 
     // Test cursor operations
-    let cursor = raw_module.get_cursor(&db).await
+    let cursor = raw_module
+        .get_cursor(&db)
+        .await
         .expect("Failed to get cursor");
     assert_eq!(cursor, None, "Initial cursor should be None");
 
-    raw_module.update_cursor(&db, 98765).await
+    raw_module
+        .update_cursor(&db, 98765)
+        .await
         .expect("Failed to update cursor");
 
-    let updated_cursor = raw_module.get_cursor(&db).await
+    let updated_cursor = raw_module
+        .get_cursor(&db)
+        .await
         .expect("Failed to get updated cursor");
     assert_eq!(updated_cursor, Some(98765), "Cursor should be updated");
 
@@ -83,7 +87,10 @@ async fn test_real_lake_stream_raw(#[future] test_db: TestDatabase) {
         return;
     }
 
-    println!("🔧 Testing raw data with real NEAR Lake stream at block {}", TEST_BLOCK_HEIGHT);
+    println!(
+        "🔧 Testing raw data with real NEAR Lake stream at block {}",
+        TEST_BLOCK_HEIGHT
+    );
 
     let config = LakeConfigBuilder::default()
         .mainnet()
@@ -93,21 +100,25 @@ async fn test_real_lake_stream_raw(#[future] test_db: TestDatabase) {
         .expect("Failed to build Lake config");
 
     let (handle, mut stream) = near_lake_framework::streamer(config);
-    
+
     // Try to get one message with a timeout
     let timeout_duration = tokio::time::Duration::from_secs(30);
     match tokio::time::timeout(timeout_duration, stream.recv()).await {
         Ok(Some(msg)) => {
-            println!("📦 Processing block {} with {} shards", 
-                msg.block.header.height, 
+            println!(
+                "📦 Processing block {} with {} shards",
+                msg.block.header.height,
                 msg.shards.len()
             );
 
             let result = raw_module.process_block(&msg, &db).await;
             match result {
                 Ok(_) => {
-                    println!("✅ Successfully processed block {}", msg.block.header.height);
-                    
+                    println!(
+                        "✅ Successfully processed block {}",
+                        msg.block.header.height
+                    );
+
                     // Check for stored raw data
                     let blocks_count = near_blocks::Entity::find()
                         .all(&db)
@@ -159,7 +170,7 @@ async fn test_real_lake_stream_raw(#[future] test_db: TestDatabase) {
                             .all(&db)
                             .await
                             .expect("Failed to query blocks");
-                        
+
                         if let Some(sample) = blocks.first() {
                             println!("   Sample block:");
                             println!("     Height: {}", sample.height);
@@ -169,15 +180,15 @@ async fn test_real_lake_stream_raw(#[future] test_db: TestDatabase) {
                             println!("     Has raw data: {}", sample.raw_data.is_some());
                         }
                     }
-                },
+                }
                 Err(e) => {
                     println!("⚠️  Failed to process block: {} (this may be expected)", e);
                 }
             }
-        },
+        }
         Ok(None) => {
             println!("⚠️  No message received from stream");
-        },
+        }
         Err(_) => {
             println!("⚠️  Timeout waiting for stream message");
         }
@@ -209,9 +220,7 @@ async fn test_raw_module_configuration() {
             concurrency: None,
             region: None,
             modules: Some(common::config::NearModulesConfig {
-                raw: Some(common::config::RawModuleConfig {
-                    enabled: false,
-                }),
+                raw: Some(common::config::RawModuleConfig { enabled: false }),
                 accounts: None,
                 tokens: None,
             }),
@@ -239,7 +248,10 @@ async fn test_raw_module_configuration() {
     });
 
     let no_near_module = RawModule::new(&no_near_config);
-    assert!(!no_near_module.enabled(), "Module should be disabled when NEAR chain is disabled");
+    assert!(
+        !no_near_module.enabled(),
+        "Module should be disabled when NEAR chain is disabled"
+    );
     println!("✅ Disabled NEAR chain configuration works");
 
     // Test module enabled by default when no config specified
@@ -262,7 +274,10 @@ async fn test_raw_module_configuration() {
     });
 
     let default_module = RawModule::new(&default_config);
-    assert!(default_module.enabled(), "Module should be enabled by default");
+    assert!(
+        default_module.enabled(),
+        "Module should be enabled by default"
+    );
     println!("✅ Default enabled configuration works");
 
     println!("✅ All raw configuration tests passed");
