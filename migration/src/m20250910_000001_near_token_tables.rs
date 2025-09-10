@@ -147,11 +147,7 @@ impl MigrationTrait for Migration {
                             .string_len(20)
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearTokenEvents::EventData)
-                            .json()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(NearTokenEvents::EventData).json().not_null())
                     .col(
                         ColumnDef::new(NearTokenEvents::AffectedAccounts)
                             .text() // Store as comma-separated for SQL compatibility
@@ -210,18 +206,9 @@ impl MigrationTrait for Migration {
                             .json()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearTokenContracts::FtMetadata)
-                            .json(),
-                    )
-                    .col(
-                        ColumnDef::new(NearTokenContracts::NftMetadata)
-                            .json(),
-                    )
-                    .col(
-                        ColumnDef::new(NearTokenContracts::MtMetadata)
-                            .json(),
-                    )
+                    .col(ColumnDef::new(NearTokenContracts::FtMetadata).json())
+                    .col(ColumnDef::new(NearTokenContracts::NftMetadata).json())
+                    .col(ColumnDef::new(NearTokenContracts::MtMetadata).json())
                     .col(
                         ColumnDef::new(NearTokenContracts::FirstSeenBlock)
                             .big_integer()
@@ -252,24 +239,14 @@ impl MigrationTrait for Migration {
                             .string_len(64)
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearTokenBalances::TokenTypeId)
-                            .string_len(255),
-                    )
-                    .col(
-                        ColumnDef::new(NearTokenBalances::TokenId)
-                            .string_len(255),
-                    )
+                    .col(ColumnDef::new(NearTokenBalances::TokenTypeId).string_len(255))
+                    .col(ColumnDef::new(NearTokenBalances::TokenId).string_len(255))
                     .col(
                         ColumnDef::new(NearTokenBalances::AccountId)
                             .string_len(64)
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearTokenBalances::Amount)
-                            .text()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(NearTokenBalances::Amount).text().not_null())
                     .col(
                         ColumnDef::new(NearTokenBalances::Standard)
                             .string_len(10)
@@ -280,10 +257,7 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearTokenBalances::Metadata)
-                            .json(),
-                    )
+                    .col(ColumnDef::new(NearTokenBalances::Metadata).json())
                     .primary_key(
                         Index::create()
                             .col(NearTokenBalances::ContractId)
@@ -358,31 +332,12 @@ impl MigrationTrait for Migration {
                             .string_len(10)
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearTokenTransfers::TokenTypeId)
-                            .string_len(255),
-                    )
-                    .col(
-                        ColumnDef::new(NearTokenTransfers::TokenId)
-                            .string_len(255),
-                    )
-                    .col(
-                        ColumnDef::new(NearTokenTransfers::FromAccount)
-                            .string_len(64),
-                    )
-                    .col(
-                        ColumnDef::new(NearTokenTransfers::ToAccount)
-                            .string_len(64),
-                    )
-                    .col(
-                        ColumnDef::new(NearTokenTransfers::Amount)
-                            .text()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(NearTokenTransfers::Memo)
-                            .text(),
-                    )
+                    .col(ColumnDef::new(NearTokenTransfers::TokenTypeId).string_len(255))
+                    .col(ColumnDef::new(NearTokenTransfers::TokenId).string_len(255))
+                    .col(ColumnDef::new(NearTokenTransfers::FromAccount).string_len(64))
+                    .col(ColumnDef::new(NearTokenTransfers::ToAccount).string_len(64))
+                    .col(ColumnDef::new(NearTokenTransfers::Amount).text().not_null())
+                    .col(ColumnDef::new(NearTokenTransfers::Memo).text())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_near_token_transfers_event_id")
@@ -443,14 +398,8 @@ impl MigrationTrait for Migration {
                             .string_len(64)
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearTokenMetadata::TokenTypeId)
-                            .string_len(255),
-                    )
-                    .col(
-                        ColumnDef::new(NearTokenMetadata::TokenId)
-                            .string_len(255),
-                    )
+                    .col(ColumnDef::new(NearTokenMetadata::TokenTypeId).string_len(255))
+                    .col(ColumnDef::new(NearTokenMetadata::TokenId).string_len(255))
                     .col(
                         ColumnDef::new(NearTokenMetadata::Standard)
                             .string_len(10)
@@ -461,10 +410,7 @@ impl MigrationTrait for Migration {
                             .json()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearTokenMetadata::LastUpdatedBlock)
-                            .big_integer(),
-                    )
+                    .col(ColumnDef::new(NearTokenMetadata::LastUpdatedBlock).big_integer())
                     .primary_key(
                         Index::create()
                             .col(NearTokenMetadata::ContractId)

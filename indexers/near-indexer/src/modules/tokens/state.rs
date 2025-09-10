@@ -1,8 +1,6 @@
 use anyhow::{anyhow, Result};
 use entities::*;
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set,
-};
+use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
 use serde_json::Value as JsonValue;
 use tracing::{debug, warn};
 
@@ -152,7 +150,11 @@ impl TokenStateManager {
         // For NFTs and SBTs, amount is always "1" or "0"
         let amount_value = match standard {
             TokenStandard::Nep171 => {
-                if is_increase { "1" } else { "0" }
+                if is_increase {
+                    "1"
+                } else {
+                    "0"
+                }
             }
             _ => amount,
         };
@@ -229,7 +231,8 @@ impl TokenStateManager {
     fn add_amounts(a: &str, b: &str) -> Result<String> {
         let a_num: u128 = a.parse().map_err(|_| anyhow!("Invalid amount: {}", a))?;
         let b_num: u128 = b.parse().map_err(|_| anyhow!("Invalid amount: {}", b))?;
-        let result = a_num.checked_add(b_num)
+        let result = a_num
+            .checked_add(b_num)
             .ok_or_else(|| anyhow!("Amount overflow when adding {} + {}", a, b))?;
         Ok(result.to_string())
     }
@@ -237,30 +240,36 @@ impl TokenStateManager {
     fn subtract_amounts(a: &str, b: &str) -> Result<String> {
         let a_num: u128 = a.parse().map_err(|_| anyhow!("Invalid amount: {}", a))?;
         let b_num: u128 = b.parse().map_err(|_| anyhow!("Invalid amount: {}", b))?;
-        let result = a_num.checked_sub(b_num)
+        let result = a_num
+            .checked_sub(b_num)
             .ok_or_else(|| anyhow!("Amount underflow when subtracting {} - {}", a, b))?;
         Ok(result.to_string())
     }
 
     // Extract transfer data from event
-    fn extract_transfer_data(event: &ParsedTokenEvent) -> Result<(Option<String>, Option<String>, Vec<TransferData>)> {
+    fn extract_transfer_data(
+        event: &ParsedTokenEvent,
+    ) -> Result<(Option<String>, Option<String>, Vec<TransferData>)> {
         let data = &event.data;
-        
-        let from_account = data.get("old_owner_id")
+
+        let from_account = data
+            .get("old_owner_id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        
-        let to_account = data.get("new_owner_id")
+
+        let to_account = data
+            .get("new_owner_id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
         let transfers = match event.standard {
             TokenStandard::Nep141 => {
-                let amount = data.get("amount")
+                let amount = data
+                    .get("amount")
                     .and_then(|v| v.as_str())
                     .unwrap_or("0")
                     .to_string();
-                
+
                 vec![TransferData {
                     token_type_id: None,
                     token_id: None,
@@ -270,10 +279,11 @@ impl TokenStateManager {
             }
             TokenStandard::Nep171 => {
                 let empty_vec = vec![];
-                let token_ids = data.get("token_ids")
+                let token_ids = data
+                    .get("token_ids")
                     .and_then(|v| v.as_array())
                     .unwrap_or(&empty_vec);
-                
+
                 token_ids
                     .iter()
                     .filter_map(|v| v.as_str())
@@ -288,11 +298,13 @@ impl TokenStateManager {
             TokenStandard::Nep245 => {
                 let empty_token_vec = vec![];
                 let empty_amount_vec = vec![];
-                let token_ids = data.get("token_ids")
+                let token_ids = data
+                    .get("token_ids")
                     .and_then(|v| v.as_array())
                     .unwrap_or(&empty_token_vec);
-                
-                let amounts = data.get("amounts")
+
+                let amounts = data
+                    .get("amounts")
                     .and_then(|v| v.as_array())
                     .unwrap_or(&empty_amount_vec);
 
@@ -302,7 +314,7 @@ impl TokenStateManager {
                     .filter_map(|(tid, amt)| {
                         let token_id = tid.as_str()?;
                         let amount = amt.as_str()?;
-                        
+
                         // Parse token_type_id from token_id if it contains ":"
                         let (token_type_id, final_token_id) = if token_id.contains(':') {
                             let parts: Vec<&str> = token_id.splitn(2, ':').collect();
@@ -327,19 +339,21 @@ impl TokenStateManager {
 
     fn extract_mint_data(event: &ParsedTokenEvent) -> Result<(String, Vec<TransferData>)> {
         let data = &event.data;
-        
-        let owner_id = data.get("owner_id")
+
+        let owner_id = data
+            .get("owner_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing owner_id in mint event"))?
             .to_string();
 
         let mints = match event.standard {
             TokenStandard::Nep141 => {
-                let amount = data.get("amount")
+                let amount = data
+                    .get("amount")
                     .and_then(|v| v.as_str())
                     .unwrap_or("0")
                     .to_string();
-                
+
                 vec![TransferData {
                     token_type_id: None,
                     token_id: None,
@@ -349,10 +363,11 @@ impl TokenStateManager {
             }
             TokenStandard::Nep171 => {
                 let empty_vec = vec![];
-                let token_ids = data.get("token_ids")
+                let token_ids = data
+                    .get("token_ids")
                     .and_then(|v| v.as_array())
                     .unwrap_or(&empty_vec);
-                
+
                 token_ids
                     .iter()
                     .filter_map(|v| v.as_str())
@@ -367,11 +382,13 @@ impl TokenStateManager {
             TokenStandard::Nep245 => {
                 let empty_token_vec = vec![];
                 let empty_amount_vec = vec![];
-                let token_ids = data.get("token_ids")
+                let token_ids = data
+                    .get("token_ids")
                     .and_then(|v| v.as_array())
                     .unwrap_or(&empty_token_vec);
-                
-                let amounts = data.get("amounts")
+
+                let amounts = data
+                    .get("amounts")
                     .and_then(|v| v.as_array())
                     .unwrap_or(&empty_amount_vec);
 
@@ -381,7 +398,7 @@ impl TokenStateManager {
                     .filter_map(|(tid, amt)| {
                         let token_id = tid.as_str()?;
                         let amount = amt.as_str()?;
-                        
+
                         let (token_type_id, final_token_id) = if token_id.contains(':') {
                             let parts: Vec<&str> = token_id.splitn(2, ':').collect();
                             (Some(parts[0].to_string()), Some(parts[1].to_string()))

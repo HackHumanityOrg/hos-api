@@ -108,9 +108,9 @@ impl TokensModule {
 
                 self.process_logs(
                     &outcome.outcome.logs,
-                    &transaction.receiver_id.to_string(),
+                    transaction.receiver_id.as_ref(),
                     &outcome.id.to_string(),
-                    &transaction.signer_id.to_string(),
+                    transaction.signer_id.as_ref(),
                     shard.shard_id.into(),
                     block_height,
                     block_timestamp,
@@ -127,9 +127,9 @@ impl TokensModule {
 
             self.process_logs(
                 &outcome.outcome.logs,
-                &receipt.receiver_id.to_string(),
+                receipt.receiver_id.as_ref(),
                 &outcome.id.to_string(),
-                &receipt.predecessor_id.to_string(),
+                receipt.predecessor_id.as_ref(),
                 shard.shard_id.into(),
                 block_height,
                 block_timestamp,
@@ -262,7 +262,7 @@ impl TokensModule {
             contract_id: Set(contract_id.to_string()),
             log_index: Set(log_index),
             log_text: Set(log_text.to_string()),
-            created_at: Set(Some(chrono::Utc::now().into())),
+            created_at: Set(Some(chrono::Utc::now())),
         };
 
         let result = raw_event.insert(db).await?;

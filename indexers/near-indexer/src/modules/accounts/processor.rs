@@ -53,14 +53,13 @@ impl AccountsModule {
         }
 
         // ETH-implicit accounts (0x + 40 hex chars)
-        if account_id.starts_with("0x") && account_id.len() == 42 {
-            if account_id[2..]
+        if account_id.starts_with("0x") && account_id.len() == 42
+            && account_id[2..]
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
             {
                 return "eth_implicit".to_string();
             }
-        }
 
         // NEAR-implicit accounts (64 hex chars)
         if account_id.len() == 64
@@ -114,14 +113,13 @@ impl AccountsModule {
         }
 
         // ETH-implicit accounts (0x + 40 hex characters) - allow them
-        if account_id.starts_with("0x") && account_id.len() == 42 {
-            if account_id[2..]
+        if account_id.starts_with("0x") && account_id.len() == 42
+            && account_id[2..]
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() && c.is_lowercase())
             {
                 return Ok(());
             }
-        }
 
         // Named accounts - must contain only valid characters
         for char in account_id.chars() {

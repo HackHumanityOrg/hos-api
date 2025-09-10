@@ -13,8 +13,8 @@ pub fn parse_event_log(log: &str) -> Result<ParsedTokenEvent> {
         .ok_or_else(|| anyhow!("Log does not start with EVENT_JSON prefix"))?;
 
     // Parse the JSON
-    let event_log: EventLog = serde_json::from_str(json_str)
-        .map_err(|e| anyhow!("Failed to parse EVENT_JSON: {}", e))?;
+    let event_log: EventLog =
+        serde_json::from_str(json_str).map_err(|e| anyhow!("Failed to parse EVENT_JSON: {}", e))?;
 
     // Validate standard
     let standard = TokenStandard::from_str(&event_log.standard)
@@ -34,7 +34,7 @@ pub fn parse_event_log(log: &str) -> Result<ParsedTokenEvent> {
 fn validate_event_for_standard(standard: &TokenStandard, event_type: &EventType) -> Result<()> {
     let valid = match (standard, event_type) {
         // NEP-141 events
-        (TokenStandard::Nep141, EventType::FtMint) 
+        (TokenStandard::Nep141, EventType::FtMint)
         | (TokenStandard::Nep141, EventType::FtBurn)
         | (TokenStandard::Nep141, EventType::FtTransfer) => true,
 
@@ -87,7 +87,11 @@ pub fn extract_token_events_from_logs(logs: &[String]) -> Vec<(usize, ParsedToke
     }
 
     if !events.is_empty() {
-        debug!("Extracted {} token events from {} logs", events.len(), logs.len());
+        debug!(
+            "Extracted {} token events from {} logs",
+            events.len(),
+            logs.len()
+        );
     }
 
     events
@@ -100,7 +104,7 @@ mod tests {
     #[test]
     fn test_parse_nep141_transfer() {
         let log = r#"EVENT_JSON:{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":{"old_owner_id":"alice.near","new_owner_id":"bob.near","amount":"1000000000000000000000000","memo":"test transfer"}}"#;
-        
+
         let event = parse_event_log(log).unwrap();
         assert_eq!(event.standard, TokenStandard::Nep141);
         assert_eq!(event.event_type, EventType::FtTransfer);
@@ -110,7 +114,7 @@ mod tests {
     #[test]
     fn test_parse_nep171_mint() {
         let log = r#"EVENT_JSON:{"standard":"nep171","version":"1.0.0","event":"nft_mint","data":{"owner_id":"alice.near","token_ids":["1","2","3"]}}"#;
-        
+
         let event = parse_event_log(log).unwrap();
         assert_eq!(event.standard, TokenStandard::Nep171);
         assert_eq!(event.event_type, EventType::NftMint);
@@ -120,7 +124,7 @@ mod tests {
     #[test]
     fn test_parse_nep245_transfer() {
         let log = r#"EVENT_JSON:{"standard":"nep245","version":"1.0.0","event":"mt_transfer","data":{"old_owner_id":"alice.near","new_owner_id":"bob.near","token_ids":["sword:1","gold"],"amounts":["1","1000"]}}"#;
-        
+
         let event = parse_event_log(log).unwrap();
         assert_eq!(event.standard, TokenStandard::Nep245);
         assert_eq!(event.event_type, EventType::MtTransfer);
@@ -129,36 +133,47 @@ mod tests {
 
     #[test]
     fn test_invalid_standard() {
-        let log = r#"EVENT_JSON:{"standard":"erc20","version":"1.0.0","event":"transfer","data":{}}"#;
-        
+        let log =
+            r#"EVENT_JSON:{"standard":"erc20","version":"1.0.0","event":"transfer","data":{}}"#;
+
         let result = parse_event_log(log);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unsupported token standard"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported token standard"));
     }
 
     #[test]
     fn test_mismatched_event_and_standard() {
         let log = r#"EVENT_JSON:{"standard":"nep141","version":"1.0.0","event":"nft_transfer","data":{}}"#;
-        
+
         let result = parse_event_log(log);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("is not valid for standard"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("is not valid for standard"));
     }
 
     #[test]
     fn test_not_event_json() {
         let log = "Regular log message";
-        
+
         let result = parse_event_log(log);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("EVENT_JSON prefix"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("EVENT_JSON prefix"));
     }
 
     #[test]
     fn test_is_token_event_log() {
-        let valid_log = r#"EVENT_JSON:{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":{}}"#;
+        let valid_log =
+            r#"EVENT_JSON:{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":{}}"#;
         let invalid_log = "Regular log message";
-        
+
         assert!(is_token_event_log(valid_log));
         assert!(!is_token_event_log(invalid_log));
     }

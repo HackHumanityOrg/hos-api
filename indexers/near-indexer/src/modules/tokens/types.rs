@@ -12,7 +12,7 @@ pub struct EventLog {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenStandard {
     Nep141, // Fungible Token
-    Nep171, // Non-Fungible Token  
+    Nep171, // Non-Fungible Token
     Nep245, // Multi-Token
 }
 
@@ -29,7 +29,7 @@ impl TokenStandard {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Nep141 => "nep141",
-            Self::Nep171 => "nep171", 
+            Self::Nep171 => "nep171",
             Self::Nep245 => "nep245",
         }
     }
@@ -41,12 +41,12 @@ pub enum EventType {
     FtMint,
     FtBurn,
     FtTransfer,
-    
-    // NEP-171 (Non-Fungible Token) events  
+
+    // NEP-171 (Non-Fungible Token) events
     NftMint,
     NftBurn,
     NftTransfer,
-    
+
     // NEP-245 (Multi-Token) events
     MtMint,
     MtBurn,
@@ -84,7 +84,10 @@ impl EventType {
     }
 
     pub fn is_transfer(&self) -> bool {
-        matches!(self, Self::FtTransfer | Self::NftTransfer | Self::MtTransfer)
+        matches!(
+            self,
+            Self::FtTransfer | Self::NftTransfer | Self::MtTransfer
+        )
     }
 
     pub fn is_mint(&self) -> bool {
@@ -144,7 +147,7 @@ pub struct NftBurnData {
     pub authorized_id: Option<String>,
 }
 
-// NEP-245 Multi-Token Events  
+// NEP-245 Multi-Token Events
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MtTransferData {
     pub old_owner_id: String,
@@ -163,7 +166,7 @@ pub struct MtMintData {
     pub memo: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]  
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MtBurnData {
     pub owner_id: String,
     pub token_ids: Vec<String>,

@@ -1,6 +1,6 @@
-pub mod processor;
 pub mod events;
-pub mod types;
+pub mod processor;
 pub mod state;
+pub mod types;
 
 pub use processor::TokensModule;

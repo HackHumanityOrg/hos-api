@@ -145,11 +145,7 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearTransactions::SignerId)
-                            .text()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(NearTransactions::SignerId).text().not_null())
                     .col(
                         ColumnDef::new(NearTransactions::ReceiverId)
                             .text()
@@ -207,11 +203,7 @@ impl MigrationTrait for Migration {
                             .text()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(NearReceipts::ReceiverId)
-                            .text()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(NearReceipts::ReceiverId).text().not_null())
                     .col(
                         ColumnDef::new(NearReceipts::Receipt).json().not_null(), // Store ReceiptEnumView as JSON
                     )

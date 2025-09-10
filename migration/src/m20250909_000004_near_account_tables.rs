@@ -143,9 +143,7 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(NearAccessKeys::Allowance)
-                            .text()
-                            .null(), // Only for FunctionCall permissions - u128 as string
+                        ColumnDef::new(NearAccessKeys::Allowance).text().null(), // Only for FunctionCall permissions - u128 as string
                     )
                     .col(
                         ColumnDef::new(NearAccessKeys::ReceiverId)
@@ -153,9 +151,7 @@ impl MigrationTrait for Migration {
                             .null(), // Only for FunctionCall permissions
                     )
                     .col(
-                        ColumnDef::new(NearAccessKeys::MethodNames)
-                            .json()
-                            .null(), // Array of allowed methods for FunctionCall permissions
+                        ColumnDef::new(NearAccessKeys::MethodNames).json().null(), // Array of allowed methods for FunctionCall permissions
                     )
                     .col(
                         ColumnDef::new(NearAccessKeys::Nonce)
@@ -226,9 +222,7 @@ impl MigrationTrait for Migration {
                             .null(),
                     )
                     .col(
-                        ColumnDef::new(NearAccountEvents::Metadata)
-                            .json()
-                            .null(), // Additional event data
+                        ColumnDef::new(NearAccountEvents::Metadata).json().null(), // Additional event data
                     )
                     .to_owned(),
             )
