@@ -10,6 +10,8 @@ pub struct Model {
     pub chunk_hash: String,
     pub block_height: i64,
     pub shard_id: i64,
+    #[sea_orm(column_type = "Text")]
+    pub author: String,
     pub height_created: i64,
     pub height_included: i64,
     pub gas_used: i64,

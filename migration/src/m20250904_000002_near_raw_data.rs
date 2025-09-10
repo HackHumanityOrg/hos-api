@@ -38,6 +38,7 @@ impl MigrationTrait for Migration {
                             .string_len(64)
                             .not_null(),
                     )
+                    .col(ColumnDef::new(NearBlocks::Author).text().not_null())
                     .col(
                         ColumnDef::new(NearBlocks::Timestamp)
                             .big_integer()
@@ -100,6 +101,7 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(NearChunks::ShardId).big_integer().not_null())
+                    .col(ColumnDef::new(NearChunks::Author).text().not_null())
                     .col(
                         ColumnDef::new(NearChunks::HeightCreated)
                             .big_integer()
@@ -351,6 +353,7 @@ enum NearBlocks {
     PrevHash,
     EpochId,
     NextEpochId,
+    Author,
     Timestamp,
     TimestampNanosec,
     GasPrice,
@@ -369,6 +372,7 @@ enum NearChunks {
     ChunkHash,
     BlockHeight,
     ShardId,
+    Author,
     HeightCreated,
     HeightIncluded,
     GasUsed,

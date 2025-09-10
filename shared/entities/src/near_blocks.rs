@@ -12,6 +12,8 @@ pub struct Model {
     pub prev_hash: String,
     pub epoch_id: String,
     pub next_epoch_id: String,
+    #[sea_orm(column_type = "Text")]
+    pub author: String,
     pub timestamp: i64,
     pub timestamp_nanosec: i64,
     #[sea_orm(column_type = "Text")]
