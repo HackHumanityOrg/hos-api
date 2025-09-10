@@ -55,3 +55,4 @@ test-support = { workspace = true }
 near-crypto = { workspace = true }
 wiremock = { workspace = true }
 futures = { workspace = true }
+rstest = { workspace = true }

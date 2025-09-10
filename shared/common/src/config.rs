@@ -256,12 +256,6 @@ pub struct NearModulesConfig {
     /// Tokens module configuration
     #[serde(default)]
     pub tokens: Option<TokensModuleConfig>,
-    /// Validators module configuration
-    #[serde(default)]
-    pub validators: Option<ValidatorsModuleConfig>,
-    /// Network module configuration
-    #[serde(default)]
-    pub network: Option<NetworkModuleConfig>,
 }
 
 /// Raw data module configuration
@@ -293,141 +287,7 @@ pub struct TokensModuleConfig {
     pub contracts: Vec<String>,
 }
 
-/// Validators module configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ValidatorsModuleConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    /// RPC updater configuration
-    #[serde(default)]
-    pub rpc_updater: Option<RpcUpdaterConfig>,
-}
 
-/// RPC updater configuration for staking pool data
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RpcUpdaterConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    /// RPC endpoint URL (defaults to mainnet archival RPC for historical data support)
-    #[serde(default = "default_rpc_url")]
-    pub rpc_url: String,
-    /// Update interval in minutes (defaults to 60 minutes)
-    #[serde(default = "default_update_interval")]
-    pub update_interval_minutes: u64,
-    /// Retry configuration for RPC requests
-    #[serde(default)]
-    pub retry: RetryConfig,
-    /// Rate limiting configuration
-    #[serde(default)]
-    pub rate_limit: RateLimitConfig,
-}
-
-/// Configuration for retry behavior with exponential backoff and jitter
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RetryConfig {
-    /// Maximum number of retries (default: 5)
-    #[serde(default = "default_max_retries")]
-    pub max_retries: u32,
-    /// Initial backoff delay in milliseconds (default: 100ms)
-    #[serde(default = "default_initial_backoff_ms")]
-    pub initial_backoff_ms: u64,
-    /// Maximum backoff delay in milliseconds (default: 60000ms = 60s)
-    #[serde(default = "default_max_backoff_ms")]
-    pub max_backoff_ms: u64,
-    /// Exponential backoff multiplier (default: 2.0)
-    #[serde(default = "default_multiplier")]
-    pub multiplier: f64,
-    /// Enable jitter to avoid thundering herd (default: true)
-    #[serde(default = "default_true")]
-    pub jitter: bool,
-}
-
-/// Configuration for rate limiting
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RateLimitConfig {
-    /// Requests per second (default: 10)
-    #[serde(default = "default_requests_per_second")]
-    pub requests_per_second: u32,
-    /// Burst size for token bucket (default: 20)
-    #[serde(default = "default_burst_size")]
-    pub burst_size: u32,
-    /// Honor server rate limit headers (default: true)
-    #[serde(default = "default_true")]
-    pub honor_server_headers: bool,
-}
-
-impl Default for RpcUpdaterConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            rpc_url: default_rpc_url(),
-            update_interval_minutes: default_update_interval(),
-            retry: RetryConfig::default(),
-            rate_limit: RateLimitConfig::default(),
-        }
-    }
-}
-
-impl Default for RetryConfig {
-    fn default() -> Self {
-        Self {
-            max_retries: default_max_retries(),
-            initial_backoff_ms: default_initial_backoff_ms(),
-            max_backoff_ms: default_max_backoff_ms(),
-            multiplier: default_multiplier(),
-            jitter: true,
-        }
-    }
-}
-
-impl Default for RateLimitConfig {
-    fn default() -> Self {
-        Self {
-            requests_per_second: default_requests_per_second(),
-            burst_size: default_burst_size(),
-            honor_server_headers: true,
-        }
-    }
-}
-
-fn default_rpc_url() -> String {
-    "https://free.rpc.fastnear.com".to_string()
-}
-
-fn default_update_interval() -> u64 {
-    60 // 60 minutes
-}
-
-fn default_max_retries() -> u32 {
-    5
-}
-
-fn default_initial_backoff_ms() -> u64 {
-    100
-}
-
-fn default_max_backoff_ms() -> u64 {
-    60_000 // 60 seconds
-}
-
-fn default_multiplier() -> f64 {
-    2.0
-}
-
-fn default_requests_per_second() -> u32 {
-    10
-}
-
-fn default_burst_size() -> u32 {
-    20
-}
-
-/// Network module configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct NetworkModuleConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-}
 
 fn default_chain() -> String {
     "mainnet".to_string()
@@ -452,8 +312,6 @@ impl ToLog for NearModulesConfig {
             "raw": self.raw.as_ref().map(|r| r.to_log()),
             "accounts": self.accounts.as_ref().map(|a| a.to_log()),
             "tokens": self.tokens.as_ref().map(|t| t.to_log()),
-            "validators": self.validators.as_ref().map(|v| v.to_log()),
-            "network": self.network.as_ref().map(|n| n.to_log()),
         })
     }
 }
@@ -490,56 +348,7 @@ impl ToLog for TokensModuleConfig {
     }
 }
 
-impl ToLog for ValidatorsModuleConfig {
-    fn to_log(&self) -> JsonValue {
-        json!({
-            "enabled": self.enabled,
-            "rpc_updater": self.rpc_updater.as_ref().map(|r| r.to_log()),
-        })
-    }
-}
 
-impl ToLog for RpcUpdaterConfig {
-    fn to_log(&self) -> JsonValue {
-        json!({
-            "enabled": self.enabled,
-            "rpc_url": self.rpc_url,
-            "update_interval_minutes": self.update_interval_minutes,
-            "retry": self.retry.to_log(),
-            "rate_limit": self.rate_limit.to_log(),
-        })
-    }
-}
-
-impl ToLog for RetryConfig {
-    fn to_log(&self) -> JsonValue {
-        json!({
-            "max_retries": self.max_retries,
-            "initial_backoff_ms": self.initial_backoff_ms,
-            "max_backoff_ms": self.max_backoff_ms,
-            "multiplier": self.multiplier,
-            "jitter": self.jitter,
-        })
-    }
-}
-
-impl ToLog for RateLimitConfig {
-    fn to_log(&self) -> JsonValue {
-        json!({
-            "requests_per_second": self.requests_per_second,
-            "burst_size": self.burst_size,
-            "honor_server_headers": self.honor_server_headers,
-        })
-    }
-}
-
-impl ToLog for NetworkModuleConfig {
-    fn to_log(&self) -> JsonValue {
-        json!({
-            "enabled": self.enabled,
-        })
-    }
-}
 
 /// Unified configuration enum for type safety
 #[derive(Debug, Clone)]

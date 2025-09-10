@@ -3377,6 +3377,7 @@ dependencies = [
  "reqwest-middleware",
  "reqwest-retry",
  "reqwest-tracing",
+ "rstest",
  "rust_decimal",
  "sea-orm",
  "serde",
