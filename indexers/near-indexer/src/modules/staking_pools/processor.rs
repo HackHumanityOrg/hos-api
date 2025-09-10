@@ -163,6 +163,61 @@ impl StakingPoolsModule {
         Ok(())
     }
 
+    /// Process validator proposals from block header
+    async fn process_validator_proposals(&self, block: &BlockView, db: &impl ConnectionTrait) -> Result<()> {
+        let header = &block.header;
+        let epoch_id = header.epoch_id.to_string();
+        let timestamp = header.timestamp as i64;
+        
+        // Process each validator proposal in the block header
+        for proposal in &header.validator_proposals {
+            let account_id = proposal.account_id().to_string();
+            
+            // Check if this is a staking pool (by pattern or if we already know it)
+            let is_staking_pool = self.pool_detector.detect_pool(&account_id).is_some() ||
+                                  account_id.ends_with(".pool.near") ||
+                                  account_id.ends_with(".poolv1.near");
+            
+            // Access ValidatorStakeView fields - match on the enum to get V1 variant
+            let (public_key, stake_amount) = match proposal {
+                near_primitives::views::validator_stake_view::ValidatorStakeView::V1(v1) => {
+                    (v1.public_key.to_string(), v1.stake.to_string())
+                }
+            };
+
+            // Store all validator proposals, but we're especially interested in staking pools
+            let validator_proposal = near_staking_validator_proposals::ActiveModel {
+                id: sea_orm::ActiveValue::NotSet,
+                block_height: Set(header.height as i64),
+                account_id: Set(account_id.clone()),
+                public_key: Set(public_key),
+                stake: Set(stake_amount),
+                epoch_id: Set(epoch_id.clone()),
+                timestamp: Set(timestamp),
+            };
+
+            near_staking_validator_proposals::Entity::insert(validator_proposal)
+                .exec(db)
+                .await
+                .with_context(|| format!("Failed to insert validator proposal for {}", account_id))?;
+
+            // If this is a staking pool, ensure it's registered in our pools table
+            if is_staking_pool {
+                if let Some((pool_type, detection_method)) = self.pool_detector.detect_pool(&account_id) {
+                    self.register_new_pool(&account_id, pool_type, detection_method, header.height as i64, db).await?;
+                }
+            }
+        }
+
+        debug!(
+            "Processed {} validator proposals at block {}",
+            header.validator_proposals.len(),
+            header.height
+        );
+
+        Ok(())
+    }
+
     /// Process staking-related actions from transactions and receipts
     async fn process_staking_actions(&self, shard: &IndexerShard, db: &impl ConnectionTrait) -> Result<()> {
         let mut new_pools = Vec::new();
@@ -231,16 +286,46 @@ impl StakingPoolsModule {
 
                 // Parse events if enabled
                 if self.parse_events && (is_known_pool || new_pools.iter().any(|(pool_id, _, _)| pool_id == &context.receiver_id)) {
+                    let pool_id_str = &context.receiver_id.to_string();
+                    let outcome_id_str = &outcome.id.to_string();
+                    
+                    // Parse standard events
                     let events = EventParser::parse_events(
                         &outcome.outcome.logs,
-                        &context.receiver_id.to_string(),
-                        &outcome.id.to_string(),
+                        pool_id_str,
+                        outcome_id_str,
                         context.block_height,
                         context.timestamp,
                     );
 
                     for event in events {
                         self.store_event(event, db).await?;
+                    }
+
+                    // Parse reward events
+                    let reward_events = EventParser::parse_reward_events(
+                        &outcome.outcome.logs,
+                        pool_id_str,
+                        outcome_id_str,
+                        context.block_height,
+                        context.timestamp,
+                    );
+
+                    for (index, raw_log, amount) in reward_events {
+                        self.store_reward_event(pool_id_str, context.block_height, amount, index as i32, raw_log, outcome_id_str, context.timestamp, db).await?;
+                    }
+
+                    // Parse balance events
+                    let balance_events = EventParser::parse_balance_events(
+                        &outcome.outcome.logs,
+                        pool_id_str,
+                        outcome_id_str,
+                        context.block_height,
+                        context.timestamp,
+                    );
+
+                    for (index, raw_log, account_id, balance_type, balance) in balance_events {
+                        self.store_balance_event(pool_id_str, account_id, balance_type, balance, context.block_height, index as i32, raw_log, outcome_id_str, context.timestamp, db).await?;
                     }
                 }
             }
@@ -318,6 +403,27 @@ impl StakingPoolsModule {
         match action {
             StakingAction::PoolCall { pool_id, method_name, caller_account_id, args_base64, args_json, 
                                     attached_deposit, transaction_hash, receipt_id, block_height, timestamp, success } => {
+                // Extract action type from method name
+                let action_type = if method_name == "deposit_and_stake" {
+                    "deposit_and_stake"
+                } else if method_name == "stake_all" {
+                    "stake_all"
+                } else if method_name == "unstake_all" {
+                    "unstake_all"
+                } else if method_name == "withdraw_all" {
+                    "withdraw_all"
+                } else if ["deposit", "stake", "unstake", "withdraw", "ping"].contains(&method_name.as_str()) {
+                    method_name.as_str()
+                } else {
+                    "other"
+                };
+
+                // Try to extract amount from args_json
+                let amount = args_json.as_ref()
+                    .and_then(|json| json.get("amount"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
                 let pool_action_record = near_staking_pool_actions::ActiveModel {
                     id: Set(Default::default()), // Auto-increment
                     pool_id: Set(pool_id.to_string()),
@@ -331,6 +437,8 @@ impl StakingPoolsModule {
                     block_height: Set(block_height as i64),
                     timestamp: Set(timestamp),
                     success: Set(success.map(|b| if b { 1 } else { 0 })), // MySQL boolean as tinyint
+                    action_type: Set(Some(action_type.to_string())),
+                    amount: Set(amount),
                 };
 
                 near_staking_pool_actions::Entity::insert(pool_action_record)
@@ -429,6 +537,72 @@ impl StakingPoolsModule {
 
         Ok(())
     }
+
+    /// Store a reward event
+    async fn store_reward_event(
+        &self,
+        pool_id: &str,
+        block_height: u64,
+        amount: Option<String>,
+        log_index: i32,
+        raw_log: String,
+        execution_outcome_id: &str,
+        timestamp: i64,
+        db: &impl ConnectionTrait,
+    ) -> Result<()> {
+        let reward_record = near_staking_pool_rewards::ActiveModel {
+            id: Set(Default::default()), // Auto-increment
+            pool_id: Set(pool_id.to_string()),
+            reward_amount: Set(amount),
+            event_index: Set(log_index),
+            raw_log: Set(raw_log),
+            execution_outcome_id: Set(execution_outcome_id.to_string()),
+            block_height: Set(block_height as i64),
+            timestamp: Set(timestamp),
+        };
+
+        near_staking_pool_rewards::Entity::insert(reward_record)
+            .on_conflict_do_nothing()
+            .exec(db)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Store a balance event
+    async fn store_balance_event(
+        &self,
+        pool_id: &str,
+        account_id: String,
+        balance_type: String,
+        balance: String,
+        block_height: u64,
+        log_index: i32,
+        raw_log: String,
+        execution_outcome_id: &str,
+        timestamp: i64,
+        db: &impl ConnectionTrait,
+    ) -> Result<()> {
+        let balance_record = near_staking_pool_balances::ActiveModel {
+            id: Set(Default::default()), // Auto-increment
+            pool_id: Set(pool_id.to_string()),
+            account_id: Set(account_id),
+            balance_type: Set(balance_type), // "staked" or "unstaked"
+            balance: Set(balance),
+            event_index: Set(log_index),
+            raw_log: Set(raw_log),
+            execution_outcome_id: Set(execution_outcome_id.to_string()),
+            block_height: Set(block_height as i64),
+            timestamp: Set(timestamp),
+        };
+
+        near_staking_pool_balances::Entity::insert(balance_record)
+            .on_conflict_do_nothing()
+            .exec(db)
+            .await?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -459,6 +633,10 @@ impl IndexerModule for StakingPoolsModule {
         // Track epoch transitions
         self.process_epoch_transitions(&streamer_message.block, &txn).await
             .with_context(|| format!("Failed to process epoch transitions for block {}", block_height))?;
+
+        // Process validator proposals from block header
+        self.process_validator_proposals(&streamer_message.block, &txn).await
+            .with_context(|| format!("Failed to process validator proposals for block {}", block_height))?;
 
         // Process each shard
         for shard in &streamer_message.shards {

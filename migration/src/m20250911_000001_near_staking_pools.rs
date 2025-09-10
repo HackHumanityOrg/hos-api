@@ -277,6 +277,190 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        // near_staking_validator_proposals - Block-level validator proposals
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearStakingValidatorProposals::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearStakingValidatorProposals::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingValidatorProposals::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingValidatorProposals::AccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingValidatorProposals::PublicKey)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingValidatorProposals::Stake)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingValidatorProposals::EpochId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingValidatorProposals::Timestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // near_staking_pool_rewards - Reward distribution events from logs
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearStakingPoolRewards::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearStakingPoolRewards::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolRewards::PoolId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolRewards::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolRewards::RewardAmount)
+                            .text()
+                            .null(), // Parsed from logs
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolRewards::EventIndex)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolRewards::RawLog)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolRewards::ExecutionOutcomeId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolRewards::Timestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // near_staking_pool_balances - Balance change events from logs
+        manager
+            .create_table(
+                Table::create()
+                    .table(NearStakingPoolBalances::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearStakingPoolBalances::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolBalances::PoolId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolBalances::AccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolBalances::BalanceType)
+                            .string_len(20)
+                            .not_null(), // "staked" or "unstaked"
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolBalances::Balance)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolBalances::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolBalances::EventIndex)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolBalances::RawLog)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolBalances::ExecutionOutcomeId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolBalances::Timestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // =================
+        // ENHANCE EXISTING TABLES  
+        // =================
+
+        // Add columns to near_staking_pool_actions for parsed data
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(NearStakingPoolActions::Table)
+                    .add_column(
+                        ColumnDef::new(NearStakingPoolActions::ActionType)
+                            .string_len(20)
+                            .null(), // deposit/stake/unstake/withdraw/ping
+                    )
+                    .add_column(
+                        ColumnDef::new(NearStakingPoolActions::Amount)
+                            .text()
+                            .null(), // Parsed from args_json
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
         // =================
         // INDICES FOR PERFORMANCE
         // =================
@@ -464,11 +648,116 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        // Validator proposals indices
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_near_staking_validator_proposals_block_height")
+                    .table(NearStakingValidatorProposals::Table)
+                    .col(NearStakingValidatorProposals::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_near_staking_validator_proposals_account_id")
+                    .table(NearStakingValidatorProposals::Table)
+                    .col(NearStakingValidatorProposals::AccountId)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_near_staking_validator_proposals_epoch_id")
+                    .table(NearStakingValidatorProposals::Table)
+                    .col(NearStakingValidatorProposals::EpochId)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Pool rewards indices
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_near_staking_pool_rewards_pool_id")
+                    .table(NearStakingPoolRewards::Table)
+                    .col(NearStakingPoolRewards::PoolId)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_near_staking_pool_rewards_block_height")
+                    .table(NearStakingPoolRewards::Table)
+                    .col(NearStakingPoolRewards::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Pool balances indices
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_near_staking_pool_balances_pool_account")
+                    .table(NearStakingPoolBalances::Table)
+                    .col(NearStakingPoolBalances::PoolId)
+                    .col(NearStakingPoolBalances::AccountId)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_near_staking_pool_balances_block_height")
+                    .table(NearStakingPoolBalances::Table)
+                    .col(NearStakingPoolBalances::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Enhanced pool actions indices
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_near_staking_pool_actions_action_type")
+                    .table(NearStakingPoolActions::Table)
+                    .col(NearStakingPoolActions::ActionType)
+                    .to_owned(),
+            )
+            .await?;
+
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         // Drop tables in reverse order to handle foreign key constraints
+        manager
+            .drop_table(Table::drop().table(NearStakingPoolBalances::Table).to_owned())
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(NearStakingPoolRewards::Table).to_owned())
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(NearStakingValidatorProposals::Table).to_owned())
+            .await?;
+
         manager
             .drop_table(Table::drop().table(NearStakingEpochs::Table).to_owned())
             .await?;
@@ -520,6 +809,8 @@ enum NearStakingPoolActions {
     BlockHeight,
     Timestamp,
     Success,
+    ActionType,
+    Amount,
 }
 
 #[derive(DeriveIden)]
@@ -563,4 +854,44 @@ enum NearStakingEpochs {
     ValidatorsInfo,
     ChunkProducersSettlement,
     EpochDurationBlocks,
+}
+
+#[derive(DeriveIden)]
+enum NearStakingValidatorProposals {
+    Table,
+    Id,
+    BlockHeight,
+    AccountId,
+    PublicKey,
+    Stake,
+    EpochId,
+    Timestamp,
+}
+
+#[derive(DeriveIden)]
+enum NearStakingPoolRewards {
+    Table,
+    Id,
+    PoolId,
+    BlockHeight,
+    RewardAmount,
+    EventIndex,
+    RawLog,
+    ExecutionOutcomeId,
+    Timestamp,
+}
+
+#[derive(DeriveIden)]
+enum NearStakingPoolBalances {
+    Table,
+    Id,
+    PoolId,
+    AccountId,
+    BalanceType,
+    Balance,
+    BlockHeight,
+    EventIndex,
+    RawLog,
+    ExecutionOutcomeId,
+    Timestamp,
 }

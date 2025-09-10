@@ -21,6 +21,9 @@ pub struct Model {
     pub block_height: i64,
     pub timestamp: i64,
     pub success: Option<i8>,
+    pub action_type: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub amount: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
