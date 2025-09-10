@@ -59,15 +59,15 @@ pub fn is_eth_implicit_account(account_id: &str) -> bool {
     if !account_id.starts_with("0x") {
         return false;
     }
-    
+
     if account_id.len() != 42 {
         return false;
     }
-    
+
     let hex_part = &account_id[2..];
     let all_hex = hex_part.chars().all(|c| c.is_ascii_hexdigit());
     let all_lowercase = hex_part.chars().all(|c| !c.is_ascii_uppercase());
-    
+
     all_hex && all_lowercase
 }
 
@@ -180,7 +180,8 @@ mod tests {
     #[test]
     fn test_classify_near_implicit_accounts() {
         // Known problematic account from integration test
-        let problematic_account = "208ed1a73ac5a786c87794509a30a8a7f91fa8b639e14241b1612d9bd85956df";
+        let problematic_account =
+            "208ed1a73ac5a786c87794509a30a8a7f91fa8b639e14241b1612d9bd85956df";
         assert_eq!(
             classify_account(problematic_account),
             AccountType::Implicit,
@@ -237,7 +238,10 @@ mod tests {
     fn test_classify_lockup_accounts() {
         assert_eq!(classify_account("lockup.near"), AccountType::Lockup);
         assert_eq!(classify_account("user.lockup.near"), AccountType::Lockup);
-        assert_eq!(classify_account("lockup-contract.near"), AccountType::Lockup);
+        assert_eq!(
+            classify_account("lockup-contract.near"),
+            AccountType::Lockup
+        );
     }
 
     #[test]
@@ -251,12 +255,12 @@ mod tests {
         assert!(!is_near_implicit_account("")); // empty
         assert!(!is_near_implicit_account("abc")); // too short
         assert!(!is_near_implicit_account("abcdef")); // still too short
-        
+
         // 63 characters (one short)
         assert!(!is_near_implicit_account(
             "abcdef1234567890abcdef1234567890abcdef1234567890abcdef123456789"
         ));
-        
+
         // 65 characters (one too long)
         assert!(!is_near_implicit_account(
             "abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345678901"
@@ -276,14 +280,26 @@ mod tests {
     #[test]
     fn test_is_eth_implicit_account_edge_cases() {
         // Valid cases
-        assert!(is_eth_implicit_account("0x1234567890abcdef1234567890abcdef12345678"));
-        assert!(is_eth_implicit_account("0xabcdef1234567890abcdef1234567890abcdef12"));
+        assert!(is_eth_implicit_account(
+            "0x1234567890abcdef1234567890abcdef12345678"
+        ));
+        assert!(is_eth_implicit_account(
+            "0xabcdef1234567890abcdef1234567890abcdef12"
+        ));
 
         // Invalid cases
-        assert!(!is_eth_implicit_account("0x1234567890ABCDEF1234567890abcdef12345678")); // uppercase
-        assert!(!is_eth_implicit_account("0x1234567890abcdef1234567890abcdef123456")); // too short
-        assert!(!is_eth_implicit_account("0x1234567890abcdef1234567890abcdef123456789")); // too long
-        assert!(!is_eth_implicit_account("1234567890abcdef1234567890abcdef12345678")); // no 0x
+        assert!(!is_eth_implicit_account(
+            "0x1234567890ABCDEF1234567890abcdef12345678"
+        )); // uppercase
+        assert!(!is_eth_implicit_account(
+            "0x1234567890abcdef1234567890abcdef123456"
+        )); // too short
+        assert!(!is_eth_implicit_account(
+            "0x1234567890abcdef1234567890abcdef123456789"
+        )); // too long
+        assert!(!is_eth_implicit_account(
+            "1234567890abcdef1234567890abcdef12345678"
+        )); // no 0x
         assert!(!is_eth_implicit_account("0x")); // just prefix
         assert!(!is_eth_implicit_account("")); // empty
     }
@@ -294,7 +310,10 @@ mod tests {
         assert!(validate_account_id("alice.near").is_ok());
         assert!(validate_account_id("system").is_ok());
         assert!(validate_account_id("0x1234567890abcdef1234567890abcdef12345678").is_ok());
-        assert!(validate_account_id("208ed1a73ac5a786c87794509a30a8a7f91fa8b639e14241b1612d9bd85956df").is_ok());
+        assert!(validate_account_id(
+            "208ed1a73ac5a786c87794509a30a8a7f91fa8b639e14241b1612d9bd85956df"
+        )
+        .is_ok());
         assert!(validate_account_id("app-name_v1.near").is_ok());
 
         // Invalid account IDs
@@ -307,11 +326,20 @@ mod tests {
 
     #[test]
     fn test_get_parent_account() {
-        assert_eq!(get_parent_account("sub.example.near"), Some("example.near".to_string()));
-        assert_eq!(get_parent_account("app.sub.example.near"), Some("sub.example.near".to_string()));
+        assert_eq!(
+            get_parent_account("sub.example.near"),
+            Some("example.near".to_string())
+        );
+        assert_eq!(
+            get_parent_account("app.sub.example.near"),
+            Some("sub.example.near".to_string())
+        );
         assert_eq!(get_parent_account("alice.near"), Some("near".to_string()));
         assert_eq!(get_parent_account("simple"), None);
-        assert_eq!(get_parent_account("208ed1a73ac5a786c87794509a30a8a7f91fa8b639e14241b1612d9bd85956df"), None);
+        assert_eq!(
+            get_parent_account("208ed1a73ac5a786c87794509a30a8a7f91fa8b639e14241b1612d9bd85956df"),
+            None
+        );
     }
 
     #[test]
@@ -332,7 +360,7 @@ mod tests {
         // These accounts were misclassified as "named" instead of "implicit"
         let problematic_accounts = [
             "208ed1a73ac5a786c87794509a30a8a7f91fa8b639e14241b1612d9bd85956df",
-            "3529f612fc44c9e8600ba0004437cb98fd3c2ec126c984e374ed783a40b58d30", 
+            "3529f612fc44c9e8600ba0004437cb98fd3c2ec126c984e374ed783a40b58d30",
             "7b893046785b433b47fcc6e0d303ad4c1b550c12f498e6df46da509dae9446c2",
         ];
 

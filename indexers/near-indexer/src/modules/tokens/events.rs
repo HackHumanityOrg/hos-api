@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use serde_json;
+use std::str::FromStr;
 use tracing::debug;
 
 use crate::modules::tokens::types::{EventLog, EventType, ParsedTokenEvent, TokenStandard};
@@ -18,11 +19,11 @@ pub fn parse_event_log(log: &str) -> Result<ParsedTokenEvent> {
 
     // Validate standard
     let standard = TokenStandard::from_str(&event_log.standard)
-        .ok_or_else(|| anyhow!("Unsupported token standard: {}", event_log.standard))?;
+        .map_err(|e| anyhow!("Unsupported token standard: {}", e))?;
 
     // Validate event type
     let event_type = EventType::from_str(&event_log.event)
-        .ok_or_else(|| anyhow!("Unsupported event type: {}", event_log.event))?;
+        .map_err(|e| anyhow!("Unsupported event type: {}", e))?;
 
     // Validate that the event type matches the standard
     validate_event_for_standard(&standard, &event_type)?;

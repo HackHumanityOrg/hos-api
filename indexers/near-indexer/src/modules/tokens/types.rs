@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventLog {
@@ -16,16 +17,20 @@ pub enum TokenStandard {
     Nep245, // Multi-Token
 }
 
-impl TokenStandard {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for TokenStandard {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "nep141" => Some(Self::Nep141),
-            "nep171" => Some(Self::Nep171),
-            "nep245" => Some(Self::Nep245),
-            _ => None,
+            "nep141" => Ok(Self::Nep141),
+            "nep171" => Ok(Self::Nep171),
+            "nep245" => Ok(Self::Nep245),
+            _ => Err(format!("Unknown token standard: {}", s)),
         }
     }
+}
 
+impl TokenStandard {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Nep141 => "nep141",
@@ -53,22 +58,26 @@ pub enum EventType {
     MtTransfer,
 }
 
-impl EventType {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for EventType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "ft_mint" => Some(Self::FtMint),
-            "ft_burn" => Some(Self::FtBurn),
-            "ft_transfer" => Some(Self::FtTransfer),
-            "nft_mint" => Some(Self::NftMint),
-            "nft_burn" => Some(Self::NftBurn),
-            "nft_transfer" => Some(Self::NftTransfer),
-            "mt_mint" => Some(Self::MtMint),
-            "mt_burn" => Some(Self::MtBurn),
-            "mt_transfer" => Some(Self::MtTransfer),
-            _ => None,
+            "ft_mint" => Ok(Self::FtMint),
+            "ft_burn" => Ok(Self::FtBurn),
+            "ft_transfer" => Ok(Self::FtTransfer),
+            "nft_mint" => Ok(Self::NftMint),
+            "nft_burn" => Ok(Self::NftBurn),
+            "nft_transfer" => Ok(Self::NftTransfer),
+            "mt_mint" => Ok(Self::MtMint),
+            "mt_burn" => Ok(Self::MtBurn),
+            "mt_transfer" => Ok(Self::MtTransfer),
+            _ => Err(format!("Unknown event type: {}", s)),
         }
     }
+}
 
+impl EventType {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::FtMint => "ft_mint",

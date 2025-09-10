@@ -8,6 +8,18 @@ use sea_orm::{
 use serde_json;
 use tracing::{debug, info};
 
+/// Struct to group raw event log parameters
+struct RawEventLogData {
+    log_text: String,
+    execution_outcome_id: String,
+    predecessor_id: String,
+    contract_id: String,
+    log_index: i32,
+    shard_id: i32,
+    block_height: i64,
+    block_timestamp: i64,
+}
+
 use crate::core::cursor;
 use crate::modules::tokens::{events, state, types};
 use crate::IndexerModule;
@@ -185,14 +197,16 @@ impl TokensModule {
             // Store raw event log
             let raw_event_id = self
                 .store_raw_event_log(
-                    logs.get(log_index).unwrap(),
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
-                    log_index as i32,
-                    shard_id as i32,
-                    block_height,
-                    block_timestamp,
+                    RawEventLogData {
+                        log_text: logs.get(log_index).unwrap().clone(),
+                        execution_outcome_id: execution_outcome_id.to_string(),
+                        predecessor_id: predecessor_id.to_string(),
+                        contract_id: contract_id.to_string(),
+                        log_index: log_index as i32,
+                        shard_id: shard_id as i32,
+                        block_height,
+                        block_timestamp,
+                    },
                     db,
                 )
                 .await?;
@@ -241,27 +255,20 @@ impl TokensModule {
 
     async fn store_raw_event_log(
         &self,
-        log_text: &str,
-        execution_outcome_id: &str,
-        predecessor_id: &str,
-        contract_id: &str,
-        log_index: i32,
-        shard_id: i32,
-        block_height: i64,
-        block_timestamp: i64,
+        log_data: RawEventLogData,
         db: &impl ConnectionTrait,
     ) -> Result<i64> {
         let raw_event = near_token_events_raw::ActiveModel {
             id: sea_orm::NotSet,
-            block_height: Set(block_height),
-            block_timestamp: Set(block_timestamp),
-            shard_id: Set(shard_id),
+            block_height: Set(log_data.block_height),
+            block_timestamp: Set(log_data.block_timestamp),
+            shard_id: Set(log_data.shard_id),
             receipt_id: Set("".to_string()), // We don't have receipt_id from this context
-            execution_outcome_id: Set(execution_outcome_id.to_string()),
-            predecessor_account_id: Set(predecessor_id.to_string()),
-            contract_id: Set(contract_id.to_string()),
-            log_index: Set(log_index),
-            log_text: Set(log_text.to_string()),
+            execution_outcome_id: Set(log_data.execution_outcome_id),
+            predecessor_account_id: Set(log_data.predecessor_id),
+            contract_id: Set(log_data.contract_id),
+            log_index: Set(log_data.log_index),
+            log_text: Set(log_data.log_text),
             created_at: Set(Some(chrono::Utc::now())),
         };
 

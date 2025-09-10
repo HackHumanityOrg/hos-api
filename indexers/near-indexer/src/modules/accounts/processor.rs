@@ -11,9 +11,30 @@ use serde_json;
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
 
+/// Type alias for account event tuples to reduce complexity
+type AccountEvent = (
+    String,            // account_id
+    String,            // event_type
+    Option<String>,    // related_account_id
+    Option<String>,    // transaction_hash
+    serde_json::Value, // event_data
+);
+
+/// Struct to group access key parameters
+struct AccessKeyData {
+    account_id: String,
+    public_key: String,
+    permission_type: String,
+    allowance: Option<String>,
+    receiver_id: Option<String>,
+    method_names: Option<serde_json::Value>,
+    nonce: i64,
+    block_height: i64,
+}
+
+use super::classification::{classify_account, get_parent_account, validate_account_id};
 use crate::core::cursor;
 use crate::IndexerModule;
-use super::classification::{classify_account, validate_account_id, get_parent_account};
 
 const MODULE_NAME: &str = "accounts";
 
@@ -46,7 +67,6 @@ impl AccountsModule {
 
         Self { enabled }
     }
-
 
     /// Validate public key format
     fn validate_public_key(&self, public_key: &str) -> Result<()> {
@@ -263,14 +283,16 @@ impl AccountsModule {
 
                         // Handle access key upsert directly in the database
                         self.upsert_access_key(
-                            &account_id_str,
-                            &public_key_str,
-                            permission_type,
-                            allowance,
-                            receiver_id,
-                            method_names,
-                            access_key.nonce as i64,
-                            block_height,
+                            AccessKeyData {
+                                account_id: account_id_str.clone(),
+                                public_key: public_key_str.clone(),
+                                permission_type,
+                                allowance,
+                                receiver_id,
+                                method_names,
+                                nonce: access_key.nonce as i64,
+                                block_height,
+                            },
                             db,
                         )
                         .await
@@ -421,13 +443,7 @@ impl AccountsModule {
     /// Store account events
     async fn store_account_events(
         &self,
-        events: Vec<(
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            serde_json::Value,
-        )>,
+        events: Vec<AccountEvent>,
         block_height: i64,
         block_timestamp: i64,
         db: &impl ConnectionTrait,
@@ -498,49 +514,45 @@ impl AccountsModule {
     /// Upsert an access key (insert if new, update if exists)
     async fn upsert_access_key(
         &self,
-        account_id: &str,
-        public_key: &str,
-        permission_type: String,
-        allowance: Option<String>,
-        receiver_id: Option<String>,
-        method_names: Option<serde_json::Value>,
-        nonce: i64,
-        block_height: i64,
+        key_data: AccessKeyData,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         // Check if access key already exists
         if let Some(existing_key) = near_access_keys::Entity::find()
-            .filter(near_access_keys::Column::AccountId.eq(account_id))
-            .filter(near_access_keys::Column::PublicKey.eq(public_key))
+            .filter(near_access_keys::Column::AccountId.eq(&key_data.account_id))
+            .filter(near_access_keys::Column::PublicKey.eq(&key_data.public_key))
             .filter(near_access_keys::Column::IsActive.eq(1))
             .one(db)
             .await?
         {
             // Update existing key
             let mut existing_key: near_access_keys::ActiveModel = existing_key.into();
-            existing_key.permission_type = Set(permission_type);
-            existing_key.allowance = Set(allowance);
-            existing_key.receiver_id = Set(receiver_id);
-            existing_key.method_names = Set(method_names);
-            existing_key.nonce = Set(nonce);
+            existing_key.permission_type = Set(key_data.permission_type);
+            existing_key.allowance = Set(key_data.allowance);
+            existing_key.receiver_id = Set(key_data.receiver_id);
+            existing_key.method_names = Set(key_data.method_names);
+            existing_key.nonce = Set(key_data.nonce);
 
             existing_key
                 .update(db)
                 .await
                 .context("Failed to update access key")?;
-            debug!(account_id, public_key, "Updated existing access key");
+            debug!(
+                key_data.account_id,
+                key_data.public_key, "Updated existing access key"
+            );
         } else {
             // Insert new key
             let new_key = near_access_keys::ActiveModel {
                 id: sea_orm::ActiveValue::NotSet,
-                account_id: Set(account_id.to_string()),
-                public_key: Set(public_key.to_string()),
-                permission_type: Set(permission_type),
-                allowance: Set(allowance),
-                receiver_id: Set(receiver_id),
-                method_names: Set(method_names),
-                nonce: Set(nonce),
-                created_at_height: Set(block_height),
+                account_id: Set(key_data.account_id.clone()),
+                public_key: Set(key_data.public_key.clone()),
+                permission_type: Set(key_data.permission_type),
+                allowance: Set(key_data.allowance),
+                receiver_id: Set(key_data.receiver_id),
+                method_names: Set(key_data.method_names),
+                nonce: Set(key_data.nonce),
+                created_at_height: Set(key_data.block_height),
                 deleted_at_height: Set(None),
                 is_active: Set(1),
             };
@@ -549,7 +561,10 @@ impl AccountsModule {
                 .insert(db)
                 .await
                 .context("Failed to insert new access key")?;
-            debug!(account_id, public_key, "Inserted new access key");
+            debug!(
+                key_data.account_id,
+                key_data.public_key, "Inserted new access key"
+            );
         }
 
         Ok(())
