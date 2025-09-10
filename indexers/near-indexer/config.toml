@@ -58,3 +58,12 @@ track_nep141 = true         # Track Fungible Token (NEP-141) events
 track_nep171 = true         # Track Non-Fungible Token (NEP-171) events
 track_nep245 = true         # Track Multi-Token (NEP-245) events
 contracts = []              # Empty array = index all contracts, or specify contract IDs to whitelist
+
+# Staking pools module - indexes validator staking pools and delegator interactions
+[near.modules.staking_pools]
+enabled = true              # Set to true to enable staking pools indexing
+pool_patterns = ["*.poolv1.near", "*.pool.near"]  # Patterns to identify staking pool contracts
+custom_pools = []           # Specify known custom pool account IDs
+track_epochs = true         # Track validator epoch transitions and rewards
+track_delegators = true     # Track delegator relationships with pools
+parse_events = true         # Parse and store events from pool contracts

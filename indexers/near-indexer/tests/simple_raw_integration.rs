@@ -31,6 +31,7 @@ fn create_test_raw_module() -> RawModule {
                 raw: Some(common::config::RawModuleConfig { enabled: true }),
                 accounts: None,
                 tokens: None,
+                staking_pools: None,
             }),
         }),
     });
@@ -520,6 +521,7 @@ async fn test_raw_module_configuration() {
                 raw: Some(common::config::RawModuleConfig { enabled: false }),
                 accounts: None,
                 tokens: None,
+                staking_pools: None,
             }),
         }),
     });
@@ -566,6 +568,7 @@ async fn test_raw_module_configuration() {
                 raw: None, // No explicit config should default to enabled
                 accounts: None,
                 tokens: None,
+                staking_pools: None,
             }),
         }),
     });

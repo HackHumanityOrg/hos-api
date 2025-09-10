@@ -49,6 +49,7 @@ fn create_test_tokens_module() -> TokensModule {
                     track_nep245: true,
                     contracts: vec![],
                 }),
+                staking_pools: None,
             }),
         }),
     });
@@ -1070,6 +1071,7 @@ async fn test_module_configuration() {
                     track_nep245: true,
                     contracts: vec![],
                 }),
+                staking_pools: None,
             }),
         }),
     });

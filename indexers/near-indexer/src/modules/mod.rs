@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod raw;
+pub mod staking_pools;
 pub mod tokens;
 
 use crate::ModuleRegistry;
@@ -17,4 +18,8 @@ pub fn register_all_modules(registry: &mut ModuleRegistry, config: &common::conf
     // Register tokens module - indexes NEP-141, NEP-171, and NEP-245 token events
     let tokens_module = tokens::TokensModule::new(config);
     registry.register_module(Box::new(tokens_module));
+
+    // Register staking pools module - indexes validator staking pools and delegator interactions
+    let staking_pools_module = staking_pools::StakingPoolsModule::new(config);
+    registry.register_module(Box::new(staking_pools_module));
 }

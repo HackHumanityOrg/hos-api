@@ -256,6 +256,9 @@ pub struct NearModulesConfig {
     /// Tokens module configuration
     #[serde(default)]
     pub tokens: Option<TokensModuleConfig>,
+    /// Staking pools module configuration
+    #[serde(default)]
+    pub staking_pools: Option<StakingPoolsModuleConfig>,
 }
 
 /// Raw data module configuration
@@ -287,8 +290,29 @@ pub struct TokensModuleConfig {
     pub contracts: Vec<String>,
 }
 
+/// Staking pools module configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StakingPoolsModuleConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_pool_patterns")]
+    pub pool_patterns: Vec<String>,
+    #[serde(default)]
+    pub custom_pools: Vec<String>,
+    #[serde(default = "default_true")]
+    pub track_epochs: bool,
+    #[serde(default = "default_true")]
+    pub track_delegators: bool,
+    #[serde(default = "default_true")]
+    pub parse_events: bool,
+}
+
 fn default_chain() -> String {
     "mainnet".to_string()
+}
+
+fn default_pool_patterns() -> Vec<String> {
+    vec!["*.poolv1.near".to_string(), "*.pool.near".to_string()]
 }
 
 impl ToLog for NearLakeConfig {
@@ -310,6 +334,7 @@ impl ToLog for NearModulesConfig {
             "raw": self.raw.as_ref().map(|r| r.to_log()),
             "accounts": self.accounts.as_ref().map(|a| a.to_log()),
             "tokens": self.tokens.as_ref().map(|t| t.to_log()),
+            "staking_pools": self.staking_pools.as_ref().map(|s| s.to_log()),
         })
     }
 }
@@ -342,6 +367,23 @@ impl ToLog for TokensModuleConfig {
             } else {
                 format!("{} contracts", self.contracts.len())
             },
+        })
+    }
+}
+
+impl ToLog for StakingPoolsModuleConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "enabled": self.enabled,
+            "pool_patterns": self.pool_patterns,
+            "custom_pools": if self.custom_pools.is_empty() {
+                "none".to_string()
+            } else {
+                format!("{} custom pools", self.custom_pools.len())
+            },
+            "track_epochs": self.track_epochs,
+            "track_delegators": self.track_delegators,
+            "parse_events": self.parse_events,
         })
     }
 }

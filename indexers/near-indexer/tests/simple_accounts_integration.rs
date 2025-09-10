@@ -40,6 +40,7 @@ fn create_test_accounts_module() -> AccountsModule {
                 raw: None,
                 accounts: Some(common::config::AccountsModuleConfig { enabled: true }),
                 tokens: None,
+                staking_pools: None,
             }),
         }),
     });
@@ -888,6 +889,7 @@ async fn test_accounts_module_configuration() {
                 raw: None,
                 accounts: Some(common::config::AccountsModuleConfig { enabled: false }),
                 tokens: None,
+                staking_pools: None,
             }),
         }),
     });
