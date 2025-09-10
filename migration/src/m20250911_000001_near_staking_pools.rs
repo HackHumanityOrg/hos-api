@@ -81,8 +81,16 @@ impl MigrationTrait for Migration {
                             .string_len(128)
                             .not_null(),
                     )
-                    .col(ColumnDef::new(NearStakingPoolActions::ArgsJson).json().null())
-                    .col(ColumnDef::new(NearStakingPoolActions::ArgsBase64).text().not_null())
+                    .col(
+                        ColumnDef::new(NearStakingPoolActions::ArgsJson)
+                            .json()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolActions::ArgsBase64)
+                            .text()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(NearStakingPoolActions::AttachedDeposit)
                             .text()
@@ -108,7 +116,11 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(NearStakingPoolActions::Success).boolean().null())
+                    .col(
+                        ColumnDef::new(NearStakingPoolActions::Success)
+                            .boolean()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -141,9 +153,21 @@ impl MigrationTrait for Migration {
                             .string_len(64)
                             .not_null(),
                     )
-                    .col(ColumnDef::new(NearStakingPoolEvents::EventData).json().not_null())
-                    .col(ColumnDef::new(NearStakingPoolEvents::RawLog).text().not_null())
-                    .col(ColumnDef::new(NearStakingPoolEvents::LogIndex).integer().not_null())
+                    .col(
+                        ColumnDef::new(NearStakingPoolEvents::EventData)
+                            .json()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolEvents::RawLog)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearStakingPoolEvents::LogIndex)
+                            .integer()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(NearStakingPoolEvents::ExecutionOutcomeId)
                             .string_len(64)
@@ -439,7 +463,7 @@ impl MigrationTrait for Migration {
             .await?;
 
         // =================
-        // ENHANCE EXISTING TABLES  
+        // ENHANCE EXISTING TABLES
         // =================
 
         // Add columns to near_staking_pool_actions for parsed data
@@ -453,9 +477,7 @@ impl MigrationTrait for Migration {
                             .null(), // deposit/stake/unstake/withdraw/ping
                     )
                     .add_column(
-                        ColumnDef::new(NearStakingPoolActions::Amount)
-                            .text()
-                            .null(), // Parsed from args_json
+                        ColumnDef::new(NearStakingPoolActions::Amount).text().null(), // Parsed from args_json
                     )
                     .to_owned(),
             )
@@ -747,15 +769,27 @@ impl MigrationTrait for Migration {
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         // Drop tables in reverse order to handle foreign key constraints
         manager
-            .drop_table(Table::drop().table(NearStakingPoolBalances::Table).to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(NearStakingPoolBalances::Table)
+                    .to_owned(),
+            )
             .await?;
 
         manager
-            .drop_table(Table::drop().table(NearStakingPoolRewards::Table).to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(NearStakingPoolRewards::Table)
+                    .to_owned(),
+            )
             .await?;
 
         manager
-            .drop_table(Table::drop().table(NearStakingValidatorProposals::Table).to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(NearStakingValidatorProposals::Table)
+                    .to_owned(),
+            )
             .await?;
 
         manager
@@ -771,7 +805,11 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .drop_table(Table::drop().table(NearStakingPoolActions::Table).to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(NearStakingPoolActions::Table)
+                    .to_owned(),
+            )
             .await?;
 
         manager

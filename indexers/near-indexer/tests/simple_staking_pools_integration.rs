@@ -10,15 +10,15 @@ use test_support::{init_test_tracing, TestDatabase};
 // Block constants verified against nearblocks API for staking pool activity
 // Data fetched from: https://api.nearblocks.io/v1/blocks/{block_height}
 const STAKING_POOL_BLOCK: BlockHeight = 163446764; // Block with deposit_and_stake activity
-// Verified: hash=3XG1oi9Y1CdvFVxx76BqwrL7cbXg2TVbYvF867ch9Q2T, author=figment.poolv1.near, txs=25
-// Transaction: 4PExvppuPowjhMo1zVhv69i5AFsi9fnmbfLDSYvqWVvQ (deposit_and_stake)
+                                                   // Verified: hash=3XG1oi9Y1CdvFVxx76BqwrL7cbXg2TVbYvF867ch9Q2T, author=figment.poolv1.near, txs=25
+                                                   // Transaction: 4PExvppuPowjhMo1zVhv69i5AFsi9fnmbfLDSYvqWVvQ (deposit_and_stake)
 
-const UNSTAKE_ACTIVITY_BLOCK: BlockHeight = 163446874; // Block with unstake activity  
-// Verified: hash=CBo3rBXBEj8hXAEiicyBRoqj7NDECYZFKfHRMCvDifZM
-// Transaction: MrvDkZneWNfFEqczi2YZjFvyTRy2gjw3BPdtPqWaacX (unstake attempt)
+const UNSTAKE_ACTIVITY_BLOCK: BlockHeight = 163446874; // Block with unstake activity
+                                                       // Verified: hash=CBo3rBXBEj8hXAEiicyBRoqj7NDECYZFKfHRMCvDifZM
+                                                       // Transaction: MrvDkZneWNfFEqczi2YZjFvyTRy2gjw3BPdtPqWaacX (unstake attempt)
 
 const VALIDATOR_PROPOSAL_BLOCK: BlockHeight = 163368228; // Block authored by staking pool validator
-// Verified: hash=5g6zsMuqYBSuA4ze6zUEZZBV4X6hGWDdftSnsvX3gM6N, author=zavodil.poolv1.near
+                                                         // Verified: hash=5g6zsMuqYBSuA4ze6zUEZZBV4X6hGWDdftSnsvX3gM6N, author=zavodil.poolv1.near
 
 #[fixture]
 async fn test_db() -> TestDatabase {
@@ -257,7 +257,10 @@ async fn test_deposit_and_stake_validation(#[future] test_db: TestDatabase) {
                         .collect();
 
                     if !expected_actions.is_empty() {
-                        println!("✅ Found {} matching staking actions:", expected_actions.len());
+                        println!(
+                            "✅ Found {} matching staking actions:",
+                            expected_actions.len()
+                        );
                         for action in expected_actions {
                             println!("   Staking Action:");
                             println!("     Pool: {}", action.pool_id);
@@ -332,7 +335,10 @@ async fn test_deposit_and_stake_validation(#[future] test_db: TestDatabase) {
                             println!("   Delegator:");
                             println!("     Pool: {}", delegator.pool_id);
                             println!("     Delegator: {}", delegator.delegator_account_id);
-                            println!("     First interaction: {}", delegator.first_interaction_type);
+                            println!(
+                                "     First interaction: {}",
+                                delegator.first_interaction_type
+                            );
                             println!("     Interaction count: {}", delegator.interaction_count);
 
                             assert_eq!(
@@ -358,10 +364,22 @@ async fn test_deposit_and_stake_validation(#[future] test_db: TestDatabase) {
                             println!("     Block height: {}", proposal.block_height);
 
                             // Validate proposal data structure
-                            assert!(!proposal.account_id.is_empty(), "Account ID should not be empty");
-                            assert!(!proposal.public_key.is_empty(), "Public key should not be empty");
-                            assert!(proposal.stake.parse::<u128>().is_ok(), "Stake should be valid number");
-                            assert_eq!(proposal.block_height, TEST_BLOCK_HEIGHT as i64, "Block height should match");
+                            assert!(
+                                !proposal.account_id.is_empty(),
+                                "Account ID should not be empty"
+                            );
+                            assert!(
+                                !proposal.public_key.is_empty(),
+                                "Public key should not be empty"
+                            );
+                            assert!(
+                                proposal.stake.parse::<u128>().is_ok(),
+                                "Stake should be valid number"
+                            );
+                            assert_eq!(
+                                proposal.block_height, TEST_BLOCK_HEIGHT as i64,
+                                "Block height should match"
+                            );
                         }
                     }
 
@@ -459,9 +477,7 @@ async fn test_unstake_validation(#[future] test_db: TestDatabase) {
                     // Validate expected unstake action
                     let unstake_actions: Vec<_> = all_actions
                         .iter()
-                        .filter(|a| {
-                            a.method_name == "unstake" && a.pool_id == EXPECTED_RECEIVER
-                        })
+                        .filter(|a| a.method_name == "unstake" && a.pool_id == EXPECTED_RECEIVER)
                         .collect();
 
                     if !unstake_actions.is_empty() {
@@ -503,9 +519,7 @@ async fn test_unstake_validation(#[future] test_db: TestDatabase) {
                     }
 
                     // Validate zavodil pool was detected
-                    let zavodil_pool = all_pools
-                        .iter()
-                        .find(|p| p.pool_id == EXPECTED_RECEIVER);
+                    let zavodil_pool = all_pools.iter().find(|p| p.pool_id == EXPECTED_RECEIVER);
 
                     if let Some(pool) = zavodil_pool {
                         println!("✅ Zavodil staking pool detected:");
@@ -568,7 +582,8 @@ async fn test_validator_proposals_validation(#[future] test_db: TestDatabase) {
             );
 
             // Get the first chunk author as the block producer
-            let chunk_authors: Vec<String> = msg.shards
+            let chunk_authors: Vec<String> = msg
+                .shards
                 .iter()
                 .filter_map(|shard| shard.chunk.as_ref().map(|chunk| chunk.author.to_string()))
                 .collect();
@@ -625,8 +640,13 @@ async fn test_validator_proposals_validation(#[future] test_db: TestDatabase) {
                             assert!(!proposal.epoch_id.is_empty());
 
                             // Check if this is a staking pool proposal
-                            if proposal.account_id.ends_with(".poolv1.near") || proposal.account_id.ends_with(".pool.near") {
-                                println!("     ✅ Staking pool validator proposal: {}", proposal.account_id);
+                            if proposal.account_id.ends_with(".poolv1.near")
+                                || proposal.account_id.ends_with(".pool.near")
+                            {
+                                println!(
+                                    "     ✅ Staking pool validator proposal: {}",
+                                    proposal.account_id
+                                );
                             }
                         }
                     }
@@ -639,7 +659,10 @@ async fn test_validator_proposals_validation(#[future] test_db: TestDatabase) {
                             println!("     ID: {}", epoch.epoch_id);
                             println!("     Start block: {}", epoch.start_block_height);
                             println!("     Total stake: {}", epoch.total_stake);
-                            println!("     Total validator reward: {}", epoch.total_validator_reward);
+                            println!(
+                                "     Total validator reward: {}",
+                                epoch.total_validator_reward
+                            );
 
                             // Validate epoch data
                             assert!(!epoch.epoch_id.is_empty());
@@ -653,12 +676,18 @@ async fn test_validator_proposals_validation(#[future] test_db: TestDatabase) {
                     // Validate staking pools were registered from validator proposals
                     let staking_pool_validators: Vec<_> = all_proposals
                         .iter()
-                        .filter(|p| p.account_id.ends_with(".poolv1.near") || p.account_id.ends_with(".pool.near"))
+                        .filter(|p| {
+                            p.account_id.ends_with(".poolv1.near")
+                                || p.account_id.ends_with(".pool.near")
+                        })
                         .collect();
 
                     if !staking_pool_validators.is_empty() {
-                        println!("✅ Found {} staking pool validators:", staking_pool_validators.len());
-                        
+                        println!(
+                            "✅ Found {} staking pool validators:",
+                            staking_pool_validators.len()
+                        );
+
                         for pool_proposal in staking_pool_validators.iter().take(3) {
                             // Check if corresponding pool was registered
                             let registered_pool = all_pools
@@ -668,7 +697,9 @@ async fn test_validator_proposals_validation(#[future] test_db: TestDatabase) {
                             if let Some(pool) = registered_pool {
                                 println!("     Pool registered: {}", pool.pool_id);
                                 assert!(pool.is_active == 1, "Pool should be active");
-                                println!("       ✅ Pool correctly registered from validator proposal");
+                                println!(
+                                    "       ✅ Pool correctly registered from validator proposal"
+                                );
                             }
                         }
                     }
@@ -765,10 +796,8 @@ async fn test_comprehensive_staking_pool_validation(#[future] test_db: TestDatab
                         // Validate data relationships
                         for pool in pools.iter().take(2) {
                             // Check pool has corresponding actions
-                            let pool_actions = actions
-                                .iter()
-                                .filter(|a| a.pool_id == pool.pool_id)
-                                .count();
+                            let pool_actions =
+                                actions.iter().filter(|a| a.pool_id == pool.pool_id).count();
 
                             println!("    Pool {} has {} actions", pool.pool_id, pool_actions);
 
@@ -816,8 +845,10 @@ async fn test_comprehensive_staking_pool_validation(#[future] test_db: TestDatab
             println!("✅ Pool integrity check: {}", pool.pool_id);
 
             // Check pool has activity
-            assert!(pool.last_activity_height >= pool.first_seen_height,
-                "Last activity should be >= first seen");
+            assert!(
+                pool.last_activity_height >= pool.first_seen_height,
+                "Last activity should be >= first seen"
+            );
 
             // Check pool has delegators if it has actions
             let pool_actions = near_staking_pool_actions::Entity::find()
@@ -832,8 +863,12 @@ async fn test_comprehensive_staking_pool_validation(#[future] test_db: TestDatab
                     .filter(|d| d.pool_id == pool.pool_id)
                     .collect();
 
-                println!("   Pool {} has {} actions, {} delegators",
-                    pool.pool_id, pool_actions.len(), pool_delegators.len());
+                println!(
+                    "   Pool {} has {} actions, {} delegators",
+                    pool.pool_id,
+                    pool_actions.len(),
+                    pool_delegators.len()
+                );
             }
         }
     }

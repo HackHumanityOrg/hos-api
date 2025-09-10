@@ -5,7 +5,8 @@ use near_indexer_primitives::views::BlockView;
 use near_indexer_primitives::{IndexerShard, StreamerMessage};
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
 use serde_json;
-use tracing::{debug, info};
+use std::time::Instant;
+use tracing::{info, instrument};
 
 use crate::core::cursor;
 use crate::IndexerModule;
@@ -326,10 +327,12 @@ impl IndexerModule for RawModule {
         Ok(())
     }
 
+    #[instrument(skip(self, msg, db), fields(module = "raw", height = %msg.block.header.height))]
     async fn process_block(&self, msg: &StreamerMessage, db: &DatabaseConnection) -> Result<()> {
+        let start_time = Instant::now();
         info!(
             height = msg.block.header.height,
-            shards = msg.shards.len(),
+            shard_count = msg.shards.len(),
             "Processing raw block data"
         );
 
@@ -367,8 +370,11 @@ impl IndexerModule for RawModule {
 
         txn.commit().await?;
 
-        debug!(
+        let elapsed = start_time.elapsed();
+        info!(
             height = msg.block.header.height,
+            shard_count = msg.shards.len(),
+            elapsed_ms = elapsed.as_millis(),
             "Successfully stored raw block data"
         );
 

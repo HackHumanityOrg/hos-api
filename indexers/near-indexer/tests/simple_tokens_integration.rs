@@ -10,16 +10,16 @@ use test_support::{init_test_tracing, TestDatabase};
 // Block constants verified against nearblocks API
 // Data fetched from: https://api.nearblocks.io/v1/blocks/{block_height}
 const WRAP_NEAR_BLOCK: BlockHeight = 163368228; // wrap.near transfer: 106.284646 wNEAR
-// Verified: hash=5g6zsMuqYBSuA4ze6zUEZZBV4X6hGWDdftSnsvX3gM6N, prev=Fuqyu14zcPchcvhs1iXhxQQezPhRARcmR4L2MH2h97QD, gas=100000000, shards=9, txs=11
+                                                // Verified: hash=5g6zsMuqYBSuA4ze6zUEZZBV4X6hGWDdftSnsvX3gM6N, prev=Fuqyu14zcPchcvhs1iXhxQQezPhRARcmR4L2MH2h97QD, gas=100000000, shards=9, txs=11
 
 const REF_FINANCE_BLOCK: BlockHeight = 163368226; // v2.ref-finance.near activity
-// Verified: hash=899A83kM4GNiyb5jdFXRePeBACCirTvjSCfyp8jVkhem, prev=HcWrFvYtz3ddvuc3fRtk1iHd9MThGjf5Ezffn7iReXr8, gas=100000000, shards=9, txs=15
+                                                  // Verified: hash=899A83kM4GNiyb5jdFXRePeBACCirTvjSCfyp8jVkhem, prev=HcWrFvYtz3ddvuc3fRtk1iHd9MThGjf5Ezffn7iReXr8, gas=100000000, shards=9, txs=15
 
 const USDT_BLOCK: BlockHeight = 163365867; // Block with diverse token activity
-// Verified: hash=5BZVTy32BJdWbzsKCuQBhJKeR59Wt7aWtDS6jK9gHDK7, prev=CTBAGxjdjG73WyQFX1jNDt9ciNsvqc6pJeaPnm2PLNx1, gas=100000000, shards=9, txs=12
+                                           // Verified: hash=5BZVTy32BJdWbzsKCuQBhJKeR59Wt7aWtDS6jK9gHDK7, prev=CTBAGxjdjG73WyQFX1jNDt9ciNsvqc6pJeaPnm2PLNx1, gas=100000000, shards=9, txs=12
 
 const NFT_ACTIVITY_BLOCK: BlockHeight = 163424982; // ShardDog NFT activity
-// Verified: hash=8kKWN8VGdUQwYgep4shGvaqQaEvG8tSDr9c2Ms8Zi9a4, prev=Aop1BS8xeuz1BiNbp5PP5ttuKobzTM1oVB1VS9vdFgDX, gas=100000000, shards=9, txs=205
+                                                   // Verified: hash=8kKWN8VGdUQwYgep4shGvaqQaEvG8tSDr9c2Ms8Zi9a4, prev=Aop1BS8xeuz1BiNbp5PP5ttuKobzTM1oVB1VS9vdFgDX, gas=100000000, shards=9, txs=205
 
 #[fixture]
 async fn test_db() -> TestDatabase {

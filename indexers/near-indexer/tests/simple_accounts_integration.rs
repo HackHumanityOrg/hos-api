@@ -10,13 +10,13 @@ use test_support::{init_test_tracing, TestDatabase};
 // Block constants verified against nearblocks API
 // Data fetched from: https://api.nearblocks.io/v1/blocks/{block_height}
 const HIGH_ACTIVITY_BLOCK: BlockHeight = 163368228; // Block with wrap.near and ref-finance activity
-// Verified: hash=5g6zsMuqYBSuA4ze6zUEZZBV4X6hGWDdftSnsvX3gM6N, prev=Fuqyu14zcPchcvhs1iXhxQQezPhRARcmR4L2MH2h97QD, gas=100000000, shards=9, txs=11
+                                                    // Verified: hash=5g6zsMuqYBSuA4ze6zUEZZBV4X6hGWDdftSnsvX3gM6N, prev=Fuqyu14zcPchcvhs1iXhxQQezPhRARcmR4L2MH2h97QD, gas=100000000, shards=9, txs=11
 
-const REF_FINANCE_BLOCK: BlockHeight = 163368226; // Block with ref-finance swap activity  
-// Verified: hash=899A83kM4GNiyb5jdFXRePeBACCirTvjSCfyp8jVkhem, prev=HcWrFvYtz3ddvuc3fRtk1iHd9MThGjf5Ezffn7iReXr8, gas=100000000, shards=9, txs=15
+const REF_FINANCE_BLOCK: BlockHeight = 163368226; // Block with ref-finance swap activity
+                                                  // Verified: hash=899A83kM4GNiyb5jdFXRePeBACCirTvjSCfyp8jVkhem, prev=HcWrFvYtz3ddvuc3fRtk1iHd9MThGjf5Ezffn7iReXr8, gas=100000000, shards=9, txs=15
 
 const DIVERSE_ACTIVITY_BLOCK: BlockHeight = 163365867; // Block with diverse activity
-// Verified: hash=5BZVTy32BJdWbzsKCuQBhJKeR59Wt7aWtDS6jK9gHDK7, prev=CTBAGxjdjG73WyQFX1jNDt9ciNsvqc6pJeaPnm2PLNx1, gas=100000000, shards=9, txs=12
+                                                       // Verified: hash=5BZVTy32BJdWbzsKCuQBhJKeR59Wt7aWtDS6jK9gHDK7, prev=CTBAGxjdjG73WyQFX1jNDt9ciNsvqc6pJeaPnm2PLNx1, gas=100000000, shards=9, txs=12
 
 #[fixture]
 async fn test_db() -> TestDatabase {

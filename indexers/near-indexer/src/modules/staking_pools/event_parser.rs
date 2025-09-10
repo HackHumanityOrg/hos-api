@@ -101,7 +101,9 @@ impl EventParser {
             .unwrap_or(serde_json::Value::Null);
 
         Ok(StakingEvent {
-            pool_id: pool_id.parse().map_err(|e| anyhow!("Invalid AccountId: {}", e))?,
+            pool_id: pool_id
+                .parse()
+                .map_err(|e| anyhow!("Invalid AccountId: {}", e))?,
             event_standard,
             event_type,
             event_data,
@@ -123,11 +125,17 @@ impl EventParser {
         timestamp: i64,
     ) -> Result<StakingEvent> {
         // Try to parse common staking pool log patterns
-        if log.contains("deposit") || log.contains("stake") || log.contains("unstake") || log.contains("withdraw") {
+        if log.contains("deposit")
+            || log.contains("stake")
+            || log.contains("unstake")
+            || log.contains("withdraw")
+        {
             // Try to parse as JSON first
             if let Ok(json_data) = serde_json::from_str::<serde_json::Value>(log) {
                 return Ok(StakingEvent {
-                    pool_id: pool_id.parse().map_err(|e| anyhow!("Invalid AccountId: {}", e))?,
+                    pool_id: pool_id
+                        .parse()
+                        .map_err(|e| anyhow!("Invalid AccountId: {}", e))?,
                     event_standard: Some("custom".to_string()),
                     event_type: Self::extract_event_type_from_log(log),
                     event_data: json_data,
@@ -166,11 +174,20 @@ impl EventParser {
     /// Check if a log looks like it might be staking-related
     fn looks_like_staking_log(log: &str) -> bool {
         let staking_keywords = [
-            "stake", "unstake", "deposit", "withdraw", "ping", 
-            "delegation", "reward", "validator", "pool"
+            "stake",
+            "unstake",
+            "deposit",
+            "withdraw",
+            "ping",
+            "delegation",
+            "reward",
+            "validator",
+            "pool",
         ];
 
-        staking_keywords.iter().any(|&keyword| log.to_lowercase().contains(keyword))
+        staking_keywords
+            .iter()
+            .any(|&keyword| log.to_lowercase().contains(keyword))
     }
 
     /// Parse reward distribution events from logs
@@ -185,9 +202,11 @@ impl EventParser {
 
         for (index, log) in logs.iter().enumerate() {
             let log_lower = log.to_lowercase();
-            
+
             // Look for reward distribution patterns
-            if log_lower.contains("reward") && (log_lower.contains("distributed") || log_lower.contains("distribution")) {
+            if log_lower.contains("reward")
+                && (log_lower.contains("distributed") || log_lower.contains("distribution"))
+            {
                 // Try to extract amount from patterns like "Rewards distributed: 100.5 NEAR"
                 let amount = Self::extract_amount_from_log(log);
                 reward_events.push((index, log.clone(), amount));
@@ -202,7 +221,8 @@ impl EventParser {
                 if let Ok(event_log) = serde_json::from_str::<serde_json::Value>(&log[11..]) {
                     if let Some(event_type) = event_log.get("event").and_then(|e| e.as_str()) {
                         if event_type == "reward" || event_type == "distribute_rewards" {
-                            let amount = event_log.get("data")
+                            let amount = event_log
+                                .get("data")
                                 .and_then(|data| data.get("amount"))
                                 .and_then(|a| a.as_str())
                                 .map(|s| s.to_string());
@@ -223,25 +243,43 @@ impl EventParser {
         _execution_outcome_id: &str,
         _block_height: u64,
         _timestamp: i64,
-    ) -> Vec<(usize, String, String, String, String)> { // (index, log, account_id, balance_type, balance)
+    ) -> Vec<(usize, String, String, String, String)> {
+        // (index, log, account_id, balance_type, balance)
         let mut balance_events = Vec::new();
 
         for (index, log) in logs.iter().enumerate() {
             let log_lower = log.to_lowercase();
 
             // Look for balance update patterns
-            if log_lower.contains("balance") && (log_lower.contains("update") || log_lower.contains("changed")) {
+            if log_lower.contains("balance")
+                && (log_lower.contains("update") || log_lower.contains("changed"))
+            {
                 // Try to parse patterns like "Balance updated: alice.near staked: 100, unstaked: 50"
                 if let Some((account_id, staked, unstaked)) = Self::parse_balance_update_log(log) {
-                    balance_events.push((index, log.clone(), account_id.clone(), "staked".to_string(), staked));
+                    balance_events.push((
+                        index,
+                        log.clone(),
+                        account_id.clone(),
+                        "staked".to_string(),
+                        staked,
+                    ));
                     if !unstaked.is_empty() && unstaked != "0" {
-                        balance_events.push((index, log.clone(), account_id, "unstaked".to_string(), unstaked));
+                        balance_events.push((
+                            index,
+                            log.clone(),
+                            account_id,
+                            "unstaked".to_string(),
+                            unstaked,
+                        ));
                     }
                 }
             }
             // Look for specific staked/unstaked amount mentions
-            else if (log_lower.contains("staked:") || log_lower.contains("unstaked:")) && log_lower.contains("near") {
-                if let Some((account_id, balance_type, amount)) = Self::parse_stake_amount_log(log) {
+            else if (log_lower.contains("staked:") || log_lower.contains("unstaked:"))
+                && log_lower.contains("near")
+            {
+                if let Some((account_id, balance_type, amount)) = Self::parse_stake_amount_log(log)
+                {
                     balance_events.push((index, log.clone(), account_id, balance_type, amount));
                 }
             }
@@ -251,14 +289,32 @@ impl EventParser {
                     if let Some(event_type) = event_log.get("event").and_then(|e| e.as_str()) {
                         if event_type == "balance_update" || event_type == "account_update" {
                             if let Some(data) = event_log.get("data") {
-                                let account_id = data.get("account_id").and_then(|a| a.as_str()).unwrap_or("unknown").to_string();
-                                
+                                let account_id = data
+                                    .get("account_id")
+                                    .and_then(|a| a.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string();
+
                                 if let Some(staked) = data.get("staked").and_then(|s| s.as_str()) {
-                                    balance_events.push((index, log.clone(), account_id.clone(), "staked".to_string(), staked.to_string()));
+                                    balance_events.push((
+                                        index,
+                                        log.clone(),
+                                        account_id.clone(),
+                                        "staked".to_string(),
+                                        staked.to_string(),
+                                    ));
                                 }
-                                if let Some(unstaked) = data.get("unstaked").and_then(|s| s.as_str()) {
+                                if let Some(unstaked) =
+                                    data.get("unstaked").and_then(|s| s.as_str())
+                                {
                                     if unstaked != "0" {
-                                        balance_events.push((index, log.clone(), account_id, "unstaked".to_string(), unstaked.to_string()));
+                                        balance_events.push((
+                                            index,
+                                            log.clone(),
+                                            account_id,
+                                            "unstaked".to_string(),
+                                            unstaked.to_string(),
+                                        ));
                                     }
                                 }
                             }
@@ -274,7 +330,7 @@ impl EventParser {
     /// Extract amount from log text using regex patterns
     fn extract_amount_from_log(log: &str) -> Option<String> {
         // Look for patterns like "100.5 NEAR", "1000000000000000000000000" (yoctoNEAR)
-        
+
         // Pattern 1: Amount followed by NEAR
         if let Some(start) = log.find(char::is_numeric) {
             let amount_part = &log[start..];
@@ -302,10 +358,12 @@ impl EventParser {
             let account_part = &log[..account_start + ".near".len()];
             if let Some(acc_start) = account_part.rfind(' ') {
                 let account_id = account_part[acc_start + 1..].to_string();
-                
-                let staked = Self::extract_amount_after_keyword(log, "staked:").unwrap_or("0".to_string());
-                let unstaked = Self::extract_amount_after_keyword(log, "unstaked:").unwrap_or("0".to_string());
-                
+
+                let staked =
+                    Self::extract_amount_after_keyword(log, "staked:").unwrap_or("0".to_string());
+                let unstaked =
+                    Self::extract_amount_after_keyword(log, "unstaked:").unwrap_or("0".to_string());
+
                 return Some((account_id, staked, unstaked));
             }
         }
@@ -356,15 +414,15 @@ mod tests {
     #[test]
     fn test_parse_structured_event() {
         let log = r#"EVENT_JSON:{"standard":"staking","version":"1.0.0","event":"deposit","data":{"account_id":"alice.near","amount":"1000000000000000000000000"}}"#;
-        
+
         let events = EventParser::parse_events(
-            &[log.to_string()], 
-            "pool.near", 
-            "outcome123", 
-            100, 
-            1234567890
+            &[log.to_string()],
+            "pool.near",
+            "outcome123",
+            100,
+            1234567890,
         );
-        
+
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "deposit");
         assert_eq!(events[0].event_standard, Some("staking".to_string()));
@@ -372,16 +430,32 @@ mod tests {
 
     #[test]
     fn test_extract_event_type() {
-        assert_eq!(EventParser::extract_event_type_from_log("user deposited 100 NEAR"), "deposit");
-        assert_eq!(EventParser::extract_event_type_from_log("staking 50 NEAR"), "stake");
-        assert_eq!(EventParser::extract_event_type_from_log("unstake request"), "unstake");
-        assert_eq!(EventParser::extract_event_type_from_log("withdraw completed"), "withdraw");
+        assert_eq!(
+            EventParser::extract_event_type_from_log("user deposited 100 NEAR"),
+            "deposit"
+        );
+        assert_eq!(
+            EventParser::extract_event_type_from_log("staking 50 NEAR"),
+            "stake"
+        );
+        assert_eq!(
+            EventParser::extract_event_type_from_log("unstake request"),
+            "unstake"
+        );
+        assert_eq!(
+            EventParser::extract_event_type_from_log("withdraw completed"),
+            "withdraw"
+        );
     }
 
     #[test]
     fn test_looks_like_staking_log() {
-        assert!(EventParser::looks_like_staking_log("User deposited 100 NEAR"));
-        assert!(EventParser::looks_like_staking_log("Staking rewards distributed"));
+        assert!(EventParser::looks_like_staking_log(
+            "User deposited 100 NEAR"
+        ));
+        assert!(EventParser::looks_like_staking_log(
+            "Staking rewards distributed"
+        ));
         assert!(EventParser::looks_like_staking_log("Validator updated"));
         assert!(!EventParser::looks_like_staking_log("Random log message"));
     }

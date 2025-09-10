@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
+use tracing::{debug, info};
 
 pub mod core;
 pub mod modules;
@@ -47,7 +48,16 @@ impl ModuleRegistry {
     }
 
     pub fn register_module(&mut self, module: Box<dyn IndexerModule>) {
+        let module_name = module.name().to_string();
+        let enabled = module.enabled();
         self.modules.push(module);
+
+        debug!(
+            module = %module_name,
+            enabled = enabled,
+            total_modules = self.modules.len(),
+            "Registered indexer module"
+        );
     }
 
     pub fn enabled_modules(&self) -> impl Iterator<Item = &dyn IndexerModule> {
@@ -67,9 +77,25 @@ impl ModuleRegistry {
 
     /// Initialize all registered modules
     pub async fn initialize_all(&self, db: &DatabaseConnection) -> Result<()> {
+        info!("Initializing all registered indexer modules");
+
+        let enabled_modules: Vec<_> = self.enabled_modules().collect();
+        info!(
+            total_modules = self.modules.len(),
+            enabled_modules = enabled_modules.len(),
+            "Module registry summary"
+        );
+
         for module in &self.modules {
+            debug!(
+                module = module.name(),
+                enabled = module.enabled(),
+                "Initializing module"
+            );
             module.initialize(db).await?;
         }
+
+        info!("All indexer modules initialized successfully");
         Ok(())
     }
 }

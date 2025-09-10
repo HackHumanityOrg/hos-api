@@ -6,7 +6,8 @@ use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait,
 };
 use serde_json;
-use tracing::{debug, info};
+use std::time::Instant;
+use tracing::{debug, info, instrument};
 
 /// Struct to group raw event log parameters
 struct RawEventLogData {
@@ -178,18 +179,18 @@ impl TokensModule {
         }
 
         debug!(
-            "Processing {} token events from contract {} at block {}",
-            token_events.len(),
-            contract_id,
-            block_height
+            event_count = token_events.len(),
+            contract_id = %contract_id,
+            height = block_height,
+            "Processing token events from contract"
         );
 
         for (log_index, parsed_event) in token_events {
             // Check if we should track this standard
             if !self.should_track_standard(&parsed_event.standard) {
                 debug!(
-                    "Skipping {} event (not tracked)",
-                    parsed_event.standard.as_str()
+                    standard = %parsed_event.standard.as_str(),
+                    "Skipping event (not tracked)"
                 );
                 continue;
             }
@@ -477,11 +478,13 @@ impl IndexerModule for TokensModule {
         self.enabled
     }
 
+    #[instrument(skip(self, msg, db), fields(module = "tokens", height = %msg.block.header.height))]
     async fn process_block(&self, msg: &StreamerMessage, db: &DatabaseConnection) -> Result<()> {
         let block_height = msg.block.header.height as i64;
         let block_timestamp = msg.block.header.timestamp as i64;
+        let start_time = Instant::now();
 
-        debug!("Processing token events for block {}", block_height);
+        info!(height = block_height, "Processing token events for block");
 
         // Use transaction for consistency
         let txn = db.begin().await?;
@@ -499,7 +502,12 @@ impl IndexerModule for TokensModule {
 
         txn.commit().await?;
 
-        info!("Processed token events for block {}", block_height);
+        let elapsed = start_time.elapsed();
+        info!(
+            height = block_height,
+            elapsed_ms = elapsed.as_millis(),
+            "Processed token events for block"
+        );
         Ok(())
     }
 

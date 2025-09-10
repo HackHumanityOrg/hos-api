@@ -3,7 +3,7 @@ use base64::Engine;
 use near_primitives::views::ActionView;
 use serde_json;
 
-use crate::modules::staking_pools::types::{ActionContext, StakingAction, is_staking_method};
+use crate::modules::staking_pools::types::{is_staking_method, ActionContext, StakingAction};
 
 /// Parse actions from transactions and receipts to extract staking-related data
 pub struct ActionParser;
@@ -49,7 +49,7 @@ impl ActionParser {
                 }
                 _ => {
                     // All other action types are handled by other modules:
-                    // - Stake actions: Query from near_transactions table 
+                    // - Stake actions: Query from near_transactions table
                     // - AddKey/DeleteKey: Handled by accounts module in near_access_keys
                 }
             }
@@ -70,7 +70,8 @@ impl ActionParser {
             Err(_) => {
                 // Try to decode as string first
                 match std::str::from_utf8(args) {
-                    Ok(s) => serde_json::from_str(s).map_err(|e| anyhow!("Failed to parse args as JSON: {}", e)),
+                    Ok(s) => serde_json::from_str(s)
+                        .map_err(|e| anyhow!("Failed to parse args as JSON: {}", e)),
                     Err(e) => Err(anyhow!("Args are not valid UTF-8: {}", e)),
                 }
             }
@@ -95,7 +96,7 @@ mod tests {
         let args = b"{\"amount\": \"1000000000000000000000000\"}";
         let result = ActionParser::try_parse_args(args);
         assert!(result.is_ok());
-        
+
         if let Ok(serde_json::Value::Object(map)) = result {
             assert!(map.contains_key("amount"));
         }

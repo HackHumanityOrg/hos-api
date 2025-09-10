@@ -1,4 +1,5 @@
 /// Account classification utilities for NEAR Protocol accounts
+use tracing::trace;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccountType {
@@ -29,28 +30,25 @@ impl From<AccountType> for String {
 
 /// Classify account type based on account ID pattern according to NEAR Protocol rules
 pub fn classify_account(account_id: &str) -> AccountType {
-    // System account
-    if account_id == "system" {
-        return AccountType::System;
-    }
+    let account_type = if account_id == "system" {
+        AccountType::System
+    } else if is_eth_implicit_account(account_id) {
+        AccountType::EthImplicit
+    } else if is_near_implicit_account(account_id) {
+        AccountType::Implicit
+    } else if account_id.contains("lockup") {
+        AccountType::Lockup
+    } else {
+        AccountType::Named
+    };
 
-    // ETH-implicit accounts (0x + 40 hex chars)
-    if is_eth_implicit_account(account_id) {
-        return AccountType::EthImplicit;
-    }
+    trace!(
+        account_id = %account_id,
+        account_type = %account_type.as_str(),
+        "Classified account type"
+    );
 
-    // NEAR-implicit accounts (64 hex chars)
-    if is_near_implicit_account(account_id) {
-        return AccountType::Implicit;
-    }
-
-    // Check for lockup contract pattern
-    if account_id.contains("lockup") {
-        return AccountType::Lockup;
-    }
-
-    // All other accounts are named accounts
-    AccountType::Named
+    account_type
 }
 
 /// Check if account ID represents an ETH-implicit account

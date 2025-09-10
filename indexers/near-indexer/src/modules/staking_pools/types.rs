@@ -5,9 +5,9 @@ use serde_json;
 /// Pool types based on detection method
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PoolType {
-    PoolV1,  // *.poolv1.near
-    Pool,    // *.pool.near
-    Custom,  // Custom pool specified in config
+    PoolV1, // *.poolv1.near
+    Pool,   // *.pool.near
+    Custom, // Custom pool specified in config
 }
 
 impl PoolType {
@@ -23,9 +23,9 @@ impl PoolType {
 /// Detection method for pools
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DetectionMethod {
-    Pattern,     // Detected by account ID pattern
-    MethodCall,  // Detected by receiving staking method calls
-    Config,      // Specified in custom pools config
+    Pattern,    // Detected by account ID pattern
+    MethodCall, // Detected by receiving staking method calls
+    Config,     // Specified in custom pools config
 }
 
 impl DetectionMethod {
@@ -102,7 +102,7 @@ pub struct StakingEpoch {
 /// Standard staking pool method names
 pub const STAKING_METHODS: &[&str] = &[
     "deposit",
-    "deposit_and_stake", 
+    "deposit_and_stake",
     "stake",
     "stake_all",
     "unstake",

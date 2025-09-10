@@ -4,10 +4,13 @@ use common::telemetry::{self, TelemetrySetup};
 use db_core::connection::from_config as db_from_config;
 use near_indexer::{modules, ModuleRegistry};
 use std::sync::Arc;
-use tracing::info;
+use std::time::Instant;
+use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let startup_time = Instant::now();
+
     dotenvy::dotenv().ok();
 
     let config =
@@ -17,7 +20,11 @@ async fn main() -> Result<()> {
         TelemetrySetup::from_config("near-indexer", config.telemetry(), &config.logging().level)?;
     let _guard = telemetry::init_telemetry(telemetry_setup)?;
 
-    info!(config = %config.to_log(), "Starting NEAR indexer");
+    info!(
+        config = %config.to_log(),
+        version = env!("CARGO_PKG_VERSION"),
+        "Starting NEAR indexer"
+    );
 
     let db = db_from_config(config.database())
         .await
@@ -38,12 +45,18 @@ async fn main() -> Result<()> {
 
     // Check if any modules are enabled
     let enabled_count: usize = registry.enabled_modules().count();
+    let enabled_module_names: Vec<&str> = registry.enabled_modules().map(|m| m.name()).collect();
+
     if enabled_count == 0 {
-        info!("No modules enabled, exiting");
+        warn!("No modules enabled, exiting gracefully");
         return Ok(());
     }
 
-    info!(enabled_modules = enabled_count, "Modules initialized");
+    info!(
+        enabled_count = enabled_count,
+        enabled_modules = ?enabled_module_names,
+        "Modules initialized and ready"
+    );
 
     let (chain, configured_start_height, configured_concurrency) = match &config {
         AppConfig::Indexer(idx) => {
@@ -93,25 +106,36 @@ async fn main() -> Result<()> {
         concurrency: 1, // Lake framework concurrency, keep at 1 since we handle parallelism ourselves
     };
 
+    let startup_elapsed = startup_time.elapsed();
     info!(
         chain = %chain,
-        stream_start_height,
-        configured_concurrency,
+        stream_start_height = stream_start_height,
+        configured_concurrency = configured_concurrency,
         resume_source = %if any_module_has_cursor { "cursor" } else { "config" },
         enabled_modules = enabled_count,
-        "Starting NEAR parallel indexer"
+        startup_ms = startup_elapsed.as_millis(),
+        "NEAR indexer startup completed, starting stream processing"
     );
 
     let (_handle, stream) = near_indexer::core::lake_stream::create_lake_stream(lake_config)?;
 
     // Start the parallel processing loop
-    near_indexer::core::processor::run_parallel_processing(
+    let processing_result = near_indexer::core::processor::run_parallel_processing(
         registry,
         db,
         stream,
         configured_concurrency,
     )
-    .await?;
+    .await;
 
-    Ok(())
+    match processing_result {
+        Ok(()) => {
+            info!("NEAR indexer processing completed successfully");
+            Ok(())
+        }
+        Err(e) => {
+            error!(error = %e, "NEAR indexer processing failed");
+            Err(e)
+        }
+    }
 }

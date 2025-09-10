@@ -24,7 +24,7 @@ pub fn create_lake_stream(config: LakeStreamConfig) -> Result<LakeStreamResult> 
         "mainnet" => lake_cfg = lake_cfg.mainnet(),
         "testnet" => lake_cfg = lake_cfg.testnet(),
         other => {
-            warn!(chain = other, "Unknown chain id, defaulting to mainnet");
+            warn!(chain = %other, "Unknown chain id, defaulting to mainnet");
             lake_cfg = lake_cfg.mainnet();
         }
     }
@@ -39,8 +39,8 @@ pub fn create_lake_stream(config: LakeStreamConfig) -> Result<LakeStreamResult> 
     let lake_config = lake_cfg.build().context("Failed to build Lake config")?;
 
     info!(
-        "Lake config built successfully, creating streamer with start_height: {}",
-        config.start_height
+        start_height = config.start_height,
+        "Lake config built successfully, creating streamer"
     );
 
     let (handle, stream) = near_lake_framework::streamer(lake_config);

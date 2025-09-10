@@ -9,7 +9,8 @@ use sea_orm::{
 };
 use serde_json;
 use std::collections::{HashMap, HashSet};
-use tracing::{debug, info};
+use std::time::Instant;
+use tracing::{debug, info, instrument, trace};
 
 /// Type alias for account event tuples to reduce complexity
 type AccountEvent = (
@@ -152,7 +153,7 @@ impl AccountsModule {
 
                         // Validate account ID format
                         if let Err(e) = validate_account_id(&account_id_str) {
-                            debug!(account_id = %account_id_str, error = %e, "Invalid account ID format, skipping");
+                            trace!(account_id = %account_id_str, error = %e, "Invalid account ID format, skipping");
                             continue;
                         }
 
@@ -256,12 +257,12 @@ impl AccountsModule {
 
                         // Validate account ID and public key format
                         if let Err(e) = validate_account_id(&account_id_str) {
-                            debug!(account_id = %account_id_str, error = %e, "Invalid account ID format for access key, skipping");
+                            trace!(account_id = %account_id_str, error = %e, "Invalid account ID format for access key, skipping");
                             continue;
                         }
 
                         if let Err(e) = self.validate_public_key(&public_key_str) {
-                            debug!(account_id = %account_id_str, public_key = %public_key_str, error = %e, "Invalid public key format, skipping");
+                            trace!(account_id = %account_id_str, public_key = %public_key_str, error = %e, "Invalid public key format, skipping");
                             continue;
                         }
                         let (permission_type, allowance, receiver_id, method_names) =
@@ -307,12 +308,12 @@ impl AccountsModule {
 
                         // Validate account ID and public key format
                         if let Err(e) = validate_account_id(&account_id_str) {
-                            debug!(account_id = %account_id_str, error = %e, "Invalid account ID format for access key deletion, skipping");
+                            trace!(account_id = %account_id_str, error = %e, "Invalid account ID format for access key deletion, skipping");
                             continue;
                         }
 
                         if let Err(e) = self.validate_public_key(&public_key_str) {
-                            debug!(account_id = %account_id_str, public_key = %public_key_str, error = %e, "Invalid public key format for deletion, skipping");
+                            trace!(account_id = %account_id_str, public_key = %public_key_str, error = %e, "Invalid public key format for deletion, skipping");
                             continue;
                         }
 
@@ -498,12 +499,16 @@ impl AccountsModule {
                 .update(db)
                 .await
                 .context("Failed to update account deletion")?;
-            debug!(account_id, block_height, "Marked account as deleted");
+            debug!(
+                account_id = account_id,
+                height = block_height,
+                "Marked account as deleted"
+            );
         } else {
             // Account not found in database - this could happen if we're processing
             // a deletion before the creation, which shouldn't happen in normal operation
             debug!(
-                account_id,
+                account_id = account_id,
                 "Account not found when trying to mark as deleted"
             );
         }
@@ -538,8 +543,9 @@ impl AccountsModule {
                 .await
                 .context("Failed to update access key")?;
             debug!(
-                key_data.account_id,
-                key_data.public_key, "Updated existing access key"
+                account_id = %key_data.account_id,
+                public_key = %key_data.public_key,
+                "Updated existing access key"
             );
         } else {
             // Insert new key
@@ -562,8 +568,9 @@ impl AccountsModule {
                 .await
                 .context("Failed to insert new access key")?;
             debug!(
-                key_data.account_id,
-                key_data.public_key, "Inserted new access key"
+                account_id = %key_data.account_id,
+                public_key = %key_data.public_key,
+                "Inserted new access key"
             );
         }
 
@@ -595,14 +602,17 @@ impl AccountsModule {
                 .await
                 .context("Failed to update access key deletion")?;
             debug!(
-                account_id,
-                public_key, block_height, "Marked access key as deleted"
+                account_id = account_id,
+                public_key = public_key,
+                height = block_height,
+                "Marked access key as deleted"
             );
         } else {
             // Access key not found in database
             debug!(
-                account_id,
-                public_key, "Access key not found when trying to mark as deleted"
+                account_id = account_id,
+                public_key = public_key,
+                "Access key not found when trying to mark as deleted"
             );
         }
 
@@ -640,9 +650,11 @@ impl IndexerModule for AccountsModule {
         Ok(())
     }
 
+    #[instrument(skip(self, msg, db), fields(module = "accounts", height = %msg.block.header.height))]
     async fn process_block(&self, msg: &StreamerMessage, db: &DatabaseConnection) -> Result<()> {
         let block_height = msg.block.header.height as i64;
         let block_timestamp = msg.block.header.timestamp_nanosec as i64;
+        let start_time = Instant::now();
 
         info!(height = block_height, "Processing accounts for block");
 
@@ -663,9 +675,11 @@ impl IndexerModule for AccountsModule {
 
         txn.commit().await?;
 
-        debug!(
+        let elapsed = start_time.elapsed();
+        info!(
             height = block_height,
             accounts_processed = known_accounts.len(),
+            elapsed_ms = elapsed.as_millis(),
             "Successfully processed accounts for block"
         );
 

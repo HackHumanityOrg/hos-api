@@ -1,4 +1,5 @@
 use crate::modules::staking_pools::types::{DetectionMethod, PoolType};
+use tracing::debug;
 
 /// Pool detection configuration
 pub struct PoolDetector {
@@ -8,6 +9,11 @@ pub struct PoolDetector {
 
 impl PoolDetector {
     pub fn new(pool_patterns: Vec<String>, custom_pools: Vec<String>) -> Self {
+        debug!(
+            pattern_count = pool_patterns.len(),
+            custom_pool_count = custom_pools.len(),
+            "Initialized pool detector"
+        );
         Self {
             pool_patterns,
             custom_pools,
@@ -46,13 +52,11 @@ impl PoolDetector {
     /// Simple wildcard pattern matching
     fn matches_pattern(&self, account_id: &str, pattern: &str) -> bool {
         if pattern.starts_with('*') && pattern.ends_with("*") {
-            let middle = &pattern[1..pattern.len()-1];
+            let middle = &pattern[1..pattern.len() - 1];
             account_id.contains(middle)
-        } else if pattern.starts_with('*') {
-            let suffix = &pattern[1..];
+        } else if let Some(suffix) = pattern.strip_prefix('*') {
             account_id.ends_with(suffix)
-        } else if pattern.ends_with('*') {
-            let prefix = &pattern[..pattern.len()-1];
+        } else if let Some(prefix) = pattern.strip_suffix('*') {
             account_id.starts_with(prefix)
         } else {
             account_id == pattern

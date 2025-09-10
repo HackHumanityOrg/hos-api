@@ -5,6 +5,7 @@ use sea_orm::{ActiveValue::NotSet, ConnectionTrait, DatabaseConnection, EntityTr
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
+use tracing::{debug, info};
 
 /// Global in-memory cursor cache
 static CURSORS: OnceLock<RwLock<HashMap<String, i64>>> = OnceLock::new();
@@ -22,19 +23,31 @@ fn get_last_writes() -> &'static RwLock<HashMap<String, Instant>> {
 
 /// Initialize cursors from database
 pub async fn initialize_cursor_storage(db: &DatabaseConnection) -> Result<()> {
+    info!("Initializing cursor storage from database");
+
     // Load all cursors from database
     let all_cursors = entities::near_sync_cursors::Entity::find().all(db).await?;
 
     let cursors = get_cursors();
     let mut cursor_map = cursors.write().unwrap();
-    for cursor_row in all_cursors {
+    for cursor_row in &all_cursors {
         let module_name = cursor_row
             .module_name
             .strip_prefix("near-indexer:")
             .unwrap_or(&cursor_row.module_name);
         cursor_map.insert(module_name.to_string(), cursor_row.last_processed_height);
+
+        debug!(
+            module = module_name,
+            height = cursor_row.last_processed_height,
+            "Loaded cursor from database"
+        );
     }
 
+    info!(
+        cursor_count = all_cursors.len(),
+        "Cursor storage initialized successfully"
+    );
     Ok(())
 }
 
@@ -42,7 +55,15 @@ pub async fn initialize_cursor_storage(db: &DatabaseConnection) -> Result<()> {
 pub async fn get_module_cursor(_db: &DatabaseConnection, module_name: &str) -> Result<Option<i64>> {
     let cursors = get_cursors();
     let cursor_map = cursors.read().unwrap();
-    Ok(cursor_map.get(module_name).copied())
+    let cursor_value = cursor_map.get(module_name).copied();
+
+    debug!(
+        module = module_name,
+        cursor = cursor_value,
+        "Retrieved cursor from cache"
+    );
+
+    Ok(cursor_value)
 }
 
 /// Determine the start height for a module using stored cursor or configured start
@@ -75,14 +96,25 @@ where
     let last_writes = get_last_writes();
 
     // Update in memory
-    {
+    let memory_updated = {
         let mut cursor_map = cursors.write().unwrap();
         if cursor_map
             .get(module_name)
             .is_none_or(|&current| height > current)
         {
             cursor_map.insert(module_name.to_string(), height);
+            true
+        } else {
+            false
         }
+    };
+
+    if memory_updated {
+        debug!(
+            module = module_name,
+            height = height,
+            "Updated cursor in memory cache"
+        );
     }
 
     // Check if we should write to DB (rate limited)
@@ -95,6 +127,11 @@ where
     };
 
     if !should_write {
+        debug!(
+            module = module_name,
+            height = height,
+            "Skipping database write due to rate limiting"
+        );
         return Ok(());
     }
 
@@ -132,14 +169,37 @@ where
     .exec(db)
     .await?;
 
+    debug!(
+        module = module_name,
+        height = height,
+        "Successfully wrote cursor to database"
+    );
+
     Ok(())
 }
 
 pub fn reset_cursor_storage() {
-    if let Some(cursors) = CURSORS.get() {
+    info!("Resetting cursor storage (clearing all caches)");
+
+    let cursor_count = if let Some(cursors) = CURSORS.get() {
+        let count = cursors.read().unwrap().len();
         cursors.write().unwrap().clear();
-    }
-    if let Some(last_writes) = LAST_WRITES.get() {
+        count
+    } else {
+        0
+    };
+
+    let write_count = if let Some(last_writes) = LAST_WRITES.get() {
+        let count = last_writes.read().unwrap().len();
         last_writes.write().unwrap().clear();
-    }
+        count
+    } else {
+        0
+    };
+
+    info!(
+        cursor_count = cursor_count,
+        write_count = write_count,
+        "Cursor storage reset completed"
+    );
 }
