@@ -50,3 +50,11 @@ enabled = true
 # Accounts module - tracks account lifecycle and metadata  
 [near.modules.accounts]
 enabled = true
+
+# Tokens module - indexes NEP-141 (FT), NEP-171 (NFT), and NEP-245 (Multi-Token) events
+[near.modules.tokens]
+enabled = false              # Set to true to enable token indexing
+track_nep141 = true         # Track Fungible Token (NEP-141) events
+track_nep171 = true         # Track Non-Fungible Token (NEP-171) events  
+track_nep245 = true         # Track Multi-Token (NEP-245) events
+contracts = []              # Empty array = index all contracts, or specify contract IDs to whitelist
