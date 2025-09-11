@@ -18,7 +18,9 @@ type LakeStreamResult = (
 
 /// Initialize a NEAR Lake stream with the given configuration
 pub fn create_lake_stream(config: LakeStreamConfig) -> Result<LakeStreamResult> {
-    let mut lake_cfg = LakeConfigBuilder::default().start_block_height(config.start_height);
+    let mut lake_cfg = LakeConfigBuilder::default()
+        .start_block_height(config.start_height)
+        .blocks_preload_pool_size(1); // Prevent memory leak by reducing preload from default 200 blocks to 1
 
     match config.chain.as_str() {
         "mainnet" => lake_cfg = lake_cfg.mainnet(),
