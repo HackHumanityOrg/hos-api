@@ -13,7 +13,7 @@ use crate::ModuleRegistry;
 async fn process_block_independent(
     registry: Arc<ModuleRegistry>,
     db: DatabaseConnection,
-    msg: near_lake_framework::near_indexer_primitives::StreamerMessage,
+    msg: &near_lake_framework::near_indexer_primitives::StreamerMessage,
 ) -> Result<()> {
     let height = msg.block.header.height as i64;
     let start_time = Instant::now();
@@ -116,7 +116,7 @@ pub async fn run_parallel_processing(
                 let mut attempt = 1;
 
                 loop {
-                    match process_block_independent(registry.clone(), db.clone(), msg.clone()).await
+                    match process_block_independent(registry.clone(), db.clone(), &msg).await
                     {
                         Ok(_) => {
                             let elapsed = block_start.elapsed();
