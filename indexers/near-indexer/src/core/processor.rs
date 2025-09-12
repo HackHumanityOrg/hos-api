@@ -85,7 +85,7 @@ async fn process_block_independent(
     Ok(())
 }
 
-/// Parallel processing loop using buffer_unordered for concurrent block processing
+/// Parallel processing loop using buffered for concurrent block processing
 #[instrument(skip(registry, db, stream), fields(concurrency = %concurrency))]
 pub async fn run_parallel_processing(
     registry: Arc<ModuleRegistry>,
@@ -181,7 +181,7 @@ pub async fn run_parallel_processing(
                 }
             }
         })
-        .buffer_unordered(concurrency)
+        .buffered(concurrency)
         .try_for_each(|_| async { Ok(()) })
         .await?;
 
