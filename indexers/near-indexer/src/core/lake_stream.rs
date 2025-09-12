@@ -8,6 +8,7 @@ pub struct LakeStreamConfig {
     pub chain: String,
     pub start_height: u64,
     pub concurrency: usize,
+    pub preload_pool_size: usize,
 }
 
 /// Type alias for the complex return type of the Lake stream
@@ -20,7 +21,7 @@ type LakeStreamResult = (
 pub fn create_lake_stream(config: LakeStreamConfig) -> Result<LakeStreamResult> {
     let mut lake_cfg = LakeConfigBuilder::default()
         .start_block_height(config.start_height)
-        .blocks_preload_pool_size(32);
+        .blocks_preload_pool_size(config.preload_pool_size);
 
     match config.chain.as_str() {
         "mainnet" => lake_cfg = lake_cfg.mainnet(),
@@ -35,6 +36,7 @@ pub fn create_lake_stream(config: LakeStreamConfig) -> Result<LakeStreamResult> 
         chain = %config.chain,
         start_height = config.start_height,
         concurrency = config.concurrency,
+        preload_pool_size = config.preload_pool_size,
         "Initializing NEAR Lake stream"
     );
 

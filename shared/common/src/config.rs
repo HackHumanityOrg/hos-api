@@ -236,6 +236,11 @@ pub struct NearLakeConfig {
     /// Optional concurrency hint for internal batching (not all frameworks use it)
     #[serde(default)]
     pub concurrency: Option<usize>,
+    /// Optional preload pool size for NEAR Lake internal prefetching
+    /// Larger values can increase memory usage due to buffered blocks in the upstream channel.
+    /// If not set, the indexer will default to a conservative small value.
+    #[serde(default)]
+    pub preload_pool_size: Option<usize>,
     /// Optional AWS region override (e.g., eu-central-1). Typically use AWS_REGION env.
     #[serde(default)]
     pub region: Option<String>,
@@ -321,6 +326,7 @@ impl ToLog for NearLakeConfig {
             "chain": self.chain,
             "start_height": self.start_height,
             "concurrency": self.concurrency,
+            "preload_pool_size": self.preload_pool_size,
             // do not include region if using env; but it's not secret either
             "region": self.region,
             "modules": self.modules.as_ref().map(|m| m.to_log()),

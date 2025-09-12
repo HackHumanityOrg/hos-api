@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
         "Modules initialized and ready"
     );
 
-    let (chain, configured_start_height, configured_concurrency) = match &config {
+    let (chain, configured_start_height, configured_concurrency, configured_preload_pool_size) = match &config {
         AppConfig::Indexer(idx) => {
             let n = idx.near.as_ref();
             (
@@ -66,9 +66,12 @@ async fn main() -> Result<()> {
                     .unwrap_or_else(|| "mainnet".to_string()),
                 n.map(|c| c.start_height).unwrap_or(0),
                 n.and_then(|c| c.concurrency).unwrap_or(6), // Default to 6 for parallel processing (conservative with large connection pool)
+                // Default small preload to avoid upstream buffering
+                n.and_then(|c| c.preload_pool_size)
+                    .unwrap_or_else(|| 1),
             )
         }
-        _ => ("mainnet".to_string(), 0, 6),
+        _ => ("mainnet".to_string(), 0, 6, 1),
     };
 
     // Find the minimum cursor across all modules to determine stream start point
@@ -104,6 +107,9 @@ async fn main() -> Result<()> {
         chain: chain.clone(),
         start_height: stream_start_height,
         concurrency: 1, // Lake framework concurrency, keep at 1 since we handle parallelism ourselves
+        // Keep preload small to limit memory growth from upstream buffering.
+        // Use configured value if provided; otherwise defaulted above to 1.
+        preload_pool_size: configured_preload_pool_size,
     };
 
     let startup_elapsed = startup_time.elapsed();
