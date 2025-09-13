@@ -25,10 +25,10 @@ const VALIDATOR_PROPOSAL_BLOCK: BlockHeight = 163368228; // Block authored by st
 #[derive(Debug)]
 struct ExpectedValidatorData {
     pool_id: &'static str,
-    stake_amount: &'static str,  // Current validator stake from NEAR RPC
-    pool_type: &'static str,     // Pool classification (poolv1, pool)
-    commission_rate: f64,        // Pool commission percentage
-    is_validator: bool,          // Whether pool is currently validating
+    stake_amount: &'static str, // Current validator stake from NEAR RPC
+    pool_type: &'static str,    // Pool classification (poolv1, pool)
+    commission_rate: f64,       // Pool commission percentage
+    is_validator: bool,         // Whether pool is currently validating
     min_stake_amount: &'static str, // Minimum delegation amount
     detected_method: &'static str, // How pool was detected
 }
@@ -38,10 +38,10 @@ struct ExpectedStakingAction {
     transaction_hash: &'static str,
     block_height: BlockHeight,
     pool_id: &'static str,
-    action_type: &'static str,   // "deposit_and_stake", "unstake", "withdraw"
-    method_name: &'static str,   // Contract method called
+    action_type: &'static str, // "deposit_and_stake", "unstake", "withdraw"
+    method_name: &'static str, // Contract method called
     delegator_account: &'static str,
-    amount: &'static str,        // Amount in yoctoNEAR
+    amount: &'static str, // Amount in yoctoNEAR
     attached_deposit: &'static str,
     expected_success: bool,
 }
@@ -51,7 +51,7 @@ struct ExpectedDelegatorState {
     pool_id: &'static str,
     delegator_account: &'static str,
     interaction_type: &'static str, // "deposit_and_stake", "unstake"
-    interaction_count_min: u32,  // Minimum expected interactions
+    interaction_count_min: u32,     // Minimum expected interactions
     last_interaction_block: BlockHeight,
 }
 
@@ -59,7 +59,7 @@ struct ExpectedDelegatorState {
 struct ExpectedPoolMetrics {
     pool_id: &'static str,
     total_staked_min: &'static str, // Minimum expected total stake
-    active_delegators_min: u32,  // Minimum number of delegators
+    active_delegators_min: u32,     // Minimum number of delegators
     is_active: bool,
     detected_method: &'static str, // How pool was detected
 }
@@ -77,7 +77,7 @@ const EXPECTED_VALIDATORS: &[ExpectedValidatorData] = &[
         detected_method: "pattern_match",
     },
     ExpectedValidatorData {
-        pool_id: "zavodil.poolv1.near", 
+        pool_id: "zavodil.poolv1.near",
         stake_amount: "22268795880543862519054604403355", // ~22.3M NEAR
         pool_type: "poolv1",
         commission_rate: 10.0,
@@ -87,7 +87,7 @@ const EXPECTED_VALIDATORS: &[ExpectedValidatorData] = &[
     },
     ExpectedValidatorData {
         pool_id: "bisontrails2.poolv1.near",
-        stake_amount: "30746013097393199875982364707510", // ~30.7M NEAR  
+        stake_amount: "30746013097393199875982364707510", // ~30.7M NEAR
         pool_type: "poolv1",
         commission_rate: 10.0,
         is_validator: true,
@@ -97,7 +97,7 @@ const EXPECTED_VALIDATORS: &[ExpectedValidatorData] = &[
     ExpectedValidatorData {
         pool_id: "figment.poolv1.near",
         stake_amount: "15000000000000000000000000000000", // ~15M NEAR (est)
-        pool_type: "poolv1", 
+        pool_type: "poolv1",
         commission_rate: 10.0,
         is_validator: true,
         min_stake_amount: "1000000000000000000000000",
@@ -132,22 +132,20 @@ const EXPECTED_STAKING_ACTIONS: &[ExpectedStakingAction] = &[
 ];
 
 // Expected delegator interaction patterns
-const EXPECTED_DELEGATOR_STATES: &[ExpectedDelegatorState] = &[
-    ExpectedDelegatorState {
-        pool_id: "astro-stakers.poolv1.near",
-        delegator_account: "hyoyapower.near",
-        interaction_type: "deposit_and_stake",
-        interaction_count_min: 1,
-        last_interaction_block: STAKING_POOL_BLOCK,
-    },
-];
+const EXPECTED_DELEGATOR_STATES: &[ExpectedDelegatorState] = &[ExpectedDelegatorState {
+    pool_id: "astro-stakers.poolv1.near",
+    delegator_account: "hyoyapower.near",
+    interaction_type: "deposit_and_stake",
+    interaction_count_min: 1,
+    last_interaction_block: STAKING_POOL_BLOCK,
+}];
 
 // Expected pool performance metrics
 const EXPECTED_POOL_METRICS: &[ExpectedPoolMetrics] = &[
     ExpectedPoolMetrics {
         pool_id: "astro-stakers.poolv1.near",
         total_staked_min: "20000000000000000000000000000000", // >20M NEAR
-        active_delegators_min: 100, // Minimum active delegators
+        active_delegators_min: 100,                           // Minimum active delegators
         is_active: true,
         detected_method: "pattern_match",
     },
@@ -156,7 +154,7 @@ const EXPECTED_POOL_METRICS: &[ExpectedPoolMetrics] = &[
         total_staked_min: "15000000000000000000000000000000", // >15M NEAR
         active_delegators_min: 50,
         is_active: true,
-        detected_method: "pattern_match", 
+        detected_method: "pattern_match",
     },
     ExpectedPoolMetrics {
         pool_id: "figment.poolv1.near",
@@ -198,6 +196,7 @@ fn create_test_staking_pools_module() -> StakingPoolsModule {
                     parse_events: true,
                 }),
             }),
+            preload_pool_size: Some(1),
         }),
     });
 
@@ -1054,6 +1053,7 @@ async fn test_staking_pools_module_configuration() {
                     parse_events: false,
                 }),
             }),
+            preload_pool_size: Some(1),
         }),
     });
 
@@ -1074,6 +1074,7 @@ async fn test_staking_pools_module_configuration() {
             concurrency: None,
             region: None,
             modules: None,
+            preload_pool_size: Some(1),
         }),
     });
 
@@ -1186,16 +1187,24 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
 
             // Validate detection method
             if pool.detected_method == expected_validator.detected_method {
-                println!("     ✅ Detection method validated: {}", pool.detected_method);
+                println!(
+                    "     ✅ Detection method validated: {}",
+                    pool.detected_method
+                );
             } else {
-                println!("     ℹ️ Detection method differs: got {}, expected {}", 
-                         pool.detected_method, expected_validator.detected_method);
+                println!(
+                    "     ℹ️ Detection method differs: got {}, expected {}",
+                    pool.detected_method, expected_validator.detected_method
+                );
             }
 
             println!("     📊 First seen: block {}", pool.first_seen_height);
             println!("     📊 Last activity: block {}", pool.last_activity_height);
         } else {
-            println!("     ⚠️ Pool {} not found (may not have activity in test blocks)", expected_validator.pool_id);
+            println!(
+                "     ⚠️ Pool {} not found (may not have activity in test blocks)",
+                expected_validator.pool_id
+            );
         }
     }
 
@@ -1207,16 +1216,18 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
 
     println!("📊 Staking Actions Validation:");
     for expected_action in EXPECTED_STAKING_ACTIONS {
-        println!("   Validating action: {} for pool {}", 
-                 expected_action.action_type, expected_action.pool_id);
+        println!(
+            "   Validating action: {} for pool {}",
+            expected_action.action_type, expected_action.pool_id
+        );
 
         // Find actions for this pool and method
         let matching_actions: Vec<_> = stored_actions
             .iter()
             .filter(|a| {
-                a.pool_id == expected_action.pool_id &&
-                a.method_name == expected_action.method_name &&
-                a.caller_account_id == expected_action.delegator_account
+                a.pool_id == expected_action.pool_id
+                    && a.method_name == expected_action.method_name
+                    && a.caller_account_id == expected_action.delegator_account
             })
             .collect();
 
@@ -1240,9 +1251,13 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
             println!("     📍 Block: {}", action.block_height);
 
             // Validate attached deposit amount
-            let expected_deposit: u128 = expected_action.attached_deposit.parse()
+            let expected_deposit: u128 = expected_action
+                .attached_deposit
+                .parse()
                 .expect("Expected deposit should be valid u128");
-            let actual_deposit: u128 = action.attached_deposit.parse()
+            let actual_deposit: u128 = action
+                .attached_deposit
+                .parse()
                 .expect("Actual deposit should be valid u128");
 
             if expected_deposit > 0 {
@@ -1256,8 +1271,10 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
                 if variance_ratio <= 1.1 {
                     println!("     ✅ Deposit amount within expected range");
                 } else {
-                    println!("     ℹ️ Deposit amount differs: got {}, expected {}", 
-                             actual_deposit, expected_deposit);
+                    println!(
+                        "     ℹ️ Deposit amount differs: got {}, expected {}",
+                        actual_deposit, expected_deposit
+                    );
                 }
             }
 
@@ -1265,17 +1282,22 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
             if let Some(success) = action.success {
                 let action_succeeded = success == 1;
                 if action_succeeded == expected_action.expected_success {
-                    println!("     ✅ Action success status validated: {}", action_succeeded);
+                    println!(
+                        "     ✅ Action success status validated: {}",
+                        action_succeeded
+                    );
                 } else {
-                    println!("     ⚠️ Action success status differs: got {}, expected {}", 
-                             action_succeeded, expected_action.expected_success);
+                    println!(
+                        "     ⚠️ Action success status differs: got {}, expected {}",
+                        action_succeeded, expected_action.expected_success
+                    );
                 }
             }
 
             println!("     ✅ Action validation completed");
         } else {
             println!("     ⚠️ Exact action not found (may be due to incremental indexing scope)");
-            
+
             // Look for any actions from this pool as a fallback
             let pool_actions: Vec<_> = stored_actions
                 .iter()
@@ -1283,14 +1305,22 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
                 .collect();
 
             if !pool_actions.is_empty() {
-                println!("     ℹ️ Found {} actions for pool {}", 
-                         pool_actions.len(), expected_action.pool_id);
-                
+                println!(
+                    "     ℹ️ Found {} actions for pool {}",
+                    pool_actions.len(),
+                    expected_action.pool_id
+                );
+
                 // Validate at least one action has correct properties
                 let sample_action = pool_actions[0];
-                let deposit_amount = sample_action.attached_deposit.parse::<u128>()
+                let deposit_amount = sample_action
+                    .attached_deposit
+                    .parse::<u128>()
                     .expect("Sample action deposit should be valid");
-                assert!(deposit_amount >= 0, "Sample action deposit should be non-negative");
+                assert!(
+                    deposit_amount >= 0,
+                    "Sample action deposit should be non-negative"
+                );
                 println!("     ✅ Sample action validation passed");
             }
         }
@@ -1304,14 +1334,16 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
 
     println!("👥 Delegator States Validation:");
     for expected_delegator in EXPECTED_DELEGATOR_STATES {
-        println!("   Validating delegator: {} for pool {}", 
-                 expected_delegator.delegator_account, expected_delegator.pool_id);
+        println!(
+            "   Validating delegator: {} for pool {}",
+            expected_delegator.delegator_account, expected_delegator.pool_id
+        );
 
         let matching_delegators: Vec<_> = stored_delegators
             .iter()
             .filter(|d| {
-                d.pool_id == expected_delegator.pool_id &&
-                d.delegator_account_id == expected_delegator.delegator_account
+                d.pool_id == expected_delegator.pool_id
+                    && d.delegator_account_id == expected_delegator.delegator_account
             })
             .collect();
 
@@ -1320,8 +1352,14 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
             println!("     👤 Account: {}", delegator.delegator_account_id);
             println!("     🏦 Pool: {}", delegator.pool_id);
             println!("     📊 Interaction count: {}", delegator.interaction_count);
-            println!("     📍 First interaction: block {}", delegator.first_interaction_height);
-            println!("     📍 Last interaction: block {}", delegator.last_interaction_height);
+            println!(
+                "     📍 First interaction: block {}",
+                delegator.first_interaction_height
+            );
+            println!(
+                "     📍 Last interaction: block {}",
+                delegator.last_interaction_height
+            );
 
             // Validate minimum interaction count
             assert!(
@@ -1329,18 +1367,25 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
                 "Delegator should have at least {} interactions",
                 expected_delegator.interaction_count_min
             );
-            println!("     ✅ Interaction count meets minimum: {}", delegator.interaction_count);
+            println!(
+                "     ✅ Interaction count meets minimum: {}",
+                delegator.interaction_count
+            );
 
             // Validate interaction types
-            if delegator.first_interaction_type == expected_delegator.interaction_type ||
-               delegator.last_interaction_type == expected_delegator.interaction_type {
-                println!("     ✅ Expected interaction type found: {}", expected_delegator.interaction_type);
+            if delegator.first_interaction_type == expected_delegator.interaction_type
+                || delegator.last_interaction_type == expected_delegator.interaction_type
+            {
+                println!(
+                    "     ✅ Expected interaction type found: {}",
+                    expected_delegator.interaction_type
+                );
             }
 
             println!("     📊 Delegator validation completed");
         } else {
             println!("     ⚠️ Delegator record not found (may not exist in test block scope)");
-            
+
             // Check if we have any delegators for this pool
             let pool_delegators: Vec<_> = stored_delegators
                 .iter()
@@ -1348,8 +1393,11 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
                 .collect();
 
             if !pool_delegators.is_empty() {
-                println!("     ℹ️ Found {} delegators for pool {}", 
-                         pool_delegators.len(), expected_delegator.pool_id);
+                println!(
+                    "     ℹ️ Found {} delegators for pool {}",
+                    pool_delegators.len(),
+                    expected_delegator.pool_id
+                );
             }
         }
     }
@@ -1357,7 +1405,10 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
     // Validate pool metrics and performance
     println!("📈 Pool Metrics Validation:");
     for expected_metrics in EXPECTED_POOL_METRICS {
-        println!("   Validating metrics for pool: {}", expected_metrics.pool_id);
+        println!(
+            "   Validating metrics for pool: {}",
+            expected_metrics.pool_id
+        );
 
         let stored_pool = stored_pools
             .iter()
@@ -1374,10 +1425,15 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
 
             // Validate detection method
             if pool.detected_method == expected_metrics.detected_method {
-                println!("     ✅ Detection method validated: {}", pool.detected_method);
+                println!(
+                    "     ✅ Detection method validated: {}",
+                    pool.detected_method
+                );
             } else {
-                println!("     ℹ️ Detection method differs: got {}, expected {}", 
-                         pool.detected_method, expected_metrics.detected_method);
+                println!(
+                    "     ℹ️ Detection method differs: got {}, expected {}",
+                    pool.detected_method, expected_metrics.detected_method
+                );
             }
 
             // Count delegators for this pool
@@ -1387,11 +1443,15 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
                 .count();
 
             if pool_delegators >= expected_metrics.active_delegators_min as usize {
-                println!("     ✅ Delegator count meets minimum: {} >= {}", 
-                         pool_delegators, expected_metrics.active_delegators_min);
+                println!(
+                    "     ✅ Delegator count meets minimum: {} >= {}",
+                    pool_delegators, expected_metrics.active_delegators_min
+                );
             } else if pool_delegators > 0 {
-                println!("     ℹ️ Delegator count below expected: {} < {} (incremental indexing)", 
-                         pool_delegators, expected_metrics.active_delegators_min);
+                println!(
+                    "     ℹ️ Delegator count below expected: {} < {} (incremental indexing)",
+                    pool_delegators, expected_metrics.active_delegators_min
+                );
             }
 
             println!("     📊 Pool metrics validation completed");
@@ -1402,26 +1462,31 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
 
     // Validate stored data integrity
     println!("🔍 Data Integrity Validation:");
-    
+
     // Validate all action amounts are valid
     for action in &stored_actions {
         let deposit_result = action.attached_deposit.parse::<u128>();
         assert!(
             deposit_result.is_ok(),
             "Action deposit should be valid: {} for action ID {}",
-            action.attached_deposit, action.id
+            action.attached_deposit,
+            action.id
         );
-        
+
         if let Some(amount) = &action.amount {
             let amount_result = amount.parse::<u128>();
             assert!(
                 amount_result.is_ok(),
                 "Action amount should be valid: {} for action ID {}",
-                amount, action.id
+                amount,
+                action.id
             );
         }
     }
-    println!("   ✅ All {} action amounts are valid", stored_actions.len());
+    println!(
+        "   ✅ All {} action amounts are valid",
+        stored_actions.len()
+    );
 
     // Validate pool relationships
     for pool in &stored_pools {
@@ -1434,7 +1499,10 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
             );
         }
     }
-    println!("   ✅ All {} pool relationships are valid", stored_pools.len());
+    println!(
+        "   ✅ All {} pool relationships are valid",
+        stored_pools.len()
+    );
 
     // Summary statistics
     println!("📈 Final Statistics:");
@@ -1448,7 +1516,7 @@ async fn test_comprehensive_staking_pool_reference_validation(#[future] test_db:
     } else {
         println!("   ℹ️ No pools found (may be due to incremental indexing scope)");
     }
-    
+
     if stored_actions.len() >= 1 {
         println!("   ✅ Found staking actions");
     } else {

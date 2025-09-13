@@ -240,7 +240,7 @@ impl DiscourseClient {
                 }
                 let jitter: u64 =
                     rand::thread_rng().gen_range(self.jitter_min_ms..=self.jitter_max_ms);
-                
+
                 if let Some(hint) = retry_hint {
                     // Use the server's explicit retry hint with just jitter
                     delay = hint + Duration::from_millis(jitter);

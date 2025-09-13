@@ -33,6 +33,7 @@ fn create_test_raw_module() -> RawModule {
                 tokens: None,
                 staking_pools: None,
             }),
+            preload_pool_size: Some(1),
         }),
     });
 
@@ -509,6 +510,7 @@ async fn test_raw_module_configuration() {
                 tokens: None,
                 staking_pools: None,
             }),
+            preload_pool_size: Some(1),
         }),
     });
 
@@ -529,6 +531,7 @@ async fn test_raw_module_configuration() {
             concurrency: None,
             region: None,
             modules: None,
+            preload_pool_size: Some(1),
         }),
     });
 
@@ -556,6 +559,7 @@ async fn test_raw_module_configuration() {
                 tokens: None,
                 staking_pools: None,
             }),
+            preload_pool_size: Some(1),
         }),
     });
 

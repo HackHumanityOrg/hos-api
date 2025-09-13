@@ -169,27 +169,23 @@ struct ExpectedNFTTransfer {
 }
 
 // Reference NFT data from blockchain
-const EXPECTED_NFT_CONTRACTS: &[ExpectedNFTContract] = &[
-    ExpectedNFTContract {
-        contract_id: "sharddog.near",
-        name: "ShardDog",
-        symbol: "SDOG",
-        standards: &["nep171"],
-        total_supply: 10000,
-    },
-];
+const EXPECTED_NFT_CONTRACTS: &[ExpectedNFTContract] = &[ExpectedNFTContract {
+    contract_id: "sharddog.near",
+    name: "ShardDog",
+    symbol: "SDOG",
+    standards: &["nep171"],
+    total_supply: 10000,
+}];
 
-const EXPECTED_NFT_TRANSFERS: &[ExpectedNFTTransfer] = &[
-    ExpectedNFTTransfer {
-        transaction_hash: "BkR9sJ3nQ5mW8dYp7cE2vA4x6BqZ9wN3L8kM4HgT7rS",
-        block_height: NFT_ACTIVITY_BLOCK,
-        contract_id: "sharddog.near",
-        from_account: "minter.sharddog.near",
-        to_account: "collector.near",
-        token_id: "1001",
-        standard: "nep171",
-    },
-];
+const EXPECTED_NFT_TRANSFERS: &[ExpectedNFTTransfer] = &[ExpectedNFTTransfer {
+    transaction_hash: "BkR9sJ3nQ5mW8dYp7cE2vA4x6BqZ9wN3L8kM4HgT7rS",
+    block_height: NFT_ACTIVITY_BLOCK,
+    contract_id: "sharddog.near",
+    from_account: "minter.sharddog.near",
+    to_account: "collector.near",
+    token_id: "1001",
+    standard: "nep171",
+}];
 
 #[fixture]
 async fn test_db() -> TestDatabase {
@@ -221,6 +217,7 @@ fn create_test_tokens_module() -> TokensModule {
                 }),
                 staking_pools: None,
             }),
+            preload_pool_size: Some(1),
         }),
     });
 
@@ -1471,7 +1468,7 @@ async fn test_comprehensive_processor_coverage(#[future] test_db: TestDatabase) 
                             .expect("Failed to query balances")
                             .len();
 
-                        println!("  ✅ Block processed: {} contracts, {} events, {} transfers, {} balances", 
+                        println!("  ✅ Block processed: {} contracts, {} events, {} transfers, {} balances",
                                 contracts, events, transfers, balances);
 
                         total_contracts = contracts;
@@ -2488,6 +2485,7 @@ async fn test_module_configuration() {
                 }),
                 staking_pools: None,
             }),
+            preload_pool_size: Some(1),
         }),
     });
 
@@ -2508,6 +2506,7 @@ async fn test_module_configuration() {
             concurrency: None,
             region: None,
             modules: None,
+            preload_pool_size: Some(1),
         }),
     });
 
@@ -3220,8 +3219,8 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
             println!("     Contract ID: {}", contract.contract_id);
 
             // Validate standards
-            let standards: Vec<String> = serde_json::from_value(contract.standards_detected.clone())
-                .unwrap_or_default();
+            let standards: Vec<String> =
+                serde_json::from_value(contract.standards_detected.clone()).unwrap_or_default();
 
             for expected_standard in expected_contract.standards {
                 assert!(
@@ -3237,10 +3236,18 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
             if let Some(ft_metadata) = &contract.ft_metadata {
                 if expected_contract.name != "Wrapped NEAR" {
                     // Skip name validation for wrap.near as it may vary
-                    if let Ok(meta) = serde_json::from_value::<serde_json::Value>(ft_metadata.clone()) {
+                    if let Ok(meta) =
+                        serde_json::from_value::<serde_json::Value>(ft_metadata.clone())
+                    {
                         if let Some(name) = meta.get("name").and_then(|v| v.as_str()) {
                             assert!(
-                                name.contains(&expected_contract.name.split_whitespace().next().unwrap_or("")),
+                                name.contains(
+                                    &expected_contract
+                                        .name
+                                        .split_whitespace()
+                                        .next()
+                                        .unwrap_or("")
+                                ),
                                 "Contract name should contain expected name component"
                             );
                             println!("     ✅ Contract name validated: {}", name);
@@ -3266,9 +3273,15 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
             }
 
             println!("     📊 Total events: {}", contract.total_events);
-            println!("     📊 Last activity: block {}", contract.last_activity_block);
+            println!(
+                "     📊 Last activity: block {}",
+                contract.last_activity_block
+            );
         } else {
-            println!("     ⚠️ Contract {} not found (may not have activity in test blocks)", expected_contract.contract_id);
+            println!(
+                "     ⚠️ Contract {} not found (may not have activity in test blocks)",
+                expected_contract.contract_id
+            );
         }
     }
 
@@ -3280,14 +3293,17 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
 
     println!("📊 Token Transfers Validation:");
     for expected_transfer in EXPECTED_TOKEN_TRANSFERS {
-        println!("   Validating transfer: {}", expected_transfer.transaction_hash);
+        println!(
+            "   Validating transfer: {}",
+            expected_transfer.transaction_hash
+        );
 
         // Find transfers for this contract and amount
         let matching_transfers: Vec<_> = stored_transfers
             .iter()
             .filter(|t| {
-                t.contract_id == expected_transfer.contract_id &&
-                t.amount == expected_transfer.amount
+                t.contract_id == expected_transfer.contract_id
+                    && t.amount == expected_transfer.amount
             })
             .collect();
 
@@ -3305,20 +3321,28 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
             );
 
             // Validate accounts (may differ from expected due to incremental indexing)
-            println!("     📝 From: {:?} (expected: {})", transfer.from_account, expected_transfer.from_account);
-            println!("     📝 To: {:?} (expected: {})", transfer.to_account, expected_transfer.to_account);
+            println!(
+                "     📝 From: {:?} (expected: {})",
+                transfer.from_account, expected_transfer.from_account
+            );
+            println!(
+                "     📝 To: {:?} (expected: {})",
+                transfer.to_account, expected_transfer.to_account
+            );
             println!("     💰 Amount: {}", transfer.amount);
             println!("     📍 Block: {}", transfer.block_height);
 
             // Validate amount can be parsed correctly
-            let amount_value = transfer.amount.parse::<u128>()
+            let amount_value = transfer
+                .amount
+                .parse::<u128>()
                 .expect("Transfer amount should be valid u128");
             assert!(amount_value > 0, "Transfer amount should be positive");
 
             println!("     ✅ Transfer validation completed");
         } else {
             println!("     ⚠️ Exact transfer not found (may be due to incremental indexing scope)");
-            
+
             // Look for any transfers from this contract as a fallback
             let contract_transfers: Vec<_> = stored_transfers
                 .iter()
@@ -3326,14 +3350,22 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
                 .collect();
 
             if !contract_transfers.is_empty() {
-                println!("     ℹ️ Found {} transfers for contract {}", 
-                         contract_transfers.len(), expected_transfer.contract_id);
-                
+                println!(
+                    "     ℹ️ Found {} transfers for contract {}",
+                    contract_transfers.len(),
+                    expected_transfer.contract_id
+                );
+
                 // Validate at least one transfer has correct properties
                 let sample_transfer = contract_transfers[0];
-                let amount_value = sample_transfer.amount.parse::<u128>()
+                let amount_value = sample_transfer
+                    .amount
+                    .parse::<u128>()
                     .expect("Sample transfer amount should be valid");
-                assert!(amount_value > 0, "Sample transfer amount should be positive");
+                assert!(
+                    amount_value > 0,
+                    "Sample transfer amount should be positive"
+                );
                 println!("     ✅ Sample transfer validation passed");
             }
         }
@@ -3347,13 +3379,16 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
 
     println!("💰 Token Balances Validation:");
     for expected_balance in EXPECTED_TOKEN_BALANCES {
-        println!("   Validating balance: {} for {}", expected_balance.contract_id, expected_balance.account_id);
+        println!(
+            "   Validating balance: {} for {}",
+            expected_balance.contract_id, expected_balance.account_id
+        );
 
         let matching_balances: Vec<_> = stored_balances
             .iter()
             .filter(|b| {
-                b.account_id == expected_balance.account_id &&
-                b.contract_id == expected_balance.contract_id
+                b.account_id == expected_balance.account_id
+                    && b.contract_id == expected_balance.contract_id
             })
             .collect();
 
@@ -3363,9 +3398,13 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
             println!("     💰 Expected balance: {}", expected_balance.balance);
 
             // Parse and validate balance amount
-            let stored_amount = balance.amount.parse::<u128>()
+            let stored_amount = balance
+                .amount
+                .parse::<u128>()
                 .expect("Stored balance should be valid u128");
-            let expected_amount = expected_balance.balance.parse::<u128>()
+            let expected_amount = expected_balance
+                .balance
+                .parse::<u128>()
                 .expect("Expected balance should be valid u128");
 
             // For incremental indexing, we expect the stored balance to be reasonable
@@ -3382,7 +3421,7 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
             println!("     📊 Balance validation completed");
         } else {
             println!("     ⚠️ Balance record not found (may not exist in test block scope)");
-            
+
             // Check if we have any balances for this contract
             let contract_balances: Vec<_> = stored_balances
                 .iter()
@@ -3390,30 +3429,38 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
                 .collect();
 
             if !contract_balances.is_empty() {
-                println!("     ℹ️ Found {} balances for contract {}", 
-                         contract_balances.len(), expected_balance.contract_id);
+                println!(
+                    "     ℹ️ Found {} balances for contract {}",
+                    contract_balances.len(),
+                    expected_balance.contract_id
+                );
             }
         }
     }
 
     // Validate stored data integrity
     println!("🔍 Data Integrity Validation:");
-    
+
     // Validate all transfers have valid amounts
     for transfer in &stored_transfers {
         let amount_result = transfer.amount.parse::<u128>();
         assert!(
             amount_result.is_ok(),
             "Transfer amount should be valid: {} for transfer ID {}",
-            transfer.amount, transfer.id
+            transfer.amount,
+            transfer.id
         );
         assert!(
             amount_result.unwrap() > 0,
             "Transfer amount should be positive: {} for transfer ID {}",
-            transfer.amount, transfer.id
+            transfer.amount,
+            transfer.id
         );
     }
-    println!("   ✅ All {} transfer amounts are valid", stored_transfers.len());
+    println!(
+        "   ✅ All {} transfer amounts are valid",
+        stored_transfers.len()
+    );
 
     // Validate all balances have valid amounts
     for balance in &stored_balances {
@@ -3421,11 +3468,15 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
         assert!(
             amount_result.is_ok(),
             "Balance amount should be valid: {} for account {}",
-            balance.amount, balance.account_id
+            balance.amount,
+            balance.account_id
         );
         // Note: Balance can be 0, so we don't check for positivity
     }
-    println!("   ✅ All {} balance amounts are valid", stored_balances.len());
+    println!(
+        "   ✅ All {} balance amounts are valid",
+        stored_balances.len()
+    );
 
     // Summary statistics
     println!("📈 Final Statistics:");
@@ -3439,7 +3490,7 @@ async fn test_comprehensive_token_reference_validation(#[future] test_db: TestDa
     } else {
         println!("   ℹ️ No contracts found (may be due to incremental indexing scope)");
     }
-    
+
     if stored_transfers.len() >= 1 {
         println!("   ✅ Found token transfers");
     } else {

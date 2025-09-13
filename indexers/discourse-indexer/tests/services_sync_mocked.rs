@@ -114,10 +114,11 @@ async fn test_sync_recent_with_mock_server_inserts_topic_and_post(#[future] test
         .await;
 
     // Topics page 0 with one topic
-    let topics_body = r#"{
-        "topic_list": {
+    let recent_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
+    let topics_body = format!(r#"{{
+        "topic_list": {{
             "per_page": 30,
-            "topics": [{
+            "topics": [{{
                 "id": 123,
                 "title": "Welcome",
                 "fancy_title": "Welcome",
@@ -126,10 +127,10 @@ async fn test_sync_recent_with_mock_server_inserts_topic_and_post(#[future] test
                 "reply_count": 0,
                 "highest_post_number": 1,
                 "image_url": null,
-                "created_at": "2024-08-01T00:00:00Z",
-                "last_posted_at": "2024-08-01T00:00:00Z",
+                "created_at": "{}",
+                "last_posted_at": "{}",
                 "bumped": false,
-                "bumped_at": "2024-08-01T00:00:00Z",
+                "bumped_at": "{}",
                 "archetype": "regular",
                 "unseen": null,
                 "last_read_post_number": null,
@@ -150,14 +151,14 @@ async fn test_sync_recent_with_mock_server_inserts_topic_and_post(#[future] test
                 "op_like_count": 0,
                 "pinned_globally": false,
                 "featured_link": null
-            }]
-        }
-    }"#;
+            }}]
+        }}
+    }}"#, recent_time, recent_time, recent_time);
     let _m_topics0 = server
         .mock("GET", "/latest.json?order=activity&page=0")
         .with_status(200)
         .with_header("Content-Type", "application/json")
-        .with_body(topics_body)
+        .with_body(&topics_body)
         .create_async()
         .await;
 
@@ -169,18 +170,18 @@ async fn test_sync_recent_with_mock_server_inserts_topic_and_post(#[future] test
         .await;
 
     // Posts page uses page=1 for first page (adapter adds +1)
-    let posts_body = r#"{
+    let posts_body = format!(r#"{{
         "posts_count": 1,
-        "post_stream": {"posts": [{
+        "post_stream": {{"posts": [{{
             "id": 11,
             "name": null,
             "username": "system",
-            "avatar_template": "/user_avatar/meta.discourse.org/system/{size}/1.png",
-            "created_at": "2024-08-01T00:00:00Z",
+            "avatar_template": "/user_avatar/meta.discourse.org/system/{{size}}/1.png",
+            "created_at": "{}",
             "cooked": "<p>Hello</p>",
             "post_number": 1,
             "post_type": 1,
-            "updated_at": "2024-08-01T00:00:00Z",
+            "updated_at": "{}",
             "reply_count": 0,
             "reply_to_post_number": null,
             "quote_count": 0,
@@ -217,13 +218,13 @@ async fn test_sync_recent_with_mock_server_inserts_topic_and_post(#[future] test
             "can_view_edit_history": false,
             "wiki": false,
             "raw": null
-        }]}
-    }"#;
+        }}]}}
+    }}"#, recent_time, recent_time);
     let _m_posts0 = server
         .mock("GET", "/t/123.json?include_raw=true&page=1")
         .with_status(200)
         .with_header("Content-Type", "application/json")
-        .with_body(posts_body)
+        .with_body(&posts_body)
         .create_async()
         .await;
     // Next posts page -> 404

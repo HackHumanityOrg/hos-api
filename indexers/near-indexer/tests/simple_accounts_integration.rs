@@ -198,6 +198,7 @@ fn create_test_accounts_module() -> AccountsModule {
                 tokens: None,
                 staking_pools: None,
             }),
+            preload_pool_size: Some(1),
         }),
     });
 
@@ -507,29 +508,35 @@ async fn test_ref_finance_account_validation(#[future] test_db: TestDatabase) {
                                     "Access key permission should match expected for {}: expected {}, got {}",
                                     access_key.account_id, expected_key.permission_type, access_key.permission_type
                                 );
-                                
+
                                 // Validate nonce (should be >= expected nonce)
                                 assert!(
                                     access_key.nonce >= expected_key.nonce as i64,
                                     "Access key nonce should be >= expected for {}: expected {}, got {}",
                                     access_key.account_id, expected_key.nonce, access_key.nonce
                                 );
-                                
+
                                 // Validate allowance if specified for FunctionCall keys
                                 if access_key.permission_type == "FunctionCall" {
                                     if let Some(expected_allowance) = expected_key.allowance {
                                         // For FunctionCall keys, we might have allowance data
                                         println!("     Expected allowance: {}", expected_allowance);
                                     }
-                                    
+
                                     // Validate method names if specified
                                     if !expected_key.method_names.is_empty() {
-                                        println!("     Expected method names: {:?}", expected_key.method_names);
+                                        println!(
+                                            "     Expected method names: {:?}",
+                                            expected_key.method_names
+                                        );
                                     }
-                                    
+
                                     // Validate receiver ID if specified
                                     if let Some(expected_receiver) = expected_key.receiver_id {
-                                        println!("     Expected receiver ID: {}", expected_receiver);
+                                        println!(
+                                            "     Expected receiver ID: {}",
+                                            expected_receiver
+                                        );
                                     }
                                 }
 
@@ -1083,17 +1090,24 @@ async fn test_account_consistency_validation(#[future] test_db: TestDatabase) {
                                         "Reference account {} should have type {}",
                                         expected_account.account_id, expected_account.account_type
                                     );
-                                    
+
                                     // Validate creation height if specified
-                                    if let Some(expected_height) = expected_account.created_at_height {
+                                    if let Some(expected_height) =
+                                        expected_account.created_at_height
+                                    {
                                         // For this test scenario, accounts may appear much later than their actual creation
                                         // because we're processing specific blocks where they have activity
                                         // The indexer will set created_at_height to when it first encounters them
-                                        
+
                                         // Check if this account was likely "created" during our test blocks
-                                        let test_block_heights = [DIVERSE_ACTIVITY_BLOCK, REF_FINANCE_BLOCK, HIGH_ACTIVITY_BLOCK];
-                                        let is_in_test_blocks = test_block_heights.contains(&(account.created_at_height as u64));
-                                        
+                                        let test_block_heights = [
+                                            DIVERSE_ACTIVITY_BLOCK,
+                                            REF_FINANCE_BLOCK,
+                                            HIGH_ACTIVITY_BLOCK,
+                                        ];
+                                        let is_in_test_blocks = test_block_heights
+                                            .contains(&(account.created_at_height as u64));
+
                                         if is_in_test_blocks {
                                             // Account was first encountered in our test blocks - this is expected
                                             println!(
@@ -1103,12 +1117,14 @@ async fn test_account_consistency_validation(#[future] test_db: TestDatabase) {
                                         } else {
                                             // If not in test blocks, validate more strictly
                                             let expected_height_i64 = expected_height as i64;
-                                            let height_diff = if account.created_at_height > expected_height_i64 {
+                                            let height_diff = if account.created_at_height
+                                                > expected_height_i64
+                                            {
                                                 account.created_at_height - expected_height_i64
                                             } else {
                                                 expected_height_i64 - account.created_at_height
                                             };
-                                            
+
                                             // Allow up to 1000 blocks variance for creation height
                                             assert!(
                                                 height_diff <= 1000,
@@ -1117,7 +1133,7 @@ async fn test_account_consistency_validation(#[future] test_db: TestDatabase) {
                                             );
                                         }
                                     }
-                                    
+
                                     println!(
                                         "      ✅ Reference account {} found with correct type and creation height",
                                         expected_account.account_id
@@ -1227,8 +1243,8 @@ async fn test_account_consistency_validation(#[future] test_db: TestDatabase) {
                     .iter()
                     .filter(|k| k.account_id == account.account_id)
                     .collect::<Vec<_>>();
-                
-                // Note: Access keys may not be captured if there were no access key changes 
+
+                // Note: Access keys may not be captured if there were no access key changes
                 // in the specific blocks we're testing. This is expected behavior.
                 if account_access_keys.is_empty() {
                     println!(
@@ -1236,7 +1252,11 @@ async fn test_account_consistency_validation(#[future] test_db: TestDatabase) {
                         account.account_id
                     );
                 } else {
-                    println!("   ✅ {} access keys found for {}", account_access_keys.len(), account.account_id);
+                    println!(
+                        "   ✅ {} access keys found for {}",
+                        account_access_keys.len(),
+                        account.account_id
+                    );
                 }
 
                 println!("   {} balance records", account_balances.len());
@@ -1287,7 +1307,7 @@ async fn test_account_consistency_validation(#[future] test_db: TestDatabase) {
                 .iter()
                 .filter(|k| k.account_id == account.account_id)
                 .collect::<Vec<_>>();
-            
+
             if account_access_keys.is_empty() {
                 println!(
                     "   ⚠️ No access keys for {} (may not have access key activity in test blocks)",
@@ -1296,7 +1316,8 @@ async fn test_account_consistency_validation(#[future] test_db: TestDatabase) {
             } else {
                 println!(
                     "   ✅ {} access keys for {}",
-                    account_access_keys.len(), account.account_id
+                    account_access_keys.len(),
+                    account.account_id
                 );
             }
         }
@@ -1689,6 +1710,7 @@ async fn test_accounts_module_configuration() {
                 tokens: None,
                 staking_pools: None,
             }),
+            preload_pool_size: Some(1),
         }),
     });
 
@@ -1709,6 +1731,7 @@ async fn test_accounts_module_configuration() {
             concurrency: None,
             region: None,
             modules: None,
+            preload_pool_size: Some(1),
         }),
     });
 

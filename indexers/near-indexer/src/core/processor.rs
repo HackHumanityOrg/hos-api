@@ -44,7 +44,7 @@ async fn process_block_independent(
         );
 
         // Process block and update cursor
-        if let Err(e) = module.process_block(&msg, &db).await {
+        if let Err(e) = module.process_block(msg, &db).await {
             error!(
                 module = module.name(),
                 height = height,
@@ -116,8 +116,7 @@ pub async fn run_parallel_processing(
                 let mut attempt = 1;
 
                 loop {
-                    match process_block_independent(registry.clone(), db.clone(), &msg).await
-                    {
+                    match process_block_independent(registry.clone(), db.clone(), &msg).await {
                         Ok(_) => {
                             let elapsed = block_start.elapsed();
                             if attempt > 1 {
