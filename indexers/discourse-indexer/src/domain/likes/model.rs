@@ -1,14 +1,18 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct PostLikeResponse {
-    pub post_action_users: Vec<LikeUser>,
-    pub total_rows_post_action_users: Option<i32>,
+pub struct PostActionUser {
+    pub id: i32,
+    pub username: String,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub avatar_template: String,
+    pub post_url: Option<String>,
+    #[serde(default)]
+    pub username_lower: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LikeUser {
-    // Fields from actual API response /post_action_users.json
-    pub id: i32,
-    pub username: String,
+pub struct PostLikeResponse {
+    pub post_action_users: Vec<PostActionUser>,
 }

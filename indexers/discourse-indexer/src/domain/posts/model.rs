@@ -2,42 +2,36 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct PostResponse {
-    pub post_stream: PostStream,
-    pub posts_count: Option<i32>,
-    pub id: Option<i32>,
-    pub title: Option<String>,
-    pub fancy_title: Option<String>,
-    pub created_at: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct PostStream {
-    pub posts: Vec<Post>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Post {
-    // Required fields from OpenAPI spec for /t/{id}.json
     pub id: i32,
     pub name: Option<String>,
     pub username: String,
+    #[serde(default)]
     pub avatar_template: String,
     #[serde(with = "date_format")]
     pub created_at: DateTime<Utc>,
-    pub cooked: String,
+    #[serde(default)]
+    pub cooked: Option<String>,
+    #[serde(default)]
+    pub raw: Option<String>,
     pub post_number: i32,
+    #[serde(default)]
     pub post_type: i32,
     #[serde(with = "date_format")]
     pub updated_at: DateTime<Utc>,
+    #[serde(default)]
     pub reply_count: i32,
     pub reply_to_post_number: Option<i32>,
+    #[serde(default)]
     pub quote_count: i32,
+    #[serde(default)]
     pub incoming_link_count: i32,
+    #[serde(default)]
     pub reads: i32,
+    #[serde(default)]
     pub readers_count: i32,
+    #[serde(default)]
     pub score: f64,
-    pub yours: bool,
     pub topic_id: i32,
     pub topic_slug: String,
     pub display_username: Option<String>,
@@ -46,28 +40,36 @@ pub struct Post {
     pub flair_url: Option<String>,
     pub flair_bg_color: Option<String>,
     pub flair_color: Option<String>,
+    #[serde(default = "default_version")]
     pub version: i32,
-    pub can_edit: bool,
-    pub can_delete: bool,
-    pub can_recover: bool,
-    pub can_wiki: bool,
-    pub read: bool,
-    pub user_title: Option<String>,
-    pub bookmarked: bool,
-    pub moderator: bool,
-    pub admin: bool,
-    pub staff: bool,
-    pub user_id: i32,
-    pub hidden: bool,
-    pub trust_level: i32,
-    pub deleted_at: Option<String>,
-    pub user_deleted: bool,
-    pub edit_reason: Option<String>,
+    #[serde(default)]
     pub can_view_edit_history: bool,
-    pub wiki: bool,
+    pub user_id: i32,
+    #[serde(default)]
+    pub actions_summary: Vec<ActionSummary>,
+    #[serde(default)]
+    pub deleted: bool,
+}
 
-    // Include raw when requested with include_raw=true
-    pub raw: Option<String>,
+fn default_version() -> i32 {
+    1
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ActionSummary {
+    pub id: u64,
+    pub count: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PostResponse {
+    pub post_stream: PostStream,
+    pub posts_count: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PostStream {
+    pub posts: Vec<Post>,
 }
 
 mod date_format {

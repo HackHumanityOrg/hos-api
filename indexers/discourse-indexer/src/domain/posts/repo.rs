@@ -1,8 +1,8 @@
 use crate::domain::posts::model::Post;
-use crate::domain::users::model::UserProfile;
-use crate::domain::users::repo::upsert_user_profiles_bulk;
-use crate::domain::util::{bool_i8, opt_string};
+use crate::domain::users::model::User;
+use crate::domain::users::repo::upsert_users_bulk;
 use anyhow::Result;
+use chrono::Timelike;
 use db_core::with_db_retry;
 use entities::discourse_posts;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
@@ -24,20 +24,28 @@ pub async fn upsert_posts_bulk(
     // Build a unique set of minimal user profiles from post payloads.
     {
         use std::collections::HashMap;
-        let mut uniq: HashMap<i32, UserProfile> = HashMap::new();
+        let mut uniq: HashMap<i32, User> = HashMap::new();
         for p in posts.iter() {
-            uniq.entry(p.user_id).or_insert(UserProfile {
+            uniq.entry(p.user_id).or_insert(User {
                 id: p.user_id,
                 username: p.username.clone(),
                 name: p.name.clone(),
                 avatar_template: p.avatar_template.clone(),
                 title: None,
+                trust_level: 0,
+                likes_received: None,
+                likes_given: None,
+                topics_entered: None,
+                topic_count: None,
+                post_count: None,
+                posts_read: None,
+                days_visited: None,
             });
         }
-        let mut profiles: Vec<UserProfile> = uniq.into_values().collect();
+        let mut profiles: Vec<User> = uniq.into_values().collect();
         // Keep deterministic order for easier debugging
         profiles.sort_by_key(|u| u.id);
-        upsert_user_profiles_bulk(db, instance, &profiles).await?;
+        upsert_users_bulk(db, instance, &profiles).await?;
     }
     // Normalize insert order and chunk to reduce lock contention
     let mut sorted_posts = posts.to_vec();
@@ -47,16 +55,21 @@ pub async fn upsert_posts_bulk(
         let ams: Vec<discourse_posts::ActiveModel> = chunk
             .iter()
             .map(|p| discourse_posts::ActiveModel {
+                created_at: Set(p
+                    .created_at
+                    .with_nanosecond(0)
+                    .expect("valid created_at timestamp")),
+                updated_at: Set(p
+                    .updated_at
+                    .with_nanosecond(0)
+                    .expect("valid updated_at timestamp")),
                 instance: Set(instance.to_string()),
                 external_id: Set(p.id),
-                name: Set(opt_string(p.name.clone())),
+                name: Set(p.name.clone()),
                 username: Set(p.username.clone()),
-                avatar_template: Set(p.avatar_template.clone()),
-                created_at: Set(p.created_at),
-                cooked: Set(p.cooked.clone()),
                 post_number: Set(p.post_number),
                 post_type: Set(p.post_type),
-                updated_at: Set(p.updated_at),
+                raw: Set(p.raw.clone()),
                 reply_count: Set(p.reply_count),
                 reply_to_post_number: Set(p.reply_to_post_number),
                 quote_count: Set(p.quote_count),
@@ -64,27 +77,18 @@ pub async fn upsert_posts_bulk(
                 reads: Set(p.reads),
                 readers_count: Set(p.readers_count),
                 score: Set(p.score),
-                topic_id: Set(p.topic_id),
+                external_topic_id: Set(p.topic_id),
                 topic_slug: Set(p.topic_slug.clone()),
-                display_username: Set(opt_string(p.display_username.clone())),
+                display_username: Set(p.display_username.clone()),
                 primary_group_name: Set(p.primary_group_name.clone()),
                 flair_name: Set(p.flair_name.clone()),
                 flair_url: Set(p.flair_url.clone()),
                 flair_bg_color: Set(p.flair_bg_color.clone()),
                 flair_color: Set(p.flair_color.clone()),
                 version: Set(p.version),
-                user_title: Set(p.user_title.clone()),
-                moderator: Set(bool_i8(p.moderator)),
-                admin: Set(bool_i8(p.admin)),
-                staff: Set(bool_i8(p.staff)),
-                user_id: Set(p.user_id),
-                hidden: Set(bool_i8(p.hidden)),
-                trust_level: Set(p.trust_level),
-                deleted_at: Set(p.deleted_at.as_ref().and_then(|s| s.parse().ok())),
-                user_deleted: Set(bool_i8(p.user_deleted)),
-                edit_reason: Set(p.edit_reason.clone()),
-                wiki: Set(bool_i8(p.wiki)),
-                raw: Set(p.raw.clone()),
+                external_user_id: Set(p.user_id),
+                can_view_edit_history: Set(if p.can_view_edit_history { 1 } else { 0 }),
+                deleted: Set(if p.deleted { 1 } else { 0 }),
                 ..Default::default()
             })
             .collect();
@@ -98,9 +102,8 @@ pub async fn upsert_posts_bulk(
                     .update_columns([
                         discourse_posts::Column::Name,
                         discourse_posts::Column::Username,
-                        discourse_posts::Column::AvatarTemplate,
                         discourse_posts::Column::CreatedAt,
-                        discourse_posts::Column::Cooked,
+                        discourse_posts::Column::Raw,
                         discourse_posts::Column::PostNumber,
                         discourse_posts::Column::PostType,
                         discourse_posts::Column::UpdatedAt,
@@ -111,7 +114,7 @@ pub async fn upsert_posts_bulk(
                         discourse_posts::Column::Reads,
                         discourse_posts::Column::ReadersCount,
                         discourse_posts::Column::Score,
-                        discourse_posts::Column::TopicId,
+                        discourse_posts::Column::ExternalTopicId,
                         discourse_posts::Column::TopicSlug,
                         discourse_posts::Column::DisplayUsername,
                         discourse_posts::Column::PrimaryGroupName,
@@ -120,29 +123,15 @@ pub async fn upsert_posts_bulk(
                         discourse_posts::Column::FlairBgColor,
                         discourse_posts::Column::FlairColor,
                         discourse_posts::Column::Version,
-                        discourse_posts::Column::UserTitle,
-                        discourse_posts::Column::Moderator,
-                        discourse_posts::Column::Admin,
-                        discourse_posts::Column::Staff,
-                        discourse_posts::Column::UserId,
-                        discourse_posts::Column::Hidden,
-                        discourse_posts::Column::TrustLevel,
-                        discourse_posts::Column::DeletedAt,
-                        discourse_posts::Column::UserDeleted,
-                        discourse_posts::Column::EditReason,
-                        discourse_posts::Column::Wiki,
-                        discourse_posts::Column::Raw,
+                        discourse_posts::Column::ExternalUserId,
+                        discourse_posts::Column::CanViewEditHistory,
+                        discourse_posts::Column::Deleted,
                     ])
                     .to_owned(),
                 )
+                .do_nothing()
                 .exec(db)
                 .await
-                .or_else(|err| match err {
-                    sea_orm::DbErr::RecordNotInserted => {
-                        Ok(sea_orm::InsertResult { last_insert_id: 0 })
-                    }
-                    _ => Err(err),
-                })
         })
         .await?;
     }

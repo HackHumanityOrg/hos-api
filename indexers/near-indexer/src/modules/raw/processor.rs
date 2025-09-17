@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use entities::*;
-use near_indexer_primitives::views::BlockView;
-use near_indexer_primitives::{IndexerShard, StreamerMessage};
+use near_lake_framework::near_indexer_primitives::views::BlockView;
+use near_lake_framework::near_indexer_primitives::{IndexerShard, StreamerMessage};
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
 use serde_json;
 use std::time::Instant;

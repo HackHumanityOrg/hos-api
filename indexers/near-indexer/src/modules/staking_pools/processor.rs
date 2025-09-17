@@ -1,9 +1,13 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use entities::*;
-use near_indexer_primitives::views::BlockView;
-use near_indexer_primitives::{IndexerShard, StreamerMessage};
-use near_primitives::views::ActionView;
+use near_lake_framework::near_indexer_primitives::{
+    views::{
+        validator_stake_view::ValidatorStakeView, ActionView, BlockView, ReceiptEnumView,
+        ReceiptView,
+    },
+    IndexerShard, StreamerMessage,
+};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
     Set, TransactionTrait,
@@ -216,9 +220,7 @@ impl StakingPoolsModule {
 
             // Access ValidatorStakeView fields - match on the enum to get V1 variant
             let (public_key, stake_amount) = match proposal {
-                near_primitives::views::validator_stake_view::ValidatorStakeView::V1(v1) => {
-                    (v1.public_key.to_string(), v1.stake.to_string())
-                }
+                ValidatorStakeView::V1(v1) => (v1.public_key.to_string(), v1.stake.to_string()),
             };
 
             // Store all validator proposals, but we're especially interested in staking pools
@@ -440,14 +442,9 @@ impl StakingPoolsModule {
     }
 
     /// Extract actions from a receipt (simplified)
-    fn extract_actions_from_receipt(
-        &self,
-        receipt: &near_indexer_primitives::views::ReceiptView,
-    ) -> Option<Vec<ActionView>> {
+    fn extract_actions_from_receipt(&self, receipt: &ReceiptView) -> Option<Vec<ActionView>> {
         match &receipt.receipt {
-            near_indexer_primitives::views::ReceiptEnumView::Action { actions, .. } => {
-                Some(actions.clone())
-            }
+            ReceiptEnumView::Action { actions, .. } => Some(actions.clone()),
             _ => None,
         }
     }

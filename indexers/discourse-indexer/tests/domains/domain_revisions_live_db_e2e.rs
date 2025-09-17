@@ -1,156 +1,156 @@
-#[path = "../common/mod.rs"]
-mod common;
-
-use common::TestDatabase;
-use discourse_indexer::discourse_api::DiscourseClient;
-use discourse_indexer::domain::{
-    posts::adapter as posts_adapter,
-    revisions::{adapter as revisions_adapter, repo as revisions_repo},
-    topics::adapter as topics_adapter,
+use anyhow::Result;
+use chrono::Timelike;
+use discourse_indexer::domain::categories;
+use discourse_indexer::domain::instances;
+use discourse_indexer::domain::posts;
+use discourse_indexer::domain::revisions::{adapter, repo};
+use discourse_indexer::domain::topics::{self, model::Topic};
+use entities::{
+    discourse_post_revisions, discourse_posts, prelude::DiscoursePostRevisions,
+    prelude::DiscoursePosts,
 };
-use entities::discourse_post_revisions;
-use rstest::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use test_support::{init_test_tracing, TestDatabase};
 
-const TEST_INSTANCE: &str = "meta.discourse.org";
+#[path = "../support/mod.rs"]
+mod support;
+use support::FixtureFetcher;
 
-#[fixture]
-async fn test_db() -> TestDatabase {
-    TestDatabase::new().await
+const INSTANCE_KEY: &str = "meta";
+const INSTANCE_URL: &str = "https://meta.discourse.org";
+
+#[tokio::test]
+async fn fetch_post_revision_parses_fixture_and_extracts_markdown() -> Result<()> {
+    let fetcher = FixtureFetcher::new(&[(
+        "/posts/326680/revisions/2.json",
+        "meta/post_326680_revision_2.json",
+    )])?;
+
+    let revision = adapter::fetch_post_revision(&fetcher, 326680, 2).await?;
+    assert_eq!(revision.current_revision, 2);
+    assert_eq!(revision.username, "angus");
+    let before_raw = revision.get_raw_markdown_before();
+    let after_raw = revision.get_raw_markdown_after();
+    assert!(
+        before_raw.contains("Repo: https://github.com/angusmcleod/discourse-events"),
+        "before markdown should include repo summary"
+    );
+    assert!(
+        before_raw.contains("<del>Dev </del>notes:"),
+        "before markdown should capture diff-deleted heading"
+    );
+    assert!(
+        after_raw.contains("(when it is released)"),
+        "after markdown should include inserted clarification"
+    );
+    assert!(
+        after_raw.contains("<ins>More </ins>notes:"),
+        "after markdown should capture diff-inserted heading"
+    );
+    let title_changes = revision
+        .title_changes
+        .as_ref()
+        .expect("title changes present");
+    let title_before = title_changes.get_raw_title_before();
+    let title_after = title_changes.get_raw_title_after();
+    assert_eq!(title_before, "Events Plugin :calendar:");
+    assert_eq!(title_after, "Events Plugin :calendar:");
+
+    Ok(())
 }
 
-/// Live + DB: find a post with edit history, fetch a revision, persist, and verify update path.
-#[rstest]
 #[tokio::test]
-async fn test_domain_revisions_fetch_and_persist(#[future] test_db: TestDatabase) {
-    let test_db = test_db.await;
-    let db = test_db.db();
-    let client = DiscourseClient::new("https://meta.discourse.org".to_string());
+async fn upsert_revision_validates_all_columns() -> Result<()> {
+    init_test_tracing();
+    let db = TestDatabase::new().await;
+    let conn = db.db();
 
-    discourse_indexer::domain::instances::repo::register_instance(
-        &db,
-        TEST_INSTANCE,
-        "https://meta.discourse.org",
-    )
-    .await
-    .expect("register instance");
+    instances::repo::register_instance(&conn, INSTANCE_KEY, INSTANCE_URL).await?;
 
-    // Pre-fetch directory users (many pages) to satisfy Posts→Users FK
-    let dir_users =
-        discourse_indexer::domain::users::adapter::fetch_users_directory(&client, true, 50, 50)
-            .await
-            .expect("fetch directory users");
-    let mut dir_by_id = std::collections::HashMap::new();
-    for it in dir_users.into_iter() {
-        dir_by_id.insert(it.user.id, it);
+    let categories_fetcher = FixtureFetcher::new(&[(
+        "/categories.json?include_subcategories=true&page=0",
+        "meta/categories_page_0.json",
+    )])?;
+    let categories = categories::adapter::fetch_categories_all(&categories_fetcher, 0).await?;
+    for category in &categories {
+        categories::repo::upsert_category(&conn, INSTANCE_KEY, category).await?;
     }
 
-    // Find a post with revisions (and author present in directory), and ensure the revision endpoint succeeds
-    let mut found: Option<(
-        discourse_indexer::domain::topics::model::Topic,
-        discourse_indexer::domain::posts::model::Post,
-        i32,
-    )> = None; // (topic, post, version)
-    'outer: for page in 0..5 {
-        let latest = match topics_adapter::fetch_topics_recent_page(&client, page).await {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        for t in latest.topic_list.topics.into_iter().take(20) {
-            // Try first 2 pages of posts for the topic
-            for post_page in 0..=1 {
-                let posts = match posts_adapter::fetch_posts_page(&client, t.id, post_page).await {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                for p in posts.post_stream.posts.clone() {
-                    if p.can_view_edit_history
-                        && p.version > 1
-                        && dir_by_id.contains_key(&p.user_id)
-                    {
-                        // Try revision versions 2..=p.version with a timeout
-                        let max_ver = std::cmp::min(p.version, 5);
-                        for ver in 2..=max_ver {
-                            match tokio::time::timeout(
-                                std::time::Duration::from_secs(10),
-                                revisions_adapter::fetch_post_revision(&client, p.id, ver),
-                            )
-                            .await
-                            {
-                                Ok(Ok(_)) => {
-                                    found = Some((t.clone(), p.clone(), ver));
-                                    break 'outer;
-                                }
-                                _ => continue,
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let topics_fetcher =
+        FixtureFetcher::new(&[("/latest.json?page=0", "meta/latest_activity_page_0.json")])?;
+    let mut topics = topics::adapter::fetch_topics_recent_page(&topics_fetcher, 0)
+        .await?
+        .topic_list
+        .topics;
+    let topic_seed: Topic = support::load_topic_from_fixture("meta/topic_69776_posts_page_0.json")?;
+    topics.push(topic_seed);
+    topics::repo::upsert_topics_bulk(&conn, INSTANCE_KEY, &topics).await?;
 
-    assert!(
-        found.is_some(),
-        "No post with accessible revisions found after scanning recent topics"
+    let posts_fetcher = FixtureFetcher::new(&[(
+        "/t/69776.json?page=0&include_raw=true",
+        "meta/topic_69776_posts_page_0.json",
+    )])?;
+    let posts = posts::adapter::fetch_posts_page(&posts_fetcher, 69776, 0)
+        .await?
+        .post_stream
+        .posts;
+    posts::repo::upsert_posts_bulk(&conn, INSTANCE_KEY, &posts).await?;
+
+    let revisions_fetcher = FixtureFetcher::new(&[(
+        "/posts/326680/revisions/2.json",
+        "meta/post_326680_revision_2.json",
+    )])?;
+    let revision = adapter::fetch_post_revision(&revisions_fetcher, 326680, 2).await?;
+    let raw_before = revision.get_raw_markdown_before();
+    let raw_after = revision.get_raw_markdown_after();
+    let title_before = revision
+        .title_changes
+        .as_ref()
+        .map(|tc| tc.get_raw_title_before());
+    let title_after = revision
+        .title_changes
+        .as_ref()
+        .map(|tc| tc.get_raw_title_after());
+
+    repo::upsert_revision(&conn, INSTANCE_KEY, 326680, &revision).await?;
+
+    let stored = DiscoursePostRevisions::find()
+        .filter(discourse_post_revisions::Column::Instance.eq(INSTANCE_KEY))
+        .filter(discourse_post_revisions::Column::ExternalPostId.eq(326680))
+        .filter(discourse_post_revisions::Column::Version.eq(2))
+        .one(&conn)
+        .await?
+        .expect("revision stored");
+
+    assert_eq!(stored.instance, INSTANCE_KEY);
+    assert_eq!(stored.external_post_id, 326680);
+    let expected_created = (revision.created_at + chrono::Duration::nanoseconds(500_000_000))
+        .with_nanosecond(0)
+        .expect("rounded revision timestamp");
+    assert_eq!(stored.version, revision.current_version);
+    assert_eq!(stored.created_at, expected_created);
+    assert_eq!(stored.username, revision.username);
+    assert_eq!(
+        stored.edit_reason.as_deref(),
+        revision.edit_reason.as_deref()
     );
-    if let Some((topic, post, version)) = found {
-        // Ensure dependencies for FKs: categories -> topic -> user -> post
-        let cats = discourse_indexer::domain::categories::adapter::fetch_categories_all(&client, 2)
-            .await
-            .expect("fetch categories");
-        for c in cats.iter() {
-            discourse_indexer::domain::categories::repo::upsert_category(&db, TEST_INSTANCE, c)
-                .await
-                .expect("upsert category");
-        }
-        discourse_indexer::domain::topics::repo::upsert_topics_bulk(
-            &db,
-            TEST_INSTANCE,
-            &[topic.clone()],
-        )
-        .await
-        .expect("upsert topic for revisions FK");
+    assert_eq!(stored.raw_body_before.as_deref(), Some(raw_before.as_str()));
+    assert_eq!(stored.raw_body_after.as_deref(), Some(raw_after.as_str()));
+    assert_eq!(
+        stored.raw_title_before.as_deref(),
+        title_before.as_ref().map(|s| s.as_str())
+    );
+    assert_eq!(
+        stored.raw_title_after.as_deref(),
+        title_after.as_ref().map(|s| s.as_str())
+    );
 
-        // Upsert author user from pre-fetched directory map
-        if let Some(item) = dir_by_id.get(&post.user_id) {
-            discourse_indexer::domain::users::repo::upsert_user(&db, TEST_INSTANCE, item)
-                .await
-                .expect("upsert author user");
-        }
-        discourse_indexer::domain::posts::repo::upsert_posts_bulk(
-            &db,
-            TEST_INSTANCE,
-            &[post.clone()],
-        )
-        .await
-        .expect("upsert post for revisions FK");
+    let post = DiscoursePosts::find()
+        .filter(discourse_posts::Column::Instance.eq(INSTANCE_KEY))
+        .filter(discourse_posts::Column::ExternalId.eq(326680))
+        .one(&conn)
+        .await?;
+    assert!(post.is_some());
 
-        let mut rev = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            revisions_adapter::fetch_post_revision(&client, post.id, version),
-        )
-        .await
-        .expect("timeout fetching revision")
-        .expect("revision fetch");
-        revisions_repo::upsert_revision(&db, TEST_INSTANCE, post.id, &rev)
-            .await
-            .expect("upsert rev");
-
-        // Update locally and re-upsert
-        rev.username.push_str("_updated");
-        revisions_repo::upsert_revision(&db, TEST_INSTANCE, post.id, &rev)
-            .await
-            .expect("update rev");
-
-        let stored = discourse_post_revisions::Entity::find()
-            .filter(discourse_post_revisions::Column::Instance.eq(TEST_INSTANCE))
-            .filter(discourse_post_revisions::Column::ExternalPostId.eq(post.id))
-            .filter(discourse_post_revisions::Column::CurrentVersion.eq(version))
-            .one(&db)
-            .await
-            .expect("fetch rev")
-            .expect("rev exists");
-        assert!(stored.username.ends_with("_updated"));
-    }
+    Ok(())
 }

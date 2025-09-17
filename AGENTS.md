@@ -1,43 +1,19 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Root workspace managed by Cargo with multiple crates:
-  - `api/`: Axum REST server with Swagger UI and OpenAPI.
-  - `indexers/`: `indexer-1`, `indexer-2`, `indexer-3` services.
-  - `shared/`: common libraries (`common`, `db-core`, `entities`).
-  - `migration/`: SeaORM migrations. Config files live in `config.toml`, plus `api/config.toml` and `indexers/<name>/config.toml`.
+The workspace is a multi-crate Cargo project. Service code lives under `api/` (Axum REST server with Swagger UI) and `indexers/{indexer-1,indexer-2,indexer-3}/` for ingestion services. Shared libraries (`shared/common`, `shared/db-core`, `shared/entities`) hold reusable logic and schema definitions. Database migrations reside in `migration/`, while service-specific settings inherit from the root `config.toml` alongside `api/config.toml` and `indexers/<name>/config.toml`.
 
 ## Build, Test, and Development Commands
-- `cargo check-all`: Compile all crates.
-- `cargo test-all`: Run all tests across the workspace.
-- `cargo run-api`: Start the API at `http://127.0.0.1:3000`.
-- `cargo run-indexer-1` (etc.): Run an indexer locally.
-- `cargo migrate-up`: Apply DB migrations; `cargo migrate-generate <name>` to create one.
-- `cargo generate-entities`: Regenerate SeaORM entities after schema changes.
+Use `cargo check-all` to compile every crate before opening a PR. Run `cargo test-all` for the full workspace test suite; scope to a crate with commands such as `cargo test -p api` or `cargo test -p api handlers::health`. Development binaries include `cargo run-api` (serves at http://127.0.0.1:3000) and `cargo run-indexer-1` (similar for other indexers). Apply schema updates with `cargo migrate-up`, generate new migrations via `cargo migrate-generate <name>`, and rebuild SeaORM entities with `cargo generate-entities`.
 
 ## Coding Style & Naming Conventions
-- Rust 2021 edition; use standard Rust idioms: 4‑space indent, `snake_case` for functions/modules, `CamelCase` for types.
-- Run `cargo fmt` before committing; optional linting via `cargo clippy -- -D warnings`.
-- Libraries use `thiserror` for typed errors; binaries use `anyhow` for context-rich errors.
+Target Rust 2021 idioms with 4-space indentation, `snake_case` for modules/functions, and `CamelCase` types. Libraries favor `thiserror` for typed errors; binaries use `anyhow` for rich context. Always format with `cargo fmt` and consider `cargo clippy -- -D warnings` before pushing.
 
 ## Testing Guidelines
-- Frameworks: `rstest`, `axum-test`, `testcontainers` for real MySQL.
-- Mirror test structure to modules (see `api/tests/{handlers,routes}/...`).
-- Quick examples: `cargo test -p api`, `cargo test -p api handlers::health`.
-- Keep tests deterministic; prefer handler tests for logic, route tests for HTTP behavior.
+Tests mirror module layout (e.g., `api/tests/handlers/`). Prefer deterministic handler tests for business logic and route tests for HTTP behavior. Frameworks in use include `rstest`, `axum-test`, and `testcontainers` for MySQL-backed scenarios. Run targeted suites during development, then confirm with `cargo test-all` prior to merge.
 
 ## Commit & Pull Request Guidelines
-- Commit style (based on history): short, imperative subjects (e.g., "fix Railway caching", "observability"). Keep subjects ~50 chars; scope optional and lowercase is fine.
-- PRs must include: concise description, linked issues, testing notes, and any config/migration impacts. Add screenshots for API/Swagger changes when relevant.
+Write concise, imperative commit subjects (≈50 characters) similar to "fix Railway caching" or "observability". Pull requests should summarize the change, link relevant issues, note testing performed, and call out config or migration impacts; include Swagger screenshots when UI behavior changes.
 
 ## Security & Configuration Tips
-- Never commit secrets. Use `.env` (copy from `.env.example`) and environment variables: `DATABASE_URL`, `RUST_LOG`, `DASH0_OTLP_ENDPOINT`, `DASH0_AUTH_TOKEN`.
-- Config is hierarchical: root `config.toml` → service config → `APP_*` env overrides.
-  - Use double underscores to address nested keys (Figment): e.g., `APP_SERVER__HOST`, `APP_SERVER__PORT`, `APP_LOGGING__LEVEL`.
-
-## Quick Start
-```bash
-cargo install cargo-run-bin && cargo bin --install
-cp .env.example .env && cargo migrate-up && cargo generate-entities
-cargo run-api  # Swagger UI at /swagger-ui
-```
+Never commit secrets. Copy `.env.example` to `.env` locally and configure runtime with environment variables such as `DATABASE_URL`, `RUST_LOG`, `DASH0_OTLP_ENDPOINT`, and `DASH0_AUTH_TOKEN`. Override Figment settings by exporting keys like `APP_SERVER__HOST` or `APP_LOGGING__LEVEL` for service-specific tuning.

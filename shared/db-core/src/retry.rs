@@ -36,7 +36,7 @@ where
 
                     // Add jitter (±25% of delay)
                     let jitter_range = capped_delay / 4;
-                    let jitter: u64 = rand::thread_rng().gen_range(0..=jitter_range);
+                    let jitter: u64 = rand::rng().random_range(0..=jitter_range);
                     let final_delay = capped_delay - jitter_range / 2 + jitter;
 
                     let error_type = classify_db_error(&error_str);

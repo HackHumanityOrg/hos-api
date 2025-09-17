@@ -4,6 +4,10 @@ use common::telemetry::{self, TelemetrySetup};
 use discourse_indexer::sync as services;
 use discourse_indexer::sync::Concurrency;
 use opentelemetry::KeyValue;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tracing::{error, info, instrument};
 
 #[tokio::main]
@@ -61,6 +65,11 @@ async fn main() -> Result<()> {
 
 #[instrument(skip(config))]
 async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
+    use tokio::time::{interval_at, Duration, Instant, MissedTickBehavior};
+
+    const INITIAL_FULL_DELAY_SECS: u64 = 5;
+    const INITIAL_RECENT_DELAY_SECS: u64 = 5;
+
     info!("Starting Discourse multi-instance indexing loop");
 
     let discourse = match config.discourse() {
@@ -68,7 +77,7 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
         None => {
             info!("No [discourse] config found; idle loop");
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                tokio::time::sleep(Duration::from_secs(30)).await;
             }
         }
     };
@@ -77,7 +86,7 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
         Ok(db) => db,
         Err(e) => {
             error!(error = %e, "DB connect failed; retrying shortly");
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
             db_core::connection::from_config(config.database()).await?
         }
     };
@@ -86,7 +95,6 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
     for inst in discourse.instances.iter().filter(|i| i.enabled) {
         let instance_key = inst.key.clone();
         let base_url = inst.base_url.clone();
-        // Allow per-instance overrides; fall back to global
         let full_every = inst
             .full_refresh_interval_sec
             .unwrap_or(discourse.full_refresh_interval_sec);
@@ -95,115 +103,145 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
             .unwrap_or(discourse.recent_update_interval_sec);
         let max_pages = discourse.max_pages_per_run;
         let lookback_hours = discourse.recent_lookback_hours;
+        let telemetry_enabled = config.telemetry().enabled;
 
-        let db_clone = db.clone();
-        let cfg_telemetry = config.telemetry().enabled;
-
-        // Per-instance tuning with defaults
-        let http_limit = inst.max_http_concurrency.unwrap_or(8);
         let post_tasks_limit = inst.max_post_tasks.unwrap_or(10);
         let likes_limit = inst.likes_concurrency.unwrap_or(10);
         let revs_limit = inst.revisions_concurrency.unwrap_or(5);
-        // Per-instance recent caps (defaults: topics=3, posts=2)
         let recent_topic_cap = inst.recent_topic_pages_cap.unwrap_or(3);
         let conc = Concurrency::new(post_tasks_limit, likes_limit, revs_limit);
 
-        // Register instance once
-        {
-            let _ = discourse_indexer::domain::instances::repo::register_instance(
-                &db_clone,
-                &instance_key,
-                &base_url,
-            )
-            .await;
-        }
+        discourse_indexer::domain::instances::repo::register_instance(
+            &db,
+            &instance_key,
+            &base_url,
+        )
+        .await
+        .ok();
 
-        // Spawn recent loop task (non-overlapping within kind)
+        let client = Arc::new(discourse_indexer::discourse_api::DiscourseClient::new(
+            base_url.clone(),
+        ));
+        let full_running = Arc::new(AtomicBool::new(false));
+        let recent_running = Arc::new(AtomicBool::new(false));
+
         {
-            let db_clone = db.clone();
-            let instance_key = instance_key.clone();
-            let conc = conc.clone();
-            let base_url_recent = base_url.clone();
-            let http_limit_recent = http_limit;
+            let db_recent = db.clone();
+            let client_recent = client.clone();
+            let conc_recent = conc.clone();
+            let instance_recent = instance_key.clone();
+            let recent_flag = recent_running.clone();
             handles.push(tokio::spawn(async move {
-                use tokio::time::{interval_at, Duration, Instant};
-                let client = discourse_indexer::discourse_api::DiscourseClient::new_with_limits(
-                    base_url_recent.clone(),
-                    5,
-                    Some(http_limit_recent),
-                );
-                let start = Instant::now() + Duration::from_secs(3);
-                let mut tick = interval_at(start, Duration::from_secs(recent_every));
-                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                let start = Instant::now() + Duration::from_secs(INITIAL_RECENT_DELAY_SECS);
+                let mut interval = interval_at(start, Duration::from_secs(recent_every));
+                interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
                 loop {
-                    tick.tick().await;
-                    if let Err(e) = services::sync_recent(
-                        &db_clone,
-                        &client,
-                        &instance_key,
+                    interval.tick().await;
+
+                    if recent_flag
+                        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                        .is_err()
+                    {
+                        info!(instance = %instance_recent, "Recent updates already running, skipping this cycle");
+                        continue;
+                    }
+
+                    let cycle_start = Instant::now();
+                    let result = services::sync_recent(
+                        &db_recent,
+                        client_recent.as_ref(),
+                        &instance_recent,
                         recent_topic_cap,
-                        &conc,
+                        &conc_recent,
                         max_pages,
                         lookback_hours,
                     )
-                    .await
-                    {
-                        error!(instance = %instance_key, error = ?e, "recent indexing failed");
-                    } else if cfg_telemetry {
-                        telemetry::increment_counter(
-                            "indexer.batches.processed",
-                            &[
-                                KeyValue::new("indexer", "discourse-indexer"),
-                                KeyValue::new("kind", "recent"),
-                                KeyValue::new("instance", instance_key.clone()),
-                            ],
-                        );
+                    .await;
+
+                    match result {
+                        Ok(_) => {
+                            info!(instance = %instance_recent, duration = ?cycle_start.elapsed(), "Recent updates completed successfully");
+                            if telemetry_enabled {
+                                telemetry::increment_counter(
+                                    "indexer.batches.processed",
+                                    &[
+                                        KeyValue::new("indexer", "discourse-indexer"),
+                                        KeyValue::new("kind", "recent"),
+                                        KeyValue::new("instance", instance_recent.clone()),
+                                    ],
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            error!(instance = %instance_recent, duration = ?cycle_start.elapsed(), error = ?e, "Recent updates completed with errors");
+                        }
                     }
+
+                    recent_flag.store(false, Ordering::Release);
                 }
             }));
         }
 
-        // Spawn full loop task (non-overlapping within kind)
         {
-            let db_clone = db.clone();
-            let instance_key = instance_key.clone();
-            let conc = conc.clone();
-            let base_url_full = base_url.clone();
-            let http_limit_full = http_limit;
+            let db_full = db.clone();
+            let client_full = client.clone();
+            let conc_full = conc.clone();
+            let instance_full = instance_key.clone();
+            let full_flag = full_running.clone();
             handles.push(tokio::spawn(async move {
-                use tokio::time::{interval_at, Duration, Instant};
-                let client = discourse_indexer::discourse_api::DiscourseClient::new_with_limits(
-                    base_url_full.clone(),
-                    5,
-                    Some(http_limit_full),
-                );
-                let start = Instant::now() + Duration::from_secs(60);
-                let mut tick = interval_at(start, Duration::from_secs(full_every));
-                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                let start = Instant::now() + Duration::from_secs(INITIAL_FULL_DELAY_SECS);
+                let mut interval = interval_at(start, Duration::from_secs(full_every));
+                interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
                 loop {
-                    tick.tick().await;
-                    if let Err(e) =
-                        services::sync_full(&db_clone, &client, &instance_key, &conc, max_pages)
-                            .await
+                    interval.tick().await;
+
+                    if full_flag
+                        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                        .is_err()
                     {
-                        error!(instance = %instance_key, error = ?e, "full indexing failed");
-                    } else if cfg_telemetry {
-                        telemetry::increment_counter(
-                            "indexer.batches.processed",
-                            &[
-                                KeyValue::new("indexer", "discourse-indexer"),
-                                KeyValue::new("kind", "full"),
-                                KeyValue::new("instance", instance_key.clone()),
-                            ],
-                        );
+                        info!(instance = %instance_full, "Full refresh already running, skipping this cycle");
+                        continue;
                     }
+
+                    let cycle_start = Instant::now();
+                    let result = services::sync_full(
+                        &db_full,
+                        client_full.as_ref(),
+                        &instance_full,
+                        &conc_full,
+                        max_pages,
+                    )
+                    .await;
+
+                    match result {
+                        Ok(_) => {
+                            info!(instance = %instance_full, duration = ?cycle_start.elapsed(), "Full refresh completed successfully");
+                            if telemetry_enabled {
+                                telemetry::increment_counter(
+                                    "indexer.batches.processed",
+                                    &[
+                                        KeyValue::new("indexer", "discourse-indexer"),
+                                        KeyValue::new("kind", "full"),
+                                        KeyValue::new("instance", instance_full.clone()),
+                                    ],
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            error!(instance = %instance_full, duration = ?cycle_start.elapsed(), error = ?e, "Full refresh completed with errors");
+                        }
+                    }
+
+                    full_flag.store(false, Ordering::Release);
                 }
             }));
         }
     }
 
-    for h in handles {
-        let _ = h.await;
+    for handle in handles {
+        let _ = handle.await;
     }
 
     Ok(())

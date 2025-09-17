@@ -10,17 +10,21 @@ pub struct Model {
     pub id: i64,
     pub instance: String,
     pub external_id: i32,
+    #[sea_orm(column_type = "Text")]
     pub username: String,
+    #[sea_orm(column_type = "Text", nullable)]
     pub name: Option<String>,
+    #[sea_orm(column_type = "Text")]
     pub avatar_template: String,
+    #[sea_orm(column_type = "Text", nullable)]
     pub title: Option<String>,
-    pub likes_received: i32,
-    pub likes_given: i32,
-    pub topics_entered: i32,
-    pub topic_count: i32,
-    pub post_count: i32,
-    pub posts_read: i32,
-    pub days_visited: i32,
+    pub likes_received: Option<i64>,
+    pub likes_given: Option<i64>,
+    pub topics_entered: Option<i64>,
+    pub topic_count: Option<i64>,
+    pub post_count: Option<i64>,
+    pub posts_read: Option<i64>,
+    pub days_visited: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

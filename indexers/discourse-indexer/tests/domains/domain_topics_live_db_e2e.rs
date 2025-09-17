@@ -1,75 +1,153 @@
-#[path = "../common/mod.rs"]
-mod common;
-
-use common::TestDatabase;
-use discourse_indexer::discourse_api::DiscourseClient;
+use anyhow::Result;
+use chrono::Timelike;
+use discourse_indexer::domain::categories;
+use discourse_indexer::domain::instances;
 use discourse_indexer::domain::topics::{adapter, repo};
-use entities::discourse_topics;
-use rstest::*;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use entities::{discourse_topics, prelude::DiscourseTopics};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use std::collections::HashMap;
+use test_support::{init_test_tracing, TestDatabase};
 
-const TEST_INSTANCE: &str = "meta.discourse.org";
+#[path = "../support/mod.rs"]
+mod support;
+use support::FixtureFetcher;
 
-#[fixture]
-async fn test_db() -> TestDatabase {
-    TestDatabase::new().await
+const INSTANCE_KEY: &str = "meta";
+const INSTANCE_URL: &str = "https://meta.discourse.org";
+const RECENT_TOPIC_ID: i32 = 382831;
+const RECENT_TOPIC_SLUG: &str = "ios-26-bugs-with-fixed-position-elements-in-discourse";
+
+#[tokio::test]
+async fn fetch_topics_recent_page_parses_fixture() -> Result<()> {
+    let fetcher =
+        FixtureFetcher::new(&[("/latest.json?page=0", "meta/latest_activity_page_0.json")])?;
+
+    let response = adapter::fetch_topics_recent_page(&fetcher, 0).await?;
+
+    assert_eq!(response.topic_list.per_page, Some(30));
+    assert_eq!(response.topic_list.topics.len(), 30);
+
+    let topic = &response.topic_list.topics[0];
+    assert_eq!(topic.id, RECENT_TOPIC_ID);
+    assert_eq!(topic.slug, RECENT_TOPIC_SLUG);
+    assert!(topic.bumped.unwrap_or(false));
+
+    Ok(())
 }
 
-/// Live + DB: fetch topics from latest page, persist bulk, and verify upsert.
-#[rstest]
 #[tokio::test]
-async fn test_domain_topics_fetch_and_persist(#[future] test_db: TestDatabase) {
-    let test_db = test_db.await;
-    let db = test_db.db();
-    let client = DiscourseClient::new("https://meta.discourse.org".to_string());
+async fn topics_upsert_checks_all_columns() -> Result<()> {
+    init_test_tracing();
+    let db = TestDatabase::new().await;
+    let conn = db.db();
 
-    discourse_indexer::domain::instances::repo::register_instance(
-        &db,
-        TEST_INSTANCE,
-        "https://meta.discourse.org",
-    )
-    .await
-    .expect("register instance");
+    instances::repo::register_instance(&conn, INSTANCE_KEY, INSTANCE_URL).await?;
 
-    let resp = adapter::fetch_topics_recent_page(&client, 0)
-        .await
-        .expect("fetch topics");
-    assert!(!resp.topic_list.topics.is_empty());
-
-    // Ensure categories exist to satisfy Topics→Categories FK
-    let cats = discourse_indexer::domain::categories::adapter::fetch_categories_all(&client, 2)
-        .await
-        .expect("fetch categories for topic FK");
-    for c in cats.iter() {
-        discourse_indexer::domain::categories::repo::upsert_category(&db, TEST_INSTANCE, c)
-            .await
-            .expect("upsert category");
+    let categories_fetcher = FixtureFetcher::new(&[(
+        "/categories.json?include_subcategories=true&page=0",
+        "meta/categories_page_0.json",
+    )])?;
+    let categories = categories::adapter::fetch_categories_all(&categories_fetcher, 0).await?;
+    for category in &categories {
+        categories::repo::upsert_category(&conn, INSTANCE_KEY, category).await?;
     }
 
-    // Persist a subset
-    let subset: Vec<_> = resp.topic_list.topics.iter().cloned().take(5).collect();
-    repo::upsert_topics_bulk(&db, TEST_INSTANCE, &subset)
-        .await
-        .expect("upsert topics");
+    let fetcher =
+        FixtureFetcher::new(&[("/latest.json?page=0", "meta/latest_activity_page_0.json")])?;
+    let topics = adapter::fetch_topics_recent_page(&fetcher, 0)
+        .await?
+        .topic_list
+        .topics;
 
-    // Idempotent re-upsert
-    repo::upsert_topics_bulk(&db, TEST_INSTANCE, &subset)
-        .await
-        .expect("upsert topics again");
+    repo::upsert_topics_bulk(&conn, INSTANCE_KEY, &topics).await?;
 
-    // Update one topic locally to validate update columns
-    let mut t = subset[0].clone();
-    t.title = format!("{}{}", t.title, " (updated)");
-    repo::upsert_topics_bulk(&db, TEST_INSTANCE, &[t.clone()])
-        .await
-        .expect("update topic");
+    let stored = DiscourseTopics::find()
+        .filter(discourse_topics::Column::Instance.eq(INSTANCE_KEY))
+        .order_by_asc(discourse_topics::Column::ExternalId)
+        .all(&conn)
+        .await?;
 
-    let stored = discourse_topics::Entity::find()
-        .filter(discourse_topics::Column::Instance.eq(TEST_INSTANCE))
-        .filter(discourse_topics::Column::ExternalId.eq(t.id))
-        .one(&db)
-        .await
-        .expect("fetch t")
-        .expect("t exists");
-    assert_eq!(stored.title, t.title);
+    assert_eq!(stored.len(), topics.len());
+
+    let expected: HashMap<i32, _> = topics.iter().map(|t| (t.id, t)).collect();
+
+    for row in stored {
+        let src = expected
+            .get(&row.external_id)
+            .expect("topic fixture present");
+        assert_eq!(row.instance, INSTANCE_KEY);
+        assert_eq!(row.external_id, src.id);
+        assert_eq!(row.title, src.title);
+        assert_eq!(
+            row.fancy_title,
+            src.fancy_title.clone().unwrap_or_else(|| src.title.clone())
+        );
+        assert_eq!(row.slug, src.slug);
+        assert_eq!(row.posts_count, src.posts_count);
+        assert_eq!(row.reply_count, src.reply_count);
+        let expected_created = (src.created_at + chrono::Duration::nanoseconds(500_000_000))
+            .with_nanosecond(0)
+            .expect("rounded created_at");
+        let expected_last_posted = (src.last_posted_at
+            + chrono::Duration::nanoseconds(500_000_000))
+        .with_nanosecond(0)
+        .expect("rounded last_posted_at");
+        let expected_bumped = (src.bumped_at + chrono::Duration::nanoseconds(500_000_000))
+            .with_nanosecond(0)
+            .expect("rounded bumped_at");
+        assert_eq!(row.created_at, expected_created);
+        assert_eq!(row.last_posted_at, expected_last_posted);
+        assert_eq!(row.bumped_at, expected_bumped);
+        assert_eq!(row.pinned, if src.pinned.unwrap_or(false) { 1 } else { 0 });
+        assert_eq!(
+            row.pinned_globally,
+            if src.pinned_globally.unwrap_or(false) {
+                1
+            } else {
+                0
+            }
+        );
+        assert_eq!(row.visible, if src.visible.unwrap_or(true) { 1 } else { 0 });
+        assert_eq!(row.closed, if src.closed.unwrap_or(false) { 1 } else { 0 });
+        assert_eq!(
+            row.archived,
+            if src.archived.unwrap_or(false) { 1 } else { 0 }
+        );
+        assert_eq!(row.views, src.views);
+        assert_eq!(row.like_count, src.like_count);
+        assert_eq!(row.external_category_id, src.category_id);
+    }
+
+    repo::upsert_topics_bulk(&conn, INSTANCE_KEY, &topics).await?;
+    let stored_second = DiscourseTopics::find()
+        .filter(discourse_topics::Column::Instance.eq(INSTANCE_KEY))
+        .order_by_asc(discourse_topics::Column::ExternalId)
+        .all(&conn)
+        .await?;
+    assert_eq!(stored_second.len(), topics.len());
+
+    let mut topics_updated = topics.clone();
+    if let Some(first_topic) = topics_updated.first_mut() {
+        first_topic.views += 1;
+        first_topic.like_count += 1;
+    }
+    repo::upsert_topics_bulk(&conn, INSTANCE_KEY, &topics_updated).await?;
+
+    let stored_after_update = DiscourseTopics::find()
+        .filter(discourse_topics::Column::Instance.eq(INSTANCE_KEY))
+        .order_by_asc(discourse_topics::Column::ExternalId)
+        .all(&conn)
+        .await?;
+    assert_eq!(stored_after_update.len(), topics.len());
+
+    if let Some(first_topic) = topics_updated.first() {
+        let stored_first = stored_after_update
+            .iter()
+            .find(|row| row.external_id == first_topic.id)
+            .expect("updated topic stored");
+        assert_eq!(stored_first.views, first_topic.views);
+        assert_eq!(stored_first.like_count, first_topic.like_count);
+    }
+
+    Ok(())
 }

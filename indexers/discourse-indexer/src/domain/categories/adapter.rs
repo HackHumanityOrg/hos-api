@@ -1,5 +1,5 @@
+use crate::discourse_api::JsonFetcher;
 use crate::domain::categories::model::{Category, CategoryResponse};
-use crate::domain::http::JsonFetcher;
 use anyhow::Result;
 use tracing::{debug, instrument};
 
@@ -24,21 +24,28 @@ pub async fn fetch_categories_all<F: JsonFetcher>(
         if r.category_list.categories.is_empty() {
             break;
         }
-        flatten_categories(&r.category_list.categories, &mut all);
+        flatten_categories_with_parent(&r.category_list.categories, &mut all, None);
         page += 1;
     }
     debug!(total = all.len(), "flattened categories total");
     Ok(all)
 }
 
-fn flatten_categories(src: &[Category], out: &mut Vec<Category>) {
+fn flatten_categories_with_parent(
+    src: &[Category],
+    out: &mut Vec<Category>,
+    parent_id: Option<i32>,
+) {
     for c in src.iter().cloned() {
+        let mut category = c.clone();
+        category.parent_id = parent_id;
+
         if let Some(children) = c.subcategory_list.clone() {
-            let c_no_children = c.clone();
-            out.push(c_no_children);
-            flatten_categories(&children, out);
+            category.subcategory_list = None;
+            out.push(category.clone());
+            flatten_categories_with_parent(&children, out, Some(category.id));
         } else {
-            out.push(c);
+            out.push(category);
         }
     }
 }

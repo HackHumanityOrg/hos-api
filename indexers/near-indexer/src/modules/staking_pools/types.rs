@@ -1,5 +1,7 @@
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochHeight, EpochId};
-use near_primitives::views::validator_stake_view::ValidatorStakeView;
+use near_lake_framework::near_indexer_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId,
+};
+use near_lake_framework::near_indexer_primitives::views::validator_stake_view::ValidatorStakeView;
 use serde_json;
 
 /// Pool types based on detection method
@@ -84,7 +86,7 @@ pub struct ActionContext {
     pub timestamp: i64,
 }
 
-/// Epoch information aligned with near_primitives::epoch_info::EpochInfo
+/// Epoch information aligned with near_lake_framework::near_indexer_primitives::near_primitives::epoch_info::EpochInfo
 #[derive(Debug, Clone)]
 pub struct StakingEpoch {
     pub epoch_id: EpochId,

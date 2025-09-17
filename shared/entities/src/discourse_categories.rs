@@ -10,46 +10,26 @@ pub struct Model {
     pub id: i64,
     pub instance: String,
     pub external_id: i32,
+    #[sea_orm(column_type = "Text")]
     pub name: String,
+    #[sea_orm(column_type = "Text")]
     pub color: String,
+    #[sea_orm(column_type = "Text")]
     pub text_color: String,
+    #[sea_orm(column_type = "Text")]
     pub slug: String,
     pub topic_count: i32,
     pub post_count: i32,
-    pub position: i32,
     #[sea_orm(column_type = "Text", nullable)]
     pub description: Option<String>,
     #[sea_orm(column_type = "Text", nullable)]
     pub description_text: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub description_excerpt: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub topic_url: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub topic_template: Option<String>,
-    pub has_children: i8,
-    pub subcategory_count: Option<i32>,
-    pub sort_order: Option<String>,
-    pub num_featured_topics: i32,
-    pub default_view: Option<String>,
-    pub subcategory_list_style: String,
-    pub default_top_period: String,
-    pub default_list_filter: String,
-    pub minimum_required_tags: i32,
-    pub topics_day: i32,
-    pub topics_week: i32,
-    pub topics_month: i32,
-    pub topics_year: i32,
-    pub topics_all_time: i32,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub uploaded_logo: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub uploaded_logo_dark: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub uploaded_background: Option<String>,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub uploaded_background_dark: Option<String>,
-    pub is_uncategorized: Option<i8>,
+    pub topics_day: Option<i32>,
+    pub topics_week: Option<i32>,
+    pub topics_month: Option<i32>,
+    pub topics_year: Option<i32>,
+    pub topics_all_time: Option<i32>,
+    pub parent_category_id: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

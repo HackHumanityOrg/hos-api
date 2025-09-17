@@ -1,0 +1,3035 @@
+{
+    "users": [
+        {
+            "id": 2770,
+            "username": "awesomerobot",
+            "name": "Kris",
+            "avatar_template": "/user_avatar/meta.discourse.org/awesomerobot/{size}/142900_2.png",
+            "primary_group_name": "team",
+            "flair_name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_color": "111",
+            "flair_group_id": 47,
+            "admin": true,
+            "trust_level": 4
+        },
+        {
+            "id": 115923,
+            "username": "Discourse",
+            "name": null,
+            "avatar_template": "/user_avatar/meta.discourse.org/discourse/{size}/148734_2.png",
+            "admin": true,
+            "trust_level": 4
+        },
+        {
+            "id": 136810,
+            "username": "lindsey",
+            "name": "Lindsey Fogle",
+            "avatar_template": "/user_avatar/meta.discourse.org/lindsey/{size}/318210_2.png",
+            "flair_name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_color": "111",
+            "flair_group_id": 47,
+            "admin": true,
+            "trust_level": 4
+        },
+        {
+            "id": 14460,
+            "username": "hellekin",
+            "name": "",
+            "avatar_template": "/user_avatar/meta.discourse.org/hellekin/{size}/51636_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 1,
+            "username": "sam",
+            "name": "Sam Saffron",
+            "avatar_template": "/user_avatar/meta.discourse.org/sam/{size}/102149_2.png",
+            "primary_group_name": "team",
+            "flair_name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_color": "111",
+            "flair_group_id": 47,
+            "admin": true,
+            "trust_level": 4
+        },
+        {
+            "id": 80880,
+            "username": "asa",
+            "name": "",
+            "avatar_template": "/user_avatar/meta.discourse.org/asa/{size}/184869_2.png",
+            "flair_name": "translators",
+            "flair_url": "globe",
+            "flair_bg_color": "ddd",
+            "flair_color": "111",
+            "flair_group_id": 50,
+            "trust_level": 2
+        },
+        {
+            "id": 136740,
+            "username": "Nick-Permaculture",
+            "name": "Nick J",
+            "avatar_template": "/user_avatar/meta.discourse.org/nick-permaculture/{size}/317842_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 39641,
+            "username": "dmccann",
+            "name": "David McCann",
+            "avatar_template": "/user_avatar/meta.discourse.org/dmccann/{size}/93776_2.png",
+            "trust_level": 1
+        },
+        {
+            "id": 1995,
+            "username": "zogstrip",
+            "name": "R\u00e9gis Hanol",
+            "avatar_template": "/user_avatar/meta.discourse.org/zogstrip/{size}/512781_2.png",
+            "primary_group_name": "team",
+            "flair_name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_color": "111",
+            "flair_group_id": 47,
+            "admin": true,
+            "trust_level": 4
+        },
+        {
+            "id": 74021,
+            "username": "dm.linov",
+            "name": "Dmitry",
+            "avatar_template": "/user_avatar/meta.discourse.org/dm.linov/{size}/167719_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 75058,
+            "username": "Honza_Pobo\u0159il",
+            "name": "Honza Pobo\u0159il",
+            "avatar_template": "/user_avatar/meta.discourse.org/honza_pobo\u0159il/{size}/169994_2.png",
+            "trust_level": 1
+        },
+        {
+            "id": 1495,
+            "username": "blake",
+            "name": "Blake Erickson",
+            "avatar_template": "/user_avatar/meta.discourse.org/blake/{size}/157322_2.png",
+            "primary_group_name": "team",
+            "flair_name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_color": "111",
+            "flair_group_id": 47,
+            "admin": true,
+            "trust_level": 4
+        },
+        {
+            "id": 174894,
+            "username": "tknospdr",
+            "name": "David Muszynski",
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/t/e95f7d/{size}.png",
+            "trust_level": 2
+        },
+        {
+            "id": 174169,
+            "username": "gasroom",
+            "name": "Jack",
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/g/ebca7d/{size}.png",
+            "trust_level": 1
+        },
+        {
+            "id": 107825,
+            "username": "georg",
+            "name": "",
+            "avatar_template": "/user_avatar/meta.discourse.org/georg/{size}/241066_2.png",
+            "trust_level": 1
+        },
+        {
+            "id": 95552,
+            "username": "Moin",
+            "name": "",
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/m/c89c15/{size}.png",
+            "trust_level": 3
+        },
+        {
+            "id": 27384,
+            "username": "merefield",
+            "name": "Robert",
+            "avatar_template": "/user_avatar/meta.discourse.org/merefield/{size}/176214_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 157728,
+            "username": "joshhabka",
+            "name": "Josh U",
+            "avatar_template": "/user_avatar/meta.discourse.org/joshhabka/{size}/452328_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 43032,
+            "username": "Thanatermesis",
+            "name": "Elive Linux",
+            "avatar_template": "/user_avatar/meta.discourse.org/thanatermesis/{size}/119521_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 145678,
+            "username": "putty",
+            "name": "Derek Putnam",
+            "avatar_template": "/user_avatar/meta.discourse.org/putty/{size}/370902_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 177423,
+            "username": "dojo",
+            "name": "Antonio",
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/d/bbce88/{size}.png",
+            "trust_level": 1
+        },
+        {
+            "id": 23968,
+            "username": "david",
+            "name": "David Taylor",
+            "avatar_template": "/user_avatar/meta.discourse.org/david/{size}/157490_2.png",
+            "primary_group_name": "team",
+            "flair_name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_color": "111",
+            "flair_group_id": 47,
+            "admin": true,
+            "trust_level": 4
+        },
+        {
+            "id": 139655,
+            "username": "afovos",
+            "name": "Andreas",
+            "avatar_template": "/user_avatar/meta.discourse.org/afovos/{size}/518166_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 80288,
+            "username": "one1",
+            "name": "",
+            "avatar_template": "/user_avatar/meta.discourse.org/one1/{size}/493591_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 73038,
+            "username": "jahan_gagan",
+            "name": "Jahan Gagan",
+            "avatar_template": "/user_avatar/meta.discourse.org/jahan_gagan/{size}/501948_2.png",
+            "flair_name": "plugin_authors",
+            "flair_url": "plug",
+            "flair_bg_color": "dddddd",
+            "flair_color": "111111",
+            "flair_group_id": 48,
+            "trust_level": 2
+        },
+        {
+            "id": 141342,
+            "username": "martyn_thomas",
+            "name": "Martyn Thomas",
+            "avatar_template": "/user_avatar/meta.discourse.org/martyn_thomas/{size}/344874_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 141903,
+            "username": "digitaldominica",
+            "name": "Digital Dominica",
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/d/97f17d/{size}.png",
+            "trust_level": 2
+        },
+        {
+            "id": 142619,
+            "username": "Nebthtet",
+            "name": "",
+            "avatar_template": "/user_avatar/meta.discourse.org/nebthtet/{size}/352272_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 104279,
+            "username": "nat",
+            "name": "Natalie T",
+            "avatar_template": "/user_avatar/meta.discourse.org/nat/{size}/235063_2.png",
+            "primary_group_name": "team",
+            "flair_name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_color": "111",
+            "flair_group_id": 47,
+            "admin": true,
+            "trust_level": 4
+        },
+        {
+            "id": 172305,
+            "username": "Evie_Tao",
+            "name": "Evie Tao",
+            "avatar_template": "/user_avatar/meta.discourse.org/evie_tao/{size}/487964_2.png",
+            "trust_level": 1
+        },
+        {
+            "id": 127856,
+            "username": "Lilly",
+            "name": "Lillian Louis",
+            "avatar_template": "/user_avatar/meta.discourse.org/lilly/{size}/521129_2.png",
+            "flair_name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_color": "111",
+            "flair_group_id": 47,
+            "admin": true,
+            "trust_level": 4
+        },
+        {
+            "id": 15209,
+            "username": "pfaffman",
+            "name": "Jay Pfaffman",
+            "avatar_template": "/user_avatar/meta.discourse.org/pfaffman/{size}/120154_2.png",
+            "flair_name": "support-experts",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/2/e250ec403580530d19e6a9ed42d0d525a51a9dbe.svg",
+            "flair_bg_color": "FFFFFF",
+            "flair_group_id": 142,
+            "trust_level": 4
+        },
+        {
+            "id": 4457,
+            "username": "Lee_Ars",
+            "name": "Lee_Ars",
+            "avatar_template": "/user_avatar/meta.discourse.org/lee_ars/{size}/1597_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 159471,
+            "username": "keithkhl",
+            "name": "Keith Lee",
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/k/919ad9/{size}.png",
+            "trust_level": 1
+        },
+        {
+            "id": 23163,
+            "username": "j.jaffeux",
+            "name": "Joffrey Jaffeux",
+            "avatar_template": "/user_avatar/meta.discourse.org/j.jaffeux/{size}/60297_2.png",
+            "primary_group_name": "team",
+            "flair_name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_color": "111",
+            "flair_group_id": 47,
+            "admin": true,
+            "trust_level": 3
+        },
+        {
+            "id": 57788,
+            "username": "nathank",
+            "name": "Nathan Kershaw",
+            "avatar_template": "/user_avatar/meta.discourse.org/nathank/{size}/290039_2.png",
+            "flair_name": "support-advocates",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/4/e4038d4d9848de2eabab38e17b8bdb69da154024.svg",
+            "flair_bg_color": "FFFFFF",
+            "flair_group_id": 148,
+            "trust_level": 3
+        },
+        {
+            "id": 166720,
+            "username": "opcourdis",
+            "name": null,
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/o/45deac/{size}.png",
+            "trust_level": 2
+        },
+        {
+            "id": 14360,
+            "username": "oshyan",
+            "name": "Oshyan Greene",
+            "avatar_template": "/user_avatar/meta.discourse.org/oshyan/{size}/212644_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 173218,
+            "username": "gilles",
+            "name": null,
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/g/ce7236/{size}.png",
+            "trust_level": 2
+        },
+        {
+            "id": 100484,
+            "username": "JammyDodger",
+            "name": "",
+            "avatar_template": "/user_avatar/meta.discourse.org/jammydodger/{size}/254611_2.png",
+            "trust_level": 3
+        },
+        {
+            "id": 181992,
+            "username": "jerry_zen",
+            "name": null,
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/j/d07c76/{size}.png",
+            "trust_level": 1
+        },
+        {
+            "id": 143698,
+            "username": "Shauny",
+            "name": "Shaun Robinson",
+            "avatar_template": "/user_avatar/meta.discourse.org/shauny/{size}/362012_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 117601,
+            "username": "mjsir911",
+            "name": "Marco Sirabella",
+            "avatar_template": "/user_avatar/meta.discourse.org/mjsir911/{size}/264466_2.png",
+            "trust_level": 1
+        },
+        {
+            "id": 86242,
+            "username": "Julien_Palard",
+            "name": "Julien Palard",
+            "avatar_template": "/user_avatar/meta.discourse.org/julien_palard/{size}/198784_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 97878,
+            "username": "bmann",
+            "name": "Boris Mann",
+            "avatar_template": "/user_avatar/meta.discourse.org/bmann/{size}/333739_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 149894,
+            "username": "Robert_McCurdy",
+            "name": "Robert McCurdy",
+            "avatar_template": "/user_avatar/meta.discourse.org/robert_mccurdy/{size}/388043_2.png",
+            "trust_level": 0
+        },
+        {
+            "id": 160471,
+            "username": "Ethsim2",
+            "name": "Ethan ",
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/e/c2a13f/{size}.png",
+            "trust_level": 2
+        },
+        {
+            "id": 21707,
+            "username": "claas",
+            "name": "Claas Aug.",
+            "avatar_template": "/user_avatar/meta.discourse.org/claas/{size}/71725_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 25606,
+            "username": "Lutz",
+            "name": "Lutz Biermann",
+            "avatar_template": "/user_avatar/meta.discourse.org/lutz/{size}/65103_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 12852,
+            "username": "terraboss",
+            "name": "Markus",
+            "avatar_template": "/user_avatar/meta.discourse.org/terraboss/{size}/381157_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 8571,
+            "username": "tobiaseigen",
+            "name": "Tobias Eigen",
+            "avatar_template": "/user_avatar/meta.discourse.org/tobiaseigen/{size}/116107_2.png",
+            "primary_group_name": "team",
+            "flair_name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_color": "111",
+            "flair_group_id": 47,
+            "admin": true,
+            "moderator": true,
+            "trust_level": 4
+        },
+        {
+            "id": 4881,
+            "username": "gerhard",
+            "name": "Gerhard Schlager",
+            "avatar_template": "/user_avatar/meta.discourse.org/gerhard/{size}/119479_2.png",
+            "primary_group_name": "team",
+            "flair_name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_color": "111",
+            "flair_group_id": 47,
+            "admin": true,
+            "trust_level": 4
+        },
+        {
+            "id": 181731,
+            "username": "sweet_Girl",
+            "name": "sweet Girl",
+            "avatar_template": "/user_avatar/meta.discourse.org/sweet_girl/{size}/519638_2.png",
+            "trust_level": 1
+        },
+        {
+            "id": 135392,
+            "username": "NateDhaliwal",
+            "name": "Nate Dhaliwal",
+            "avatar_template": "/user_avatar/meta.discourse.org/natedhaliwal/{size}/313494_2.png",
+            "flair_name": "theme_authors",
+            "flair_url": "paintbrush",
+            "flair_bg_color": "ddd",
+            "flair_color": "111",
+            "flair_group_id": 73,
+            "trust_level": 3
+        },
+        {
+            "id": 23649,
+            "username": "strk",
+            "name": "Sandro Santilli",
+            "avatar_template": "/user_avatar/meta.discourse.org/strk/{size}/121193_2.png",
+            "trust_level": 1
+        },
+        {
+            "id": 135057,
+            "username": "fokx",
+            "name": "",
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/f/958977/{size}.png",
+            "trust_level": 2
+        },
+        {
+            "id": 182437,
+            "username": "lion",
+            "name": "",
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/l/57b2e6/{size}.png",
+            "trust_level": 1
+        },
+        {
+            "id": 110872,
+            "username": "Thorsten",
+            "name": "",
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/t/d2c977/{size}.png",
+            "trust_level": 1
+        },
+        {
+            "id": 60726,
+            "username": "jrgong",
+            "name": "jrgong",
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/j/c57346/{size}.png",
+            "trust_level": 2
+        },
+        {
+            "id": 72377,
+            "username": "tpetrov",
+            "name": "Toni Petrov",
+            "avatar_template": "/user_avatar/meta.discourse.org/tpetrov/{size}/164643_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 406,
+            "username": "RGJ",
+            "name": "Richard - Communiteq",
+            "avatar_template": "/user_avatar/meta.discourse.org/rgj/{size}/102421_2.png",
+            "flair_name": "support-experts",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/2/e250ec403580530d19e6a9ed42d0d525a51a9dbe.svg",
+            "flair_bg_color": "FFFFFF",
+            "flair_group_id": 142,
+            "trust_level": 4
+        },
+        {
+            "id": 91029,
+            "username": "Isla",
+            "name": "Technologically clueless",
+            "avatar_template": "/user_avatar/meta.discourse.org/isla/{size}/521525_2.png",
+            "trust_level": 1
+        },
+        {
+            "id": 83631,
+            "username": "Jagster",
+            "name": "Jakke Lehtonen",
+            "avatar_template": "/user_avatar/meta.discourse.org/jagster/{size}/192154_2.png",
+            "trust_level": 3
+        },
+        {
+            "id": 176316,
+            "username": "Rubi",
+            "name": null,
+            "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/r/7ea924/{size}.png",
+            "trust_level": 2
+        },
+        {
+            "id": 64761,
+            "username": "mbauman",
+            "name": "Matt Bauman",
+            "avatar_template": "/user_avatar/meta.discourse.org/mbauman/{size}/139835_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 113325,
+            "username": "piffy",
+            "name": "",
+            "avatar_template": "/user_avatar/meta.discourse.org/piffy/{size}/254198_2.png",
+            "trust_level": 2
+        },
+        {
+            "id": 139001,
+            "username": "Architect",
+            "name": "",
+            "avatar_template": "/user_avatar/meta.discourse.org/architect/{size}/520575_2.png",
+            "trust_level": 1
+        }
+    ],
+    "primary_groups": [
+        {
+            "id": 47,
+            "name": "team"
+        }
+    ],
+    "flair_groups": [
+        {
+            "id": 47,
+            "name": "team",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/b/ebee30bd98aef20357e4a177a5a1e45b877ce088.svg",
+            "flair_bg_color": "",
+            "flair_color": "111"
+        },
+        {
+            "id": 50,
+            "name": "translators",
+            "flair_url": "globe",
+            "flair_bg_color": "ddd",
+            "flair_color": "111"
+        },
+        {
+            "id": 48,
+            "name": "plugin_authors",
+            "flair_url": "plug",
+            "flair_bg_color": "dddddd",
+            "flair_color": "111111"
+        },
+        {
+            "id": 142,
+            "name": "support-experts",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/2/e250ec403580530d19e6a9ed42d0d525a51a9dbe.svg",
+            "flair_bg_color": "FFFFFF",
+            "flair_color": ""
+        },
+        {
+            "id": 148,
+            "name": "support-advocates",
+            "flair_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/e/4/e4038d4d9848de2eabab38e17b8bdb69da154024.svg",
+            "flair_bg_color": "FFFFFF",
+            "flair_color": ""
+        },
+        {
+            "id": 73,
+            "name": "theme_authors",
+            "flair_url": "paintbrush",
+            "flair_bg_color": "ddd",
+            "flair_color": "111"
+        }
+    ],
+    "topic_list": {
+        "can_create_topic": false,
+        "more_topics_url": "/latest?no_definitions=true&order=activity&page=1",
+        "per_page": 30,
+        "top_tags": [
+            "ai",
+            "chat",
+            "email",
+            "rest-api",
+            "how-to",
+            "completed",
+            "sql-query",
+            "unsupported-install",
+            "pr-welcome",
+            "fixed",
+            "activity-summary",
+            "solved",
+            "calendar-and-event",
+            "tags",
+            "sidebar",
+            "badges",
+            "official",
+            "release-notes",
+            "mobile",
+            "moderation",
+            "search",
+            "server-resources",
+            "css",
+            "groups",
+            "invites",
+            "composer",
+            "topic-voting",
+            "subscriptions",
+            "polls",
+            "docker",
+            "advertising"
+        ],
+        "topics": [
+            {
+                "fancy_title": "iOS 26 bugs with fixed position elements in Discourse",
+                "id": 382831,
+                "title": "iOS 26 bugs with fixed position elements in Discourse",
+                "slug": "ios-26-bugs-with-fixed-position-elements-in-discourse",
+                "posts_count": 2,
+                "reply_count": 0,
+                "highest_post_number": 2,
+                "image_url": null,
+                "created_at": "2025-09-16T13:50:19.737Z",
+                "last_posted_at": "2025-09-16T13:50:41.510Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T13:50:19.811Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": true,
+                "unpinned": null,
+                "excerpt": "iOS 26 has been officially released, but we recommend holding off on updating until some Safari issues are addressed. These are visual issues that cause fixed position elements on iPhones and iPads to be misplaced after &hellip;",
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 65,
+                "like_count": 14,
+                "has_summary": false,
+                "last_poster_username": "awesomerobot",
+                "category_id": 67,
+                "pinned_globally": true,
+                "featured_link": null,
+                "ai_topic_gist": "iOS 26's Safari has bugs causing misplaced fixed elements on iPhones and iPads when the on-screen keyboard opens, affecting websites like Discourse.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": "latest single",
+                        "description": "Original Poster, Most Recent Poster",
+                        "user_id": 2770,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": "New to Discourse? Start here!",
+                "id": 1,
+                "title": "New to Discourse? Start here!",
+                "slug": "new-to-discourse-start-here",
+                "posts_count": 1,
+                "reply_count": 5,
+                "highest_post_number": 1,
+                "image_url": null,
+                "created_at": "2013-02-01T04:52:28.073Z",
+                "last_posted_at": "2013-02-01T04:52:28.397Z",
+                "bumped": true,
+                "bumped_at": "2025-04-25T14:30:08.501Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": true,
+                "unpinned": null,
+                "excerpt": ":waving_hand: We\u2019re so glad you\u2019re here! This is our official community, where you can connect, ask questions, and share ideas about Discourse. \nYou\u2019ll find topics on features, bugs, hosting, development, and general sup&hellip;",
+                "visible": true,
+                "closed": true,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 108898,
+                "like_count": 393,
+                "has_summary": false,
+                "last_poster_username": "Discourse",
+                "category_id": 124,
+                "pinned_globally": true,
+                "featured_link": null,
+                "ai_topic_gist": "Discourse, an open-source discussion platform, offers various installation options and features a community discussion site, Meta, where users can find topics on features, bugs, hosting, development, and general support.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": "latest single",
+                        "description": "Original Poster, Most Recent Poster",
+                        "user_id": 115923,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": ":sunrise: Introducing Horizon, our newest theme",
+                "id": 369608,
+                "title": "\ud83c\udf05 Introducing Horizon, our newest theme",
+                "slug": "introducing-horizon-our-newest-theme",
+                "posts_count": 31,
+                "reply_count": 18,
+                "highest_post_number": 45,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/6/e/6/6e6965a8cac075482a7712a3325992cdee8154a3_2_1024x597.jpeg",
+                "created_at": "2025-07-01T12:32:45.054Z",
+                "last_posted_at": "2025-09-16T16:57:58.999Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T17:03:03.261Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 2348,
+                        "height": 1369,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/6/e/6/6e6965a8cac075482a7712a3325992cdee8154a3.jpeg"
+                    },
+                    {
+                        "max_width": 1024,
+                        "max_height": 1024,
+                        "width": 1024,
+                        "height": 597,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/6/e/6/6e6965a8cac075482a7712a3325992cdee8154a3_2_1024x597.jpeg"
+                    },
+                    {
+                        "max_width": 800,
+                        "max_height": 800,
+                        "width": 800,
+                        "height": 466,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/6/e/6/6e6965a8cac075482a7712a3325992cdee8154a3_2_800x466.jpeg"
+                    },
+                    {
+                        "max_width": 600,
+                        "max_height": 600,
+                        "width": 600,
+                        "height": 349,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/6/e/6/6e6965a8cac075482a7712a3325992cdee8154a3_2_600x349.jpeg"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 400,
+                        "height": 233,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/6/e/6/6e6965a8cac075482a7712a3325992cdee8154a3_2_400x233.jpeg"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 300,
+                        "height": 174,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/6/e/6/6e6965a8cac075482a7712a3325992cdee8154a3_2_300x174.jpeg"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 200,
+                        "height": 116,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/6/e/6/6e6965a8cac075482a7712a3325992cdee8154a3_2_200x116.jpeg"
+                    }
+                ],
+                "tags": [
+                    "horizon-theme"
+                ],
+                "tags_descriptions": {},
+                "views": 1456,
+                "like_count": 82,
+                "has_summary": false,
+                "last_poster_username": "Nick-Permaculture",
+                "category_id": 67,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "A user reports not seeing the new topic button on mobile while using the Horizon theme, despite being on the latest Discourse version.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 136810,
+                        "primary_group_id": null,
+                        "flair_group_id": 47
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 14460,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 1,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 80880,
+                        "primary_group_id": null,
+                        "flair_group_id": 50
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 136740,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Horizon theme category images not displaying. Bug?",
+                "id": 381733,
+                "title": "Horizon theme category images not displaying. Bug?",
+                "slug": "horizon-theme-category-images-not-displaying-bug",
+                "posts_count": 5,
+                "reply_count": 0,
+                "highest_post_number": 5,
+                "image_url": null,
+                "created_at": "2025-09-05T16:40:25.251Z",
+                "last_posted_at": "2025-09-16T16:51:31.496Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T16:51:31.496Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [
+                    "horizon-theme"
+                ],
+                "tags_descriptions": {},
+                "views": 71,
+                "like_count": 1,
+                "has_summary": false,
+                "last_poster_username": "Nick-Permaculture",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "User reports that category and subcategory images are not displaying correctly on the homepage and category view in the Horizon theme, despite being uploaded and visible in other contexts.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": "latest single",
+                        "description": "Original Poster, Most Recent Poster",
+                        "user_id": 136740,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Creating a staged user with an API call",
+                "id": 84667,
+                "title": "Creating a staged user with an API call",
+                "slug": "creating-a-staged-user-with-an-api-call",
+                "posts_count": 28,
+                "reply_count": 25,
+                "highest_post_number": 29,
+                "image_url": null,
+                "created_at": "2018-04-05T19:19:10.276Z",
+                "last_posted_at": "2025-09-16T16:38:53.869Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T16:38:53.869Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [
+                    "rest-api"
+                ],
+                "tags_descriptions": {
+                    "rest-api": "Topics about making an external request to Discourse"
+                },
+                "views": 4211,
+                "like_count": 42,
+                "has_summary": false,
+                "last_poster_username": "blake",
+                "category_id": 7,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "A user seeks a method to create a ticket on behalf of a non-registered customer, and another suggests using incoming email or API to create a staged user and topic.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 39641,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 1995,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 74021,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 75058,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 1495,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Can an admin create a staged user?",
+                "id": 382844,
+                "title": "Can an admin create a staged user?",
+                "slug": "can-an-admin-create-a-staged-user",
+                "posts_count": 2,
+                "reply_count": 0,
+                "highest_post_number": 2,
+                "image_url": null,
+                "created_at": "2025-09-16T15:55:53.610Z",
+                "last_posted_at": "2025-09-16T16:30:40.000Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T16:30:40.000Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 11,
+                "like_count": 2,
+                "has_summary": false,
+                "last_poster_username": "awesomerobot",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "A user inquires about creating tickets on behalf of customers without full accounts, and another suggests using forwarded emails to create staged users.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 174894,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 2770,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Permit disabling safeframes in ads plugin",
+                "id": 382842,
+                "title": "Permit disabling safeframes in ads plugin",
+                "slug": "permit-disabling-safeframes-in-ads-plugin",
+                "posts_count": 1,
+                "reply_count": 0,
+                "highest_post_number": 1,
+                "image_url": null,
+                "created_at": "2025-09-16T15:41:41.075Z",
+                "last_posted_at": "2025-09-16T15:41:41.196Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T15:41:41.196Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [
+                    "advertising"
+                ],
+                "tags_descriptions": {
+                    "advertising": ""
+                },
+                "views": 9,
+                "like_count": 0,
+                "has_summary": false,
+                "last_poster_username": "gasroom",
+                "category_id": 2,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "A request to add a checkbox to disable safeframes in the Discourse ad plugin to improve ad auction performance and CPMs.",
+                "has_accepted_answer": false,
+                "vote_count": 0,
+                "can_vote": true,
+                "user_voted": null,
+                "posters": [
+                    {
+                        "extras": "latest single",
+                        "description": "Original Poster, Most Recent Poster",
+                        "user_id": 174169,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Css class calendar picking advanced search - foundation theme",
+                "id": 382781,
+                "title": "Css class calendar picking advanced search - foundation theme",
+                "slug": "css-class-calendar-picking-advanced-search-foundation-theme",
+                "posts_count": 7,
+                "reply_count": 3,
+                "highest_post_number": 7,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/0/2/5/02581d622d93c97e4107c583e397fa5429c2e474.png",
+                "created_at": "2025-09-16T09:29:09.039Z",
+                "last_posted_at": "2025-09-16T15:27:32.118Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T15:27:32.118Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 719,
+                        "height": 940,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/0/2/5/02581d622d93c97e4107c583e397fa5429c2e474.png"
+                    },
+                    {
+                        "max_width": 800,
+                        "max_height": 800,
+                        "width": 611,
+                        "height": 800,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/0/2/5/02581d622d93c97e4107c583e397fa5429c2e474_2_611x800.png"
+                    },
+                    {
+                        "max_width": 600,
+                        "max_height": 600,
+                        "width": 458,
+                        "height": 600,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/0/2/5/02581d622d93c97e4107c583e397fa5429c2e474_2_458x600.png"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 305,
+                        "height": 400,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/0/2/5/02581d622d93c97e4107c583e397fa5429c2e474_2_305x400.png"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 229,
+                        "height": 300,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/0/2/5/02581d622d93c97e4107c583e397fa5429c2e474_2_229x300.png"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 152,
+                        "height": 200,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/0/2/5/02581d622d93c97e4107c583e397fa5429c2e474_2_152x200.png"
+                    }
+                ],
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 25,
+                "like_count": 9,
+                "has_summary": false,
+                "last_poster_username": "awesomerobot",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "The calendar picker in the advanced search feature is a native browser element, controlled by the OS and browser, making it unstyleable via CSS.",
+                "has_accepted_answer": true,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 107825,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster, Accepted Answer",
+                        "user_id": 95552,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 27384,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 2770,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Linkedin OAUTH Core Function - &ldquo;The redirect_uri does not match the registered value&rdquo;",
+                "id": 375899,
+                "title": "Linkedin OAUTH Core Function - \"The redirect_uri does not match the registered value\"",
+                "slug": "linkedin-oauth-core-function-the-redirect-uri-does-not-match-the-registered-value",
+                "posts_count": 3,
+                "reply_count": 0,
+                "highest_post_number": 3,
+                "image_url": null,
+                "created_at": "2025-07-26T01:12:03.128Z",
+                "last_posted_at": "2025-09-16T15:22:49.788Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T15:22:49.788Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [
+                    "linkedin-oauth"
+                ],
+                "tags_descriptions": {},
+                "views": 67,
+                "like_count": 2,
+                "has_summary": false,
+                "last_poster_username": "Thanatermesis",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Users report encountering a LinkedIn OAuth error where the redirect URI does not match the registered value, despite following setup instructions.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 157728,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 43032,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Large gap between chat and topic container",
+                "id": 382837,
+                "title": "Large gap between chat and topic container",
+                "slug": "large-gap-between-chat-and-topic-container",
+                "posts_count": 1,
+                "reply_count": 0,
+                "highest_post_number": 1,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/5/4/1/541e1ccf67d35557053c6075963e08aec90facd4_2_1024x445.png",
+                "created_at": "2025-09-16T14:39:43.155Z",
+                "last_posted_at": "2025-09-16T14:39:43.259Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T14:39:43.259Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 3095,
+                        "height": 1345,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/5/4/1/541e1ccf67d35557053c6075963e08aec90facd4.png"
+                    },
+                    {
+                        "max_width": 1024,
+                        "max_height": 1024,
+                        "width": 1024,
+                        "height": 445,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/5/4/1/541e1ccf67d35557053c6075963e08aec90facd4_2_1024x445.png"
+                    },
+                    {
+                        "max_width": 800,
+                        "max_height": 800,
+                        "width": 800,
+                        "height": 347,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/5/4/1/541e1ccf67d35557053c6075963e08aec90facd4_2_800x347.png"
+                    },
+                    {
+                        "max_width": 600,
+                        "max_height": 600,
+                        "width": 600,
+                        "height": 260,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/5/4/1/541e1ccf67d35557053c6075963e08aec90facd4_2_600x260.png"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 400,
+                        "height": 173,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/5/4/1/541e1ccf67d35557053c6075963e08aec90facd4_2_400x173.png"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 300,
+                        "height": 130,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/5/4/1/541e1ccf67d35557053c6075963e08aec90facd4_2_300x130.png"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 200,
+                        "height": 86,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/5/4/1/541e1ccf67d35557053c6075963e08aec90facd4_2_200x86.png"
+                    }
+                ],
+                "tags": [
+                    "livestream"
+                ],
+                "tags_descriptions": {},
+                "views": 16,
+                "like_count": 0,
+                "has_summary": false,
+                "last_poster_username": "putty",
+                "category_id": 1,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "A large gap appears in the chat container when triggering the livestream chat, persisting even after hiding CSS pseudo-elements.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": "latest single",
+                        "description": "Original Poster, Most Recent Poster",
+                        "user_id": 145678,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "SAML logout stops working",
+                "id": 369703,
+                "title": "SAML logout stops working",
+                "slug": "saml-logout-stops-working",
+                "posts_count": 4,
+                "reply_count": 2,
+                "highest_post_number": 5,
+                "image_url": null,
+                "created_at": "2025-06-11T09:48:51.137Z",
+                "last_posted_at": "2025-09-16T14:16:17.639Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T14:16:17.639Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [
+                    "auth-plugins",
+                    "saml"
+                ],
+                "tags_descriptions": {},
+                "views": 79,
+                "like_count": 5,
+                "has_summary": false,
+                "last_poster_username": "afovos",
+                "category_id": 1,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "The SAML logout issue has been resolved with a recent update, and the user confirms it now works.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 177423,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 23968,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 139655,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "What exactly happens when you turn on auto closing?",
+                "id": 382784,
+                "title": "What exactly happens when you turn on auto closing?",
+                "slug": "what-exactly-happens-when-you-turn-on-auto-closing",
+                "posts_count": 3,
+                "reply_count": 0,
+                "highest_post_number": 3,
+                "image_url": null,
+                "created_at": "2025-09-16T09:52:03.654Z",
+                "last_posted_at": "2025-09-16T12:53:56.064Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T12:53:56.064Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 23,
+                "like_count": 3,
+                "has_summary": false,
+                "last_poster_username": "one1",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Auto-closing old posts in a category requires a manual script to apply to existing topics, and changing the auto-close time does not reopen already closed topics.",
+                "has_accepted_answer": true,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": "latest",
+                        "description": "Original Poster, Most Recent Poster",
+                        "user_id": 80288,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster, Accepted Answer",
+                        "user_id": 73038,
+                        "primary_group_id": null,
+                        "flair_group_id": 48
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Discourse Docs",
+                "id": 130172,
+                "title": "Discourse Docs",
+                "slug": "discourse-docs",
+                "posts_count": 26,
+                "reply_count": 236,
+                "highest_post_number": 372,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/optimized/3X/b/f/bf89c5aad3835d1b4da4b5cb61c40a4e9573b7d5_2_1024x472.png",
+                "created_at": "2019-10-03T19:10:37.469Z",
+                "last_posted_at": "2025-09-16T12:41:24.046Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T12:41:24.046Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 2248,
+                        "height": 1038,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/b/f/bf89c5aad3835d1b4da4b5cb61c40a4e9573b7d5.png"
+                    },
+                    {
+                        "max_width": 1024,
+                        "max_height": 1024,
+                        "width": 1024,
+                        "height": 472,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/3X/b/f/bf89c5aad3835d1b4da4b5cb61c40a4e9573b7d5_2_1024x472.png"
+                    },
+                    {
+                        "max_width": 800,
+                        "max_height": 800,
+                        "width": 800,
+                        "height": 369,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/3X/b/f/bf89c5aad3835d1b4da4b5cb61c40a4e9573b7d5_2_800x369.png"
+                    },
+                    {
+                        "max_width": 600,
+                        "max_height": 600,
+                        "width": 599,
+                        "height": 277,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/3X/b/f/bf89c5aad3835d1b4da4b5cb61c40a4e9573b7d5_2_599x277.png"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 400,
+                        "height": 184,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/3X/b/f/bf89c5aad3835d1b4da4b5cb61c40a4e9573b7d5_2_400x184.png"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 299,
+                        "height": 138,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/3X/b/f/bf89c5aad3835d1b4da4b5cb61c40a4e9573b7d5_2_299x138.png"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 200,
+                        "height": 92,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/3X/b/f/bf89c5aad3835d1b4da4b5cb61c40a4e9573b7d5_2_200x92.png"
+                    }
+                ],
+                "tags": [
+                    "official",
+                    "docs",
+                    "end-of-life"
+                ],
+                "tags_descriptions": {
+                    "official": "Themes, theme components, or plugins officially maintained by the Discourse team",
+                    "end-of-life": "Customizations that are approaching the end of support"
+                },
+                "views": 41633,
+                "like_count": 110,
+                "has_summary": false,
+                "last_poster_username": "nat",
+                "category_id": 22,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "The Docs plugin is being retired in favor of the experimental Doc Categories plugin, despite users reporting successful testing on Discourse 3.5 with additional theme components.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 115923,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 141342,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 141903,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 142619,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 104279,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Update or Replace Header Locale Selector for New Discourse Header (widgets-end-of-life) \u2013 Is Built-in Support Available?",
+                "id": 382615,
+                "title": "Update or Replace Header Locale Selector for New Discourse Header (widgets-end-of-life) \u2013 Is Built-in Support Available?",
+                "slug": "update-or-replace-header-locale-selector-for-new-discourse-header-widgets-end-of-life-is-built-in-support-available",
+                "posts_count": 5,
+                "reply_count": 3,
+                "highest_post_number": 5,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/2/9/e/29e7f4841f5b0461ff37816dd65366915dca2d0b.png",
+                "created_at": "2025-09-15T01:38:32.696Z",
+                "last_posted_at": "2025-09-16T12:38:21.557Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T12:38:21.557Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 690,
+                        "height": 344,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/2/9/e/29e7f4841f5b0461ff37816dd65366915dca2d0b.png"
+                    },
+                    {
+                        "max_width": 600,
+                        "max_height": 600,
+                        "width": 600,
+                        "height": 299,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/2/9/e/29e7f4841f5b0461ff37816dd65366915dca2d0b_2_600x299.png"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 400,
+                        "height": 199,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/2/9/e/29e7f4841f5b0461ff37816dd65366915dca2d0b_2_400x199.png"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 300,
+                        "height": 149,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/2/9/e/29e7f4841f5b0461ff37816dd65366915dca2d0b_2_300x149.png"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 200,
+                        "height": 99,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/2/9/e/29e7f4841f5b0461ff37816dd65366915dca2d0b_2_200x99.png"
+                    }
+                ],
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 50,
+                "like_count": 2,
+                "has_summary": false,
+                "last_poster_username": "nat",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Evie_Tao seeks help updating or replacing a deprecated language selector component for Discourse, with recent suggestions including built-in localization settings and potential marketplace solutions.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 172305,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 127856,
+                        "primary_group_id": null,
+                        "flair_group_id": 47
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 15209,
+                        "primary_group_id": null,
+                        "flair_group_id": 142
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 104279,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Best practices for AI antispam plus AI post triage operating together?",
+                "id": 381802,
+                "title": "Best practices for AI antispam plus AI post triage operating together?",
+                "slug": "best-practices-for-ai-antispam-plus-ai-post-triage-operating-together",
+                "posts_count": 4,
+                "reply_count": 1,
+                "highest_post_number": 4,
+                "image_url": null,
+                "created_at": "2025-09-06T13:01:39.300Z",
+                "last_posted_at": "2025-09-16T12:36:31.165Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T12:36:31.165Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [
+                    "ai"
+                ],
+                "tags_descriptions": {},
+                "views": 49,
+                "like_count": 1,
+                "has_summary": false,
+                "last_poster_username": "Lee_Ars",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "User considers consolidating AI spam detection and post triage into a single persona to avoid double-flagging posts.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": "latest",
+                        "description": "Original Poster, Most Recent Poster",
+                        "user_id": 4457,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 15209,
+                        "primary_group_id": null,
+                        "flair_group_id": 142
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 1,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Translation - how is the caching handled? By page or by topic/comment?",
+                "id": 382757,
+                "title": "Translation - how is the caching handled? By page or by topic/comment?",
+                "slug": "translation-how-is-the-caching-handled-by-page-or-by-topic-comment",
+                "posts_count": 2,
+                "reply_count": 0,
+                "highest_post_number": 2,
+                "image_url": null,
+                "created_at": "2025-09-16T05:27:34.819Z",
+                "last_posted_at": "2025-09-16T12:35:28.006Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T12:35:28.006Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [
+                    "content-localization"
+                ],
+                "tags_descriptions": {},
+                "views": 23,
+                "like_count": 0,
+                "has_summary": false,
+                "last_poster_username": "nat",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Translations are stored in tables by topic title and individual posts, not cached by full page HTML, addressing concerns about growing translation costs as threads expand.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 159471,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 104279,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": ":date: Event Location/Description",
+                "id": 371606,
+                "title": "\ud83d\udcc5 Event Location/Description",
+                "slug": "event-location-description",
+                "posts_count": 7,
+                "reply_count": 2,
+                "highest_post_number": 7,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/d/c/a/dca2ec1680697372984560e0463234c5507382d3.png",
+                "created_at": "2025-06-25T08:31:12.946Z",
+                "last_posted_at": "2025-09-16T12:21:13.700Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T12:21:13.700Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 561,
+                        "height": 103,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/d/c/a/dca2ec1680697372984560e0463234c5507382d3.png"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 400,
+                        "height": 73,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/d/c/a/dca2ec1680697372984560e0463234c5507382d3_2_400x73.png"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 300,
+                        "height": 55,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/d/c/a/dca2ec1680697372984560e0463234c5507382d3_2_300x55.png"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 200,
+                        "height": 36,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/d/c/a/dca2ec1680697372984560e0463234c5507382d3_2_200x36.png"
+                    }
+                ],
+                "tags": [
+                    "calendar-and-event"
+                ],
+                "tags_descriptions": {
+                    "calendar-and-event": ""
+                },
+                "views": 223,
+                "like_count": 27,
+                "has_summary": false,
+                "last_poster_username": "gilles",
+                "category_id": 67,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Users discuss extending event location to include predefined locations and room management for conflict checking and resource allocation.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 23163,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 57788,
+                        "primary_group_id": null,
+                        "flair_group_id": 148
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 166720,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 14360,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 173218,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Creating and managing calendars",
+                "id": 283773,
+                "title": "Creating and managing calendars",
+                "slug": "creating-and-managing-calendars",
+                "posts_count": 15,
+                "reply_count": 5,
+                "highest_post_number": 17,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/0/6/4/0640e9ffc522c68bcb8beb412fd03060a537d5aa.png",
+                "created_at": "2023-10-28T16:45:14.785Z",
+                "last_posted_at": "2025-09-16T12:07:51.730Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T12:07:51.730Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 937,
+                        "height": 650,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/0/6/4/0640e9ffc522c68bcb8beb412fd03060a537d5aa.png"
+                    },
+                    {
+                        "max_width": 800,
+                        "max_height": 800,
+                        "width": 800,
+                        "height": 554,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/0/6/4/0640e9ffc522c68bcb8beb412fd03060a537d5aa_2_800x554.png"
+                    },
+                    {
+                        "max_width": 600,
+                        "max_height": 600,
+                        "width": 600,
+                        "height": 416,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/0/6/4/0640e9ffc522c68bcb8beb412fd03060a537d5aa_2_600x416.png"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 400,
+                        "height": 277,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/0/6/4/0640e9ffc522c68bcb8beb412fd03060a537d5aa_2_400x277.png"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 300,
+                        "height": 208,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/0/6/4/0640e9ffc522c68bcb8beb412fd03060a537d5aa_2_300x208.png"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 200,
+                        "height": 138,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/0/6/4/0640e9ffc522c68bcb8beb412fd03060a537d5aa_2_200x138.png"
+                    }
+                ],
+                "tags": [
+                    "how-to",
+                    "calendar-and-event"
+                ],
+                "tags_descriptions": {
+                    "how-to": "How to guides contain steps to follow to solve a specific problem",
+                    "calendar-and-event": ""
+                },
+                "views": 2903,
+                "like_count": 23,
+                "has_summary": false,
+                "last_poster_username": "jerry_zen",
+                "category_id": 126,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "User reports issues with calendar plugin display and functionality, including misplaced icons and missing calendar options, despite enabling the plugin.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 115923,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 14460,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 166720,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 100484,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 181992,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Prevent posting links to certain websites?",
+                "id": 382803,
+                "title": "Prevent posting links to certain websites?",
+                "slug": "prevent-posting-links-to-certain-websites",
+                "posts_count": 2,
+                "reply_count": 0,
+                "highest_post_number": 2,
+                "image_url": null,
+                "created_at": "2025-09-16T11:29:08.593Z",
+                "last_posted_at": "2025-09-16T11:33:08.960Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T11:33:08.960Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 25,
+                "like_count": 6,
+                "has_summary": false,
+                "last_poster_username": "Moin",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Shauny inquires about creating a blacklist to prevent users from posting links to certain websites and alerting them if they attempt to do so.",
+                "has_accepted_answer": true,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 143698,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster, Accepted Answer",
+                        "user_id": 95552,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Re-add full ics export",
+                "id": 230713,
+                "title": "Re-add full ics export",
+                "slug": "re-add-full-ics-export",
+                "posts_count": 5,
+                "reply_count": 1,
+                "highest_post_number": 5,
+                "image_url": null,
+                "created_at": "2022-06-22T05:35:49.280Z",
+                "last_posted_at": "2025-09-16T09:49:28.643Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T09:49:28.643Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [
+                    "calendar-and-event"
+                ],
+                "tags_descriptions": {
+                    "calendar-and-event": ""
+                },
+                "views": 836,
+                "like_count": 13,
+                "has_summary": false,
+                "last_poster_username": "Ethsim2",
+                "category_id": 2,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Users request the reinstatement of full-site ICS export functionality, with additional support for per-user exports to address privacy concerns.",
+                "has_accepted_answer": false,
+                "vote_count": 1,
+                "can_vote": true,
+                "user_voted": null,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 117601,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 86242,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 97878,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 149894,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 160471,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": ":de: Error in the German translation? Report it here!",
+                "id": 47320,
+                "title": ":de: Fehler in der Deutschen \u00dcbersetzung? Hier melden!",
+                "slug": "fehler-in-der-deutschen-ubersetzung-hier-melden",
+                "posts_count": 110,
+                "reply_count": 62,
+                "highest_post_number": 113,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/4/d/4d505f7421f1d3cb84442e544d311d3cc60efdeb.jpeg",
+                "created_at": "2016-07-14T17:48:22.397Z",
+                "last_posted_at": "2025-09-16T09:05:36.181Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T09:05:36.181Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "unicode_title": "\ud83c\udde9\ud83c\uddea Fehler in der Deutschen \u00dcbersetzung? Hier melden!",
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 524,
+                        "height": 55,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/3X/4/d/4d505f7421f1d3cb84442e544d311d3cc60efdeb.jpeg"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 400,
+                        "height": 41,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/3X/4/d/4d505f7421f1d3cb84442e544d311d3cc60efdeb_2_400x41.jpeg"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 300,
+                        "height": 31,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/3X/4/d/4d505f7421f1d3cb84442e544d311d3cc60efdeb_2_300x31.jpeg"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 200,
+                        "height": 20,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/3X/4/d/4d505f7421f1d3cb84442e544d311d3cc60efdeb_2_200x20.jpeg"
+                    }
+                ],
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 13257,
+                "like_count": 143,
+                "has_summary": true,
+                "last_poster_username": "gerhard",
+                "category_id": 27,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Users discuss improving the German translation of the 'impersonation' feature, suggesting alternatives like 'Benutzer imitieren' or 'In Rolle wechseln'.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 21707,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 25606,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 12852,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 8571,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 4881,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Can someone tell me how these two functions are achieved?",
+                "id": 382758,
+                "title": "Can someone tell me how these two functions are achieved?",
+                "slug": "can-someone-tell-me-how-these-two-functions-are-achieved",
+                "posts_count": 2,
+                "reply_count": 0,
+                "highest_post_number": 2,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/3/3/9/3397aa79205a3eb204df0c6c7cd5a9372b9ff745_2_1024x537.jpeg",
+                "created_at": "2025-09-16T05:49:14.721Z",
+                "last_posted_at": "2025-09-16T09:01:42.036Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T09:01:42.036Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 1920,
+                        "height": 1008,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/3/3/9/3397aa79205a3eb204df0c6c7cd5a9372b9ff745.jpeg"
+                    },
+                    {
+                        "max_width": 1024,
+                        "max_height": 1024,
+                        "width": 1024,
+                        "height": 537,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/3/3/9/3397aa79205a3eb204df0c6c7cd5a9372b9ff745_2_1024x537.jpeg"
+                    },
+                    {
+                        "max_width": 800,
+                        "max_height": 800,
+                        "width": 800,
+                        "height": 420,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/3/3/9/3397aa79205a3eb204df0c6c7cd5a9372b9ff745_2_800x420.jpeg"
+                    },
+                    {
+                        "max_width": 600,
+                        "max_height": 600,
+                        "width": 600,
+                        "height": 315,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/3/3/9/3397aa79205a3eb204df0c6c7cd5a9372b9ff745_2_600x315.jpeg"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 400,
+                        "height": 210,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/3/3/9/3397aa79205a3eb204df0c6c7cd5a9372b9ff745_2_400x210.jpeg"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 300,
+                        "height": 157,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/3/3/9/3397aa79205a3eb204df0c6c7cd5a9372b9ff745_2_300x157.jpeg"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 200,
+                        "height": 105,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/3/3/9/3397aa79205a3eb204df0c6c7cd5a9372b9ff745_2_200x105.jpeg"
+                    }
+                ],
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 20,
+                "like_count": 1,
+                "has_summary": false,
+                "last_poster_username": "NateDhaliwal",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "The functions in question are achieved using the Big Carousel component and Minimal Category Boxes plugin.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 181731,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 135392,
+                        "primary_group_id": null,
+                        "flair_group_id": 73
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Blocking spammer.&lt;random&gt;.domain registration attempts",
+                "id": 382755,
+                "title": "Blocking spammer.<random>.domain registration attempts",
+                "slug": "blocking-spammer-random-domain-registration-attempts",
+                "posts_count": 2,
+                "reply_count": 0,
+                "highest_post_number": 2,
+                "image_url": null,
+                "created_at": "2025-09-16T04:59:21.016Z",
+                "last_posted_at": "2025-09-16T08:55:10.010Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T08:55:10.010Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 15,
+                "like_count": 0,
+                "has_summary": false,
+                "last_poster_username": "jahan_gagan",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Discourse does not support wildcard domain blocking, but measures like limiting new accounts per IP, enabling hCaptcha, manually blocking domains, and requiring user approval can mitigate spam registrations.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 23649,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 73038,
+                        "primary_group_id": null,
+                        "flair_group_id": 48
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Deploy Discourse without Docker",
+                "id": 351194,
+                "title": "Deploy Discourse without Docker",
+                "slug": "deploy-discourse-without-docker",
+                "posts_count": 5,
+                "reply_count": 1,
+                "highest_post_number": 5,
+                "image_url": null,
+                "created_at": "2025-02-08T03:56:12.775Z",
+                "last_posted_at": "2025-09-15T17:43:06.211Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T08:34:38.694Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [
+                    "unsupported-install",
+                    "advanced-setup"
+                ],
+                "tags_descriptions": {},
+                "views": 460,
+                "like_count": 5,
+                "has_summary": false,
+                "last_poster_username": "lion",
+                "category_id": 180,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "User lion encounters SMTP configuration issues despite correct settings in discourse.conf, with emails being sent to incorrect addresses, and seeks help from fokx.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 135057,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 135392,
+                        "primary_group_id": null,
+                        "flair_group_id": 73
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 182437,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Problem with text editor on iOS / iPadOS 26 devices",
+                "id": 382765,
+                "title": "Problem with text editor on iOS / iPadOS 26 devices",
+                "slug": "problem-with-text-editor-on-ios-ipados-26-devices",
+                "posts_count": 2,
+                "reply_count": 0,
+                "highest_post_number": 2,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/a/1/3/a1339a4b332d84535b425a47f015a8c7fa4bd205.jpeg",
+                "created_at": "2025-09-16T07:11:16.017Z",
+                "last_posted_at": "2025-09-16T07:28:26.493Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T07:28:26.493Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 928,
+                        "height": 794,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/a/1/3/a1339a4b332d84535b425a47f015a8c7fa4bd205.jpeg"
+                    },
+                    {
+                        "max_width": 800,
+                        "max_height": 800,
+                        "width": 800,
+                        "height": 684,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/a/1/3/a1339a4b332d84535b425a47f015a8c7fa4bd205_2_800x684.jpeg"
+                    },
+                    {
+                        "max_width": 600,
+                        "max_height": 600,
+                        "width": 600,
+                        "height": 513,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/a/1/3/a1339a4b332d84535b425a47f015a8c7fa4bd205_2_600x513.jpeg"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 400,
+                        "height": 342,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/a/1/3/a1339a4b332d84535b425a47f015a8c7fa4bd205_2_400x342.jpeg"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 300,
+                        "height": 256,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/a/1/3/a1339a4b332d84535b425a47f015a8c7fa4bd205_2_300x256.jpeg"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 200,
+                        "height": 171,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/a/1/3/a1339a4b332d84535b425a47f015a8c7fa4bd205_2_200x171.jpeg"
+                    }
+                ],
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 38,
+                "like_count": 1,
+                "has_summary": false,
+                "last_poster_username": "j.jaffeux",
+                "category_id": 1,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Discourse and other websites are experiencing bugs on iOS 26, including text editor issues, with fixes expected from Apple in upcoming updates.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 110872,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 23163,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Why is my AI forum helper struggling to answer questions?",
+                "id": 352848,
+                "title": "Why is my AI forum helper struggling to answer questions?",
+                "slug": "why-is-my-ai-forum-helper-struggling-to-answer-questions",
+                "posts_count": 8,
+                "reply_count": 3,
+                "highest_post_number": 8,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/b/7/2/b7221171e0c6239bc9b2c4eaa1c08ea2fe10fa25.png",
+                "created_at": "2025-02-18T07:11:32.168Z",
+                "last_posted_at": "2025-09-16T06:25:03.737Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T06:25:03.737Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 886,
+                        "height": 904,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/b/7/2/b7221171e0c6239bc9b2c4eaa1c08ea2fe10fa25.png"
+                    },
+                    {
+                        "max_width": 800,
+                        "max_height": 800,
+                        "width": 784,
+                        "height": 800,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/b/7/2/b7221171e0c6239bc9b2c4eaa1c08ea2fe10fa25_2_784x800.png"
+                    },
+                    {
+                        "max_width": 600,
+                        "max_height": 600,
+                        "width": 588,
+                        "height": 600,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/b/7/2/b7221171e0c6239bc9b2c4eaa1c08ea2fe10fa25_2_588x600.png"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 392,
+                        "height": 400,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/b/7/2/b7221171e0c6239bc9b2c4eaa1c08ea2fe10fa25_2_392x400.png"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 294,
+                        "height": 300,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/b/7/2/b7221171e0c6239bc9b2c4eaa1c08ea2fe10fa25_2_294x300.png"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 196,
+                        "height": 200,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/b/7/2/b7221171e0c6239bc9b2c4eaa1c08ea2fe10fa25_2_196x200.png"
+                    }
+                ],
+                "tags": [
+                    "ai",
+                    "ai-bot"
+                ],
+                "tags_descriptions": {},
+                "views": 172,
+                "like_count": 20,
+                "has_summary": false,
+                "last_poster_username": "sam",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Discourse AI is exploring reranking to improve RAG results, currently a work-in-progress with limited configurability.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": "latest",
+                        "description": "Original Poster, Most Recent Poster",
+                        "user_id": 1,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 60726,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 72377,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Inconsistent plugin settings",
+                "id": 381003,
+                "title": "Inconsistent plugin settings",
+                "slug": "inconsistent-plugin-settings",
+                "posts_count": 4,
+                "reply_count": 1,
+                "highest_post_number": 4,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/1/3/b/13b8e9c22e0417c286f8a7c1fd1de683da48257e.png",
+                "created_at": "2025-08-30T16:59:43.700Z",
+                "last_posted_at": "2025-09-16T06:12:29.634Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T06:12:29.634Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 866,
+                        "height": 147,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/1/3/b/13b8e9c22e0417c286f8a7c1fd1de683da48257e.png"
+                    },
+                    {
+                        "max_width": 800,
+                        "max_height": 800,
+                        "width": 800,
+                        "height": 135,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/1/3/b/13b8e9c22e0417c286f8a7c1fd1de683da48257e_2_800x135.png"
+                    },
+                    {
+                        "max_width": 600,
+                        "max_height": 600,
+                        "width": 600,
+                        "height": 101,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/1/3/b/13b8e9c22e0417c286f8a7c1fd1de683da48257e_2_600x101.png"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 400,
+                        "height": 67,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/1/3/b/13b8e9c22e0417c286f8a7c1fd1de683da48257e_2_400x67.png"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 300,
+                        "height": 50,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/1/3/b/13b8e9c22e0417c286f8a7c1fd1de683da48257e_2_300x50.png"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 200,
+                        "height": 33,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/1/3/b/13b8e9c22e0417c286f8a7c1fd1de683da48257e_2_200x33.png"
+                    }
+                ],
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 44,
+                "like_count": 8,
+                "has_summary": false,
+                "last_poster_username": "sam",
+                "category_id": 9,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "The Calendar plugin's settings are inconsistently accessible, and the team acknowledges the issue and plans to address it.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 406,
+                        "primary_group_id": null,
+                        "flair_group_id": 142
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 95552,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 1,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": "How can I lock a category so that nobody can post in it any longer?",
+                "id": 382628,
+                "title": "How can I lock a category so that nobody can post in it any longer?",
+                "slug": "how-can-i-lock-a-category-so-that-nobody-can-post-in-it-any-longer",
+                "posts_count": 5,
+                "reply_count": 2,
+                "highest_post_number": 5,
+                "image_url": null,
+                "created_at": "2025-09-15T06:09:36.509Z",
+                "last_posted_at": "2025-09-16T06:08:01.437Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T06:08:01.437Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 38,
+                "like_count": 12,
+                "has_summary": false,
+                "last_poster_username": "Isla",
+                "category_id": 6,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Isla learns to lock a category for future posting while keeping it visible, and is advised to mark the helpful solution.",
+                "has_accepted_answer": true,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": "latest",
+                        "description": "Original Poster, Most Recent Poster",
+                        "user_id": 91029,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster, Accepted Answer",
+                        "user_id": 83631,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 176316,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            },
+            {
+                "fancy_title": "Blocked email domains documentation is confusing",
+                "id": 382754,
+                "title": "Blocked email domains documentation is confusing",
+                "slug": "blocked-email-domains-documentation-is-confusing",
+                "posts_count": 3,
+                "reply_count": 0,
+                "highest_post_number": 3,
+                "image_url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/2/3/d/23d936229ff6c230226e39ea781788ebd02e1e5c.png",
+                "created_at": "2025-09-16T04:54:56.388Z",
+                "last_posted_at": "2025-09-16T05:58:27.113Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T05:58:27.113Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": [
+                    {
+                        "max_width": null,
+                        "max_height": null,
+                        "width": 820,
+                        "height": 144,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/original/4X/2/3/d/23d936229ff6c230226e39ea781788ebd02e1e5c.png"
+                    },
+                    {
+                        "max_width": 800,
+                        "max_height": 800,
+                        "width": 800,
+                        "height": 140,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/2/3/d/23d936229ff6c230226e39ea781788ebd02e1e5c_2_800x140.png"
+                    },
+                    {
+                        "max_width": 600,
+                        "max_height": 600,
+                        "width": 600,
+                        "height": 105,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/2/3/d/23d936229ff6c230226e39ea781788ebd02e1e5c_2_600x105.png"
+                    },
+                    {
+                        "max_width": 400,
+                        "max_height": 400,
+                        "width": 400,
+                        "height": 70,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/2/3/d/23d936229ff6c230226e39ea781788ebd02e1e5c_2_400x70.png"
+                    },
+                    {
+                        "max_width": 300,
+                        "max_height": 300,
+                        "width": 300,
+                        "height": 52,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/2/3/d/23d936229ff6c230226e39ea781788ebd02e1e5c_2_300x52.png"
+                    },
+                    {
+                        "max_width": 200,
+                        "max_height": 200,
+                        "width": 200,
+                        "height": 35,
+                        "url": "https://d11a6trkgmumsb.cloudfront.net/optimized/4X/2/3/d/23d936229ff6c230226e39ea781788ebd02e1e5c_2_200x35.png"
+                    }
+                ],
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 24,
+                "like_count": 6,
+                "has_summary": false,
+                "last_poster_username": "sam",
+                "category_id": 1,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Users can paste pipe-delimited domains to block multiple email domains at once, despite the interface displaying them as comma-separated tags.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": null,
+                        "description": "Original Poster",
+                        "user_id": 23649,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 95552,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": "latest",
+                        "description": "Most Recent Poster",
+                        "user_id": 1,
+                        "primary_group_id": 47,
+                        "flair_group_id": 47
+                    }
+                ]
+            },
+            {
+                "fancy_title": "How do other admins deal with compromised accounts?",
+                "id": 382546,
+                "title": "How do other admins deal with compromised accounts?",
+                "slug": "how-do-other-admins-deal-with-compromised-accounts",
+                "posts_count": 10,
+                "reply_count": 4,
+                "highest_post_number": 10,
+                "image_url": null,
+                "created_at": "2025-09-14T03:02:45.129Z",
+                "last_posted_at": "2025-09-16T03:42:01.127Z",
+                "bumped": true,
+                "bumped_at": "2025-09-16T03:42:01.127Z",
+                "archetype": "regular",
+                "unseen": false,
+                "pinned": false,
+                "unpinned": null,
+                "visible": true,
+                "closed": false,
+                "archived": false,
+                "bookmarked": null,
+                "liked": null,
+                "thumbnails": null,
+                "tags": [],
+                "tags_descriptions": {},
+                "views": 115,
+                "like_count": 26,
+                "has_summary": false,
+                "last_poster_username": "mbauman",
+                "category_id": 65,
+                "pinned_globally": false,
+                "featured_link": null,
+                "ai_topic_gist": "Admins discuss strategies for handling compromised accounts, including email notifications, 2FA, and manual verification processes to secure user accounts.",
+                "has_accepted_answer": false,
+                "can_vote": false,
+                "posters": [
+                    {
+                        "extras": "latest",
+                        "description": "Original Poster, Most Recent Poster",
+                        "user_id": 64761,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 127856,
+                        "primary_group_id": null,
+                        "flair_group_id": 47
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 95552,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 113325,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    },
+                    {
+                        "extras": null,
+                        "description": "Frequent Poster",
+                        "user_id": 139001,
+                        "primary_group_id": null,
+                        "flair_group_id": null
+                    }
+                ]
+            }
+        ]
+    }
+}

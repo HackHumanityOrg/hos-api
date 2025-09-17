@@ -9,9 +9,8 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub instance: String,
-    pub external_discourse_post_id: i32,
+    pub external_post_id: i32,
     pub external_user_id: i32,
-    pub username: String,
     pub created_at: DateTimeUtc,
 }
 
@@ -27,7 +26,7 @@ pub enum Relation {
     DiscourseInstances,
     #[sea_orm(
         belongs_to = "super::discourse_posts::Entity",
-        from = "(Column::Instance, Column::ExternalDiscoursePostId)",
+        from = "(Column::Instance, Column::ExternalPostId)",
         to = "(super::discourse_posts::Column::Instance, super::discourse_posts::Column::ExternalId)",
         on_update = "Cascade",
         on_delete = "Cascade"

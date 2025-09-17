@@ -1,0 +1,1029 @@
+{
+    "directory_items": [
+        {
+            "id": 15817,
+            "likes_received": 218,
+            "likes_given": 49,
+            "topic_count": 2,
+            "post_count": 59,
+            "topics_entered": 1934,
+            "posts_read": 16024,
+            "days_visited": 533,
+            "solutions": 0,
+            "time_read": 416115,
+            "user": {
+                "id": 15817,
+                "username": "mbcahyono",
+                "name": "Muhlis Cahyono",
+                "avatar_template": "/user_avatar/meta.discourse.org/mbcahyono/{size}/97721_2.png",
+                "title": "Contributor",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 26605,
+            "likes_received": 217,
+            "likes_given": 73,
+            "topic_count": 16,
+            "post_count": 54,
+            "topics_entered": 1035,
+            "posts_read": 10616,
+            "days_visited": 391,
+            "solutions": 0,
+            "time_read": 143155,
+            "user": {
+                "id": 26605,
+                "username": "LeoDavidson",
+                "name": "Leo Davidson",
+                "avatar_template": "/user_avatar/meta.discourse.org/leodavidson/{size}/119574_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 63573,
+            "likes_received": 217,
+            "likes_given": 173,
+            "topic_count": 24,
+            "post_count": 211,
+            "topics_entered": 1046,
+            "posts_read": 8864,
+            "days_visited": 495,
+            "solutions": 0,
+            "time_read": 261815,
+            "user": {
+                "id": 63573,
+                "username": "agemo",
+                "name": "agemo",
+                "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/a/ac91a4/{size}.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 35694,
+            "likes_received": 216,
+            "likes_given": 127,
+            "topic_count": 46,
+            "post_count": 192,
+            "topics_entered": 567,
+            "posts_read": 3664,
+            "days_visited": 307,
+            "solutions": 2,
+            "time_read": 85113,
+            "user": {
+                "id": 35694,
+                "username": "orangeandblack5",
+                "name": "",
+                "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/o/edb3f5/{size}.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 42436,
+            "likes_received": 216,
+            "likes_given": 172,
+            "topic_count": 3,
+            "post_count": 71,
+            "topics_entered": 2409,
+            "posts_read": 15170,
+            "days_visited": 363,
+            "solutions": 0,
+            "time_read": 313249,
+            "user": {
+                "id": 42436,
+                "username": "FoohonPie",
+                "name": "",
+                "avatar_template": "/user_avatar/meta.discourse.org/foohonpie/{size}/119648_2.png",
+                "title": "",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 58437,
+            "likes_received": 216,
+            "likes_given": 22,
+            "topic_count": 37,
+            "post_count": 135,
+            "topics_entered": 1004,
+            "posts_read": 7562,
+            "days_visited": 737,
+            "solutions": 5,
+            "time_read": 292542,
+            "user": {
+                "id": 58437,
+                "username": "Thomas_Rother",
+                "name": "Thommie Rother",
+                "avatar_template": "/user_avatar/meta.discourse.org/thomas_rother/{size}/423597_2.png",
+                "title": "",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 24843,
+            "likes_received": 215,
+            "likes_given": 81,
+            "topic_count": 16,
+            "post_count": 87,
+            "topics_entered": 646,
+            "posts_read": 7031,
+            "days_visited": 1581,
+            "solutions": 2,
+            "time_read": 175362,
+            "user": {
+                "id": 24843,
+                "username": "Gunnar",
+                "name": "Gunnar Helliesen",
+                "avatar_template": "/user_avatar/meta.discourse.org/gunnar/{size}/119647_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 123217,
+            "likes_received": 215,
+            "likes_given": 324,
+            "topic_count": 23,
+            "post_count": 203,
+            "topics_entered": 1911,
+            "posts_read": 14559,
+            "days_visited": 246,
+            "solutions": 2,
+            "time_read": 501495,
+            "user": {
+                "id": 123217,
+                "username": "Aizada_M",
+                "name": "Aizada M",
+                "avatar_template": "/user_avatar/meta.discourse.org/aizada_m/{size}/352050_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 6060,
+            "likes_received": 214,
+            "likes_given": 110,
+            "topic_count": 8,
+            "post_count": 90,
+            "topics_entered": 1937,
+            "posts_read": 14667,
+            "days_visited": 576,
+            "solutions": 0,
+            "time_read": 350292,
+            "user": {
+                "id": 6060,
+                "username": "lightyear",
+                "name": "Benjamin Kampmann",
+                "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/l/848f3c/{size}.png",
+                "title": "Great Contributor",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 9741,
+            "likes_received": 214,
+            "likes_given": 92,
+            "topic_count": 6,
+            "post_count": 115,
+            "topics_entered": 1542,
+            "posts_read": 15488,
+            "days_visited": 363,
+            "solutions": 0,
+            "time_read": 252453,
+            "user": {
+                "id": 9741,
+                "username": "chapel",
+                "name": "Jacob Chapel",
+                "avatar_template": "/user_avatar/meta.discourse.org/chapel/{size}/122414_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 107497,
+            "likes_received": 213,
+            "likes_given": 189,
+            "topic_count": 8,
+            "post_count": 303,
+            "topics_entered": 267,
+            "posts_read": 3744,
+            "days_visited": 241,
+            "solutions": 0,
+            "time_read": 226148,
+            "user": {
+                "id": 107497,
+                "username": "obyrne",
+                "name": "Greg O'Byrne",
+                "avatar_template": "/user_avatar/meta.discourse.org/obyrne/{size}/240506_2.png",
+                "title": "",
+                "trust_level": 3
+            }
+        },
+        {
+            "id": 11160,
+            "likes_received": 212,
+            "likes_given": 205,
+            "topic_count": 12,
+            "post_count": 64,
+            "topics_entered": 1057,
+            "posts_read": 16959,
+            "days_visited": 323,
+            "solutions": 0,
+            "time_read": 175110,
+            "user": {
+                "id": 11160,
+                "username": "anon21958287",
+                "name": null,
+                "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/a/ee59a6/{size}.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 55455,
+            "likes_received": 212,
+            "likes_given": 257,
+            "topic_count": 4,
+            "post_count": 63,
+            "topics_entered": 1587,
+            "posts_read": 16580,
+            "days_visited": 662,
+            "solutions": 3,
+            "time_read": 326487,
+            "user": {
+                "id": 55455,
+                "username": "weallwegot",
+                "name": "juicecounty.prodigy",
+                "avatar_template": "/user_avatar/meta.discourse.org/weallwegot/{size}/124753_2.png",
+                "title": "",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 107509,
+            "likes_received": 212,
+            "likes_given": 65,
+            "topic_count": 2,
+            "post_count": 147,
+            "topics_entered": 147,
+            "posts_read": 1103,
+            "days_visited": 246,
+            "solutions": 0,
+            "time_read": 80844,
+            "user": {
+                "id": 107509,
+                "username": "david.s",
+                "name": "David S",
+                "avatar_template": "/user_avatar/meta.discourse.org/david.s/{size}/322236_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 143698,
+            "likes_received": 212,
+            "likes_given": 115,
+            "topic_count": 51,
+            "post_count": 151,
+            "topics_entered": 1519,
+            "posts_read": 10480,
+            "days_visited": 350,
+            "solutions": 0,
+            "time_read": 141830,
+            "user": {
+                "id": 143698,
+                "username": "Shauny",
+                "name": "Shaun Robinson",
+                "avatar_template": "/user_avatar/meta.discourse.org/shauny/{size}/362012_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 3998,
+            "likes_received": 211,
+            "likes_given": 1016,
+            "topic_count": 10,
+            "post_count": 80,
+            "topics_entered": 4428,
+            "posts_read": 34130,
+            "days_visited": 741,
+            "solutions": 7,
+            "time_read": 333676,
+            "user": {
+                "id": 3998,
+                "username": "steko",
+                "name": "Stefano Costa",
+                "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/s/c77e96/{size}.png",
+                "title": "Bug Reporter",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 41677,
+            "likes_received": 211,
+            "likes_given": 153,
+            "topic_count": 16,
+            "post_count": 81,
+            "topics_entered": 1679,
+            "posts_read": 14850,
+            "days_visited": 343,
+            "solutions": 1,
+            "time_read": 322834,
+            "user": {
+                "id": 41677,
+                "username": "DNSTARS",
+                "name": null,
+                "avatar_template": "/user_avatar/meta.discourse.org/dnstars/{size}/100957_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 37093,
+            "likes_received": 210,
+            "likes_given": 419,
+            "topic_count": 5,
+            "post_count": 70,
+            "topics_entered": 2845,
+            "posts_read": 22784,
+            "days_visited": 490,
+            "solutions": 3,
+            "time_read": 217571,
+            "user": {
+                "id": 37093,
+                "username": "cjk77",
+                "name": "Chris Klugewicz",
+                "avatar_template": "/user_avatar/meta.discourse.org/cjk77/{size}/151779_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 73038,
+            "likes_received": 210,
+            "likes_given": 123,
+            "topic_count": 6,
+            "post_count": 120,
+            "topics_entered": 2996,
+            "posts_read": 17684,
+            "days_visited": 620,
+            "solutions": 4,
+            "time_read": 498417,
+            "user": {
+                "id": 73038,
+                "username": "jahan_gagan",
+                "name": "Jahan Gagan",
+                "avatar_template": "/user_avatar/meta.discourse.org/jahan_gagan/{size}/501948_2.png",
+                "title": "Contributor",
+                "flair_name": "plugin_authors",
+                "flair_url": "plug",
+                "flair_bg_color": "dddddd",
+                "flair_color": "111111",
+                "flair_group_id": 48,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 131356,
+            "likes_received": 210,
+            "likes_given": 78,
+            "topic_count": 25,
+            "post_count": 154,
+            "topics_entered": 126,
+            "posts_read": 592,
+            "days_visited": 158,
+            "solutions": 0,
+            "time_read": 46018,
+            "user": {
+                "id": 131356,
+                "username": "NianticTintino",
+                "name": "Mart\u00edn Gonz\u00e1les",
+                "avatar_template": "/user_avatar/meta.discourse.org/niantictintino/{size}/368204_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 637,
+            "likes_received": 209,
+            "likes_given": 61,
+            "topic_count": 20,
+            "post_count": 71,
+            "topics_entered": 2974,
+            "posts_read": 26198,
+            "days_visited": 470,
+            "solutions": 4,
+            "time_read": 1775645,
+            "user": {
+                "id": 637,
+                "username": "dsims",
+                "name": "Daniel",
+                "avatar_template": "/user_avatar/meta.discourse.org/dsims/{size}/485916_2.png",
+                "title": "",
+                "flair_name": "plugin_authors",
+                "flair_url": "plug",
+                "flair_bg_color": "dddddd",
+                "flair_color": "111111",
+                "flair_group_id": 48,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 61842,
+            "likes_received": 208,
+            "likes_given": 188,
+            "topic_count": 17,
+            "post_count": 56,
+            "topics_entered": 1148,
+            "posts_read": 8010,
+            "days_visited": 466,
+            "solutions": 0,
+            "time_read": 244942,
+            "user": {
+                "id": 61842,
+                "username": "Grayden_Shand",
+                "name": "Grayden Shand",
+                "avatar_template": "/user_avatar/meta.discourse.org/grayden_shand/{size}/166586_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 33333,
+            "likes_received": 207,
+            "likes_given": 0,
+            "topic_count": 12,
+            "post_count": 65,
+            "topics_entered": 175,
+            "posts_read": 1512,
+            "days_visited": 97,
+            "solutions": 1,
+            "time_read": 88778,
+            "user": {
+                "id": 33333,
+                "username": "Watercolor_Games",
+                "name": "Alkaline Thunder",
+                "avatar_template": "/user_avatar/meta.discourse.org/watercolor_games/{size}/131248_2.png",
+                "title": "",
+                "trust_level": 1
+            }
+        },
+        {
+            "id": 43724,
+            "likes_received": 207,
+            "likes_given": 834,
+            "topic_count": 13,
+            "post_count": 59,
+            "topics_entered": 2627,
+            "posts_read": 23325,
+            "days_visited": 728,
+            "solutions": 0,
+            "time_read": 320595,
+            "user": {
+                "id": 43724,
+                "username": "chrispanag",
+                "name": "Christos Panagiotakopoulos",
+                "avatar_template": "/user_avatar/meta.discourse.org/chrispanag/{size}/105853_2.png",
+                "title": "",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 80683,
+            "likes_received": 206,
+            "likes_given": 47,
+            "topic_count": 11,
+            "post_count": 40,
+            "topics_entered": 437,
+            "posts_read": 2715,
+            "days_visited": 168,
+            "solutions": 2,
+            "time_read": 100111,
+            "user": {
+                "id": 80683,
+                "username": "ti0",
+                "name": "ti0",
+                "avatar_template": "/user_avatar/meta.discourse.org/ti0/{size}/184402_2.png",
+                "title": "Plugin Author",
+                "flair_name": "plugin_authors",
+                "flair_url": "plug",
+                "flair_bg_color": "dddddd",
+                "flair_color": "111111",
+                "flair_group_id": 48,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 12823,
+            "likes_received": 205,
+            "likes_given": 94,
+            "topic_count": 26,
+            "post_count": 131,
+            "topics_entered": 1152,
+            "posts_read": 17925,
+            "days_visited": 401,
+            "solutions": 2,
+            "time_read": 248645,
+            "user": {
+                "id": 12823,
+                "username": "rriemann",
+                "name": "Robert",
+                "avatar_template": "/user_avatar/meta.discourse.org/rriemann/{size}/115238_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 36826,
+            "likes_received": 204,
+            "likes_given": 29,
+            "topic_count": 10,
+            "post_count": 31,
+            "topics_entered": 335,
+            "posts_read": 1147,
+            "days_visited": 1810,
+            "solutions": 0,
+            "time_read": 33330,
+            "user": {
+                "id": 36826,
+                "username": "kemitchell",
+                "name": "Kyle E. Mitchell",
+                "avatar_template": "/user_avatar/meta.discourse.org/kemitchell/{size}/119466_2.png",
+                "title": null,
+                "trust_level": 4
+            }
+        },
+        {
+            "id": 165266,
+            "likes_received": 203,
+            "likes_given": 254,
+            "topic_count": 75,
+            "post_count": 203,
+            "topics_entered": 1127,
+            "posts_read": 6637,
+            "days_visited": 145,
+            "solutions": 6,
+            "time_read": 180353,
+            "user": {
+                "id": 165266,
+                "username": "MihirR",
+                "name": "Mihir",
+                "avatar_template": "/user_avatar/meta.discourse.org/mihirr/{size}/475158_2.png",
+                "title": "",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 69828,
+            "likes_received": 202,
+            "likes_given": 64,
+            "topic_count": 19,
+            "post_count": 139,
+            "topics_entered": 609,
+            "posts_read": 4913,
+            "days_visited": 239,
+            "solutions": 1,
+            "time_read": 179623,
+            "user": {
+                "id": 69828,
+                "username": "ariznaf",
+                "name": "fernando",
+                "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/a/ecccb3/{size}.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 63383,
+            "likes_received": 201,
+            "likes_given": 67,
+            "topic_count": 9,
+            "post_count": 29,
+            "topics_entered": 1658,
+            "posts_read": 10495,
+            "days_visited": 446,
+            "solutions": 1,
+            "time_read": 298086,
+            "user": {
+                "id": 63383,
+                "username": "pipkin",
+                "name": "Thijs",
+                "avatar_template": "/user_avatar/meta.discourse.org/pipkin/{size}/134643_2.png",
+                "title": "Plugin Author",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 62537,
+            "likes_received": 200,
+            "likes_given": 1267,
+            "topic_count": 4,
+            "post_count": 106,
+            "topics_entered": 3183,
+            "posts_read": 33510,
+            "days_visited": 1021,
+            "solutions": 7,
+            "time_read": 809552,
+            "user": {
+                "id": 62537,
+                "username": "lucasbasquerotto",
+                "name": "Lucas Basquerotto",
+                "avatar_template": "/user_avatar/meta.discourse.org/lucasbasquerotto/{size}/133376_2.png",
+                "title": "Bug Reporter",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 81295,
+            "likes_received": 199,
+            "likes_given": 111,
+            "topic_count": 48,
+            "post_count": 192,
+            "topics_entered": 1380,
+            "posts_read": 9348,
+            "days_visited": 393,
+            "solutions": 0,
+            "time_read": 147585,
+            "user": {
+                "id": 81295,
+                "username": "sok777",
+                "name": "sok",
+                "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/s/82dd89/{size}.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 77998,
+            "likes_received": 197,
+            "likes_given": 183,
+            "topic_count": 53,
+            "post_count": 128,
+            "topics_entered": 2044,
+            "posts_read": 17341,
+            "days_visited": 344,
+            "solutions": 5,
+            "time_read": 382775,
+            "user": {
+                "id": 77998,
+                "username": "Ed_Bobkov",
+                "name": "Ed",
+                "avatar_template": "/user_avatar/meta.discourse.org/ed_bobkov/{size}/200014_2.png",
+                "title": "Bug Reporter",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 13954,
+            "likes_received": 196,
+            "likes_given": 135,
+            "topic_count": 47,
+            "post_count": 130,
+            "topics_entered": 1767,
+            "posts_read": 19848,
+            "days_visited": 557,
+            "solutions": 1,
+            "time_read": 197781,
+            "user": {
+                "id": 13954,
+                "username": "jesselperry",
+                "name": "Jesse Perry",
+                "avatar_template": "/user_avatar/meta.discourse.org/jesselperry/{size}/119501_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 34924,
+            "likes_received": 196,
+            "likes_given": 112,
+            "topic_count": 36,
+            "post_count": 57,
+            "topics_entered": 871,
+            "posts_read": 6980,
+            "days_visited": 544,
+            "solutions": 0,
+            "time_read": 136398,
+            "user": {
+                "id": 34924,
+                "username": "Biscuit",
+                "name": "Biscuit",
+                "avatar_template": "/user_avatar/meta.discourse.org/biscuit/{size}/94482_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 60981,
+            "likes_received": 196,
+            "likes_given": 139,
+            "topic_count": 45,
+            "post_count": 98,
+            "topics_entered": 1733,
+            "posts_read": 16340,
+            "days_visited": 650,
+            "solutions": 0,
+            "time_read": 416338,
+            "user": {
+                "id": 60981,
+                "username": "nildarar",
+                "name": "Nildarar",
+                "avatar_template": "/user_avatar/meta.discourse.org/nildarar/{size}/331927_2.png",
+                "title": "",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 24548,
+            "likes_received": 195,
+            "likes_given": 112,
+            "topic_count": 4,
+            "post_count": 47,
+            "topics_entered": 676,
+            "posts_read": 4356,
+            "days_visited": 1576,
+            "solutions": 0,
+            "time_read": 104657,
+            "user": {
+                "id": 24548,
+                "username": "orenwolf",
+                "name": "Ken Snider",
+                "avatar_template": "/user_avatar/meta.discourse.org/orenwolf/{size}/119529_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 34321,
+            "likes_received": 194,
+            "likes_given": 279,
+            "topic_count": 14,
+            "post_count": 92,
+            "topics_entered": 867,
+            "posts_read": 9763,
+            "days_visited": 433,
+            "solutions": 0,
+            "time_read": 187111,
+            "user": {
+                "id": 34321,
+                "username": "amotl",
+                "name": "Andreas Motl",
+                "avatar_template": "/user_avatar/meta.discourse.org/amotl/{size}/109873_2.png",
+                "title": "Plugin Author",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 21650,
+            "likes_received": 191,
+            "likes_given": 32,
+            "topic_count": 27,
+            "post_count": 95,
+            "topics_entered": 675,
+            "posts_read": 6944,
+            "days_visited": 370,
+            "solutions": 0,
+            "time_read": 117989,
+            "user": {
+                "id": 21650,
+                "username": "lkramer",
+                "name": "Leah Kramer",
+                "avatar_template": "/user_avatar/meta.discourse.org/lkramer/{size}/83897_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 22295,
+            "likes_received": 191,
+            "likes_given": 392,
+            "topic_count": 41,
+            "post_count": 123,
+            "topics_entered": 1365,
+            "posts_read": 13813,
+            "days_visited": 239,
+            "solutions": 5,
+            "time_read": 181743,
+            "user": {
+                "id": 22295,
+                "username": "Silvanus",
+                "name": "",
+                "avatar_template": "/user_avatar/meta.discourse.org/silvanus/{size}/62831_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 76569,
+            "likes_received": 191,
+            "likes_given": 206,
+            "topic_count": 37,
+            "post_count": 114,
+            "topics_entered": 535,
+            "posts_read": 3977,
+            "days_visited": 100,
+            "solutions": 0,
+            "time_read": 88950,
+            "user": {
+                "id": 76569,
+                "username": "pnoeric",
+                "name": "Eric",
+                "avatar_template": "/user_avatar/meta.discourse.org/pnoeric/{size}/177144_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 122094,
+            "likes_received": 191,
+            "likes_given": 125,
+            "topic_count": 0,
+            "post_count": 44,
+            "topics_entered": 1071,
+            "posts_read": 7155,
+            "days_visited": 511,
+            "solutions": 0,
+            "time_read": 258031,
+            "user": {
+                "id": 122094,
+                "username": "jancernik",
+                "name": "Jan Cernik",
+                "avatar_template": "/user_avatar/meta.discourse.org/jancernik/{size}/275892_2.png",
+                "title": "Contributor",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 9437,
+            "likes_received": 190,
+            "likes_given": 45,
+            "topic_count": 21,
+            "post_count": 70,
+            "topics_entered": 2392,
+            "posts_read": 22710,
+            "days_visited": 534,
+            "solutions": 2,
+            "time_read": 299572,
+            "user": {
+                "id": 9437,
+                "username": "calmh",
+                "name": "Jakob Borg",
+                "avatar_template": "/user_avatar/meta.discourse.org/calmh/{size}/115466_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 81794,
+            "likes_received": 190,
+            "likes_given": 88,
+            "topic_count": 32,
+            "post_count": 136,
+            "topics_entered": 1584,
+            "posts_read": 13002,
+            "days_visited": 485,
+            "solutions": 2,
+            "time_read": 200079,
+            "user": {
+                "id": 81794,
+                "username": "Kartoon",
+                "name": "",
+                "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/k/e36b37/{size}.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 16444,
+            "likes_received": 189,
+            "likes_given": 112,
+            "topic_count": 20,
+            "post_count": 37,
+            "topics_entered": 1004,
+            "posts_read": 10729,
+            "days_visited": 514,
+            "solutions": 1,
+            "time_read": 144276,
+            "user": {
+                "id": 16444,
+                "username": "sjmscott",
+                "name": "Steve",
+                "avatar_template": "/user_avatar/meta.discourse.org/sjmscott/{size}/198290_2.png",
+                "title": null,
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 11075,
+            "likes_received": 188,
+            "likes_given": 60,
+            "topic_count": 5,
+            "post_count": 75,
+            "topics_entered": 8406,
+            "posts_read": 83815,
+            "days_visited": 2074,
+            "solutions": 10,
+            "time_read": 1244674,
+            "user": {
+                "id": 11075,
+                "username": "simonk",
+                "name": "Simon King",
+                "avatar_template": "/user_avatar/meta.discourse.org/simonk/{size}/247950_2.png",
+                "title": "",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 21136,
+            "likes_received": 187,
+            "likes_given": 342,
+            "topic_count": 30,
+            "post_count": 101,
+            "topics_entered": 6973,
+            "posts_read": 67042,
+            "days_visited": 1254,
+            "solutions": 1,
+            "time_read": 1075842,
+            "user": {
+                "id": 21136,
+                "username": "P16",
+                "name": "",
+                "avatar_template": "https://avatars.discourse-cdn.com/v4/letter/p/b19c9b/{size}.png",
+                "title": "",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 90552,
+            "likes_received": 187,
+            "likes_given": 0,
+            "topic_count": 1,
+            "post_count": 21,
+            "topics_entered": 17,
+            "posts_read": 188,
+            "days_visited": 20,
+            "solutions": 0,
+            "time_read": 8384,
+            "user": {
+                "id": 90552,
+                "username": "nolan",
+                "name": "Nolan",
+                "avatar_template": "/user_avatar/meta.discourse.org/nolan/{size}/208102_2.png",
+                "title": null,
+                "trust_level": 1
+            }
+        },
+        {
+            "id": 59827,
+            "likes_received": 186,
+            "likes_given": 205,
+            "topic_count": 9,
+            "post_count": 115,
+            "topics_entered": 893,
+            "posts_read": 6348,
+            "days_visited": 328,
+            "solutions": 0,
+            "time_read": 151076,
+            "user": {
+                "id": 59827,
+                "username": "Hifihedgehog",
+                "name": "",
+                "avatar_template": "/user_avatar/meta.discourse.org/hifihedgehog/{size}/140207_2.png",
+                "title": "",
+                "trust_level": 2
+            }
+        },
+        {
+            "id": 77020,
+            "likes_received": 185,
+            "likes_given": 76,
+            "topic_count": 26,
+            "post_count": 55,
+            "topics_entered": 905,
+            "posts_read": 5791,
+            "days_visited": 585,
+            "solutions": 1,
+            "time_read": 119253,
+            "user": {
+                "id": 77020,
+                "username": "incapaz",
+                "name": "sjr04",
+                "avatar_template": "/user_avatar/meta.discourse.org/incapaz/{size}/175057_2.png",
+                "title": "",
+                "flair_name": "translators",
+                "flair_url": "globe",
+                "flair_bg_color": "ddd",
+                "flair_color": "111",
+                "flair_group_id": 50,
+                "trust_level": 2
+            }
+        }
+    ],
+    "meta": {
+        "last_updated_at": "2025-09-16T01:41:53.000Z",
+        "total_rows_directory_items": 61150,
+        "load_more_directory_items": "/directory_items.json?order=likes_received&page=8&period=all"
+    }
+}

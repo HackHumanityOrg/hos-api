@@ -25,15 +25,12 @@ httpdate = { workspace = true }
 futures = { workspace = true }
 entities = { workspace = true }
 serde_path_to_error = { workspace = true }
+async-trait = { workspace = true }
+scraper = { workspace = true }
 
 [dev-dependencies]
 mockito = { workspace = true }
-testcontainers = { workspace = true }
-testcontainers-modules = { workspace = true }
 rstest = { workspace = true }
-tokio-test = { workspace = true }
-tracing-subscriber = { workspace = true }
-migration = { workspace = true }
 test-support = { workspace = true }
 
 [[test]]

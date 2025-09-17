@@ -10,40 +10,32 @@ pub struct Model {
     pub id: i64,
     pub instance: String,
     pub external_id: i32,
+    #[sea_orm(column_type = "Text")]
     pub title: String,
+    #[sea_orm(column_type = "Text")]
     pub fancy_title: String,
+    #[sea_orm(column_type = "Text")]
     pub slug: String,
     pub posts_count: i32,
     pub reply_count: i32,
-    pub highest_post_number: i32,
-    #[sea_orm(column_type = "Text")]
-    pub image_url: String,
     pub created_at: DateTimeUtc,
     pub last_posted_at: DateTimeUtc,
-    pub bumped: i8,
     pub bumped_at: DateTimeUtc,
-    pub archetype: String,
     pub pinned: i8,
-    pub unpinned: Option<String>,
+    pub pinned_globally: i8,
     pub visible: i8,
     pub closed: i8,
     pub archived: i8,
-    pub notification_level: Option<i32>,
     pub views: i32,
     pub like_count: i32,
-    pub has_summary: i8,
-    pub last_poster_username: String,
-    pub category_id: i32,
-    pub op_like_count: i32,
-    pub pinned_globally: i8,
-    pub featured_link: Option<String>,
+    pub external_category_id: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::discourse_categories::Entity",
-        from = "(Column::Instance, Column::CategoryId)",
+        from = "(Column::Instance, Column::ExternalCategoryId)",
         to = "(super::discourse_categories::Column::Instance, super::discourse_categories::Column::ExternalId)",
         on_update = "Cascade",
         on_delete = "Restrict"

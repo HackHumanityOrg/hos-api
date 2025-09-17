@@ -1,4 +1,4 @@
-use crate::domain::http::JsonFetcher;
+use crate::discourse_api::JsonFetcher;
 use crate::domain::revisions::model::Revision;
 use anyhow::Result;
 use tracing::{debug, instrument};
@@ -10,7 +10,7 @@ pub async fn fetch_post_revision<F: JsonFetcher>(
     version: i32,
 ) -> Result<Revision> {
     let path = format!("/posts/{}/revisions/{}.json", post_id, version);
-    let resp: Revision = client.get_json(&path).await?;
-    debug!("fetched post revision");
-    Ok(resp)
+    let revision: Revision = client.get_json(&path).await?;
+    debug!(post_id, version, "fetched post revision");
+    Ok(revision)
 }

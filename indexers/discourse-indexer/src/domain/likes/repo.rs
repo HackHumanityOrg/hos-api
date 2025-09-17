@@ -1,8 +1,8 @@
-use crate::domain::likes::model::PostLikeResponse;
-use crate::domain::users::model::UserProfile;
-use crate::domain::users::repo::upsert_user_profiles_bulk;
+use crate::domain::likes::model::PostActionUser;
+use crate::domain::users::model::User;
+use crate::domain::users::repo::upsert_users_bulk;
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{Timelike, Utc};
 use db_core::with_db_retry;
 use entities::discourse_post_likes;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
@@ -14,36 +14,41 @@ pub async fn upsert_post_likes_batch(
     db: &sea_orm::DatabaseConnection,
     instance: &str,
     post_id: i32,
-    likes: &PostLikeResponse,
+    likes: &[PostActionUser],
 ) -> Result<()> {
-    if likes.post_action_users.is_empty() {
+    if likes.is_empty() {
         return Ok(());
     }
-    debug!(
-        count = likes.post_action_users.len(),
-        "upserting post likes batch"
-    );
+    debug!(count = likes.len(), "upserting post likes batch");
     // Ensure referenced users exist for FK (instance, external_user_id) -> users
     {
-        let mut profiles: Vec<UserProfile> = likes
-            .post_action_users
+        let mut profiles: Vec<User> = likes
             .iter()
-            .map(|u| UserProfile {
+            .map(|u| User {
                 id: u.id,
                 username: u.username.clone(),
-                name: None,
-                avatar_template: String::new(),
+                name: u.name.clone(),
+                avatar_template: u.avatar_template.clone(),
                 title: None,
+                trust_level: 0,
+                likes_received: None,
+                likes_given: None,
+                topics_entered: None,
+                topic_count: None,
+                post_count: None,
+                posts_read: None,
+                days_visited: None,
             })
             .collect();
         // Deduplicate by id while keeping deterministic order
         profiles.sort_by_key(|p| p.id);
         profiles.dedup_by_key(|p| p.id);
-        upsert_user_profiles_bulk(db, instance, &profiles).await?;
+        upsert_users_bulk(db, instance, &profiles).await?;
     }
-    let now = Utc::now();
+    // Column precision is seconds; ensure our value matches MySQL storage semantics
+    let now = Utc::now().with_nanosecond(0).expect("valid UTC timestamp");
     // Normalize order to reduce deadlocks and chunk the writes
-    let mut users = likes.post_action_users.clone();
+    let mut users = likes.to_vec();
     users.sort_by_key(|u| u.id);
     const CHUNK_SIZE: usize = 200;
     for chunk in users.chunks(CHUNK_SIZE) {
@@ -51,9 +56,8 @@ pub async fn upsert_post_likes_batch(
             .iter()
             .map(|u| discourse_post_likes::ActiveModel {
                 instance: Set(instance.to_string()),
-                external_discourse_post_id: Set(post_id),
+                external_post_id: Set(post_id),
                 external_user_id: Set(u.id),
-                username: Set(u.username.clone()),
                 created_at: Set(now),
                 ..Default::default()
             })
@@ -63,15 +67,13 @@ pub async fn upsert_post_likes_batch(
                 .on_conflict(
                     OrmOnConflict::columns([
                         discourse_post_likes::Column::Instance,
-                        discourse_post_likes::Column::ExternalDiscoursePostId,
+                        discourse_post_likes::Column::ExternalPostId,
                         discourse_post_likes::Column::ExternalUserId,
                     ])
-                    .update_columns([
-                        discourse_post_likes::Column::Username,
-                        discourse_post_likes::Column::CreatedAt,
-                    ])
+                    .update_columns([discourse_post_likes::Column::CreatedAt])
                     .to_owned(),
                 )
+                .do_nothing()
                 .exec(db)
                 .await
         })

@@ -5,14 +5,15 @@
 
 use crate::config::TelemetryConfig as ConfigTelemetry;
 use anyhow::{Context, Result};
-use opentelemetry::{global, trace::TracerProvider, KeyValue};
+use opentelemetry::trace::TracerProvider; // bring trait into scope for .tracer()
+use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, MetricExporter, Protocol, SpanExporter, WithExportConfig};
 use opentelemetry_sdk::{
-    logs::{BatchLogProcessor, LoggerProvider},
+    logs::{BatchLogProcessor, SdkLoggerProvider},
     metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider},
     propagation::TraceContextPropagator,
-    trace::{self, BatchSpanProcessor},
+    trace::{BatchSpanProcessor, SdkTracerProvider},
     Resource,
 };
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_VERSION};
@@ -85,13 +86,10 @@ impl Drop for TelemetryGuard {
         info!("Flushing and shutting down telemetry providers...");
 
         // Force flush any pending traces before shutdown
-        use opentelemetry::global;
         use opentelemetry::trace::{Span, Tracer};
         let tracer = global::tracer("shutdown_flush");
         let mut span = tracer.start("shutdown_flush_span");
         span.end();
-
-        global::shutdown_tracer_provider();
         if let Some(meter_provider) = self._meter_provider.take() {
             if let Err(e) = meter_provider.shutdown() {
                 eprintln!("Error shutting down meter provider: {}", e);
@@ -133,7 +131,9 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
         resource_attrs.push(KeyValue::new(key.clone(), value.clone()));
     }
 
-    let resource = Resource::new(resource_attrs);
+    let resource: Resource = opentelemetry_sdk::Resource::builder_empty()
+        .with_attributes(resource_attrs)
+        .build();
 
     // Setup trace context propagator
     global::set_text_map_propagator(TraceContextPropagator::new());
@@ -286,7 +286,7 @@ fn init_tracer(
     endpoint: String,
     headers: Vec<(String, String)>,
     config: &ConfigTelemetry,
-) -> Result<trace::TracerProvider> {
+) -> Result<SdkTracerProvider> {
     // Set authentication and dataset headers via environment variable for OTLP
     if let Some((_, token)) = headers.first() {
         std::env::set_var(
@@ -326,15 +326,12 @@ fn init_tracer(
     );
 
     // Create batch processor with environment-configured settings
-    let batch_processor =
-        BatchSpanProcessor::builder(exporter, opentelemetry_sdk::runtime::Tokio).build();
+    let batch_processor = BatchSpanProcessor::builder(exporter).build();
 
-    let provider = trace::TracerProvider::builder()
+    let provider = SdkTracerProvider::builder()
         .with_resource(resource)
         .with_span_processor(batch_processor)
         .build();
-
-    global::set_tracer_provider(provider.clone());
 
     info!(
         "Tracer initialized successfully with endpoint: {}/v1/traces",
@@ -383,9 +380,8 @@ fn init_metrics(
         (config.export_timeout_sec * 1000).to_string(),
     );
 
-    let reader = PeriodicReader::builder(exporter, opentelemetry_sdk::runtime::Tokio)
+    let reader = PeriodicReader::builder(exporter)
         .with_interval(Duration::from_secs(config.export_interval_sec))
-        .with_timeout(Duration::from_secs(config.export_timeout_sec))
         .build();
 
     let provider = MeterProviderBuilder::default()
@@ -405,7 +401,7 @@ fn init_logger(
     endpoint: String,
     headers: Vec<(String, String)>,
     _config: &ConfigTelemetry,
-) -> Result<LoggerProvider> {
+) -> Result<SdkLoggerProvider> {
     // Set authentication and dataset headers via environment variable for OTLP
     if let Some((_, token)) = headers.first() {
         std::env::set_var(
@@ -426,10 +422,9 @@ fn init_logger(
         .build()
         .context("Failed to create log exporter")?;
 
-    let batch_processor =
-        BatchLogProcessor::builder(exporter, opentelemetry_sdk::runtime::Tokio).build();
+    let batch_processor = BatchLogProcessor::builder(exporter).build();
 
-    let provider = LoggerProvider::builder()
+    let provider = SdkLoggerProvider::builder()
         .with_resource(resource)
         .with_log_processor(batch_processor)
         .build();

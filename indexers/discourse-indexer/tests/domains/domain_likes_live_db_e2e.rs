@@ -1,181 +1,171 @@
-#[path = "../common/mod.rs"]
-mod common;
-
-use common::TestDatabase;
-use discourse_indexer::discourse_api::DiscourseClient;
-use discourse_indexer::domain::{
-    likes::{adapter as likes_adapter, repo as likes_repo},
-    posts::adapter as posts_adapter,
-    topics::adapter as topics_adapter,
+use anyhow::Result;
+use chrono::{Timelike, Utc};
+use discourse_indexer::domain::categories;
+use discourse_indexer::domain::instances;
+use discourse_indexer::domain::likes::{adapter, repo};
+use discourse_indexer::domain::posts;
+use discourse_indexer::domain::topics::{self, model::Topic};
+use entities::{
+    discourse_post_likes, discourse_posts, discourse_users, prelude::DiscoursePostLikes,
+    prelude::DiscoursePosts, prelude::DiscourseUsers,
 };
-use entities::discourse_post_likes;
-use rstest::*;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use std::collections::HashMap;
+use test_support::{init_test_tracing, TestDatabase};
 
-const TEST_INSTANCE: &str = "meta.discourse.org";
+#[path = "../support/mod.rs"]
+mod support;
+use support::FixtureFetcher;
 
-#[fixture]
-async fn test_db() -> TestDatabase {
-    TestDatabase::new().await
+const INSTANCE_KEY: &str = "meta";
+const INSTANCE_URL: &str = "https://meta.discourse.org";
+const TOPIC_ID: i32 = 69776;
+const POST_ID: i32 = 326680;
+
+#[tokio::test]
+async fn fetch_post_likes_parses_fixture() -> Result<()> {
+    let fetcher = FixtureFetcher::new(&[(
+        "/post_action_users.json?id=326680&post_action_type_id=2",
+        "meta/post_326680_likes.json",
+    )])?;
+
+    let likes = adapter::fetch_post_likes(&fetcher, POST_ID).await?;
+    assert!(
+        likes.len() > 50,
+        "expected at least 50 likes for fixture post"
+    );
+    let first = likes.first().expect("likes list non-empty");
+    assert_eq!(first.username_lower, first.username.to_lowercase());
+
+    Ok(())
 }
 
-/// Live + DB: search until we find a post with likes, persist, and verify update path.
-#[rstest]
 #[tokio::test]
-async fn test_domain_likes_fetch_and_persist(#[future] test_db: TestDatabase) {
-    let test_db = test_db.await;
-    let db = test_db.db();
-    let client = DiscourseClient::new("https://meta.discourse.org".to_string());
+async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
+    init_test_tracing();
+    let db = TestDatabase::new().await;
+    let conn = db.db();
 
-    discourse_indexer::domain::instances::repo::register_instance(
-        &db,
-        TEST_INSTANCE,
-        "https://meta.discourse.org",
-    )
-    .await
-    .expect("register instance");
+    instances::repo::register_instance(&conn, INSTANCE_KEY, INSTANCE_URL).await?;
 
-    // Pre-fetch a large slice of directory users so we can satisfy FK for likers
-    let dir_users =
-        discourse_indexer::domain::users::adapter::fetch_users_directory(&client, true, 50, 50)
-            .await
-            .expect("fetch directory users for likes FK");
-    let mut dir_by_id = std::collections::HashMap::new();
-    for it in dir_users.iter() {
-        dir_by_id.insert(it.user.id, it.clone());
+    // Seed FK dependencies
+    let categories_fetcher = FixtureFetcher::new(&[(
+        "/categories.json?include_subcategories=true&page=0",
+        "meta/categories_page_0.json",
+    )])?;
+    let categories = categories::adapter::fetch_categories_all(&categories_fetcher, 0).await?;
+    for category in &categories {
+        categories::repo::upsert_category(&conn, INSTANCE_KEY, category).await?;
     }
 
-    // Search multiple pages of topics and posts until we find likes where all likers are in directory
-    let mut found: Option<(
-        discourse_indexer::domain::topics::model::Topic,
-        discourse_indexer::domain::posts::model::Post,
-        discourse_indexer::domain::likes::model::PostLikeResponse,
-    )> = None;
-    'outer: for page in 0..5 {
-        let latest = match topics_adapter::fetch_topics_recent_page(&client, page).await {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        for t in latest.topic_list.topics.into_iter().take(20) {
-            for post_page in 0..=1 {
-                let posts = match posts_adapter::fetch_posts_page(&client, t.id, post_page).await {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                for p in posts.post_stream.posts.clone() {
-                    match likes_adapter::fetch_post_likes(&client, p.id).await {
-                        Ok(likes) if !likes.post_action_users.is_empty() => {
-                            let filtered: Vec<_> = likes
-                                .post_action_users
-                                .into_iter()
-                                .filter(|lu| dir_by_id.contains_key(&lu.id))
-                                .collect();
-                            if !filtered.is_empty() {
-                                let likes_filtered =
-                                    discourse_indexer::domain::likes::model::PostLikeResponse {
-                                        post_action_users: filtered,
-                                        total_rows_post_action_users: None,
-                                    };
-                                found = Some((t.clone(), p.clone(), likes_filtered));
-                                break 'outer;
-                            } else {
-                                continue;
-                            }
-                        }
-                        _ => continue,
-                    }
-                }
-            }
-        }
+    let topics_fetcher =
+        FixtureFetcher::new(&[("/latest.json?page=0", "meta/latest_activity_page_0.json")])?;
+    let mut topics = topics::adapter::fetch_topics_recent_page(&topics_fetcher, 0)
+        .await?
+        .topic_list
+        .topics;
+    let topic_seed: Topic = support::load_topic_from_fixture("meta/topic_69776_posts_page_0.json")?;
+    topics.push(topic_seed);
+    topics::repo::upsert_topics_bulk(&conn, INSTANCE_KEY, &topics).await?;
+
+    let posts_fetcher = FixtureFetcher::new(&[(
+        "/t/69776.json?page=0&include_raw=true",
+        "meta/topic_69776_posts_page_0.json",
+    )])?;
+    let posts = posts::adapter::fetch_posts_page(&posts_fetcher, TOPIC_ID, 0)
+        .await?
+        .post_stream
+        .posts;
+    posts::repo::upsert_posts_bulk(&conn, INSTANCE_KEY, &posts).await?;
+
+    let likes_fetcher = FixtureFetcher::new(&[(
+        "/post_action_users.json?id=326680&post_action_type_id=2",
+        "meta/post_326680_likes.json",
+    )])?;
+    let likes = adapter::fetch_post_likes(&likes_fetcher, POST_ID).await?;
+
+    let before = Utc::now().with_nanosecond(0).expect("valid UTC timestamp");
+    repo::upsert_post_likes_batch(&conn, INSTANCE_KEY, POST_ID, &likes).await?;
+    let after = Utc::now().with_nanosecond(0).expect("valid UTC timestamp");
+
+    let stored_likes = DiscoursePostLikes::find()
+        .filter(discourse_post_likes::Column::Instance.eq(INSTANCE_KEY))
+        .filter(discourse_post_likes::Column::ExternalPostId.eq(POST_ID))
+        .all(&conn)
+        .await?;
+    assert_eq!(stored_likes.len(), likes.len());
+
+    let expected_like_users: HashMap<i32, _> = likes.iter().map(|u| (u.id, u)).collect();
+
+    let created_at_by_user: HashMap<_, _> = stored_likes
+        .iter()
+        .map(|row| (row.external_user_id, row.created_at))
+        .collect();
+
+    for row in stored_likes {
+        assert_eq!(row.instance, INSTANCE_KEY);
+        assert_eq!(row.external_post_id, POST_ID);
+        assert!(expected_like_users.contains_key(&row.external_user_id));
+        assert!(row.created_at >= before);
+        assert!(row.created_at <= after);
     }
 
-    assert!(
-        found.is_some(),
-        "No post with likes found after scanning recent topics with directory coverage"
-    );
-    let (topic, post, likes) = found.unwrap();
+    // Re-run upsert to ensure idempotency and that timestamps advance monotonically.
+    repo::upsert_post_likes_batch(&conn, INSTANCE_KEY, POST_ID, &likes).await?;
 
-    // Ensure categories exist for the topic's category_id (fetch first few pages)
-    let cats = discourse_indexer::domain::categories::adapter::fetch_categories_all(&client, 2)
-        .await
-        .expect("fetch categories for topic FK");
-    for c in cats.iter() {
-        discourse_indexer::domain::categories::repo::upsert_category(&db, TEST_INSTANCE, c)
-            .await
-            .expect("upsert category for topic FK");
+    let stored_likes_second = DiscoursePostLikes::find()
+        .filter(discourse_post_likes::Column::Instance.eq(INSTANCE_KEY))
+        .filter(discourse_post_likes::Column::ExternalPostId.eq(POST_ID))
+        .all(&conn)
+        .await?;
+    assert_eq!(stored_likes_second.len(), likes.len());
+
+    for row in stored_likes_second {
+        let previous_created = created_at_by_user
+            .get(&row.external_user_id)
+            .expect("initial like timestamp");
+        assert!(
+            row.created_at >= *previous_created,
+            "created_at should not regress"
+        );
     }
 
-    // Ensure topic and post are present to satisfy FKs before inserting likes
-    discourse_indexer::domain::topics::repo::upsert_topics_bulk(
-        &db,
-        TEST_INSTANCE,
-        &[topic.clone()],
-    )
-    .await
-    .expect("upsert topic for likes");
-    // Ensure minimal author user exists for post FK
-    let minimal_user = discourse_indexer::domain::users::model::DirectoryItem {
-        id: 0,
-        likes_received: 0,
-        likes_given: 0,
-        topics_entered: 0,
-        topic_count: 0,
-        post_count: 0,
-        posts_read: 0,
-        days_visited: 0,
-        user: discourse_indexer::domain::users::model::DirectoryUser {
-            id: post.user_id,
-            username: post.username.clone(),
-            name: Some(
-                post.display_username
-                    .clone()
-                    .unwrap_or_else(|| post.username.clone()),
-            ),
-            avatar_template: post.avatar_template.clone(),
-            title: None,
-        },
-    };
-    discourse_indexer::domain::users::repo::upsert_user(&db, TEST_INSTANCE, &minimal_user)
-        .await
-        .expect("upsert minimal user for post FK");
+    // Ensure users created via likes path have expected columns populated
+    let tracked_user_ids = likes.iter().take(3).map(|u| u.id).collect::<Vec<_>>();
+    let stored_users = DiscourseUsers::find()
+        .filter(discourse_users::Column::Instance.eq(INSTANCE_KEY))
+        .filter(discourse_users::Column::ExternalId.is_in(tracked_user_ids.clone()))
+        .order_by_asc(discourse_users::Column::ExternalId)
+        .all(&conn)
+        .await?;
 
-    discourse_indexer::domain::posts::repo::upsert_posts_bulk(&db, TEST_INSTANCE, &[post.clone()])
-        .await
-        .expect("upsert post for likes");
+    assert_eq!(stored_users.len(), tracked_user_ids.len());
 
-    // Upsert likers (guaranteed to be present in dir_by_id from the selection above)
-    for u in likes.post_action_users.iter() {
-        let item = dir_by_id
-            .get(&u.id)
-            .expect("liker present in directory map");
-        discourse_indexer::domain::users::repo::upsert_user(&db, TEST_INSTANCE, item)
-            .await
-            .expect("upsert liker user");
+    for row in stored_users {
+        let src = expected_like_users
+            .get(&row.external_id)
+            .expect("like user present");
+        assert_eq!(row.instance, INSTANCE_KEY);
+        assert_eq!(row.username, src.username);
+        assert_eq!(row.name.as_deref(), src.name.as_deref());
+        assert_eq!(row.avatar_template, src.avatar_template);
+        assert_eq!(row.title, None);
+        assert_eq!(row.likes_received, None);
+        assert_eq!(row.likes_given, None);
+        assert_eq!(row.topics_entered, None);
+        assert_eq!(row.topic_count, None);
+        assert_eq!(row.post_count, None);
+        assert_eq!(row.posts_read, None);
+        assert_eq!(row.days_visited, None);
     }
 
-    // Persist and verify update path
-    likes_repo::upsert_post_likes_batch(&db, TEST_INSTANCE, post.id, &likes)
-        .await
-        .expect("upsert likes");
+    // Ensure the post row still exists to satisfy relation integrity
+    let post = DiscoursePosts::find()
+        .filter(discourse_posts::Column::Instance.eq(INSTANCE_KEY))
+        .filter(discourse_posts::Column::ExternalId.eq(POST_ID))
+        .one(&conn)
+        .await?;
+    assert!(post.is_some());
 
-    // Update: rename first user locally (from directory username) and re-upsert
-    let mut likes_updated = likes.clone();
-    if let Some(first) = likes_updated.post_action_users.get_mut(0) {
-        first.username.push_str("_updated");
-    }
-    likes_repo::upsert_post_likes_batch(&db, TEST_INSTANCE, post.id, &likes_updated)
-        .await
-        .expect("update likes");
-
-    let stored = discourse_post_likes::Entity::find()
-        .filter(discourse_post_likes::Column::Instance.eq(TEST_INSTANCE))
-        .filter(discourse_post_likes::Column::ExternalDiscoursePostId.eq(post.id))
-        .filter(
-            discourse_post_likes::Column::ExternalUserId.eq(likes_updated.post_action_users[0].id),
-        )
-        .one(&db)
-        .await
-        .expect("fetch like")
-        .expect("like exists");
-    assert!(stored.username.ends_with("_updated"));
+    Ok(())
 }

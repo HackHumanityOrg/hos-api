@@ -10,7 +10,6 @@ live_rpc_tests = []
 anyhow = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 dotenvy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -20,39 +19,19 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 tokio-stream = { workspace = true }
 
-# Decimal for amounts
-rust_decimal = { workspace = true }
-
 # Shared workspace crates
 common = { workspace = true }
 db-core = { workspace = true }
 
 # NEAR Lake and account id helpers
 near-lake-framework = { workspace = true }
-near-account-id = { workspace = true }
-
-# Additional crypto and encoding dependencies
-sha2 = { workspace = true }
-hex = { workspace = true }
-near-primitives = { workspace = true }
-near-crypto = { workspace = true }
 base64 = { workspace = true }
-reqwest = { workspace = true, features = ["json"] }
 chrono = { workspace = true }
-reqwest-middleware = { workspace = true }
-reqwest-retry = { workspace = true }
-reqwest-tracing = { workspace = true }
-thiserror = { workspace = true }
-near-indexer-primitives = "0.31.1"
+near-indexer-primitives = { workspace = true }
 
 [dev-dependencies]
-testcontainers = { workspace = true }
-testcontainers-modules = { workspace = true, features = ["mysql"] }
-migration = { workspace = true }
 db-core = { workspace = true }
 common = { workspace = true }
 test-support = { workspace = true }
-near-crypto = { workspace = true }
-wiremock = { workspace = true }
 futures = { workspace = true }
 rstest = { workspace = true }

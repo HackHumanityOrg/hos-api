@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use entities::*;
-use near_indexer_primitives::{IndexerShard, StreamerMessage};
+use near_lake_framework::near_indexer_primitives::{IndexerShard, StreamerMessage};
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait,
 };

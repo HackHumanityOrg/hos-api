@@ -10,12 +10,11 @@ pub struct Model {
     pub id: i64,
     pub instance: String,
     pub external_id: i32,
-    pub name: String,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub name: Option<String>,
+    #[sea_orm(column_type = "Text")]
     pub username: String,
-    pub avatar_template: String,
     pub created_at: DateTimeUtc,
-    #[sea_orm(column_type = "custom(\"MEDIUMTEXT\")")]
-    pub cooked: String,
     pub post_number: i32,
     pub post_type: i32,
     pub updated_at: DateTimeUtc,
@@ -27,27 +26,26 @@ pub struct Model {
     pub readers_count: i32,
     #[sea_orm(column_type = "Double")]
     pub score: f64,
-    pub topic_id: i32,
+    pub external_topic_id: i32,
+    #[sea_orm(column_type = "Text")]
     pub topic_slug: String,
-    pub display_username: String,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub display_username: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
     pub primary_group_name: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
     pub flair_name: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
     pub flair_url: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
     pub flair_bg_color: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
     pub flair_color: Option<String>,
     pub version: i32,
-    pub user_title: Option<String>,
-    pub moderator: i8,
-    pub admin: i8,
-    pub staff: i8,
-    pub user_id: i32,
-    pub hidden: i8,
-    pub trust_level: i32,
-    pub deleted_at: Option<DateTimeUtc>,
-    pub user_deleted: i8,
-    pub edit_reason: Option<String>,
-    pub wiki: i8,
-    #[sea_orm(column_type = "custom(\"MEDIUMTEXT\")", nullable)]
+    pub external_user_id: i32,
+    pub can_view_edit_history: i8,
+    pub deleted: i8,
+    #[sea_orm(column_type = "custom(\"LONGTEXT\")", nullable)]
     pub raw: Option<String>,
 }
 
@@ -67,18 +65,18 @@ pub enum Relation {
     DiscoursePostRevisions,
     #[sea_orm(
         belongs_to = "super::discourse_topics::Entity",
-        from = "(Column::Instance, Column::TopicId)",
+        from = "(Column::Instance, Column::ExternalTopicId)",
         to = "(super::discourse_topics::Column::Instance, super::discourse_topics::Column::ExternalId)",
-        on_update = "Cascade",
+        on_update = "NoAction",
         on_delete = "Cascade"
     )]
     DiscourseTopics,
     #[sea_orm(
         belongs_to = "super::discourse_users::Entity",
-        from = "(Column::Instance, Column::UserId)",
+        from = "(Column::Instance, Column::ExternalUserId)",
         to = "(super::discourse_users::Column::Instance, super::discourse_users::Column::ExternalId)",
-        on_update = "Cascade",
-        on_delete = "NoAction"
+        on_update = "NoAction",
+        on_delete = "Restrict"
     )]
     DiscourseUsers,
 }

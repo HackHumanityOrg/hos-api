@@ -43,7 +43,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // discourse_categories
+        // discourse_categories - simplified schema matching code-of-conduct
         manager
             .create_table(
                 Table::create()
@@ -66,27 +66,15 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    // Required fields from OpenAPI
-                    .col(
-                        ColumnDef::new(DiscourseCategories::Name)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseCategories::Color)
-                            .string()
-                            .not_null(),
-                    )
+                    // Simplified fields matching code-of-conduct
+                    .col(ColumnDef::new(DiscourseCategories::Name).text().not_null())
+                    .col(ColumnDef::new(DiscourseCategories::Color).text().not_null())
                     .col(
                         ColumnDef::new(DiscourseCategories::TextColor)
-                            .string()
+                            .text()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(DiscourseCategories::Slug)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(DiscourseCategories::Slug).text().not_null())
                     .col(
                         ColumnDef::new(DiscourseCategories::TopicCount)
                             .integer()
@@ -97,79 +85,14 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(DiscourseCategories::Position)
-                            .integer()
-                            .not_null(),
-                    )
                     .col(ColumnDef::new(DiscourseCategories::Description).text())
                     .col(ColumnDef::new(DiscourseCategories::DescriptionText).text())
-                    .col(ColumnDef::new(DiscourseCategories::DescriptionExcerpt).text())
-                    .col(ColumnDef::new(DiscourseCategories::TopicUrl).text())
-                    .col(ColumnDef::new(DiscourseCategories::TopicTemplate).text())
-                    .col(
-                        ColumnDef::new(DiscourseCategories::HasChildren)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscourseCategories::SubcategoryCount).integer())
-                    .col(ColumnDef::new(DiscourseCategories::SortOrder).string())
-                    .col(
-                        ColumnDef::new(DiscourseCategories::NumFeaturedTopics)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscourseCategories::DefaultView).string())
-                    .col(
-                        ColumnDef::new(DiscourseCategories::SubcategoryListStyle)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseCategories::DefaultTopPeriod)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseCategories::DefaultListFilter)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseCategories::MinimumRequiredTags)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseCategories::TopicsDay)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseCategories::TopicsWeek)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseCategories::TopicsMonth)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseCategories::TopicsYear)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseCategories::TopicsAllTime)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscourseCategories::UploadedLogo).text())
-                    .col(ColumnDef::new(DiscourseCategories::UploadedLogoDark).text())
-                    .col(ColumnDef::new(DiscourseCategories::UploadedBackground).text())
-                    .col(ColumnDef::new(DiscourseCategories::UploadedBackgroundDark).text())
-                    .col(ColumnDef::new(DiscourseCategories::IsUncategorized).boolean())
+                    .col(ColumnDef::new(DiscourseCategories::TopicsDay).integer())
+                    .col(ColumnDef::new(DiscourseCategories::TopicsWeek).integer())
+                    .col(ColumnDef::new(DiscourseCategories::TopicsMonth).integer())
+                    .col(ColumnDef::new(DiscourseCategories::TopicsYear).integer())
+                    .col(ColumnDef::new(DiscourseCategories::TopicsAllTime).integer())
+                    .col(ColumnDef::new(DiscourseCategories::ParentCategoryId).integer())
                     .to_owned(),
             )
             .await?;
@@ -211,6 +134,33 @@ impl MigrationTrait for Migration {
             )
             .await;
 
+        // Index for parent_category_id lookup
+        let _ = manager
+            .create_index(
+                Index::create()
+                    .name("ix_categories_parent_category")
+                    .table(DiscourseCategories::Table)
+                    .col(DiscourseCategories::ParentCategoryId)
+                    .to_owned(),
+            )
+            .await;
+
+        // Foreign key for parent_category_id -> external_id (self-referential)
+        // Simple FK for hierarchical categories (assumes same instance)
+        let _ = manager
+            .create_foreign_key(
+                sea_query::ForeignKeyCreateStatement::new()
+                    .name("fk_categories_parent")
+                    .from_tbl(DiscourseCategories::Table)
+                    .from_col(DiscourseCategories::ParentCategoryId)
+                    .to_tbl(DiscourseCategories::Table)
+                    .to_col(DiscourseCategories::ExternalId)
+                    .on_delete(ForeignKeyAction::SetNull)
+                    .on_update(ForeignKeyAction::Cascade)
+                    .to_owned(),
+            )
+            .await;
+
         // discourse_users
         manager
             .create_table(
@@ -234,51 +184,23 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    // User fields from directory_items.json endpoint
-                    .col(ColumnDef::new(DiscourseUsers::Username).string().not_null())
-                    .col(ColumnDef::new(DiscourseUsers::Name).string())
+                    // Simplified user fields matching code-of-conduct structure
+                    .col(ColumnDef::new(DiscourseUsers::Username).text().not_null())
+                    .col(ColumnDef::new(DiscourseUsers::Name).text())
                     .col(
                         ColumnDef::new(DiscourseUsers::AvatarTemplate)
-                            .string()
+                            .text()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseUsers::Title).string())
-                    // Stats from directory_items (all required in API)
-                    .col(
-                        ColumnDef::new(DiscourseUsers::LikesReceived)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseUsers::LikesGiven)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseUsers::TopicsEntered)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseUsers::TopicCount)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseUsers::PostCount)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseUsers::PostsRead)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseUsers::DaysVisited)
-                            .integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(DiscourseUsers::Title).text())
+                    // Stats matching code-of-conduct (nullable bigint)
+                    .col(ColumnDef::new(DiscourseUsers::LikesReceived).big_integer())
+                    .col(ColumnDef::new(DiscourseUsers::LikesGiven).big_integer())
+                    .col(ColumnDef::new(DiscourseUsers::TopicsEntered).big_integer())
+                    .col(ColumnDef::new(DiscourseUsers::TopicCount).big_integer())
+                    .col(ColumnDef::new(DiscourseUsers::PostCount).big_integer())
+                    .col(ColumnDef::new(DiscourseUsers::PostsRead).big_integer())
+                    .col(ColumnDef::new(DiscourseUsers::DaysVisited).big_integer())
                     .to_owned(),
             )
             .await?;
@@ -343,14 +265,14 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    // Fields from OpenAPI spec for /latest.json
-                    .col(ColumnDef::new(DiscourseTopics::Title).string().not_null())
+                    // Simplified fields matching code-of-conduct structure
+                    .col(ColumnDef::new(DiscourseTopics::Title).text().not_null())
                     .col(
                         ColumnDef::new(DiscourseTopics::FancyTitle)
-                            .string()
+                            .text()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseTopics::Slug).string().not_null())
+                    .col(ColumnDef::new(DiscourseTopics::Slug).text().not_null())
                     .col(
                         ColumnDef::new(DiscourseTopics::PostsCount)
                             .integer()
@@ -362,12 +284,6 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseTopics::HighestPostNumber)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscourseTopics::ImageUrl).text().not_null())
-                    .col(
                         ColumnDef::new(DiscourseTopics::CreatedAt)
                             .timestamp()
                             .not_null(),
@@ -377,19 +293,17 @@ impl MigrationTrait for Migration {
                             .timestamp()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseTopics::Bumped).boolean().not_null())
                     .col(
                         ColumnDef::new(DiscourseTopics::BumpedAt)
                             .timestamp()
                             .not_null(),
                     )
+                    .col(ColumnDef::new(DiscourseTopics::Pinned).boolean().not_null())
                     .col(
-                        ColumnDef::new(DiscourseTopics::Archetype)
-                            .string()
+                        ColumnDef::new(DiscourseTopics::PinnedGlobally)
+                            .boolean()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseTopics::Pinned).boolean().not_null())
-                    .col(ColumnDef::new(DiscourseTopics::Unpinned).string())
                     .col(
                         ColumnDef::new(DiscourseTopics::Visible)
                             .boolean()
@@ -401,7 +315,6 @@ impl MigrationTrait for Migration {
                             .boolean()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseTopics::NotificationLevel).integer())
                     .col(ColumnDef::new(DiscourseTopics::Views).integer().not_null())
                     .col(
                         ColumnDef::new(DiscourseTopics::LikeCount)
@@ -409,31 +322,10 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(DiscourseTopics::HasSummary)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseTopics::LastPosterUsername)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseTopics::CategoryId)
+                        ColumnDef::new(DiscourseTopics::ExternalCategoryId)
                             .integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(DiscourseTopics::OpLikeCount)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscourseTopics::PinnedGlobally)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscourseTopics::FeaturedLink).string())
                     .to_owned(),
             )
             .await?;
@@ -453,14 +345,14 @@ impl MigrationTrait for Migration {
             )
             .await;
 
-        // Composite FK: (topics.instance, topics.category_id) -> (categories.instance, categories.external_id)
+        // Composite FK: (topics.instance, topics.external_category_id) -> (categories.instance, categories.external_id)
         let _ = manager
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_topics_category")
                     .from_tbl(DiscourseTopics::Table)
                     .from_col(DiscourseTopics::Instance)
-                    .from_col(DiscourseTopics::CategoryId)
+                    .from_col(DiscourseTopics::ExternalCategoryId)
                     .to_tbl(DiscourseCategories::Table)
                     .to_col(DiscourseCategories::Instance)
                     .to_col(DiscourseCategories::ExternalId)
@@ -486,7 +378,7 @@ impl MigrationTrait for Migration {
                     .name("ix_topics_instance_category")
                     .table(DiscourseTopics::Table)
                     .col(DiscourseTopics::Instance)
-                    .col(DiscourseTopics::CategoryId)
+                    .col(DiscourseTopics::ExternalCategoryId)
                     .to_owned(),
             )
             .await;
@@ -525,22 +417,12 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    // Required fields from OpenAPI spec for /t/{id}.json
-                    .col(ColumnDef::new(DiscoursePosts::Name).string().not_null())
-                    .col(ColumnDef::new(DiscoursePosts::Username).string().not_null())
-                    .col(
-                        ColumnDef::new(DiscoursePosts::AvatarTemplate)
-                            .string()
-                            .not_null(),
-                    )
+                    // Simplified fields matching code-of-conduct structure
+                    .col(ColumnDef::new(DiscoursePosts::Name).text())
+                    .col(ColumnDef::new(DiscoursePosts::Username).text().not_null())
                     .col(
                         ColumnDef::new(DiscoursePosts::CreatedAt)
                             .timestamp()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscoursePosts::Cooked)
-                            .custom(SeaRc::new("MEDIUMTEXT"))
                             .not_null(),
                     )
                     .col(
@@ -581,48 +463,34 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(DiscoursePosts::Score).double().not_null())
-                    .col(ColumnDef::new(DiscoursePosts::TopicId).integer().not_null())
                     .col(
-                        ColumnDef::new(DiscoursePosts::TopicSlug)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscoursePosts::DisplayUsername)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscoursePosts::PrimaryGroupName).string())
-                    .col(ColumnDef::new(DiscoursePosts::FlairName).string())
-                    .col(ColumnDef::new(DiscoursePosts::FlairUrl).string())
-                    .col(ColumnDef::new(DiscoursePosts::FlairBgColor).string())
-                    .col(ColumnDef::new(DiscoursePosts::FlairColor).string())
-                    .col(ColumnDef::new(DiscoursePosts::Version).integer().not_null())
-                    .col(ColumnDef::new(DiscoursePosts::UserTitle).string())
-                    .col(
-                        ColumnDef::new(DiscoursePosts::Moderator)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscoursePosts::Admin).boolean().not_null())
-                    .col(ColumnDef::new(DiscoursePosts::Staff).boolean().not_null())
-                    .col(ColumnDef::new(DiscoursePosts::UserId).integer().not_null())
-                    .col(ColumnDef::new(DiscoursePosts::Hidden).boolean().not_null())
-                    .col(
-                        ColumnDef::new(DiscoursePosts::TrustLevel)
+                        ColumnDef::new(DiscoursePosts::ExternalTopicId)
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscoursePosts::DeletedAt).timestamp())
+                    .col(ColumnDef::new(DiscoursePosts::TopicSlug).text().not_null())
+                    .col(ColumnDef::new(DiscoursePosts::DisplayUsername).text())
+                    .col(ColumnDef::new(DiscoursePosts::PrimaryGroupName).text())
+                    .col(ColumnDef::new(DiscoursePosts::FlairName).text())
+                    .col(ColumnDef::new(DiscoursePosts::FlairUrl).text())
+                    .col(ColumnDef::new(DiscoursePosts::FlairBgColor).text())
+                    .col(ColumnDef::new(DiscoursePosts::FlairColor).text())
+                    .col(ColumnDef::new(DiscoursePosts::Version).integer().not_null())
                     .col(
-                        ColumnDef::new(DiscoursePosts::UserDeleted)
+                        ColumnDef::new(DiscoursePosts::ExternalUserId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DiscoursePosts::CanViewEditHistory)
                             .boolean()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscoursePosts::EditReason).string())
-                    .col(ColumnDef::new(DiscoursePosts::Wiki).boolean().not_null())
-                    // Optional fields
-                    .col(ColumnDef::new(DiscoursePosts::Raw).custom(SeaRc::new("MEDIUMTEXT")))
+                    .col(ColumnDef::new(DiscoursePosts::Deleted).boolean().not_null())
+                    .col(
+                        ColumnDef::new(DiscoursePosts::Raw)
+                            .custom(sea_query::Alias::new("LONGTEXT")),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -642,36 +510,36 @@ impl MigrationTrait for Migration {
             )
             .await;
 
-        // Composite FK: (posts.instance, posts.topic_id) -> (topics.instance, topics.external_id)
+        // Composite FK: (posts.instance, posts.external_topic_id) -> (topics.instance, topics.external_id)
         let _ = manager
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_posts_topic")
                     .from_tbl(DiscoursePosts::Table)
                     .from_col(DiscoursePosts::Instance)
-                    .from_col(DiscoursePosts::TopicId)
+                    .from_col(DiscoursePosts::ExternalTopicId)
                     .to_tbl(DiscourseTopics::Table)
                     .to_col(DiscourseTopics::Instance)
                     .to_col(DiscourseTopics::ExternalId)
                     .on_delete(ForeignKeyAction::Cascade)
-                    .on_update(ForeignKeyAction::Cascade)
+                    .on_update(ForeignKeyAction::NoAction)
                     .to_owned(),
             )
             .await;
 
-        // Composite FK: (posts.instance, posts.user_id) -> (users.instance, users.external_id)
+        // Composite FK: (posts.instance, posts.external_user_id) -> (users.instance, users.external_id)
         let _ = manager
             .create_foreign_key(
                 sea_query::ForeignKeyCreateStatement::new()
                     .name("fk_posts_user")
                     .from_tbl(DiscoursePosts::Table)
                     .from_col(DiscoursePosts::Instance)
-                    .from_col(DiscoursePosts::UserId)
+                    .from_col(DiscoursePosts::ExternalUserId)
                     .to_tbl(DiscourseUsers::Table)
                     .to_col(DiscourseUsers::Instance)
                     .to_col(DiscourseUsers::ExternalId)
-                    .on_delete(ForeignKeyAction::NoAction)
-                    .on_update(ForeignKeyAction::Cascade)
+                    .on_delete(ForeignKeyAction::Restrict)
+                    .on_update(ForeignKeyAction::NoAction)
                     .to_owned(),
             )
             .await;
@@ -692,7 +560,7 @@ impl MigrationTrait for Migration {
                     .name("ix_posts_instance_topic_created_at")
                     .table(DiscoursePosts::Table)
                     .col(DiscoursePosts::Instance)
-                    .col(DiscoursePosts::TopicId)
+                    .col(DiscoursePosts::ExternalTopicId)
                     .col(DiscoursePosts::CreatedAt)
                     .to_owned(),
             )
@@ -704,7 +572,7 @@ impl MigrationTrait for Migration {
                     .name("ix_posts_instance_user")
                     .table(DiscoursePosts::Table)
                     .col(DiscoursePosts::Instance)
-                    .col(DiscoursePosts::UserId)
+                    .col(DiscoursePosts::ExternalUserId)
                     .to_owned(),
             )
             .await;
@@ -741,9 +609,14 @@ impl MigrationTrait for Migration {
                             .string_len(100)
                             .not_null(),
                     )
-                    // Fields from actual API response /posts/{id}/revisions/{version}.json
+                    // Simplified fields matching code-of-conduct structure
                     .col(
                         ColumnDef::new(DiscoursePostRevisions::ExternalPostId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DiscoursePostRevisions::Version)
                             .integer()
                             .not_null(),
                     )
@@ -754,65 +627,25 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(DiscoursePostRevisions::Username)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscoursePostRevisions::ActingUserName).string())
-                    .col(
-                        ColumnDef::new(DiscoursePostRevisions::DisplayUsername)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscoursePostRevisions::AvatarTemplate)
-                            .string()
+                            .text()
                             .not_null(),
                     )
                     .col(ColumnDef::new(DiscoursePostRevisions::EditReason).text())
-                    .col(ColumnDef::new(DiscoursePostRevisions::BodyChanges).json())
-                    .col(ColumnDef::new(DiscoursePostRevisions::TitleChanges).json())
-                    // Normalized category changes
-                    .col(ColumnDef::new(DiscoursePostRevisions::PreviousCategoryId).integer())
-                    .col(ColumnDef::new(DiscoursePostRevisions::CurrentCategoryId).integer())
-                    // Normalized user changes
-                    .col(ColumnDef::new(DiscoursePostRevisions::PreviousUserId).integer())
-                    .col(ColumnDef::new(DiscoursePostRevisions::CurrentUserId).integer())
                     .col(
-                        ColumnDef::new(DiscoursePostRevisions::PreviousHidden)
-                            .boolean()
-                            .not_null(),
+                        ColumnDef::new(DiscoursePostRevisions::RawBodyBefore)
+                            .custom(sea_query::Alias::new("LONGTEXT")),
                     )
                     .col(
-                        ColumnDef::new(DiscoursePostRevisions::CurrentHidden)
-                            .boolean()
-                            .not_null(),
+                        ColumnDef::new(DiscoursePostRevisions::RawBodyAfter)
+                            .custom(sea_query::Alias::new("LONGTEXT")),
                     )
                     .col(
-                        ColumnDef::new(DiscoursePostRevisions::FirstRevision)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscoursePostRevisions::PreviousRevision).integer())
-                    .col(
-                        ColumnDef::new(DiscoursePostRevisions::CurrentRevision)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(DiscoursePostRevisions::NextRevision).integer())
-                    .col(
-                        ColumnDef::new(DiscoursePostRevisions::LastRevision)
-                            .integer()
-                            .not_null(),
+                        ColumnDef::new(DiscoursePostRevisions::RawTitleBefore)
+                            .custom(sea_query::Alias::new("LONGTEXT")),
                     )
                     .col(
-                        ColumnDef::new(DiscoursePostRevisions::CurrentVersion)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(DiscoursePostRevisions::VersionCount)
-                            .integer()
-                            .not_null(),
+                        ColumnDef::new(DiscoursePostRevisions::RawTitleAfter)
+                            .custom(sea_query::Alias::new("LONGTEXT")),
                     )
                     .to_owned(),
             )
@@ -856,7 +689,7 @@ impl MigrationTrait for Migration {
                     .table(DiscoursePostRevisions::Table)
                     .col(DiscoursePostRevisions::Instance)
                     .col(DiscoursePostRevisions::ExternalPostId)
-                    .col(DiscoursePostRevisions::CurrentRevision)
+                    .col(DiscoursePostRevisions::Version)
                     .unique()
                     .to_owned(),
             )
@@ -881,20 +714,15 @@ impl MigrationTrait for Migration {
                             .string_len(100)
                             .not_null(),
                     )
+                    // Simplified fields matching code-of-conduct structure
                     .col(
-                        ColumnDef::new(DiscoursePostLikes::ExternalDiscoursePostId)
+                        ColumnDef::new(DiscoursePostLikes::ExternalPostId)
                             .integer()
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(DiscoursePostLikes::ExternalUserId)
                             .integer()
-                            .not_null(),
-                    )
-                    // Denormalized user data from the API response
-                    .col(
-                        ColumnDef::new(DiscoursePostLikes::Username)
-                            .string()
                             .not_null(),
                     )
                     .col(
@@ -928,7 +756,7 @@ impl MigrationTrait for Migration {
                     .name("fk_likes_post")
                     .from_tbl(DiscoursePostLikes::Table)
                     .from_col(DiscoursePostLikes::Instance)
-                    .from_col(DiscoursePostLikes::ExternalDiscoursePostId)
+                    .from_col(DiscoursePostLikes::ExternalPostId)
                     .to_tbl(DiscoursePosts::Table)
                     .to_col(DiscoursePosts::Instance)
                     .to_col(DiscoursePosts::ExternalId)
@@ -960,7 +788,7 @@ impl MigrationTrait for Migration {
                     .name("ux_likes_instance_post_user")
                     .table(DiscoursePostLikes::Table)
                     .col(DiscoursePostLikes::Instance)
-                    .col(DiscoursePostLikes::ExternalDiscoursePostId)
+                    .col(DiscoursePostLikes::ExternalPostId)
                     .col(DiscoursePostLikes::ExternalUserId)
                     .unique()
                     .to_owned(),
@@ -1033,31 +861,14 @@ enum DiscourseCategories {
     Slug,
     TopicCount,
     PostCount,
-    Position,
     Description,
     DescriptionText,
-    DescriptionExcerpt,
-    TopicUrl,
-    TopicTemplate,
-    HasChildren,
-    SubcategoryCount,
-    SortOrder,
-    NumFeaturedTopics,
-    DefaultView,
-    SubcategoryListStyle,
-    DefaultTopPeriod,
-    DefaultListFilter,
-    MinimumRequiredTags,
     TopicsDay,
     TopicsWeek,
     TopicsMonth,
     TopicsYear,
     TopicsAllTime,
-    UploadedLogo,
-    UploadedLogoDark,
-    UploadedBackground,
-    UploadedBackgroundDark,
-    IsUncategorized,
+    ParentCategoryId,
 }
 
 #[derive(DeriveIden)]
@@ -1090,27 +901,17 @@ enum DiscourseTopics {
     Slug,
     PostsCount,
     ReplyCount,
-    HighestPostNumber,
-    ImageUrl,
     CreatedAt,
     LastPostedAt,
-    Bumped,
     BumpedAt,
-    Archetype,
     Pinned,
-    Unpinned,
+    PinnedGlobally,
     Visible,
     Closed,
     Archived,
-    NotificationLevel,
     Views,
     LikeCount,
-    HasSummary,
-    LastPosterUsername,
-    CategoryId,
-    OpLikeCount,
-    PinnedGlobally,
-    FeaturedLink,
+    ExternalCategoryId,
 }
 
 #[derive(DeriveIden)]
@@ -1121,9 +922,7 @@ enum DiscoursePosts {
     ExternalId,
     Name,
     Username,
-    AvatarTemplate,
     CreatedAt,
-    Cooked,
     PostNumber,
     PostType,
     UpdatedAt,
@@ -1134,7 +933,7 @@ enum DiscoursePosts {
     Reads,
     ReadersCount,
     Score,
-    TopicId,
+    ExternalTopicId,
     TopicSlug,
     DisplayUsername,
     PrimaryGroupName,
@@ -1143,17 +942,9 @@ enum DiscoursePosts {
     FlairBgColor,
     FlairColor,
     Version,
-    UserTitle,
-    Moderator,
-    Admin,
-    Staff,
-    UserId,
-    Hidden,
-    TrustLevel,
-    DeletedAt,
-    UserDeleted,
-    EditReason,
-    Wiki,
+    ExternalUserId,
+    CanViewEditHistory,
+    Deleted,
     Raw,
 }
 
@@ -1163,27 +954,14 @@ enum DiscoursePostRevisions {
     Id,
     Instance,
     ExternalPostId,
+    Version,
     CreatedAt,
     Username,
-    ActingUserName,
-    DisplayUsername,
-    AvatarTemplate,
     EditReason,
-    BodyChanges,
-    TitleChanges,
-    PreviousCategoryId,
-    CurrentCategoryId,
-    PreviousUserId,
-    CurrentUserId,
-    PreviousHidden,
-    CurrentHidden,
-    FirstRevision,
-    PreviousRevision,
-    CurrentRevision,
-    NextRevision,
-    LastRevision,
-    CurrentVersion,
-    VersionCount,
+    RawBodyBefore,
+    RawBodyAfter,
+    RawTitleBefore,
+    RawTitleAfter,
 }
 
 #[derive(DeriveIden)]
@@ -1191,8 +969,7 @@ enum DiscoursePostLikes {
     Table,
     Id,
     Instance,
-    ExternalDiscoursePostId,
+    ExternalPostId,
     ExternalUserId,
-    Username,
     CreatedAt,
 }

@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use entities::*;
-use near_indexer_primitives::{IndexerShard, StreamerMessage};
-use near_primitives::views::StateChangeValueView;
+use near_lake_framework::near_indexer_primitives::{
+    views::{AccessKeyPermissionView, StateChangeCauseView, StateChangeValueView},
+    CryptoHash, IndexerShard, StreamerMessage,
+};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
     Set, TransactionTrait,
@@ -104,22 +106,22 @@ impl AccountsModule {
     /// Extract transaction/receipt hash from state change cause
     fn extract_transaction_context(
         &self,
-        cause: &near_primitives::views::StateChangeCauseView,
+        cause: &StateChangeCauseView,
     ) -> (Option<String>, Option<String>) {
         match cause {
-            near_primitives::views::StateChangeCauseView::TransactionProcessing { tx_hash } => {
+            StateChangeCauseView::TransactionProcessing { tx_hash } => {
                 (Some(tx_hash.to_string()), None)
             }
-            near_primitives::views::StateChangeCauseView::ActionReceiptProcessingStarted {
-                receipt_hash,
-            } => (None, Some(receipt_hash.to_string())),
-            near_primitives::views::StateChangeCauseView::ActionReceiptGasReward {
-                receipt_hash,
-            } => (None, Some(receipt_hash.to_string())),
-            near_primitives::views::StateChangeCauseView::ReceiptProcessing { receipt_hash } => {
+            StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash } => {
                 (None, Some(receipt_hash.to_string()))
             }
-            near_primitives::views::StateChangeCauseView::PostponedReceipt { receipt_hash } => {
+            StateChangeCauseView::ActionReceiptGasReward { receipt_hash } => {
+                (None, Some(receipt_hash.to_string()))
+            }
+            StateChangeCauseView::ReceiptProcessing { receipt_hash } => {
+                (None, Some(receipt_hash.to_string()))
+            }
+            StateChangeCauseView::PostponedReceipt { receipt_hash } => {
                 (None, Some(receipt_hash.to_string()))
             }
             _ => (None, None),
@@ -173,8 +175,7 @@ impl AccountsModule {
                         if is_new_account {
                             let account_type = classify_account(&account_id_str).into();
                             let parent_account = get_parent_account(&account_id_str);
-                            let is_contract =
-                                account.code_hash != near_primitives::hash::CryptoHash::default();
+                            let is_contract = account.code_hash != CryptoHash::default();
 
                             accounts_to_create.insert(
                                 account_id_str.clone(),
@@ -207,8 +208,7 @@ impl AccountsModule {
                         ));
 
                         // Record contract deployment event if code changed
-                        let is_contract =
-                            account.code_hash != near_primitives::hash::CryptoHash::default();
+                        let is_contract = account.code_hash != CryptoHash::default();
                         if is_contract {
                             account_events.push((
                                 account_id_str.clone(),
@@ -267,10 +267,10 @@ impl AccountsModule {
                         }
                         let (permission_type, allowance, receiver_id, method_names) =
                             match &access_key.permission {
-                                near_primitives::views::AccessKeyPermissionView::FullAccess => {
+                                AccessKeyPermissionView::FullAccess => {
                                     ("FullAccess".to_string(), None, None, None)
                                 }
-                                near_primitives::views::AccessKeyPermissionView::FunctionCall {
+                                AccessKeyPermissionView::FunctionCall {
                                     allowance,
                                     receiver_id,
                                     method_names,

@@ -1,4 +1,4 @@
-use crate::domain::users::model::{DirectoryItem, UserProfile};
+use crate::domain::users::model::{DirectoryItem, User, UserProfile};
 use anyhow::Result;
 use entities::discourse_users;
 use rand::Rng;
@@ -39,13 +39,13 @@ pub async fn upsert_user(
         name: Set(u.name.clone()),
         avatar_template: Set(u.avatar_template.clone()),
         title: Set(u.title.clone()),
-        likes_received: Set(item.likes_received),
-        likes_given: Set(item.likes_given),
-        topics_entered: Set(item.topics_entered),
-        topic_count: Set(item.topic_count),
-        post_count: Set(item.post_count),
-        posts_read: Set(item.posts_read),
-        days_visited: Set(item.days_visited),
+        likes_received: Set(item.likes_received.map(|v| v as i64)),
+        likes_given: Set(item.likes_given.map(|v| v as i64)),
+        topics_entered: Set(item.topics_entered.map(|v| v as i64)),
+        topic_count: Set(item.topic_count.map(|v| v as i64)),
+        post_count: Set(item.post_count.map(|v| v as i64)),
+        posts_read: Set(item.posts_read.map(|v| v as i64)),
+        days_visited: Set(item.days_visited.map(|v| v as i64)),
         ..Default::default()
     };
     // Retry on deadlocks to avoid aborting batch runs under contention
@@ -73,21 +73,16 @@ pub async fn upsert_user(
                 ])
                 .to_owned(),
             )
+            .do_nothing()
             .exec(db)
-            .await
-            .or_else(|err| match err {
-                sea_orm::DbErr::RecordNotInserted => {
-                    Ok(sea_orm::InsertResult { last_insert_id: 0 })
-                }
-                _ => Err(err),
-            });
+            .await;
         match res {
             Ok(_) => break,
             Err(e) => {
                 let s = e.to_string();
                 let is_deadlock = s.contains("Deadlock found") || s.contains("errno 1213");
                 if is_deadlock && attempts <= 5 {
-                    let jitter_ms: u64 = rand::thread_rng().gen_range(0..20);
+                    let jitter_ms: u64 = rand::rng().random_range(0..20);
                     tokio::time::sleep(std::time::Duration::from_millis(
                         20 * attempts as u64 + jitter_ms,
                     ))
@@ -121,13 +116,13 @@ pub async fn upsert_user_profile(
         name: Set(profile.name.clone()),
         avatar_template: Set(profile.avatar_template.clone()),
         title: Set(profile.title.clone()),
-        likes_received: Set(0),
-        likes_given: Set(0),
-        topics_entered: Set(0),
-        topic_count: Set(0),
-        post_count: Set(0),
-        posts_read: Set(0),
-        days_visited: Set(0),
+        likes_received: Set(None),
+        likes_given: Set(None),
+        topics_entered: Set(None),
+        topic_count: Set(None),
+        post_count: Set(None),
+        posts_read: Set(None),
+        days_visited: Set(None),
         ..Default::default()
     };
     discourse_users::Entity::insert(am)
@@ -144,12 +139,9 @@ pub async fn upsert_user_profile(
             ])
             .to_owned(),
         )
+        .do_nothing()
         .exec(db)
-        .await
-        .or_else(|err| match err {
-            sea_orm::DbErr::RecordNotInserted => Ok(sea_orm::InsertResult { last_insert_id: 0 }),
-            _ => Err(err),
-        })?;
+        .await?;
     debug!("upserted user profile");
     Ok(())
 }
@@ -166,7 +158,7 @@ pub async fn upsert_user_profiles_bulk(
     // Serialize per-instance writers to users
     let lock = get_user_lock(instance);
     let _guard = lock.lock().await;
-    use rand::{thread_rng, Rng};
+    use rand::{rng, Rng};
     if profiles.is_empty() {
         return Ok(());
     }
@@ -187,13 +179,13 @@ pub async fn upsert_user_profiles_bulk(
                 name: Set(p.name.clone()),
                 avatar_template: Set(p.avatar_template.clone()),
                 title: Set(p.title.clone()),
-                likes_received: Set(0),
-                likes_given: Set(0),
-                topics_entered: Set(0),
-                topic_count: Set(0),
-                post_count: Set(0),
-                posts_read: Set(0),
-                days_visited: Set(0),
+                likes_received: Set(None),
+                likes_given: Set(None),
+                topics_entered: Set(None),
+                topic_count: Set(None),
+                post_count: Set(None),
+                posts_read: Set(None),
+                days_visited: Set(None),
                 ..Default::default()
             })
             .collect();
@@ -216,21 +208,16 @@ pub async fn upsert_user_profiles_bulk(
                     ])
                     .to_owned(),
                 )
+                .do_nothing()
                 .exec(db)
-                .await
-                .or_else(|err| match err {
-                    sea_orm::DbErr::RecordNotInserted => {
-                        Ok(sea_orm::InsertResult { last_insert_id: 0 })
-                    }
-                    _ => Err(err),
-                });
+                .await;
             match res {
                 Ok(_) => break,
                 Err(e) => {
                     let s = e.to_string();
                     let is_deadlock = s.contains("Deadlock found") || s.contains("errno 1213");
                     if is_deadlock && attempts <= 5 {
-                        let sleep_ms: u64 = 20 * attempts as u64 + thread_rng().gen_range(0..20);
+                        let sleep_ms: u64 = 20 * attempts as u64 + rng().random_range(0..20);
                         tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
                         continue;
                     }
@@ -240,5 +227,70 @@ pub async fn upsert_user_profiles_bulk(
         }
     }
     debug!("upserted user profiles batch");
+    Ok(())
+}
+
+/// Bulk upsert simplified User records (for foreign key maintenance)
+#[instrument(skip(db, users), fields(instance = instance, count = users.len()))]
+pub async fn upsert_users_bulk(
+    db: &sea_orm::DatabaseConnection,
+    instance: &str,
+    users: &[User],
+) -> Result<()> {
+    let lock = get_user_lock(instance);
+    let _guard = lock.lock().await;
+
+    if users.is_empty() {
+        return Ok(());
+    }
+
+    let mut uniq = users.to_vec();
+    uniq.sort_by_key(|u| u.id);
+    uniq.dedup_by_key(|u| u.id);
+
+    const CHUNK_SIZE: usize = 200;
+    for chunk in uniq.chunks(CHUNK_SIZE) {
+        let ams: Vec<discourse_users::ActiveModel> = chunk
+            .iter()
+            .map(|u| discourse_users::ActiveModel {
+                instance: Set(instance.to_string()),
+                external_id: Set(u.id),
+                username: Set(u.username.clone()),
+                name: Set(u.name.clone()),
+                avatar_template: Set(u.avatar_template.clone()),
+                title: Set(u.title.clone()),
+                likes_received: Set(None),
+                likes_given: Set(None),
+                topics_entered: Set(None),
+                topic_count: Set(None),
+                post_count: Set(None),
+                posts_read: Set(None),
+                days_visited: Set(None),
+                ..Default::default()
+            })
+            .collect();
+
+        db_core::with_db_retry(|| async {
+            discourse_users::Entity::insert_many(ams.clone())
+                .on_conflict(
+                    OrmOnConflict::columns([
+                        discourse_users::Column::Instance,
+                        discourse_users::Column::ExternalId,
+                    ])
+                    .update_columns([
+                        discourse_users::Column::Username,
+                        discourse_users::Column::Name,
+                        discourse_users::Column::AvatarTemplate,
+                        discourse_users::Column::Title,
+                    ])
+                    .to_owned(),
+                )
+                .do_nothing()
+                .exec(db)
+                .await
+        })
+        .await?;
+    }
+    debug!("upserted simple users batch");
     Ok(())
 }

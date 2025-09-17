@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use base64::Engine;
-use near_primitives::views::ActionView;
+use near_lake_framework::near_indexer_primitives::views::ActionView;
 use serde_json;
 
 use crate::modules::staking_pools::types::{is_staking_method, ActionContext, StakingAction};

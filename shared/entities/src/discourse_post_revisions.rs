@@ -10,28 +10,20 @@ pub struct Model {
     pub id: i64,
     pub instance: String,
     pub external_post_id: i32,
+    pub version: i32,
     pub created_at: DateTimeUtc,
+    #[sea_orm(column_type = "Text")]
     pub username: String,
-    pub acting_user_name: Option<String>,
-    pub display_username: String,
-    pub avatar_template: String,
     #[sea_orm(column_type = "Text", nullable)]
     pub edit_reason: Option<String>,
-    pub body_changes: Option<Json>,
-    pub title_changes: Option<Json>,
-    pub previous_category_id: Option<i32>,
-    pub current_category_id: Option<i32>,
-    pub previous_user_id: Option<i32>,
-    pub current_user_id: Option<i32>,
-    pub previous_hidden: i8,
-    pub current_hidden: i8,
-    pub first_revision: i32,
-    pub previous_revision: Option<i32>,
-    pub current_revision: i32,
-    pub next_revision: Option<i32>,
-    pub last_revision: i32,
-    pub current_version: i32,
-    pub version_count: i32,
+    #[sea_orm(column_type = "custom(\"LONGTEXT\")", nullable)]
+    pub raw_body_before: Option<String>,
+    #[sea_orm(column_type = "custom(\"LONGTEXT\")", nullable)]
+    pub raw_body_after: Option<String>,
+    #[sea_orm(column_type = "custom(\"LONGTEXT\")", nullable)]
+    pub raw_title_before: Option<String>,
+    #[sea_orm(column_type = "custom(\"LONGTEXT\")", nullable)]
+    pub raw_title_after: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

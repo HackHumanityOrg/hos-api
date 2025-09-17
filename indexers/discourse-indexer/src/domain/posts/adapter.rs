@@ -1,4 +1,4 @@
-use crate::domain::http::JsonFetcher;
+use crate::discourse_api::JsonFetcher;
 use crate::domain::posts::model::PostResponse;
 use anyhow::Result;
 use tracing::{debug, instrument};
@@ -9,9 +9,13 @@ pub async fn fetch_posts_page<F: JsonFetcher>(
     topic_id: i32,
     page: u32,
 ) -> Result<PostResponse> {
-    let path = format!("/t/{}.json?include_raw=true&page={}", topic_id, page + 1);
-    let resp: PostResponse = client.get_json(&path).await?;
-    let count = resp.post_stream.posts.len();
-    debug!(posts = count, posts_count = ?resp.posts_count, "fetched posts page");
-    Ok(resp)
+    let path = format!("/t/{}.json?page={}&include_raw=true", topic_id, page);
+    let response: PostResponse = client.get_json(&path).await?;
+    debug!(
+        topic_id,
+        page,
+        count = response.post_stream.posts.len(),
+        "fetched posts page"
+    );
+    Ok(response)
 }

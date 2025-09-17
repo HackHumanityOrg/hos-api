@@ -1,4 +1,4 @@
-use crate::domain::http::JsonFetcher;
+use crate::discourse_api::JsonFetcher;
 use crate::domain::topics::model::TopicResponse;
 use anyhow::Result;
 use tracing::{debug, instrument};
@@ -8,13 +8,14 @@ pub async fn fetch_topics_recent_page<F: JsonFetcher>(
     client: &F,
     page: u32,
 ) -> Result<TopicResponse> {
-    let path = format!("/latest.json?order=activity&page={}", page);
-    let resp: TopicResponse = client.get_json(&path).await?;
+    let path = format!("/latest.json?page={}", page);
+    let response: TopicResponse = client.get_json(&path).await?;
     debug!(
-        topics = resp.topic_list.topics.len(),
+        page,
+        count = response.topic_list.topics.len(),
         "fetched recent topics page"
     );
-    Ok(resp)
+    Ok(response)
 }
 
 #[instrument(skip(client), fields(page = page))]
@@ -23,10 +24,11 @@ pub async fn fetch_topics_created_page<F: JsonFetcher>(
     page: u32,
 ) -> Result<TopicResponse> {
     let path = format!("/latest.json?order=created&ascending=true&page={}", page);
-    let resp: TopicResponse = client.get_json(&path).await?;
+    let response: TopicResponse = client.get_json(&path).await?;
     debug!(
-        topics = resp.topic_list.topics.len(),
-        "fetched created topics page"
+        page,
+        count = response.topic_list.topics.len(),
+        "fetched created topics page (sorted by creation date)"
     );
-    Ok(resp)
+    Ok(response)
 }
