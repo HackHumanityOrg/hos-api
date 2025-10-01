@@ -29,6 +29,10 @@ pub struct Model {
     pub views: i32,
     pub like_count: i32,
     pub external_category_id: i32,
+    pub highest_post_number: i32,
+    pub archetype: String,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub image_url: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

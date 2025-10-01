@@ -25,6 +25,7 @@ pub struct Model {
     pub post_count: Option<i64>,
     pub posts_read: Option<i64>,
     pub days_visited: Option<i64>,
+    pub trust_level: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

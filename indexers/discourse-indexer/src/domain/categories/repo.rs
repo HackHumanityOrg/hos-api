@@ -29,6 +29,8 @@ pub async fn upsert_category(
         topics_year: Set(Some(c.topics_year)),
         topics_all_time: Set(Some(c.topics_all_time)),
         parent_category_id: Set(c.parent_id),
+        position: Set(Some(c.position)),
+        read_restricted: Set(c.read_restricted),
         ..Default::default()
     };
     with_db_retry(|| async {
@@ -53,6 +55,8 @@ pub async fn upsert_category(
                     discourse_categories::Column::TopicsYear,
                     discourse_categories::Column::TopicsAllTime,
                     discourse_categories::Column::ParentCategoryId,
+                    discourse_categories::Column::Position,
+                    discourse_categories::Column::ReadRestricted,
                 ])
                 .to_owned(),
             )

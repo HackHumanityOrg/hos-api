@@ -46,6 +46,7 @@ pub async fn upsert_user(
         post_count: Set(item.post_count.map(|v| v as i64)),
         posts_read: Set(item.posts_read.map(|v| v as i64)),
         days_visited: Set(item.days_visited.map(|v| v as i64)),
+        trust_level: Set(Some(u.trust_level)),
         ..Default::default()
     };
     // Retry on deadlocks to avoid aborting batch runs under contention
@@ -70,6 +71,7 @@ pub async fn upsert_user(
                     discourse_users::Column::PostCount,
                     discourse_users::Column::PostsRead,
                     discourse_users::Column::DaysVisited,
+                    discourse_users::Column::TrustLevel,
                 ])
                 .to_owned(),
             )

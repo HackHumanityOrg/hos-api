@@ -30,6 +30,8 @@ pub struct Model {
     pub topics_year: Option<i32>,
     pub topics_all_time: Option<i32>,
     pub parent_category_id: Option<i32>,
+    pub position: Option<i32>,
+    pub read_restricted: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

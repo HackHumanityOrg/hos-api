@@ -42,6 +42,9 @@ pub async fn upsert_topics_bulk(
                 views: Set(t.views),
                 like_count: Set(t.like_count),
                 external_category_id: Set(t.category_id),
+                highest_post_number: Set(t.highest_post_number),
+                archetype: Set(t.archetype.clone()),
+                image_url: Set(t.image_url.clone()),
                 ..Default::default()
             })
             .collect();
@@ -69,6 +72,9 @@ pub async fn upsert_topics_bulk(
                         discourse_topics::Column::Views,
                         discourse_topics::Column::LikeCount,
                         discourse_topics::Column::ExternalCategoryId,
+                        discourse_topics::Column::HighestPostNumber,
+                        discourse_topics::Column::Archetype,
+                        discourse_topics::Column::ImageUrl,
                     ])
                     .to_owned(),
                 )
