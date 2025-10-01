@@ -27,10 +27,7 @@ pub struct Category {
     pub description_excerpt: Option<String>,
     pub topic_url: Option<String>,
     pub read_restricted: Option<bool>,
-    pub permission: Option<i32>,
     pub notification_level: Option<i32>,
-    #[serde(default)]
-    pub can_edit: Option<bool>,
     pub topic_template: Option<String>,
     #[serde(default)]
     pub has_children: bool,
@@ -56,14 +53,6 @@ pub struct Category {
     pub topics_month: i32,
     pub topics_year: i32,
     pub topics_all_time: i32,
-    #[serde(default, deserialize_with = "opt_string_from_any")]
-    pub uploaded_logo: Option<String>,
-    #[serde(default, deserialize_with = "opt_string_from_any")]
-    pub uploaded_logo_dark: Option<String>,
-    #[serde(default, deserialize_with = "opt_string_from_any")]
-    pub uploaded_background: Option<String>,
-    #[serde(default, deserialize_with = "opt_string_from_any")]
-    pub uploaded_background_dark: Option<String>,
 
     // Optional field that may contain subcategories
     #[serde(default)]
@@ -89,27 +78,5 @@ where
         Value::Bool(b) => Ok(Some(b.to_string())),
         Value::Null => Ok(None),
         _ => Ok(Some(value.to_string())),
-    }
-}
-
-fn opt_string_from_any<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::Deserialize;
-    use serde_json::Value;
-
-    let value = Value::deserialize(deserializer)?;
-    match value {
-        // Already a string
-        Value::String(s) => Ok(Some(s)),
-        Value::Null => Ok(None),
-        // If the API returns an object with a `url` field, extract that string
-        Value::Object(map) => match map.get("url") {
-            Some(Value::String(u)) => Ok(Some(u.clone())),
-            _ => Ok(None),
-        },
-        // Numbers, arrays, bools: ignore
-        _ => Ok(None),
     }
 }

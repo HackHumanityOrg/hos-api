@@ -1,5 +1,4 @@
 use anyhow::Result;
-use chrono::Timelike;
 use discourse_indexer::domain::categories;
 use discourse_indexer::domain::instances;
 use discourse_indexer::domain::topics::{adapter, repo};
@@ -14,8 +13,8 @@ use support::FixtureFetcher;
 
 const INSTANCE_KEY: &str = "meta";
 const INSTANCE_URL: &str = "https://meta.discourse.org";
-const RECENT_TOPIC_ID: i32 = 382831;
-const RECENT_TOPIC_SLUG: &str = "ios-26-bugs-with-fixed-position-elements-in-discourse";
+const RECENT_TOPIC_ID: i32 = 1;
+const RECENT_TOPIC_SLUG: &str = "new-to-discourse-start-here";
 
 #[tokio::test]
 async fn fetch_topics_recent_page_parses_fixture() -> Result<()> {
@@ -85,22 +84,10 @@ async fn topics_upsert_checks_all_columns() -> Result<()> {
         assert_eq!(row.slug, src.slug);
         assert_eq!(row.posts_count, src.posts_count);
         assert_eq!(row.reply_count, src.reply_count);
-        let expected_created = (src.created_at + chrono::Duration::nanoseconds(500_000_000))
-            .with_nanosecond(0)
-            .expect("rounded created_at")
-            .naive_utc();
-        let expected_last_posted = (src.last_posted_at
-            + chrono::Duration::nanoseconds(500_000_000))
-        .with_nanosecond(0)
-        .expect("rounded last_posted_at")
-        .naive_utc();
-        let expected_bumped = (src.bumped_at + chrono::Duration::nanoseconds(500_000_000))
-            .with_nanosecond(0)
-            .expect("rounded bumped_at")
-            .naive_utc();
-        assert_eq!(row.created_at, expected_created);
-        assert_eq!(row.last_posted_at, expected_last_posted);
-        assert_eq!(row.bumped_at, expected_bumped);
+        // API provides millisecond precision, which round-trips perfectly through Postgres (microsecond precision)
+        assert_eq!(row.created_at, src.created_at.naive_utc());
+        assert_eq!(row.last_posted_at, src.last_posted_at.naive_utc());
+        assert_eq!(row.bumped_at, src.bumped_at.naive_utc());
         assert_eq!(row.pinned, src.pinned.unwrap_or(false));
         assert_eq!(row.pinned_globally, src.pinned_globally.unwrap_or(false));
         assert_eq!(row.visible, src.visible.unwrap_or(true));

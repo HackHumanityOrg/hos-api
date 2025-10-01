@@ -1,5 +1,4 @@
 use anyhow::Result;
-use chrono::Timelike;
 use discourse_indexer::domain::categories;
 use discourse_indexer::domain::instances;
 use discourse_indexer::domain::posts;
@@ -124,12 +123,9 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
 
     assert_eq!(stored.instance, INSTANCE_KEY);
     assert_eq!(stored.external_post_id, 326680);
-    let expected_created = (revision.created_at + chrono::Duration::nanoseconds(500_000_000))
-        .with_nanosecond(0)
-        .expect("rounded revision timestamp")
-        .naive_utc();
     assert_eq!(stored.version, revision.current_version);
-    assert_eq!(stored.created_at, expected_created);
+    // API provides millisecond precision, which round-trips perfectly through Postgres (microsecond precision)
+    assert_eq!(stored.created_at, revision.created_at.naive_utc());
     assert_eq!(stored.username, revision.username);
     assert_eq!(
         stored.edit_reason.as_deref(),

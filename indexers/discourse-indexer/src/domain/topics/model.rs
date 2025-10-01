@@ -14,7 +14,6 @@ pub struct TopicList {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Topic {
-    // Fields from OpenAPI spec for /latest.json
     pub id: i32,
     pub title: String,
     pub fancy_title: Option<String>,
@@ -31,25 +30,16 @@ pub struct Topic {
     #[serde(with = "date_format")]
     pub bumped_at: DateTime<Utc>,
     pub archetype: String,
-    pub unseen: Option<bool>,
-    pub last_read_post_number: Option<i32>,
-    pub unread_posts: Option<i32>,
     pub pinned: Option<bool>,
-    pub unpinned: Option<String>,
     pub visible: Option<bool>,
     pub closed: Option<bool>,
     pub archived: Option<bool>,
-    pub notification_level: Option<i32>,
-    pub bookmarked: Option<bool>,
-    pub liked: Option<bool>,
     pub views: i32,
     pub like_count: i32,
     pub has_summary: Option<bool>,
     pub last_poster_username: Option<String>,
     pub category_id: i32,
-    pub op_like_count: Option<i32>,
     pub pinned_globally: Option<bool>,
-    pub featured_link: Option<String>,
 }
 
 mod date_format {

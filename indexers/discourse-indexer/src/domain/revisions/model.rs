@@ -41,8 +41,6 @@ pub struct Revision {
     pub edit_reason: Option<String>,
     pub body_changes: BodyChanges,
     pub title_changes: Option<TitleChanges>,
-    #[serde(default)]
-    pub can_edit: bool,
 }
 
 impl Revision {
