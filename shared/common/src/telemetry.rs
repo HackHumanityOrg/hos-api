@@ -20,7 +20,11 @@ use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_VERSION
 use std::time::Duration;
 use tracing::info;
 use tracing_opentelemetry::OpenTelemetryLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing_subscriber::{
+    layer::{Layer, SubscriberExt},
+    util::SubscriberInitExt,
+    EnvFilter, Registry,
+};
 
 /// Telemetry setup combining config.toml settings with environment secrets
 pub struct TelemetrySetup {
@@ -34,6 +38,8 @@ pub struct TelemetrySetup {
     pub auth_token: Option<String>,
     /// Log level filter
     pub log_level: String,
+    /// Preferred log formatting ("json" to emit structured logs, anything else pretty)
+    pub log_format: Option<String>,
 }
 
 impl TelemetrySetup {
@@ -42,6 +48,7 @@ impl TelemetrySetup {
         service_name: &str,
         config: &ConfigTelemetry,
         log_level: &str,
+        log_format: Option<&str>,
     ) -> Result<Self> {
         // Only check for Dash0 credentials if telemetry is enabled
         let (otlp_endpoint, auth_token) = if config.enabled {
@@ -67,6 +74,7 @@ impl TelemetrySetup {
             otlp_endpoint,
             auth_token,
             log_level: log_level.to_string(),
+            log_format: log_format.map(|s| s.to_string()),
         })
     }
 
@@ -104,7 +112,7 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
     if !setup.is_dash0_available() {
         // Fallback to simple tracing without OpenTelemetry
         info!("Initializing basic tracing (Dash0 not configured)");
-        init_basic_tracing(&setup.log_level)?;
+        init_basic_tracing(&setup.log_level, setup.log_format.as_deref())?;
         return Ok(TelemetryGuard {
             _meter_provider: None,
         });
@@ -186,7 +194,8 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
     };
 
     // Setup enhanced log filtering to exclude noisy infrastructure logs
-    let env_filter = EnvFilter::try_new(&setup.log_level)
+    let base_log_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| setup.log_level.clone());
+    let env_filter = EnvFilter::try_new(base_log_filter)
         .context("Invalid log level filter")?
         // Filter out noisy HTTP connection pool debug logs
         .add_directive("hyper_util::client::legacy::pool=info".parse()?)
@@ -212,11 +221,7 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
         .add_directive(format!("api={}", setup.log_level).parse()?)
         .add_directive(format!("common={}", setup.log_level).parse()?)
         .add_directive(format!("db_core={}", setup.log_level).parse()?);
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_thread_names(true)
-        .json();
+    let fmt_layer = build_fmt_layer(setup.log_format.as_deref());
 
     // Build the subscriber with all layers
     if let Some(provider) = &tracer_provider {
@@ -228,8 +233,8 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
             let log_layer = OpenTelemetryTracingBridge::new(logger_provider);
 
             let subscriber = Registry::default()
-                .with(env_filter)
                 .with(fmt_layer)
+                .with(env_filter)
                 .with(telemetry_layer)
                 .with(log_layer);
             subscriber
@@ -237,15 +242,15 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
                 .context("Failed to initialize tracing subscriber")?;
         } else {
             let subscriber = Registry::default()
-                .with(env_filter)
                 .with(fmt_layer)
+                .with(env_filter)
                 .with(telemetry_layer);
             subscriber
                 .try_init()
                 .context("Failed to initialize tracing subscriber")?;
         }
     } else {
-        let subscriber = Registry::default().with(env_filter).with(fmt_layer);
+        let subscriber = Registry::default().with(fmt_layer).with(env_filter);
         subscriber
             .try_init()
             .context("Failed to initialize tracing subscriber")?;
@@ -259,25 +264,40 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
 }
 
 /// Initialize basic tracing without OpenTelemetry
-pub fn init_basic_tracing(log_level: &str) -> Result<()> {
-    let env_filter = EnvFilter::try_new(log_level)
+pub fn init_basic_tracing(log_level: &str, log_format: Option<&str>) -> Result<()> {
+    let base_log_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| log_level.to_string());
+    let env_filter = EnvFilter::try_new(base_log_filter)
         .context("Invalid log level filter")?
         // Reduce other potentially noisy logs
         .add_directive("tokio_util=info".parse()?)
         .add_directive("tower=info".parse()?)
         .add_directive("h2=info".parse()?);
 
-    let subscriber = Registry::default().with(env_filter).with(
-        tracing_subscriber::fmt::layer()
-            .with_target(true)
-            .with_thread_ids(false)
-            .with_thread_names(false),
-    );
+    let fmt_layer = build_fmt_layer(log_format);
+    let subscriber = Registry::default().with(fmt_layer).with(env_filter);
 
     subscriber
         .try_init()
         .context("Failed to initialize tracing subscriber")?;
     Ok(())
+}
+
+fn build_fmt_layer(log_format: Option<&str>) -> Box<dyn Layer<Registry> + Send + Sync + 'static> {
+    match log_format.map(|s| s.to_ascii_lowercase()) {
+        Some(ref fmt) if fmt == "json" => Box::new(
+            tracing_subscriber::fmt::layer()
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+                .json(),
+        ),
+        _ => Box::new(
+            tracing_subscriber::fmt::layer()
+                .with_target(true)
+                .with_thread_ids(false)
+                .with_thread_names(false),
+        ),
+    }
 }
 
 /// Initialize OpenTelemetry tracer

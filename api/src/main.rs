@@ -31,9 +31,13 @@ async fn main() -> Result<()> {
     let config = AppConfig::load_api().context("Failed to load configuration")?;
 
     // Initialize telemetry (Dash0 if configured, basic tracing otherwise)
-    let telemetry_setup =
-        TelemetrySetup::from_config("api", config.telemetry(), &config.logging().level)
-            .context("Failed to create telemetry setup")?;
+    let telemetry_setup = TelemetrySetup::from_config(
+        "api",
+        config.telemetry(),
+        &config.logging().level,
+        config.logging().format.as_deref(),
+    )
+    .context("Failed to create telemetry setup")?;
 
     let _telemetry_guard =
         telemetry::init_telemetry(telemetry_setup).context("Failed to initialize telemetry")?;

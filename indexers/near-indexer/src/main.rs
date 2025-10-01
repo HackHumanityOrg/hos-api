@@ -16,8 +16,12 @@ async fn main() -> Result<()> {
     let config =
         AppConfig::load_indexer("near-indexer").context("Failed to load indexer config")?;
 
-    let telemetry_setup =
-        TelemetrySetup::from_config("near-indexer", config.telemetry(), &config.logging().level)?;
+    let telemetry_setup = TelemetrySetup::from_config(
+        "near-indexer",
+        config.telemetry(),
+        &config.logging().level,
+        config.logging().format.as_deref(),
+    )?;
     let _guard = telemetry::init_telemetry(telemetry_setup)?;
 
     info!(

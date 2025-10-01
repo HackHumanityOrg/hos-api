@@ -24,6 +24,7 @@ async fn main() -> Result<()> {
         "discourse-indexer",
         config.telemetry(),
         &config.logging().level,
+        config.logging().format.as_deref(),
     )
     .context("Failed to create telemetry setup")?;
 

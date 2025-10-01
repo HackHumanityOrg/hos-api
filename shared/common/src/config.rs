@@ -237,9 +237,6 @@ pub struct NearLakeConfig {
     /// If not set, the indexer will default to a conservative small value.
     #[serde(default)]
     pub preload_pool_size: Option<usize>,
-    /// Optional AWS region override (e.g., eu-central-1). Typically use AWS_REGION env.
-    #[serde(default)]
-    pub region: Option<String>,
     /// Module-specific configurations
     #[serde(default)]
     pub modules: Option<NearModulesConfig>,
@@ -323,8 +320,6 @@ impl ToLog for NearLakeConfig {
             "start_height": self.start_height,
             "concurrency": self.concurrency,
             "preload_pool_size": self.preload_pool_size,
-            // do not include region if using env; but it's not secret either
-            "region": self.region,
             "modules": self.modules.as_ref().map(|m| m.to_log()),
         })
     }
@@ -609,9 +604,11 @@ impl ConfigLoader<ApiConfig> {
         let mut config = self.load()?;
 
         // Load DATABASE_URL from environment
-        if let Ok(database_url) = std::env::var("DATABASE_URL") {
-            config.database.url = database_url;
-        }
+        let database_url =
+            std::env::var("DATABASE_URL").map_err(|_| ConfigError::MissingEnvVar {
+                var_name: "DATABASE_URL".to_string(),
+            })?;
+        config.database.url = database_url;
 
         // Load PORT from environment (Railway requires this for proper health checks)
         if let Ok(port_str) = std::env::var("PORT") {
@@ -631,9 +628,11 @@ impl ConfigLoader<IndexerConfig> {
         let mut config = self.load()?;
 
         // Load DATABASE_URL from environment
-        if let Ok(database_url) = std::env::var("DATABASE_URL") {
-            config.database.url = database_url;
-        }
+        let database_url =
+            std::env::var("DATABASE_URL").map_err(|_| ConfigError::MissingEnvVar {
+                var_name: "DATABASE_URL".to_string(),
+            })?;
+        config.database.url = database_url;
 
         Ok(config)
     }

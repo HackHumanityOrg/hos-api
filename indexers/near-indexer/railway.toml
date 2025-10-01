@@ -16,5 +16,3 @@ restartPolicyMaxRetries = 5
 
 [deploy.env]
 RUST_LOG = "debug"
-INDEXER_NAME = "near-indexer"
-

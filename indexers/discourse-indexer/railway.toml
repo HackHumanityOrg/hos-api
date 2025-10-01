@@ -17,4 +17,3 @@ restartPolicyMaxRetries = 5
 # Railway environment configuration
 [deploy.env]
 RUST_LOG = "debug"
-INDEXER_NAME = "discourse-indexer"
