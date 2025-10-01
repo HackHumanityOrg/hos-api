@@ -8,7 +8,9 @@ use anyhow::{Context, Result};
 use opentelemetry::trace::TracerProvider; // bring trait into scope for .tracer()
 use opentelemetry::{global, KeyValue};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_otlp::{LogExporter, MetricExporter, Protocol, SpanExporter, WithExportConfig};
+use opentelemetry_otlp::{
+    LogExporter, MetricExporter, Protocol, SpanExporter, WithExportConfig, WithHttpConfig,
+};
 use opentelemetry_sdk::{
     logs::{BatchLogProcessor, SdkLoggerProvider},
     metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider},
@@ -322,8 +324,15 @@ fn init_tracer(
         endpoint_url
     );
 
+    // Create HTTP client for OTLP exporter
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .context("Failed to create HTTP client")?;
+
     let exporter = SpanExporter::builder()
         .with_http()
+        .with_http_client(http_client.clone())
         .with_endpoint(endpoint_url)
         .with_protocol(Protocol::HttpJson) // Use JSON like your working curl example
         .with_timeout(Duration::from_secs(30))
@@ -382,8 +391,15 @@ fn init_metrics(
         endpoint_url
     );
 
+    // Create HTTP client for OTLP exporter
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .context("Failed to create HTTP client")?;
+
     let exporter = MetricExporter::builder()
         .with_http()
+        .with_http_client(http_client)
         .with_endpoint(endpoint_url)
         .with_protocol(Protocol::HttpJson) // Use JSON like your working curl example
         .with_timeout(Duration::from_secs(30))
@@ -434,8 +450,15 @@ fn init_logger(
     let endpoint_url = format!("{}/v1/logs", endpoint);
     info!("Configuring logs exporter with endpoint: {}", endpoint_url);
 
+    // Create HTTP client for OTLP exporter
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .context("Failed to create HTTP client")?;
+
     let exporter = LogExporter::builder()
         .with_http()
+        .with_http_client(http_client)
         .with_endpoint(endpoint_url)
         .with_protocol(Protocol::HttpJson) // Use JSON like your working curl example
         .with_timeout(Duration::from_secs(30))
