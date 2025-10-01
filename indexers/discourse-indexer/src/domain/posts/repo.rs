@@ -4,7 +4,7 @@ use crate::domain::users::repo::upsert_users_bulk;
 use anyhow::Result;
 use chrono::Timelike;
 use db_core::with_db_retry;
-use entities::discourse_posts;
+use entities::discourse::discourse_posts;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
 use tracing::{debug, instrument};
@@ -58,11 +58,13 @@ pub async fn upsert_posts_bulk(
                 created_at: Set(p
                     .created_at
                     .with_nanosecond(0)
-                    .expect("valid created_at timestamp")),
+                    .expect("valid created_at timestamp")
+                    .naive_utc()),
                 updated_at: Set(p
                     .updated_at
                     .with_nanosecond(0)
-                    .expect("valid updated_at timestamp")),
+                    .expect("valid updated_at timestamp")
+                    .naive_utc()),
                 instance: Set(instance.to_string()),
                 external_id: Set(p.id),
                 name: Set(p.name.clone()),
@@ -87,8 +89,8 @@ pub async fn upsert_posts_bulk(
                 flair_color: Set(p.flair_color.clone()),
                 version: Set(p.version),
                 external_user_id: Set(p.user_id),
-                can_view_edit_history: Set(if p.can_view_edit_history { 1 } else { 0 }),
-                deleted: Set(if p.deleted { 1 } else { 0 }),
+                can_view_edit_history: Set(p.can_view_edit_history),
+                deleted: Set(p.deleted),
                 ..Default::default()
             })
             .collect();

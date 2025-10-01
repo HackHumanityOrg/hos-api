@@ -63,7 +63,7 @@ pub async fn fetch_user_by_username<F: JsonFetcher>(
     username: &str,
     user_id: i32,
 ) -> Result<()> {
-    use entities::{discourse_users, prelude::*};
+    use entities::{discourse::discourse_users, prelude::*};
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
     // First check if user already exists in database

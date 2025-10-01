@@ -206,7 +206,7 @@ mod services_helpers {
             topics_processed += resp.topic_list.topics.len() as u32;
 
             // Log progress every 10 pages
-            if pages_fetched % 10 == 0 {
+            if pages_fetched.is_multiple_of(10) {
                 info!(
                     pages_fetched = pages_fetched,
                     topics_processed = topics_processed,

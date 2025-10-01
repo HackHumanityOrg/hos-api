@@ -1,7 +1,7 @@
 use crate::domain::categories::model::Category;
 use anyhow::Result;
 use db_core::with_db_retry;
-use entities::discourse_categories;
+use entities::discourse::discourse_categories;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
 use tracing::{debug, instrument};

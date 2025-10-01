@@ -16,7 +16,7 @@ pub fn build_router_with_state(db: Option<Arc<DatabaseConnection>>) -> Router {
         .with_state(state)
 }
 
-/// Provision a disposable MySQL instance and router for e2e tests
+/// Provision a disposable PostgreSQL instance and router for e2e tests
 pub async fn router_with_database() -> (Router, TestDatabase) {
     init_test_tracing();
     let database = TestDatabase::new().await;

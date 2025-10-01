@@ -26,7 +26,9 @@ pub async fn initialize_cursor_storage(db: &DatabaseConnection) -> Result<()> {
     info!("Initializing cursor storage from database");
 
     // Load all cursors from database
-    let all_cursors = entities::near_sync_cursors::Entity::find().all(db).await?;
+    let all_cursors = entities::near::near_sync_cursors::Entity::find()
+        .all(db)
+        .await?;
 
     let cursors = get_cursors();
     let mut cursor_map = cursors.write().unwrap();
@@ -143,24 +145,26 @@ where
 
     // Write to database
     let stream_name = format!("near-indexer:{}", module_name);
-    entities::near_sync_cursors::Entity::insert(entities::near_sync_cursors::ActiveModel {
-        module_name: Set(stream_name),
-        last_processed_height: Set(height),
-        updated_at: NotSet,
-    })
+    entities::near::near_sync_cursors::Entity::insert(
+        entities::near::near_sync_cursors::ActiveModel {
+            module_name: Set(stream_name),
+            last_processed_height: Set(height),
+            updated_at: NotSet,
+        },
+    )
     .on_conflict(
-        OnConflict::column(entities::near_sync_cursors::Column::ModuleName)
+        OnConflict::column(entities::near::near_sync_cursors::Column::ModuleName)
             .update_columns([
-                entities::near_sync_cursors::Column::LastProcessedHeight,
-                entities::near_sync_cursors::Column::UpdatedAt,
+                entities::near::near_sync_cursors::Column::LastProcessedHeight,
+                entities::near::near_sync_cursors::Column::UpdatedAt,
             ])
             .values([
                 (
-                    entities::near_sync_cursors::Column::LastProcessedHeight,
+                    entities::near::near_sync_cursors::Column::LastProcessedHeight,
                     Expr::value(height),
                 ),
                 (
-                    entities::near_sync_cursors::Column::UpdatedAt,
+                    entities::near::near_sync_cursors::Column::UpdatedAt,
                     Expr::current_timestamp().into(),
                 ),
             ])

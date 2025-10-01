@@ -5,7 +5,8 @@ use discourse_indexer::domain::instances;
 use discourse_indexer::domain::posts::{adapter, repo};
 use discourse_indexer::domain::topics::{self, model::Topic};
 use entities::{
-    discourse_posts, discourse_users, prelude::DiscoursePosts, prelude::DiscourseUsers,
+    discourse::discourse_posts, discourse::discourse_users, prelude::DiscoursePosts,
+    prelude::DiscourseUsers,
 };
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use std::collections::{BTreeSet, HashMap};
@@ -100,11 +101,13 @@ async fn posts_upsert_checks_every_column() -> Result<()> {
         let expected_created = src
             .created_at
             .with_nanosecond(0)
-            .expect("valid created_at timestamp");
+            .expect("valid created_at timestamp")
+            .naive_utc();
         let expected_updated = src
             .updated_at
             .with_nanosecond(0)
-            .expect("valid updated_at timestamp");
+            .expect("valid updated_at timestamp")
+            .naive_utc();
         assert_eq!(row.created_at, expected_created);
         assert_eq!(row.post_number, src.post_number);
         assert_eq!(row.post_type, src.post_type);
@@ -138,11 +141,8 @@ async fn posts_upsert_checks_every_column() -> Result<()> {
         assert_eq!(row.flair_color.as_deref(), src.flair_color.as_deref());
         assert_eq!(row.version, src.version);
         assert_eq!(row.external_user_id, src.user_id);
-        assert_eq!(
-            row.can_view_edit_history,
-            if src.can_view_edit_history { 1 } else { 0 }
-        );
-        assert_eq!(row.deleted, if src.deleted { 1 } else { 0 });
+        assert_eq!(row.can_view_edit_history, src.can_view_edit_history);
+        assert_eq!(row.deleted, src.deleted);
         assert_eq!(row.raw.as_deref(), src.raw.as_deref());
     }
 

@@ -1,10 +1,7 @@
 pub use sea_orm_migration::prelude::*;
 
-mod m20250902_000001_create_discourse_tables;
-mod m20250904_000002_near_raw_data;
-mod m20250909_000004_near_account_tables;
-mod m20250910_000001_near_token_tables;
-mod m20250911_000001_near_staking_pools;
+mod m20251001_000001_discourse_schema;
+mod m20251001_000002_near_schema;
 
 pub struct Migrator;
 
@@ -12,11 +9,8 @@ pub struct Migrator;
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         vec![
-            Box::new(m20250902_000001_create_discourse_tables::Migration),
-            Box::new(m20250904_000002_near_raw_data::Migration),
-            Box::new(m20250909_000004_near_account_tables::Migration),
-            Box::new(m20250910_000001_near_token_tables::Migration),
-            Box::new(m20250911_000001_near_staking_pools::Migration),
+            Box::new(m20251001_000001_discourse_schema::Migration),
+            Box::new(m20251001_000002_near_schema::Migration),
         ]
     }
 }

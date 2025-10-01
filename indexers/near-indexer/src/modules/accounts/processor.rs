@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use entities::*;
+use entities::near::*;
 use near_lake_framework::near_indexer_primitives::{
     views::{AccessKeyPermissionView, StateChangeCauseView, StateChangeValueView},
     CryptoHash, IndexerShard, StreamerMessage,
@@ -390,7 +390,7 @@ impl AccountsModule {
                 deleted_at_height: Set(None),
                 deleted_at_timestamp: Set(None),
                 parent_account_id: Set(parent_account),
-                is_contract: Set(if is_contract { 1 } else { 0 }),
+                is_contract: Set(is_contract),
             };
             account_records.push(account_record);
         }
@@ -561,7 +561,7 @@ impl AccountsModule {
                 nonce: Set(key_data.nonce),
                 created_at_height: Set(key_data.block_height),
                 deleted_at_height: Set(None),
-                is_active: Set(1),
+                is_active: Set(true),
             };
 
             new_key
@@ -596,7 +596,7 @@ impl AccountsModule {
         {
             let mut access_key: near_access_keys::ActiveModel = access_key.into();
             access_key.deleted_at_height = Set(Some(block_height));
-            access_key.is_active = Set(0);
+            access_key.is_active = Set(false);
 
             access_key
                 .update(db)

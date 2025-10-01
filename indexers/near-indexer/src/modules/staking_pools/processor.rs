@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use entities::*;
+use entities::near::*;
 use near_lake_framework::near_indexer_primitives::{
     views::{
         validator_stake_view::ValidatorStakeView, ActionView, BlockView, ReceiptEnumView,
@@ -504,7 +504,7 @@ impl StakingPoolsModule {
             detected_method: Set(detection_method.as_str().to_string()),
             first_seen_height: Set(block_height),
             last_activity_height: Set(block_height),
-            is_active: Set(1), // MySQL boolean as tinyint
+            is_active: Set(true),
             metadata: Set(None),
         };
 
@@ -579,7 +579,7 @@ impl StakingPoolsModule {
                     receipt_id: Set(receipt_id),
                     block_height: Set(block_height as i64),
                     timestamp: Set(timestamp),
-                    success: Set(success.map(|b| if b { 1 } else { 0 })), // MySQL boolean as tinyint
+                    success: Set(success),
                     action_type: Set(Some(action_type.to_string())),
                     amount: Set(amount),
                 };

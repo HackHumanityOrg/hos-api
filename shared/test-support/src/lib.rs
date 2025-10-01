@@ -2,11 +2,11 @@ use migration::{sea_orm, Migrator, MigratorTrait};
 use sea_orm::DatabaseConnection;
 use std::sync::{Arc, Once};
 use testcontainers::{runners::AsyncRunner, ContainerAsync, ImageExt};
-use testcontainers_modules::mysql::Mysql;
+use testcontainers_modules::postgres::Postgres;
 
 pub struct TestDatabase {
     pub connection: Arc<DatabaseConnection>,
-    pub _container: ContainerAsync<Mysql>,
+    pub _container: ContainerAsync<Postgres>,
 }
 
 impl TestDatabase {
@@ -20,19 +20,18 @@ impl TestDatabase {
         .await
     }
 
-    pub async fn new_with(db: &str, user: &str, pass: &str, root: &str) -> Self {
-        let mysql_container = Mysql::default()
-            .with_env_var("MYSQL_DATABASE", db)
-            .with_env_var("MYSQL_USER", user)
-            .with_env_var("MYSQL_PASSWORD", pass)
-            .with_env_var("MYSQL_ROOT_PASSWORD", root)
+    pub async fn new_with(db: &str, user: &str, pass: &str, _root: &str) -> Self {
+        let postgres_container = Postgres::default()
+            .with_env_var("POSTGRES_DB", db)
+            .with_env_var("POSTGRES_USER", user)
+            .with_env_var("POSTGRES_PASSWORD", pass)
             .start()
             .await
-            .expect("Failed to start MySQL container");
+            .expect("Failed to start Postgres container");
 
         let mut port: Option<u16> = None;
         for _ in 0..20u32 {
-            match mysql_container.get_host_port_ipv4(3306).await {
+            match postgres_container.get_host_port_ipv4(5432).await {
                 Ok(p) => {
                     port = Some(p);
                     break;
@@ -40,9 +39,9 @@ impl TestDatabase {
                 Err(_) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
             }
         }
-        let port = port.expect("Failed to get MySQL port");
+        let port = port.expect("Failed to get Postgres port");
 
-        let database_url = format!("mysql://{}:{}@127.0.0.1:{}/{}", user, pass, port, db);
+        let database_url = format!("postgres://{}:{}@127.0.0.1:{}/{}", user, pass, port, db);
         let connection = Self::connect_with_retry(&database_url, 20).await;
 
         // Run migrations with a brief retry path for transient startup
@@ -55,7 +54,7 @@ impl TestDatabase {
 
         Self {
             connection: Arc::new(connection),
-            _container: mysql_container,
+            _container: postgres_container,
         }
     }
 

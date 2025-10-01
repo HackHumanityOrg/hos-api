@@ -1,7 +1,7 @@
 use anyhow::Result;
 use discourse_indexer::domain::categories::{adapter, repo};
 use discourse_indexer::domain::instances;
-use entities::{discourse_categories, prelude::DiscourseCategories};
+use entities::{discourse::discourse_categories, prelude::DiscourseCategories};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use std::collections::HashMap;
 use test_support::{init_test_tracing, TestDatabase};

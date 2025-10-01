@@ -39,7 +39,7 @@ pub async fn health_check(
             // Simple health check query
             match db
                 .execute(Statement::from_string(
-                    DatabaseBackend::MySql,
+                    DatabaseBackend::Postgres,
                     "SELECT 1".to_string(),
                 ))
                 .await

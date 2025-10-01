@@ -17,7 +17,11 @@ migrate-generate = [
 ]
 
 # Entity generation using cargo-run-bin
-generate-entities = "bin sea-orm-cli generate entity -o shared/entities/src --lib --with-serde both"
+# Generate entities from both schemas
+# Note: --max-connections helps avoid pool timeouts on large schemas
+generate-entities-discourse = "bin sea-orm-cli generate entity -s discourse -o shared/entities/src/discourse --with-serde both --max-connections 3"
+generate-entities-near = "bin sea-orm-cli generate entity -s near -o shared/entities/src/near --with-serde both --max-connections 5"
+generate-entities = ["generate-entities-discourse", "generate-entities-near"]
 
 # Development shortcuts
 check-all = "check --workspace"

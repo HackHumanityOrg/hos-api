@@ -4,7 +4,7 @@ use crate::domain::users::repo::upsert_users_bulk;
 use anyhow::Result;
 use chrono::{Timelike, Utc};
 use db_core::with_db_retry;
-use entities::discourse_post_likes;
+use entities::discourse::discourse_post_likes;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
 use tracing::{debug, instrument};
@@ -45,8 +45,11 @@ pub async fn upsert_post_likes_batch(
         profiles.dedup_by_key(|p| p.id);
         upsert_users_bulk(db, instance, &profiles).await?;
     }
-    // Column precision is seconds; ensure our value matches MySQL storage semantics
-    let now = Utc::now().with_nanosecond(0).expect("valid UTC timestamp");
+    // Column precision is seconds; ensure our value matches PostgreSQL storage semantics
+    let now = Utc::now()
+        .with_nanosecond(0)
+        .expect("valid UTC timestamp")
+        .naive_utc();
     // Normalize order to reduce deadlocks and chunk the writes
     let mut users = likes.to_vec();
     users.sort_by_key(|u| u.id);

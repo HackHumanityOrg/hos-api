@@ -6,8 +6,8 @@ use discourse_indexer::domain::likes::{adapter, repo};
 use discourse_indexer::domain::posts;
 use discourse_indexer::domain::topics::{self, model::Topic};
 use entities::{
-    discourse_post_likes, discourse_posts, discourse_users, prelude::DiscoursePostLikes,
-    prelude::DiscoursePosts, prelude::DiscourseUsers,
+    discourse::discourse_post_likes, discourse::discourse_posts, discourse::discourse_users,
+    prelude::DiscoursePostLikes, prelude::DiscoursePosts, prelude::DiscourseUsers,
 };
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use std::collections::HashMap;
@@ -84,9 +84,15 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
     )])?;
     let likes = adapter::fetch_post_likes(&likes_fetcher, POST_ID).await?;
 
-    let before = Utc::now().with_nanosecond(0).expect("valid UTC timestamp");
+    let before = Utc::now()
+        .with_nanosecond(0)
+        .expect("valid UTC timestamp")
+        .naive_utc();
     repo::upsert_post_likes_batch(conn.as_ref(), INSTANCE_KEY, POST_ID, &likes).await?;
-    let after = Utc::now().with_nanosecond(0).expect("valid UTC timestamp");
+    let after = Utc::now()
+        .with_nanosecond(0)
+        .expect("valid UTC timestamp")
+        .naive_utc();
 
     let stored_likes = DiscoursePostLikes::find()
         .filter(discourse_post_likes::Column::Instance.eq(INSTANCE_KEY))

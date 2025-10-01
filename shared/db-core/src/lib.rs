@@ -1,6 +1,6 @@
 //! Database connection management utilities
 //!
-//! This crate provides database connection management for PlanetScale MySQL
+//! This crate provides database connection management for PlanetScale Postgres
 //! with SSL/TLS support. Use sea-orm-cli for migrations and SeaORM's built-in
 //! transaction methods directly.
 

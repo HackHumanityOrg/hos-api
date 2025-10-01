@@ -7,7 +7,7 @@ A high-performance Rust monorepo for data indexing and API services built with m
 - **API Server** - REST API with OpenAPI/Swagger documentation
 - **Indexers** - Parallel data processing services  
 - **Shared Libraries** - Database, configuration, utilities, and telemetry
-- **Migrations** - SeaORM-powered MySQL/PlanetScale schema management
+- **Migrations** - SeaORM-powered PostgreSQL/PlanetScale Postgres schema management
 - **Observability** - Complete Dash0 OpenTelemetry integration (logs, traces, metrics)
 
 ```
@@ -64,7 +64,7 @@ cargo test-all              # Run all tests
 cargo test -p api           # API tests with real database containers
 ```
 
-**Features**: Real MySQL containers • Handler/Route separation • Security testing • Performance validation
+**Features**: Real PostgreSQL containers • Handler/Route separation • Security testing • Performance validation
 
 **Testing guide**: [docs/DEVELOPMENT.md#testing](docs/DEVELOPMENT.md#testing)
 

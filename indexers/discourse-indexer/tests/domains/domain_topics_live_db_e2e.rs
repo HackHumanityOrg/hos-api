@@ -3,7 +3,7 @@ use chrono::Timelike;
 use discourse_indexer::domain::categories;
 use discourse_indexer::domain::instances;
 use discourse_indexer::domain::topics::{adapter, repo};
-use entities::{discourse_topics, prelude::DiscourseTopics};
+use entities::{discourse::discourse_topics, prelude::DiscourseTopics};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use std::collections::HashMap;
 use test_support::{init_test_tracing, TestDatabase};
@@ -87,32 +87,25 @@ async fn topics_upsert_checks_all_columns() -> Result<()> {
         assert_eq!(row.reply_count, src.reply_count);
         let expected_created = (src.created_at + chrono::Duration::nanoseconds(500_000_000))
             .with_nanosecond(0)
-            .expect("rounded created_at");
+            .expect("rounded created_at")
+            .naive_utc();
         let expected_last_posted = (src.last_posted_at
             + chrono::Duration::nanoseconds(500_000_000))
         .with_nanosecond(0)
-        .expect("rounded last_posted_at");
+        .expect("rounded last_posted_at")
+        .naive_utc();
         let expected_bumped = (src.bumped_at + chrono::Duration::nanoseconds(500_000_000))
             .with_nanosecond(0)
-            .expect("rounded bumped_at");
+            .expect("rounded bumped_at")
+            .naive_utc();
         assert_eq!(row.created_at, expected_created);
         assert_eq!(row.last_posted_at, expected_last_posted);
         assert_eq!(row.bumped_at, expected_bumped);
-        assert_eq!(row.pinned, if src.pinned.unwrap_or(false) { 1 } else { 0 });
-        assert_eq!(
-            row.pinned_globally,
-            if src.pinned_globally.unwrap_or(false) {
-                1
-            } else {
-                0
-            }
-        );
-        assert_eq!(row.visible, if src.visible.unwrap_or(true) { 1 } else { 0 });
-        assert_eq!(row.closed, if src.closed.unwrap_or(false) { 1 } else { 0 });
-        assert_eq!(
-            row.archived,
-            if src.archived.unwrap_or(false) { 1 } else { 0 }
-        );
+        assert_eq!(row.pinned, src.pinned.unwrap_or(false));
+        assert_eq!(row.pinned_globally, src.pinned_globally.unwrap_or(false));
+        assert_eq!(row.visible, src.visible.unwrap_or(true));
+        assert_eq!(row.closed, src.closed.unwrap_or(false));
+        assert_eq!(row.archived, src.archived.unwrap_or(false));
         assert_eq!(row.views, src.views);
         assert_eq!(row.like_count, src.like_count);
         assert_eq!(row.external_category_id, src.category_id);

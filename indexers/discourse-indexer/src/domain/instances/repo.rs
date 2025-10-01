@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db_core::with_db_retry;
-use entities::discourse_instances;
+use entities::discourse::discourse_instances;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
 
@@ -12,7 +12,7 @@ pub async fn register_instance(
     let am = discourse_instances::ActiveModel {
         key: Set(key.to_string()),
         base_url: Set(base_url.to_string()),
-        enabled: Set(1),
+        enabled: Set(true),
         ..Default::default()
     };
     with_db_retry(|| async {

@@ -23,16 +23,16 @@ opt-level = "z"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 
-# Database & ORM (MySQL + PlanetScale compatible)
+# Database & ORM (PostgreSQL + PlanetScale Postgres compatible)
 sea-orm = { version = "1.1", features = [
-    "sqlx-mysql",
+    "sqlx-postgres",
     "runtime-tokio-native-tls", # PlanetScale requires SSL/TLS
     "macros",
     "debug-print",              # Enable proper log messages for queries
     "mock",                     # Enable MockDatabase for unit tests
 ] }
 sea-orm-migration = { version = "1", features = [
-    "sqlx-mysql",
+    "sqlx-postgres",
     "runtime-tokio-native-tls",
     "runtime-tokio-rustls",     # Also include CLI features
 ] }
@@ -90,7 +90,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Testing
 tokio-test = "0.4"
 testcontainers = "0.25"
-testcontainers-modules = { version = "0.13", features = ["mysql"] }
+testcontainers-modules = { version = "0.13", features = ["postgres"] }
 rstest = "0.26"
 axum-test = "18.1"
 futures = "0.3"

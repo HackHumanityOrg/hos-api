@@ -1,7 +1,7 @@
 use crate::domain::topics::model::Topic;
 use anyhow::Result;
 use db_core::with_db_retry;
-use entities::discourse_topics;
+use entities::discourse::discourse_topics;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
 use tracing::{debug, instrument};
@@ -31,14 +31,14 @@ pub async fn upsert_topics_bulk(
                 slug: Set(t.slug.clone()),
                 posts_count: Set(t.posts_count),
                 reply_count: Set(t.reply_count),
-                created_at: Set(t.created_at),
-                last_posted_at: Set(t.last_posted_at),
-                bumped_at: Set(t.bumped_at),
-                pinned: Set(t.pinned.map_or(0, |flag| flag as i8)),
-                pinned_globally: Set(t.pinned_globally.map_or(0, |flag| flag as i8)),
-                visible: Set(t.visible.map_or(1, |flag| flag as i8)),
-                closed: Set(t.closed.map_or(0, |flag| flag as i8)),
-                archived: Set(t.archived.map_or(0, |flag| flag as i8)),
+                created_at: Set(t.created_at.naive_utc()),
+                last_posted_at: Set(t.last_posted_at.naive_utc()),
+                bumped_at: Set(t.bumped_at.naive_utc()),
+                pinned: Set(t.pinned.unwrap_or(false)),
+                pinned_globally: Set(t.pinned_globally.unwrap_or(false)),
+                visible: Set(t.visible.unwrap_or(true)),
+                closed: Set(t.closed.unwrap_or(false)),
+                archived: Set(t.archived.unwrap_or(false)),
                 views: Set(t.views),
                 like_count: Set(t.like_count),
                 external_category_id: Set(t.category_id),

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use entities::*;
+use entities::near::*;
 use near_lake_framework::near_indexer_primitives::{IndexerShard, StreamerMessage};
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait,
@@ -271,7 +271,7 @@ impl TokensModule {
             contract_id: Set(log_data.contract_id),
             log_index: Set(log_data.log_index),
             log_text: Set(log_data.log_text),
-            created_at: Set(Some(chrono::Utc::now())),
+            created_at: Set(Some(chrono::Utc::now().naive_utc())),
         };
 
         let result = raw_event.insert(db).await?;

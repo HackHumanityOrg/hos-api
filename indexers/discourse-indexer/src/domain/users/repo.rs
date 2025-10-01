@@ -1,6 +1,6 @@
 use crate::domain::users::model::{DirectoryItem, User, UserProfile};
 use anyhow::Result;
-use entities::discourse_users;
+use entities::discourse::discourse_users;
 use rand::Rng;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};

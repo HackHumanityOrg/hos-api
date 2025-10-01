@@ -7,7 +7,7 @@ This guide covers development workflows, best practices, and common tasks for th
 ### Prerequisites
 
 - **Rust 1.89+** with Cargo
-- **MySQL/PlanetScale** database access
+- **PostgreSQL/PlanetScale Postgres** database access
 - **Git** for version control
 
 ### Initial Setup

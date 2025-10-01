@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use entities::*;
+use entities::near::*;
 use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
 use serde_json::Value as JsonValue;
 use tracing::{debug, warn};

@@ -6,8 +6,8 @@ use discourse_indexer::domain::posts;
 use discourse_indexer::domain::revisions::{adapter, repo};
 use discourse_indexer::domain::topics::{self, model::Topic};
 use entities::{
-    discourse_post_revisions, discourse_posts, prelude::DiscoursePostRevisions,
-    prelude::DiscoursePosts,
+    discourse::discourse_post_revisions, discourse::discourse_posts,
+    prelude::DiscoursePostRevisions, prelude::DiscoursePosts,
 };
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use test_support::{init_test_tracing, TestDatabase};
@@ -126,7 +126,8 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
     assert_eq!(stored.external_post_id, 326680);
     let expected_created = (revision.created_at + chrono::Duration::nanoseconds(500_000_000))
         .with_nanosecond(0)
-        .expect("rounded revision timestamp");
+        .expect("rounded revision timestamp")
+        .naive_utc();
     assert_eq!(stored.version, revision.current_version);
     assert_eq!(stored.created_at, expected_created);
     assert_eq!(stored.username, revision.username);

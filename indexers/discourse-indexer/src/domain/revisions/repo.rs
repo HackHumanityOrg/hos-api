@@ -1,7 +1,7 @@
 use crate::domain::revisions::model::Revision;
 use anyhow::Result;
 use db_core::with_db_retry;
-use entities::discourse_post_revisions;
+use entities::discourse::discourse_post_revisions;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
 use tracing::{debug, instrument};
@@ -28,7 +28,7 @@ pub async fn upsert_revision(
         instance: Set(instance.to_string()),
         external_post_id: Set(external_post_id),
         version: Set(revision.current_version),
-        created_at: Set(revision.created_at),
+        created_at: Set(revision.created_at.naive_utc()),
         username: Set(revision.username.clone()),
         edit_reason: Set(revision.edit_reason.clone()),
         raw_body_before: Set(Some(raw_body_before)),

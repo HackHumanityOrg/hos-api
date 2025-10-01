@@ -1,4 +1,4 @@
-//! Database connection management for PlanetScale MySQL with SSL/TLS
+//! Database connection management for PlanetScale Postgres with SSL/TLS
 
 use common::config::DatabaseConfig;
 use common::errors::{ConfigError, DatabaseError};
