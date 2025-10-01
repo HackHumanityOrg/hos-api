@@ -46,7 +46,7 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
     let db = TestDatabase::new().await;
     let conn = db.db();
 
-    instances::repo::register_instance(&conn, INSTANCE_KEY, INSTANCE_URL).await?;
+    instances::repo::register_instance(conn.as_ref(), INSTANCE_KEY, INSTANCE_URL).await?;
 
     // Seed FK dependencies
     let categories_fetcher = FixtureFetcher::new(&[(
@@ -55,7 +55,7 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
     )])?;
     let categories = categories::adapter::fetch_categories_all(&categories_fetcher, 0).await?;
     for category in &categories {
-        categories::repo::upsert_category(&conn, INSTANCE_KEY, category).await?;
+        categories::repo::upsert_category(conn.as_ref(), INSTANCE_KEY, category).await?;
     }
 
     let topics_fetcher =
@@ -66,7 +66,7 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
         .topics;
     let topic_seed: Topic = support::load_topic_from_fixture("meta/topic_69776_posts_page_0.json")?;
     topics.push(topic_seed);
-    topics::repo::upsert_topics_bulk(&conn, INSTANCE_KEY, &topics).await?;
+    topics::repo::upsert_topics_bulk(conn.as_ref(), INSTANCE_KEY, &topics).await?;
 
     let posts_fetcher = FixtureFetcher::new(&[(
         "/t/69776.json?page=0&include_raw=true",
@@ -76,7 +76,7 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
         .await?
         .post_stream
         .posts;
-    posts::repo::upsert_posts_bulk(&conn, INSTANCE_KEY, &posts).await?;
+    posts::repo::upsert_posts_bulk(conn.as_ref(), INSTANCE_KEY, &posts).await?;
 
     let likes_fetcher = FixtureFetcher::new(&[(
         "/post_action_users.json?id=326680&post_action_type_id=2",
@@ -85,13 +85,13 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
     let likes = adapter::fetch_post_likes(&likes_fetcher, POST_ID).await?;
 
     let before = Utc::now().with_nanosecond(0).expect("valid UTC timestamp");
-    repo::upsert_post_likes_batch(&conn, INSTANCE_KEY, POST_ID, &likes).await?;
+    repo::upsert_post_likes_batch(conn.as_ref(), INSTANCE_KEY, POST_ID, &likes).await?;
     let after = Utc::now().with_nanosecond(0).expect("valid UTC timestamp");
 
     let stored_likes = DiscoursePostLikes::find()
         .filter(discourse_post_likes::Column::Instance.eq(INSTANCE_KEY))
         .filter(discourse_post_likes::Column::ExternalPostId.eq(POST_ID))
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
     assert_eq!(stored_likes.len(), likes.len());
 
@@ -111,12 +111,12 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
     }
 
     // Re-run upsert to ensure idempotency and that timestamps advance monotonically.
-    repo::upsert_post_likes_batch(&conn, INSTANCE_KEY, POST_ID, &likes).await?;
+    repo::upsert_post_likes_batch(conn.as_ref(), INSTANCE_KEY, POST_ID, &likes).await?;
 
     let stored_likes_second = DiscoursePostLikes::find()
         .filter(discourse_post_likes::Column::Instance.eq(INSTANCE_KEY))
         .filter(discourse_post_likes::Column::ExternalPostId.eq(POST_ID))
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
     assert_eq!(stored_likes_second.len(), likes.len());
 
@@ -136,7 +136,7 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
         .filter(discourse_users::Column::Instance.eq(INSTANCE_KEY))
         .filter(discourse_users::Column::ExternalId.is_in(tracked_user_ids.clone()))
         .order_by_asc(discourse_users::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
 
     assert_eq!(stored_users.len(), tracked_user_ids.len());
@@ -163,7 +163,7 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
     let post = DiscoursePosts::find()
         .filter(discourse_posts::Column::Instance.eq(INSTANCE_KEY))
         .filter(discourse_posts::Column::ExternalId.eq(POST_ID))
-        .one(&conn)
+        .one(conn.as_ref())
         .await?;
     assert!(post.is_some());
 

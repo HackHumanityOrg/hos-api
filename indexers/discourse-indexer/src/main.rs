@@ -83,11 +83,11 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
     };
 
     let db = match db_core::connection::from_config(config.database()).await {
-        Ok(db) => db,
+        Ok(db) => Arc::new(db),
         Err(e) => {
             error!(error = %e, "DB connect failed; retrying shortly");
             tokio::time::sleep(Duration::from_secs(5)).await;
-            db_core::connection::from_config(config.database()).await?
+            Arc::new(db_core::connection::from_config(config.database()).await?)
         }
     };
 
@@ -112,7 +112,7 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
         let conc = Concurrency::new(post_tasks_limit, likes_limit, revs_limit);
 
         discourse_indexer::domain::instances::repo::register_instance(
-            &db,
+            db.as_ref(),
             &instance_key,
             &base_url,
         )
@@ -149,7 +149,7 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
 
                     let cycle_start = Instant::now();
                     let result = services::sync_recent(
-                        &db_recent,
+                        db_recent.clone(),
                         client_recent.as_ref(),
                         &instance_recent,
                         recent_topic_cap,
@@ -207,7 +207,7 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
 
                     let cycle_start = Instant::now();
                     let result = services::sync_full(
-                        &db_full,
+                        db_full.clone(),
                         client_full.as_ref(),
                         &instance_full,
                         &conc_full,

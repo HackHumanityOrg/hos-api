@@ -3,6 +3,7 @@
 //! This server provides a REST API with automatic OpenAPI documentation
 //! and Swagger UI for interacting with the data commons platform.
 
+mod docs;
 mod errors;
 mod handlers;
 mod routes;
@@ -20,28 +21,6 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-
-#[derive(OpenApi)]
-#[openapi(
-    info(
-        title = "Data Commons API",
-        version = "0.1.0",
-        description = "REST API for the Data Commons platform",
-        license(name = "MIT", url = "https://opensource.org/licenses/MIT")
-    ),
-    paths(
-        handlers::health::health_check,
-    ),
-    components(schemas(
-        types::HealthResponse,
-        types::DatabaseHealth,
-        errors::ApiError,
-    )),
-    tags(
-        (name = "health", description = "Health check endpoints")
-    )
-)]
-struct ApiDoc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -75,7 +54,7 @@ async fn main() -> Result<()> {
     }
 
     // Create application state
-    let app_state = state::AppState::new(db_result.ok());
+    let app_state = state::AppState::from_database(db_result.ok());
 
     // Create the router with API routes
     let mut app = Router::new()
@@ -98,7 +77,7 @@ async fn main() -> Result<()> {
     // Add Swagger UI with disabled try-it-out functionality
     let app = app.merge(
         SwaggerUi::new("/swagger-ui")
-            .url("/api-docs/openapi.json", ApiDoc::openapi())
+            .url("/api-docs/openapi.json", docs::ApiDoc::openapi())
             .config(
                 utoipa_swagger_ui::Config::new(["/api-docs/openapi.json"])
                     .display_request_duration(true),

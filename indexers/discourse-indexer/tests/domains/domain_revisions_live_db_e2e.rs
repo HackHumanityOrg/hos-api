@@ -65,7 +65,7 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
     let db = TestDatabase::new().await;
     let conn = db.db();
 
-    instances::repo::register_instance(&conn, INSTANCE_KEY, INSTANCE_URL).await?;
+    instances::repo::register_instance(conn.as_ref(), INSTANCE_KEY, INSTANCE_URL).await?;
 
     let categories_fetcher = FixtureFetcher::new(&[(
         "/categories.json?include_subcategories=true&page=0",
@@ -73,7 +73,7 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
     )])?;
     let categories = categories::adapter::fetch_categories_all(&categories_fetcher, 0).await?;
     for category in &categories {
-        categories::repo::upsert_category(&conn, INSTANCE_KEY, category).await?;
+        categories::repo::upsert_category(conn.as_ref(), INSTANCE_KEY, category).await?;
     }
 
     let topics_fetcher =
@@ -84,7 +84,7 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
         .topics;
     let topic_seed: Topic = support::load_topic_from_fixture("meta/topic_69776_posts_page_0.json")?;
     topics.push(topic_seed);
-    topics::repo::upsert_topics_bulk(&conn, INSTANCE_KEY, &topics).await?;
+    topics::repo::upsert_topics_bulk(conn.as_ref(), INSTANCE_KEY, &topics).await?;
 
     let posts_fetcher = FixtureFetcher::new(&[(
         "/t/69776.json?page=0&include_raw=true",
@@ -94,7 +94,7 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
         .await?
         .post_stream
         .posts;
-    posts::repo::upsert_posts_bulk(&conn, INSTANCE_KEY, &posts).await?;
+    posts::repo::upsert_posts_bulk(conn.as_ref(), INSTANCE_KEY, &posts).await?;
 
     let revisions_fetcher = FixtureFetcher::new(&[(
         "/posts/326680/revisions/2.json",
@@ -112,13 +112,13 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
         .as_ref()
         .map(|tc| tc.get_raw_title_after());
 
-    repo::upsert_revision(&conn, INSTANCE_KEY, 326680, &revision).await?;
+    repo::upsert_revision(conn.as_ref(), INSTANCE_KEY, 326680, &revision).await?;
 
     let stored = DiscoursePostRevisions::find()
         .filter(discourse_post_revisions::Column::Instance.eq(INSTANCE_KEY))
         .filter(discourse_post_revisions::Column::ExternalPostId.eq(326680))
         .filter(discourse_post_revisions::Column::Version.eq(2))
-        .one(&conn)
+        .one(conn.as_ref())
         .await?
         .expect("revision stored");
 
@@ -148,7 +148,7 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
     let post = DiscoursePosts::find()
         .filter(discourse_posts::Column::Instance.eq(INSTANCE_KEY))
         .filter(discourse_posts::Column::ExternalId.eq(326680))
-        .one(&conn)
+        .one(conn.as_ref())
         .await?;
     assert!(post.is_some());
 

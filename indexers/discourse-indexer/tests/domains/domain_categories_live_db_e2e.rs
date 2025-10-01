@@ -57,7 +57,7 @@ async fn category_upsert_persists_every_column() -> Result<()> {
     let db = TestDatabase::new().await;
     let conn = db.db();
 
-    instances::repo::register_instance(&conn, INSTANCE_KEY, INSTANCE_URL).await?;
+    instances::repo::register_instance(conn.as_ref(), INSTANCE_KEY, INSTANCE_URL).await?;
 
     let fetcher = FixtureFetcher::new(&[(
         "/categories.json?include_subcategories=true&page=0",
@@ -66,13 +66,13 @@ async fn category_upsert_persists_every_column() -> Result<()> {
     let categories = adapter::fetch_categories_all(&fetcher, 0).await?;
 
     for category in &categories {
-        repo::upsert_category(&conn, INSTANCE_KEY, category).await?;
+        repo::upsert_category(conn.as_ref(), INSTANCE_KEY, category).await?;
     }
 
     let stored = DiscourseCategories::find()
         .filter(discourse_categories::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_categories::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
 
     assert_eq!(stored.len(), categories.len());
@@ -106,13 +106,13 @@ async fn category_upsert_persists_every_column() -> Result<()> {
 
     // Run idempotent upsert and ensure counts remain stable.
     for category in &categories {
-        repo::upsert_category(&conn, INSTANCE_KEY, category).await?;
+        repo::upsert_category(conn.as_ref(), INSTANCE_KEY, category).await?;
     }
 
     let stored_after_second = DiscourseCategories::find()
         .filter(discourse_categories::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_categories::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
     assert_eq!(stored_after_second.len(), categories.len());
 
@@ -127,13 +127,13 @@ async fn category_upsert_persists_every_column() -> Result<()> {
         first.description_text = first.description.clone();
     }
     for category in &categories_updated {
-        repo::upsert_category(&conn, INSTANCE_KEY, category).await?;
+        repo::upsert_category(conn.as_ref(), INSTANCE_KEY, category).await?;
     }
 
     let stored_after_update = DiscourseCategories::find()
         .filter(discourse_categories::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_categories::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
     assert_eq!(stored_after_update.len(), categories.len());
 

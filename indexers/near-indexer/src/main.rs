@@ -26,19 +26,21 @@ async fn main() -> Result<()> {
         "Starting NEAR indexer"
     );
 
-    let db = db_from_config(config.database())
-        .await
-        .context("DB connection failed")?;
+    let db = Arc::new(
+        db_from_config(config.database())
+            .await
+            .context("DB connection failed")?,
+    );
 
     // Initialize module registry
     let mut registry = ModuleRegistry::new();
     modules::register_all_modules(&mut registry, &config);
 
     // Initialize all modules
-    registry.initialize_all(&db).await?;
+    registry.initialize_all(db.as_ref()).await?;
 
     // Initialize cursor storage from database
-    near_indexer::core::cursor::initialize_cursor_storage(&db).await?;
+    near_indexer::core::cursor::initialize_cursor_storage(db.as_ref()).await?;
     info!("Cursor storage initialized from database");
 
     let registry = Arc::new(registry);
@@ -61,6 +63,7 @@ async fn main() -> Result<()> {
     let (chain, configured_start_height, configured_concurrency, configured_preload_pool_size) =
         match &config {
             AppConfig::Indexer(idx) => {
+                let idx = idx.as_ref();
                 let n = idx.near.as_ref();
                 (
                     n.map(|c| c.chain.clone())
@@ -128,7 +131,7 @@ async fn main() -> Result<()> {
     // Start the parallel processing loop
     let processing_result = near_indexer::core::processor::run_parallel_processing(
         registry,
-        db,
+        db.clone(),
         stream,
         configured_concurrency,
     )

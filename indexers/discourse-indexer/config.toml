@@ -15,7 +15,6 @@ max_lifetime = 300          # Reduced from 1800 to prevent stale connections
 key = "NEAR"
 base_url = "https://gov.near.org"
 enabled = true
-max_http_concurrency = 8
 max_post_tasks = 5          # Reduced from 10 to decrease database load
 likes_concurrency = 5       # Reduced from 10 to prevent deadlocks
 revisions_concurrency = 3   # Reduced from 5 to decrease database load

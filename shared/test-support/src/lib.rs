@@ -1,11 +1,11 @@
 use migration::{sea_orm, Migrator, MigratorTrait};
 use sea_orm::DatabaseConnection;
-use std::sync::Once;
+use std::sync::{Arc, Once};
 use testcontainers::{runners::AsyncRunner, ContainerAsync, ImageExt};
 use testcontainers_modules::mysql::Mysql;
 
 pub struct TestDatabase {
-    pub connection: DatabaseConnection,
+    pub connection: Arc<DatabaseConnection>,
     pub _container: ContainerAsync<Mysql>,
 }
 
@@ -54,7 +54,7 @@ impl TestDatabase {
         }
 
         Self {
-            connection,
+            connection: Arc::new(connection),
             _container: mysql_container,
         }
     }
@@ -74,8 +74,8 @@ impl TestDatabase {
         unreachable!()
     }
 
-    pub fn db(&self) -> DatabaseConnection {
-        self.connection.clone()
+    pub fn db(&self) -> Arc<DatabaseConnection> {
+        Arc::clone(&self.connection)
     }
 }
 

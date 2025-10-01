@@ -26,7 +26,7 @@ impl Concurrency {
 
 #[tracing::instrument(skip(db, client, conc))]
 pub async fn sync_recent(
-    db: &DatabaseConnection,
+    db: Arc<DatabaseConnection>,
     client: &discourse_api::DiscourseClient,
     instance: &str,
     recent_topic_cap: u32,
@@ -34,45 +34,53 @@ pub async fn sync_recent(
     max_pages_per_run: u32,
     recent_lookback_hours: i64,
 ) -> Result<()> {
-    services_helpers::sync_categories(db, client, instance).await?;
-    services_helpers::sync_topics(
-        db,
-        client,
-        instance,
-        true,
-        recent_topic_cap,
-        conc,
+    services_helpers::sync_categories(db.as_ref(), client, instance).await?;
+    let options = services_helpers::TopicSyncOptions {
+        mode: services_helpers::TopicSyncMode::Recent {
+            topic_cap: recent_topic_cap,
+            lookback_hours: Some(recent_lookback_hours),
+        },
+        concurrency: conc,
         max_pages_per_run,
-        Some(recent_lookback_hours),
-    )
-    .await
+    };
+    services_helpers::sync_topics(db, client, instance, options).await
 }
 
 #[tracing::instrument(skip(db, client, conc))]
 pub async fn sync_full(
-    db: &DatabaseConnection,
+    db: Arc<DatabaseConnection>,
     client: &discourse_api::DiscourseClient,
     instance: &str,
     conc: &Concurrency,
     max_pages_per_run: u32,
 ) -> Result<()> {
-    services_helpers::sync_categories(db, client, instance).await?;
-    services_helpers::sync_topics(
-        db,
-        client,
-        instance,
-        false,
-        0,
-        conc,
+    services_helpers::sync_categories(db.as_ref(), client, instance).await?;
+    let options = services_helpers::TopicSyncOptions {
+        mode: services_helpers::TopicSyncMode::Full,
+        concurrency: conc,
         max_pages_per_run,
-        None,
-    )
-    .await?;
-    services_helpers::sync_directory_users(db, client, instance, false, u32::MAX, u32::MAX).await
+    };
+    services_helpers::sync_topics(db.clone(), client, instance, options).await?;
+    services_helpers::sync_directory_users(db.as_ref(), client, instance, false, u32::MAX, u32::MAX)
+        .await
 }
 
 mod services_helpers {
     use super::*;
+
+    pub struct TopicSyncOptions<'a> {
+        pub mode: TopicSyncMode,
+        pub concurrency: &'a Concurrency,
+        pub max_pages_per_run: u32,
+    }
+
+    pub enum TopicSyncMode {
+        Recent {
+            topic_cap: u32,
+            lookback_hours: Option<i64>,
+        },
+        Full,
+    }
 
     pub async fn sync_categories(
         db: &DatabaseConnection,
@@ -123,14 +131,10 @@ mod services_helpers {
     }
 
     pub async fn sync_topics(
-        db: &DatabaseConnection,
+        db: Arc<DatabaseConnection>,
         client: &discourse_api::DiscourseClient,
         instance: &str,
-        recent: bool,
-        recent_topic_cap: u32,
-        conc: &Concurrency,
-        max_pages_per_run: u32,
-        recent_lookback_hours: Option<i64>,
+        options: TopicSyncOptions<'_>,
     ) -> Result<()> {
         use domain::topics::model::TopicResponse;
         let start = std::time::Instant::now();
@@ -138,17 +142,25 @@ mod services_helpers {
         let mut prev_ids: Option<Vec<i32>> = None;
         let mut pages_fetched: u32 = 0;
         let mut topics_processed: u32 = 0;
-        let lookback_cutoff = if recent {
-            recent_lookback_hours.map(|h| chrono::Utc::now() - chrono::Duration::hours(h))
-        } else {
-            None
+        let (is_recent, recent_topic_cap, lookback_cutoff) = match options.mode {
+            TopicSyncMode::Recent {
+                topic_cap,
+                lookback_hours,
+            } => (
+                true,
+                topic_cap,
+                lookback_hours.map(|h| chrono::Utc::now() - chrono::Duration::hours(h)),
+            ),
+            TopicSyncMode::Full => (false, 0, None),
         };
+        let conc = options.concurrency;
+        let max_pages_per_run = options.max_pages_per_run;
 
         info!(
-            sync_type = if recent { "recent" } else { "full" },
+            sync_type = if is_recent { "recent" } else { "full" },
             recent_topic_cap = recent_topic_cap,
             max_pages_per_run = max_pages_per_run,
-            lookback_hours = recent_lookback_hours,
+            lookback_hours = lookback_cutoff.map(|ts| ts.to_string()),
             "Starting topics sync"
         );
 
@@ -163,7 +175,7 @@ mod services_helpers {
                 break;
             }
 
-            let resp: TopicResponse = if recent {
+            let resp: TopicResponse = if is_recent {
                 match domain::topics::adapter::fetch_topics_recent_page(client, page).await {
                     Ok(r) => r,
                     Err(e) => {
@@ -199,13 +211,13 @@ mod services_helpers {
                     pages_fetched = pages_fetched,
                     topics_processed = topics_processed,
                     current_page = page,
-                    sync_type = if recent { "recent" } else { "full" },
+                    sync_type = if is_recent { "recent" } else { "full" },
                     "Topics sync progress"
                 );
             }
 
             // For full sync: stop if page content repeats (same IDs as previous page)
-            if !recent {
+            if !is_recent {
                 let ids: Vec<i32> = resp.topic_list.topics.iter().map(|t| t.id).collect();
                 // Preserve order for strict comparison
                 if let Some(prev) = &prev_ids {
@@ -218,7 +230,7 @@ mod services_helpers {
             }
 
             // Early-break for recent mode if all topics are outside lookback window
-            if recent {
+            if is_recent {
                 if let Some(cutoff) = lookback_cutoff {
                     let all_old = resp.topic_list.topics.iter().all(|t| t.bumped_at < cutoff);
                     if all_old {
@@ -232,15 +244,28 @@ mod services_helpers {
                 }
             }
 
-            domain::topics::repo::upsert_topics_bulk(db, instance, &resp.topic_list.topics).await?;
+            domain::topics::repo::upsert_topics_bulk(
+                db.as_ref(),
+                instance,
+                &resp.topic_list.topics,
+            )
+            .await?;
 
             for t in resp.topic_list.topics {
-                sync_posts_for_topic(db, client, instance, t.id, recent, conc, max_pages_per_run)
-                    .await?;
+                sync_posts_for_topic(
+                    db.clone(),
+                    client,
+                    instance,
+                    t.id,
+                    is_recent,
+                    conc,
+                    max_pages_per_run,
+                )
+                .await?;
             }
 
             // Recent: cap to a few pages; Full: continue until empty or repeat
-            if recent {
+            if is_recent {
                 let cap = if recent_topic_cap == 0 {
                     1
                 } else {
@@ -261,7 +286,7 @@ mod services_helpers {
         }
 
         info!(
-            sync_type = if recent { "recent" } else { "full" },
+            sync_type = if is_recent { "recent" } else { "full" },
             pages_fetched = pages_fetched,
             topics_processed = topics_processed,
             duration_ms = start.elapsed().as_millis(),
@@ -277,7 +302,7 @@ mod services_helpers {
 
     #[tracing::instrument(skip(db, client, conc), fields(topic_id = topic_id, recent = recent))]
     pub async fn sync_posts_for_topic(
-        db: &DatabaseConnection,
+        db: Arc<DatabaseConnection>,
         client: &discourse_api::DiscourseClient,
         instance: &str,
         topic_id: i32,
@@ -334,7 +359,7 @@ mod services_helpers {
             // Ensure all users referenced in posts exist in the database
             for post in &r.post_stream.posts {
                 domain::users::adapter::fetch_user_by_username(
-                    db,
+                    db.as_ref(),
                     client,
                     instance,
                     &post.username,
@@ -343,7 +368,8 @@ mod services_helpers {
                 .await?;
             }
 
-            domain::posts::repo::upsert_posts_bulk(db, instance, &r.post_stream.posts).await?;
+            domain::posts::repo::upsert_posts_bulk(db.as_ref(), instance, &r.post_stream.posts)
+                .await?;
 
             let mut futs: FuturesUnordered<BoxFuture<'static, (u32, u32, u32, u32)>> =
                 FuturesUnordered::new();
@@ -377,7 +403,7 @@ mod services_helpers {
                         {
                             for like_user in &likes {
                                 let _ = domain::users::adapter::fetch_user_by_username(
-                                    &db_all,
+                                    db_all.as_ref(),
                                     &client_all,
                                     &instance_all,
                                     &like_user.username,
@@ -388,7 +414,7 @@ mod services_helpers {
 
                             post_likes_count = likes.len() as u32;
                             let _ = domain::likes::repo::upsert_post_likes_batch(
-                                &db_all,
+                                db_all.as_ref(),
                                 &instance_all,
                                 p.id,
                                 &likes,
@@ -416,7 +442,7 @@ mod services_helpers {
                             {
                                 post_revisions_count += 1;
                                 let _ = domain::revisions::repo::upsert_revision(
-                                    &db_all,
+                                    db_all.as_ref(),
                                     &instance_all,
                                     p.id,
                                     &rev,

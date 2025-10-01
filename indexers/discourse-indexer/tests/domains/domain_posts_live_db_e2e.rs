@@ -48,7 +48,7 @@ async fn posts_upsert_checks_every_column() -> Result<()> {
     let db = TestDatabase::new().await;
     let conn = db.db();
 
-    instances::repo::register_instance(&conn, INSTANCE_KEY, INSTANCE_URL).await?;
+    instances::repo::register_instance(conn.as_ref(), INSTANCE_KEY, INSTANCE_URL).await?;
 
     let categories_fetcher = FixtureFetcher::new(&[(
         "/categories.json?include_subcategories=true&page=0",
@@ -56,7 +56,7 @@ async fn posts_upsert_checks_every_column() -> Result<()> {
     )])?;
     let categories = categories::adapter::fetch_categories_all(&categories_fetcher, 0).await?;
     for category in &categories {
-        categories::repo::upsert_category(&conn, INSTANCE_KEY, category).await?;
+        categories::repo::upsert_category(conn.as_ref(), INSTANCE_KEY, category).await?;
     }
 
     let topics_fetcher =
@@ -67,7 +67,7 @@ async fn posts_upsert_checks_every_column() -> Result<()> {
         .topics;
     let topic_seed: Topic = support::load_topic_from_fixture("meta/topic_69776_posts_page_0.json")?;
     topics.push(topic_seed.clone());
-    topics::repo::upsert_topics_bulk(&conn, INSTANCE_KEY, &topics).await?;
+    topics::repo::upsert_topics_bulk(conn.as_ref(), INSTANCE_KEY, &topics).await?;
 
     let posts_fetcher = FixtureFetcher::new(&[(
         "/t/69776.json?page=0&include_raw=true",
@@ -78,12 +78,12 @@ async fn posts_upsert_checks_every_column() -> Result<()> {
         .post_stream
         .posts;
 
-    repo::upsert_posts_bulk(&conn, INSTANCE_KEY, &posts).await?;
+    repo::upsert_posts_bulk(conn.as_ref(), INSTANCE_KEY, &posts).await?;
 
     let stored_posts = DiscoursePosts::find()
         .filter(discourse_posts::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_posts::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
     assert_eq!(stored_posts.len(), posts.len());
 
@@ -147,11 +147,11 @@ async fn posts_upsert_checks_every_column() -> Result<()> {
     }
 
     // Idempotent second run should not duplicate records.
-    repo::upsert_posts_bulk(&conn, INSTANCE_KEY, &posts).await?;
+    repo::upsert_posts_bulk(conn.as_ref(), INSTANCE_KEY, &posts).await?;
     let stored_after_second = DiscoursePosts::find()
         .filter(discourse_posts::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_posts::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
     assert_eq!(stored_after_second.len(), posts.len());
 
@@ -161,12 +161,12 @@ async fn posts_upsert_checks_every_column() -> Result<()> {
         first_post.raw = Some("Updated raw body from test".to_string());
         first_post.display_username = Some("Updated Display".to_string());
     }
-    repo::upsert_posts_bulk(&conn, INSTANCE_KEY, &posts_updated).await?;
+    repo::upsert_posts_bulk(conn.as_ref(), INSTANCE_KEY, &posts_updated).await?;
 
     let stored_after_update = DiscoursePosts::find()
         .filter(discourse_posts::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_posts::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
     assert_eq!(stored_after_update.len(), posts.len());
 
@@ -185,7 +185,7 @@ async fn posts_upsert_checks_every_column() -> Result<()> {
     let stored_users = DiscourseUsers::find()
         .filter(discourse_users::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_users::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
     let unique_user_ids: BTreeSet<i32> = posts.iter().map(|p| p.user_id).collect();
     assert_eq!(

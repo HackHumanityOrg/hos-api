@@ -12,7 +12,7 @@ use crate::ModuleRegistry;
 #[instrument(skip(registry, db, msg), fields(height = %msg.block.header.height))]
 async fn process_block_independent(
     registry: Arc<ModuleRegistry>,
-    db: DatabaseConnection,
+    db: Arc<DatabaseConnection>,
     msg: &near_lake_framework::near_indexer_primitives::StreamerMessage,
 ) -> Result<()> {
     let height = msg.block.header.height as i64;
@@ -26,7 +26,7 @@ async fn process_block_independent(
         let module_start = Instant::now();
 
         // Check if this module needs this block
-        let cursor = module.get_cursor(&db).await?;
+        let cursor = module.get_cursor(db.as_ref()).await?;
         if cursor.map(|c| c >= height).unwrap_or(false) {
             debug!(
                 module = module.name(),
@@ -44,7 +44,7 @@ async fn process_block_independent(
         );
 
         // Process block and update cursor
-        if let Err(e) = module.process_block(msg, &db).await {
+        if let Err(e) = module.process_block(msg, db.as_ref()).await {
             error!(
                 module = module.name(),
                 height = height,
@@ -54,7 +54,7 @@ async fn process_block_independent(
             return Err(e);
         }
 
-        if let Err(e) = module.update_cursor(&db, height).await {
+        if let Err(e) = module.update_cursor(db.as_ref(), height).await {
             error!(
                 module = module.name(),
                 height = height,
@@ -89,7 +89,7 @@ async fn process_block_independent(
 #[instrument(skip(registry, db, stream), fields(concurrency = %concurrency))]
 pub async fn run_parallel_processing(
     registry: Arc<ModuleRegistry>,
-    db: DatabaseConnection,
+    db: Arc<DatabaseConnection>,
     stream: tokio::sync::mpsc::Receiver<
         near_lake_framework::near_indexer_primitives::StreamerMessage,
     >,

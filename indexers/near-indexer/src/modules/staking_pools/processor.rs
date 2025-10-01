@@ -34,11 +34,34 @@ pub struct StakingPoolsModule {
     parse_events: bool,
 }
 
+struct RewardEventRecord<'a> {
+    pool_id: &'a str,
+    block_height: u64,
+    amount: Option<String>,
+    log_index: i32,
+    raw_log: String,
+    execution_outcome_id: &'a str,
+    timestamp: i64,
+}
+
+struct BalanceEventRecord<'a> {
+    pool_id: &'a str,
+    account_id: String,
+    balance_type: String,
+    balance: String,
+    block_height: u64,
+    log_index: i32,
+    raw_log: String,
+    execution_outcome_id: &'a str,
+    timestamp: i64,
+}
+
 impl StakingPoolsModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
         let (enabled, pool_patterns, custom_pools, track_epochs, track_delegators, parse_events) =
             match config {
                 common::config::AppConfig::Indexer(idx) => {
+                    let idx = idx.as_ref();
                     let near_config = idx.near.as_ref();
 
                     // Check if NEAR indexing is enabled at all
@@ -380,17 +403,16 @@ impl StakingPoolsModule {
                     );
 
                     for (index, raw_log, amount) in reward_events {
-                        self.store_reward_event(
-                            pool_id_str,
-                            context.block_height,
+                        let event = RewardEventRecord {
+                            pool_id: pool_id_str,
+                            block_height: context.block_height,
                             amount,
-                            index as i32,
+                            log_index: index as i32,
                             raw_log,
-                            outcome_id_str,
-                            context.timestamp,
-                            db,
-                        )
-                        .await?;
+                            execution_outcome_id: outcome_id_str,
+                            timestamp: context.timestamp,
+                        };
+                        self.store_reward_event(event, db).await?;
                     }
 
                     // Parse balance events
@@ -403,19 +425,18 @@ impl StakingPoolsModule {
                     );
 
                     for (index, raw_log, account_id, balance_type, balance) in balance_events {
-                        self.store_balance_event(
-                            pool_id_str,
+                        let event = BalanceEventRecord {
+                            pool_id: pool_id_str,
                             account_id,
                             balance_type,
                             balance,
-                            context.block_height,
-                            index as i32,
+                            block_height: context.block_height,
+                            log_index: index as i32,
                             raw_log,
-                            outcome_id_str,
-                            context.timestamp,
-                            db,
-                        )
-                        .await?;
+                            execution_outcome_id: outcome_id_str,
+                            timestamp: context.timestamp,
+                        };
+                        self.store_balance_event(event, db).await?;
                     }
                 }
             }
@@ -683,24 +704,18 @@ impl StakingPoolsModule {
     /// Store a reward event
     async fn store_reward_event(
         &self,
-        pool_id: &str,
-        block_height: u64,
-        amount: Option<String>,
-        log_index: i32,
-        raw_log: String,
-        execution_outcome_id: &str,
-        timestamp: i64,
+        event: RewardEventRecord<'_>,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         let reward_record = near_staking_pool_rewards::ActiveModel {
             id: Set(Default::default()), // Auto-increment
-            pool_id: Set(pool_id.to_string()),
-            reward_amount: Set(amount),
-            event_index: Set(log_index),
-            raw_log: Set(raw_log),
-            execution_outcome_id: Set(execution_outcome_id.to_string()),
-            block_height: Set(block_height as i64),
-            timestamp: Set(timestamp),
+            pool_id: Set(event.pool_id.to_string()),
+            reward_amount: Set(event.amount),
+            event_index: Set(event.log_index),
+            raw_log: Set(event.raw_log),
+            execution_outcome_id: Set(event.execution_outcome_id.to_string()),
+            block_height: Set(event.block_height as i64),
+            timestamp: Set(event.timestamp),
         };
 
         near_staking_pool_rewards::Entity::insert(reward_record)
@@ -714,28 +729,20 @@ impl StakingPoolsModule {
     /// Store a balance event
     async fn store_balance_event(
         &self,
-        pool_id: &str,
-        account_id: String,
-        balance_type: String,
-        balance: String,
-        block_height: u64,
-        log_index: i32,
-        raw_log: String,
-        execution_outcome_id: &str,
-        timestamp: i64,
+        event: BalanceEventRecord<'_>,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         let balance_record = near_staking_pool_balances::ActiveModel {
             id: Set(Default::default()), // Auto-increment
-            pool_id: Set(pool_id.to_string()),
-            account_id: Set(account_id),
-            balance_type: Set(balance_type), // "staked" or "unstaked"
-            balance: Set(balance),
-            event_index: Set(log_index),
-            raw_log: Set(raw_log),
-            execution_outcome_id: Set(execution_outcome_id.to_string()),
-            block_height: Set(block_height as i64),
-            timestamp: Set(timestamp),
+            pool_id: Set(event.pool_id.to_string()),
+            account_id: Set(event.account_id),
+            balance_type: Set(event.balance_type), // "staked" or "unstaked"
+            balance: Set(event.balance),
+            event_index: Set(event.log_index),
+            raw_log: Set(event.raw_log),
+            execution_outcome_id: Set(event.execution_outcome_id.to_string()),
+            block_height: Set(event.block_height as i64),
+            timestamp: Set(event.timestamp),
         };
 
         near_staking_pool_balances::Entity::insert(balance_record)

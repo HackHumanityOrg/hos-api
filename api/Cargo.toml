@@ -29,3 +29,4 @@ axum-test = { workspace = true }
 futures = { workspace = true }
 migration = { workspace = true }
 test-support = { workspace = true }
+tower = { workspace = true }

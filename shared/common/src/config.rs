@@ -48,7 +48,6 @@ impl ToLog for DatabaseConfig {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
-    pub worker_threads: Option<usize>,
 }
 
 impl ToLog for ServerConfig {
@@ -56,7 +55,6 @@ impl ToLog for ServerConfig {
         json!({
             "host": self.host,
             "port": self.port,
-            "worker_threads": self.worker_threads,
         })
     }
 }
@@ -150,8 +148,6 @@ pub struct DiscourseInstanceConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
     // Per-instance tuning (optional)
-    #[serde(default)]
-    pub max_http_concurrency: Option<usize>,
     #[serde(default)]
     pub max_post_tasks: Option<usize>,
     #[serde(default)]
@@ -397,8 +393,8 @@ impl ToLog for StakingPoolsModuleConfig {
 /// Unified configuration enum for type safety
 #[derive(Debug, Clone)]
 pub enum AppConfig {
-    Api(ApiConfig),
-    Indexer(IndexerConfig),
+    Api(Box<ApiConfig>),
+    Indexer(Box<IndexerConfig>),
 }
 
 impl ToLog for AppConfig {
@@ -406,11 +402,11 @@ impl ToLog for AppConfig {
         match self {
             AppConfig::Api(cfg) => json!({
                 "kind": "api",
-                "config": cfg.to_log()
+                "config": cfg.as_ref().to_log()
             }),
             AppConfig::Indexer(cfg) => json!({
                 "kind": "indexer",
-                "config": cfg.to_log()
+                "config": cfg.as_ref().to_log()
             }),
         }
     }
@@ -420,36 +416,54 @@ impl AppConfig {
     /// Load API configuration
     pub fn load_api() -> Result<Self, ConfigError> {
         let config = ConfigBuilder::api().load_with_database_url()?;
-        Ok(AppConfig::Api(config))
+        Ok(AppConfig::Api(Box::new(config)))
     }
 
     /// Load indexer configuration by name
     pub fn load_indexer(name: &str) -> Result<Self, ConfigError> {
         let config = ConfigBuilder::indexer(name).load_with_database_url()?;
-        Ok(AppConfig::Indexer(config))
+        Ok(AppConfig::Indexer(Box::new(config)))
     }
 
     /// Get database configuration (available in all app types)
     pub fn database(&self) -> &DatabaseConfig {
         match self {
-            AppConfig::Api(config) => &config.database,
-            AppConfig::Indexer(config) => &config.database,
+            AppConfig::Api(config) => {
+                let config: &ApiConfig = config;
+                &config.database
+            }
+            AppConfig::Indexer(config) => {
+                let config: &IndexerConfig = config;
+                &config.database
+            }
         }
     }
 
     /// Get logging configuration (available in all app types)
     pub fn logging(&self) -> &LoggingConfig {
         match self {
-            AppConfig::Api(config) => &config.logging,
-            AppConfig::Indexer(config) => &config.logging,
+            AppConfig::Api(config) => {
+                let config: &ApiConfig = config;
+                &config.logging
+            }
+            AppConfig::Indexer(config) => {
+                let config: &IndexerConfig = config;
+                &config.logging
+            }
         }
     }
 
     /// Get telemetry configuration (available in all app types)
     pub fn telemetry(&self) -> &TelemetryConfig {
         match self {
-            AppConfig::Api(config) => &config.telemetry,
-            AppConfig::Indexer(config) => &config.telemetry,
+            AppConfig::Api(config) => {
+                let config: &ApiConfig = config;
+                &config.telemetry
+            }
+            AppConfig::Indexer(config) => {
+                let config: &IndexerConfig = config;
+                &config.telemetry
+            }
         }
     }
 
@@ -457,14 +471,20 @@ impl AppConfig {
     pub fn discourse(&self) -> Option<&DiscourseConfig> {
         match self {
             AppConfig::Api(_) => None,
-            AppConfig::Indexer(config) => config.discourse.as_ref(),
+            AppConfig::Indexer(config) => {
+                let config: &IndexerConfig = config;
+                config.discourse.as_ref()
+            }
         }
     }
 
     /// Get server configuration (only available for API)
     pub fn server(&self) -> Option<&ServerConfig> {
         match self {
-            AppConfig::Api(config) => Some(&config.server),
+            AppConfig::Api(config) => {
+                let config: &ApiConfig = config;
+                Some(&config.server)
+            }
             AppConfig::Indexer(_) => None,
         }
     }
@@ -472,7 +492,10 @@ impl AppConfig {
     /// Get server configuration (panics if not API)
     pub fn server_required(&self) -> &ServerConfig {
         match self {
-            AppConfig::Api(config) => &config.server,
+            AppConfig::Api(config) => {
+                let config: &ApiConfig = config;
+                &config.server
+            }
             AppConfig::Indexer(_) => panic!("Server configuration not available for indexer"),
         }
     }
@@ -638,7 +661,6 @@ impl Default for ServerConfig {
         Self {
             host: "127.0.0.1".to_string(),
             port: 3000,
-            worker_threads: None,
         }
     }
 }
@@ -715,7 +737,6 @@ mod tests {
             [server]
             host = "127.0.0.1"
             port = 3000
-            worker_threads = 4
 
             [logging]
             level = "info"
@@ -751,6 +772,7 @@ mod tests {
 
         match app_cfg {
             AppConfig::Api(cfg) => {
+                let cfg = cfg.as_ref();
                 assert_eq!(cfg.database.url, "mysql://user:pass@localhost/db");
                 assert_eq!(cfg.server.host, "0.0.0.0");
                 assert_eq!(cfg.server.port, 7777);
@@ -829,6 +851,7 @@ mod tests {
         let app_cfg = AppConfig::load_indexer("indexer-1").expect("indexer config loads");
         match app_cfg {
             AppConfig::Indexer(cfg) => {
+                let cfg = cfg.as_ref();
                 // DATABASE_URL injected
                 assert_eq!(cfg.database.url, "mysql://user:pass@localhost/idx");
                 // Host config loaded

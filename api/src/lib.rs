@@ -1,4 +1,5 @@
 // API library exports for testing and external use
+pub mod docs;
 pub mod errors;
 pub mod handlers;
 pub mod routes;
@@ -6,6 +7,7 @@ pub mod state;
 pub mod types;
 
 // Re-export commonly used items for testing
+pub use docs::ApiDoc;
 pub use errors::*;
 pub use handlers::health;
 pub use routes::health as health_routes;

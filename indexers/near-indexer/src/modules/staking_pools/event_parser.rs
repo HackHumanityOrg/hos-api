@@ -26,7 +26,7 @@ impl EventParser {
                 pool_id,
                 execution_outcome_id,
                 index as i32,
-                block_height.try_into().unwrap(),
+                block_height,
                 timestamp,
             ) {
                 events.push(event);
@@ -37,7 +37,7 @@ impl EventParser {
                 pool_id,
                 execution_outcome_id,
                 index as i32,
-                block_height.try_into().unwrap(),
+                block_height,
                 timestamp,
             ) {
                 events.push(event);
@@ -217,8 +217,8 @@ impl EventParser {
                 reward_events.push((index, log.clone(), amount));
             }
             // Look for JSON reward events
-            else if log.starts_with("EVENT_JSON:") {
-                if let Ok(event_log) = serde_json::from_str::<serde_json::Value>(&log[11..]) {
+            else if let Some(json_log) = log.strip_prefix(EVENT_JSON_PREFIX) {
+                if let Ok(event_log) = serde_json::from_str::<serde_json::Value>(json_log) {
                     if let Some(event_type) = event_log.get("event").and_then(|e| e.as_str()) {
                         if event_type == "reward" || event_type == "distribute_rewards" {
                             let amount = event_log
@@ -284,8 +284,8 @@ impl EventParser {
                 }
             }
             // Look for JSON balance events
-            else if log.starts_with("EVENT_JSON:") {
-                if let Ok(event_log) = serde_json::from_str::<serde_json::Value>(&log[11..]) {
+            else if let Some(json_log) = log.strip_prefix(EVENT_JSON_PREFIX) {
+                if let Ok(event_log) = serde_json::from_str::<serde_json::Value>(json_log) {
                     if let Some(event_type) = event_log.get("event").and_then(|e| e.as_str()) {
                         if event_type == "balance_update" || event_type == "account_update" {
                             if let Some(data) = event_log.get("data") {

@@ -54,7 +54,6 @@ pub async fn fetch_users_directory<F: JsonFetcher>(
     Ok(all_users)
 }
 
-
 /// Check if user exists in DB, if not fetch from individual user API and store
 #[instrument(skip(db, client), fields(username = username, user_id = user_id))]
 pub async fn fetch_user_by_username<F: JsonFetcher>(

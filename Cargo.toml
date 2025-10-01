@@ -29,6 +29,7 @@ sea-orm = { version = "1.1", features = [
     "runtime-tokio-native-tls", # PlanetScale requires SSL/TLS
     "macros",
     "debug-print",              # Enable proper log messages for queries
+    "mock",                     # Enable MockDatabase for unit tests
 ] }
 sea-orm-migration = { version = "1", features = [
     "sqlx-mysql",
@@ -39,7 +40,7 @@ sea-orm-migration = { version = "1", features = [
 # Web framework & OpenAPI
 axum = { version = "0.8", features = ["macros"] }
 utoipa = { version = "5", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
+utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

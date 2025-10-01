@@ -39,6 +39,7 @@ impl TokensModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
         let (enabled, track_nep141, track_nep171, track_nep245, contract_whitelist) = match config {
             common::config::AppConfig::Indexer(idx) => {
+                let idx = idx.as_ref();
                 let near_config = idx.near.as_ref();
 
                 // Check if NEAR indexing is enabled at all

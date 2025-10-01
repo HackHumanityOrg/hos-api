@@ -21,6 +21,7 @@ impl RawModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
         let enabled = match config {
             common::config::AppConfig::Indexer(idx) => {
+                let idx = idx.as_ref();
                 let near_config = idx.near.as_ref();
 
                 // Check if NEAR indexing is enabled at all

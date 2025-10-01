@@ -31,7 +31,7 @@ pub async fn health_check(
     );
 
     // Test database connection if available
-    let database_health = match &app_state.db {
+    let database_health = match app_state.db.as_ref() {
         Some(db) => {
             // Measure database response time
             let start_time = Instant::now();

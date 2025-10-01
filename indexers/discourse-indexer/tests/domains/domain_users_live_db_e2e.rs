@@ -50,7 +50,7 @@ async fn user_upsert_validates_all_columns() -> Result<()> {
     let db = TestDatabase::new().await;
     let conn = db.db();
 
-    instances::repo::register_instance(&conn, INSTANCE_KEY, INSTANCE_URL).await?;
+    instances::repo::register_instance(conn.as_ref(), INSTANCE_KEY, INSTANCE_URL).await?;
 
     let fetcher = FixtureFetcher::new(&[(
         "/directory_items.json?period=all&order=likes_received&page=0",
@@ -59,13 +59,13 @@ async fn user_upsert_validates_all_columns() -> Result<()> {
     let items = adapter::fetch_users_directory(&fetcher, false, 0, 0).await?;
 
     for item in &items {
-        repo::upsert_user(&conn, INSTANCE_KEY, item).await?;
+        repo::upsert_user(conn.as_ref(), INSTANCE_KEY, item).await?;
     }
 
     let stored = DiscourseUsers::find()
         .filter(discourse_users::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_users::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
 
     assert_eq!(stored.len(), items.len());
@@ -93,12 +93,12 @@ async fn user_upsert_validates_all_columns() -> Result<()> {
 
     // Second upsert with the same data should not introduce duplicates.
     for item in &items {
-        repo::upsert_user(&conn, INSTANCE_KEY, item).await?;
+        repo::upsert_user(conn.as_ref(), INSTANCE_KEY, item).await?;
     }
     let stored_again = DiscourseUsers::find()
         .filter(discourse_users::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_users::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
     assert_eq!(stored_again.len(), items.len());
 
@@ -106,12 +106,12 @@ async fn user_upsert_validates_all_columns() -> Result<()> {
     if let Some(first_item) = items.first() {
         let mut updated_item = first_item.clone();
         updated_item.likes_received = updated_item.likes_received.map(|v| v + 1);
-        repo::upsert_user(&conn, INSTANCE_KEY, &updated_item).await?;
+        repo::upsert_user(conn.as_ref(), INSTANCE_KEY, &updated_item).await?;
 
         let stored_updated = DiscourseUsers::find()
             .filter(discourse_users::Column::Instance.eq(INSTANCE_KEY))
             .filter(discourse_users::Column::ExternalId.eq(updated_item.user.id))
-            .one(&conn)
+            .one(conn.as_ref())
             .await?
             .expect("updated user stored");
         assert_eq!(

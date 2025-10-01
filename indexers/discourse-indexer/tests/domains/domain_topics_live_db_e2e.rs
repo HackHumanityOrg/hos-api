@@ -41,7 +41,7 @@ async fn topics_upsert_checks_all_columns() -> Result<()> {
     let db = TestDatabase::new().await;
     let conn = db.db();
 
-    instances::repo::register_instance(&conn, INSTANCE_KEY, INSTANCE_URL).await?;
+    instances::repo::register_instance(conn.as_ref(), INSTANCE_KEY, INSTANCE_URL).await?;
 
     let categories_fetcher = FixtureFetcher::new(&[(
         "/categories.json?include_subcategories=true&page=0",
@@ -49,7 +49,7 @@ async fn topics_upsert_checks_all_columns() -> Result<()> {
     )])?;
     let categories = categories::adapter::fetch_categories_all(&categories_fetcher, 0).await?;
     for category in &categories {
-        categories::repo::upsert_category(&conn, INSTANCE_KEY, category).await?;
+        categories::repo::upsert_category(conn.as_ref(), INSTANCE_KEY, category).await?;
     }
 
     let fetcher =
@@ -59,12 +59,12 @@ async fn topics_upsert_checks_all_columns() -> Result<()> {
         .topic_list
         .topics;
 
-    repo::upsert_topics_bulk(&conn, INSTANCE_KEY, &topics).await?;
+    repo::upsert_topics_bulk(conn.as_ref(), INSTANCE_KEY, &topics).await?;
 
     let stored = DiscourseTopics::find()
         .filter(discourse_topics::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_topics::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
 
     assert_eq!(stored.len(), topics.len());
@@ -118,11 +118,11 @@ async fn topics_upsert_checks_all_columns() -> Result<()> {
         assert_eq!(row.external_category_id, src.category_id);
     }
 
-    repo::upsert_topics_bulk(&conn, INSTANCE_KEY, &topics).await?;
+    repo::upsert_topics_bulk(conn.as_ref(), INSTANCE_KEY, &topics).await?;
     let stored_second = DiscourseTopics::find()
         .filter(discourse_topics::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_topics::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
     assert_eq!(stored_second.len(), topics.len());
 
@@ -131,12 +131,12 @@ async fn topics_upsert_checks_all_columns() -> Result<()> {
         first_topic.views += 1;
         first_topic.like_count += 1;
     }
-    repo::upsert_topics_bulk(&conn, INSTANCE_KEY, &topics_updated).await?;
+    repo::upsert_topics_bulk(conn.as_ref(), INSTANCE_KEY, &topics_updated).await?;
 
     let stored_after_update = DiscourseTopics::find()
         .filter(discourse_topics::Column::Instance.eq(INSTANCE_KEY))
         .order_by_asc(discourse_topics::Column::ExternalId)
-        .all(&conn)
+        .all(conn.as_ref())
         .await?;
     assert_eq!(stored_after_update.len(), topics.len());
 
