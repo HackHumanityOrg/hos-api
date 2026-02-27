@@ -57,6 +57,16 @@ cargo run-indexer-1                  # Start indexer services
 **Development guide**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 **API development**: [docs/API.md](docs/API.md)
 
+## Railway Deployment
+
+This repository is deployed as a monorepo with one Railway service per component.
+
+- `api` service uses `/api/railway.toml`
+- `discourse-indexer` service uses `/indexers/discourse-indexer/railway.toml`
+- `near-indexer` service uses `/indexers/near-indexer/railway.toml`
+
+Each service should be linked to the same GitHub repository (`HackHumanityOrg/data-commons`) on `main` with autodeploy enabled. Watch patterns are defined in each service config file to avoid cross-service rebuilds.
+
 ## Testing
 
 ```bash

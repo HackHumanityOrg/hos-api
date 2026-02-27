@@ -123,10 +123,19 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
         let lookback_hours = discourse.recent_lookback_hours;
         let telemetry_enabled = config.telemetry().enabled;
 
-        let post_tasks_limit = inst.max_post_tasks.unwrap_or(10);
-        let likes_limit = inst.likes_concurrency.unwrap_or(10);
-        let revs_limit = inst.revisions_concurrency.unwrap_or(5);
-        let recent_topic_cap = inst.recent_topic_pages_cap.unwrap_or(3);
+        let http_limit = inst
+            .http_max_concurrency
+            .unwrap_or(discourse.http_max_concurrency);
+        let post_tasks_limit = inst.max_post_tasks.unwrap_or(discourse.max_post_tasks);
+        let likes_limit = inst
+            .likes_concurrency
+            .unwrap_or(discourse.likes_concurrency);
+        let revs_limit = inst
+            .revisions_concurrency
+            .unwrap_or(discourse.revisions_concurrency);
+        let recent_topic_cap = inst
+            .recent_topic_pages_cap
+            .unwrap_or(discourse.recent_topic_pages_cap);
         let conc = Concurrency::new(post_tasks_limit, likes_limit, revs_limit);
 
         discourse_indexer::domain::instances::repo::register_instance(
@@ -137,11 +146,13 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
         .await
         .ok();
 
-        let client = Arc::new(discourse_indexer::discourse_api::DiscourseClient::new(
-            base_url.clone(),
-        ));
+        let client = Arc::new(
+            discourse_indexer::discourse_api::DiscourseClient::new(base_url.clone())
+                .with_http_max_concurrency(http_limit),
+        );
         let full_running = Arc::new(AtomicBool::new(false));
         let recent_running = Arc::new(AtomicBool::new(false));
+        let full_completed_once = Arc::new(AtomicBool::new(false));
 
         {
             let db_recent = db.clone();
@@ -149,6 +160,8 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
             let conc_recent = conc.clone();
             let instance_recent = instance_key.clone();
             let recent_flag = recent_running.clone();
+            let full_flag_recent = full_running.clone();
+            let full_done_recent = full_completed_once.clone();
             handles.push(tokio::spawn(async move {
                 let start = Instant::now() + Duration::from_secs(INITIAL_RECENT_DELAY_SECS);
                 let mut interval = interval_at(start, Duration::from_secs(recent_every));
@@ -157,11 +170,32 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
                 loop {
                     interval.tick().await;
 
+                    if !full_done_recent.load(Ordering::Acquire)
+                        && full_flag_recent.load(Ordering::Acquire)
+                    {
+                        info!(
+                            instance = %instance_recent,
+                            "Initial full refresh still running, skipping recent cycle"
+                        );
+                        continue;
+                    }
+
                     if recent_flag
                         .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
                         .is_err()
                     {
                         info!(instance = %instance_recent, "Recent updates already running, skipping this cycle");
+                        continue;
+                    }
+
+                    if !full_done_recent.load(Ordering::Acquire)
+                        && full_flag_recent.load(Ordering::Acquire)
+                    {
+                        info!(
+                            instance = %instance_recent,
+                            "Initial full refresh started while scheduling recent cycle, skipping"
+                        );
+                        recent_flag.store(false, Ordering::Release);
                         continue;
                     }
 
@@ -207,6 +241,7 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
             let conc_full = conc.clone();
             let instance_full = instance_key.clone();
             let full_flag = full_running.clone();
+            let full_done_flag = full_completed_once.clone();
             handles.push(tokio::spawn(async move {
                 let start = Instant::now() + Duration::from_secs(INITIAL_FULL_DELAY_SECS);
                 let mut interval = interval_at(start, Duration::from_secs(full_every));
@@ -235,6 +270,7 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
 
                     match result {
                         Ok(_) => {
+                            full_done_flag.store(true, Ordering::Release);
                             info!(instance = %instance_full, duration = ?cycle_start.elapsed(), "Full refresh completed successfully");
                             if telemetry_enabled {
                                 telemetry::increment_counter(

@@ -139,6 +139,16 @@ pub struct DiscourseConfig {
     pub max_pages_per_run: u32,
     #[serde(default = "default_recent_lookback_hours")]
     pub recent_lookback_hours: i64,
+    #[serde(default = "default_http_max_concurrency")]
+    pub http_max_concurrency: usize,
+    #[serde(default = "default_max_post_tasks")]
+    pub max_post_tasks: usize,
+    #[serde(default = "default_likes_concurrency")]
+    pub likes_concurrency: usize,
+    #[serde(default = "default_revisions_concurrency")]
+    pub revisions_concurrency: usize,
+    #[serde(default = "default_recent_topic_pages_cap")]
+    pub recent_topic_pages_cap: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -148,6 +158,8 @@ pub struct DiscourseInstanceConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
     // Per-instance tuning (optional)
+    #[serde(default)]
+    pub http_max_concurrency: Option<usize>,
     #[serde(default)]
     pub max_post_tasks: Option<usize>,
     #[serde(default)]
@@ -179,6 +191,21 @@ fn default_max_pages_per_run() -> u32 {
 fn default_recent_lookback_hours() -> i64 {
     2
 }
+fn default_http_max_concurrency() -> usize {
+    4
+}
+fn default_max_post_tasks() -> usize {
+    3
+}
+fn default_likes_concurrency() -> usize {
+    2
+}
+fn default_revisions_concurrency() -> usize {
+    1
+}
+fn default_recent_topic_pages_cap() -> u32 {
+    1
+}
 
 impl ToLog for DiscourseConfig {
     fn to_log(&self) -> JsonValue {
@@ -187,11 +214,23 @@ impl ToLog for DiscourseConfig {
                 "key": i.key,
                 "base_url": i.base_url,
                 "enabled": i.enabled,
+                "http_max_concurrency": i.http_max_concurrency,
+                "max_post_tasks": i.max_post_tasks,
+                "likes_concurrency": i.likes_concurrency,
+                "revisions_concurrency": i.revisions_concurrency,
+                "recent_topic_pages_cap": i.recent_topic_pages_cap,
+                "full_refresh_interval_sec": i.full_refresh_interval_sec,
+                "recent_update_interval_sec": i.recent_update_interval_sec,
             })).collect::<Vec<_>>(),
             "full_refresh_interval_sec": self.full_refresh_interval_sec,
             "recent_update_interval_sec": self.recent_update_interval_sec,
             "max_pages_per_run": self.max_pages_per_run,
             "recent_lookback_hours": self.recent_lookback_hours,
+            "http_max_concurrency": self.http_max_concurrency,
+            "max_post_tasks": self.max_post_tasks,
+            "likes_concurrency": self.likes_concurrency,
+            "revisions_concurrency": self.revisions_concurrency,
+            "recent_topic_pages_cap": self.recent_topic_pages_cap,
         })
     }
 }

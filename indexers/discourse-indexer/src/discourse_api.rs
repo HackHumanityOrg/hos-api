@@ -88,6 +88,15 @@ impl DiscourseClient {
         }
     }
 
+    pub fn with_http_max_concurrency(mut self, max_concurrency: usize) -> Self {
+        self.set_http_max_concurrency(max_concurrency);
+        self
+    }
+
+    pub fn set_http_max_concurrency(&mut self, max_concurrency: usize) {
+        self.http_sem = Some(Arc::new(Semaphore::new(max_concurrency.max(1))));
+    }
+
     /// Determines if an HTTP status code represents a permanent error that should not be retried
     fn is_permanent_error(&self, status: StatusCode) -> bool {
         match status {

@@ -189,6 +189,7 @@ mod services_helpers {
         };
         let conc = options.concurrency;
         let max_pages_per_run = options.max_pages_per_run;
+        let known_users_cache = domain::users::adapter::KnownUsersCache::new();
 
         info!(
             sync_type = if is_recent { "recent" } else { "full" },
@@ -292,6 +293,7 @@ mod services_helpers {
                     instance,
                     t.id,
                     is_recent,
+                    &known_users_cache,
                     conc,
                     max_pages_per_run,
                 )
@@ -346,13 +348,15 @@ mod services_helpers {
         Ok(())
     }
 
-    #[tracing::instrument(skip(db, client, conc), fields(topic_id = topic_id, recent = recent))]
+    #[allow(clippy::too_many_arguments)]
+    #[tracing::instrument(skip(db, client, known_users_cache, conc), fields(topic_id = topic_id, recent = recent))]
     pub async fn sync_posts_for_topic(
         db: Arc<DatabaseConnection>,
         client: &discourse_api::DiscourseClient,
         instance: &str,
         topic_id: i32,
         recent: bool,
+        known_users_cache: &domain::users::adapter::KnownUsersCache,
         conc: &Concurrency,
         max_pages_per_run: u32,
     ) -> Result<()> {
@@ -419,6 +423,7 @@ mod services_helpers {
                     instance,
                     &post.username,
                     post.user_id,
+                    known_users_cache,
                 )
                 .await?;
             }
@@ -432,6 +437,7 @@ mod services_helpers {
                 let db_all = db.clone();
                 let client_all = client.clone();
                 let instance_all = instance.to_string();
+                let known_users_cache_all = known_users_cache.clone();
                 let likes_sem = conc.likes.clone();
                 let rev_sem = conc.revisions.clone();
                 let post_sem = conc.post_tasks.clone();
@@ -462,6 +468,7 @@ mod services_helpers {
                                         &instance_all,
                                         &like_user.username,
                                         like_user.id,
+                                        &known_users_cache_all,
                                     )
                                     .await
                                     {
