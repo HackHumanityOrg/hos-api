@@ -84,6 +84,7 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "info,near_lake_framework=warn".into()),
         )
+        .json()
         .init();
 
     let start_height: u64 = std::env::var("START_BLOCK_HEIGHT")

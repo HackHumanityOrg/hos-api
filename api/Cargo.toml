@@ -15,7 +15,6 @@ utoipa-swagger-ui = { workspace = true }
 tracing = { workspace = true }
 dotenvy = { workspace = true }
 chrono = { workspace = true }
-sentry = { workspace = true }
 tower-http = { workspace = true }
 db-core = { workspace = true }
 common = { workspace = true }

@@ -13,7 +13,7 @@ max_lifetime = 300          # Reduced from 1800 to prevent stale connections
 
 [logging]
 level = "info"
-format = "pretty"
+format = "json"
 
 [telemetry]
 enabled = true

@@ -8,7 +8,7 @@ A high-performance Rust monorepo for data indexing and API services built with m
 - **Indexers** - Parallel data processing services  
 - **Shared Libraries** - Database, configuration, utilities, and telemetry
 - **Migrations** - SeaORM-powered PostgreSQL/PlanetScale Postgres schema management
-- **Observability** - Full Sentry integration (errors, traces, and logs)
+- **Observability** - Structured JSON logging and tracing
 
 ```
 data-commons/
@@ -24,7 +24,7 @@ data-commons/
 ```bash
 git clone <repository-url> && cd data-commons
 cargo install sea-orm-cli --version 1.1.15 --locked
-cp .env.example .env  # Edit with database and optional Sentry DSN
+cp .env.example .env  # Edit with database settings
 direnv allow
 cargo migrate-up && cargo generate-entities
 cargo run-api
@@ -70,24 +70,17 @@ cargo test -p api           # API tests with real database containers
 
 ## Observability
 
-Sentry integration for production-ready error monitoring, distributed tracing, and structured logs.
-
-```bash
-# Set environment variables (optional - services degrade gracefully)
-export SENTRY_DSN=https://<public_key>@<org>.ingest.us.sentry.io/<project_id>
-export SENTRY_ENVIRONMENT=production
-```
+The platform uses `tracing` with `tracing-subscriber` and emits structured JSON logs by default.
 
 **Features**:
-- **Errors**: Automatic panic/error capture with request correlation
-- **Traces**: HTTP requests, background jobs, and instrumented spans
-- **Logs**: Structured logs, breadcrumbs, and event context
-- **Shutdown draining**: Guarded flush on graceful shutdown
+- **Logs**: Structured JSON logs for all services
+- **Traces**: Span-aware request and background-job tracing
+- **Filtering**: Log level control via `RUST_LOG`
 
 ## Tech Stack
 
 **Backend**: Rust • Tokio • Axum • SeaORM • PostgreSQL/PlanetScale Postgres
-**Observability**: Sentry • tracing • structured logging
+**Observability**: tracing • structured JSON logging
 **Testing**: testcontainers-rs • rstest • axum-test
 **Docs**: Utoipa • Swagger UI
 **Config**: Figment • Environment variables

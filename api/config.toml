@@ -17,11 +17,10 @@ port = 3000
 
 [logging]
 level = "debug"   # Set to 'debug' for local debugging, 'info' for quieter production logs
-format = "pretty"
+format = "json"
 
 [telemetry]
-# Sentry telemetry configuration for API service.
-# Requires SENTRY_DSN in the environment.
+# Telemetry configuration for internal metrics and tracing behavior.
 enabled = true
 service_version = "0.1.0"
 environment = "development" # Options: development, staging, production

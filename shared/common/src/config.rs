@@ -75,7 +75,7 @@ impl ToLog for LoggingConfig {
     }
 }
 
-/// Telemetry configuration for Sentry integration
+/// Telemetry configuration for internal metrics and tracing behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryConfig {
     pub enabled: bool,
@@ -766,7 +766,7 @@ impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
             level: "info".to_string(),
-            format: Some("pretty".to_string()),
+            format: Some("json".to_string()),
         }
     }
 }
@@ -837,7 +837,7 @@ mod tests {
 
             [logging]
             level = "info"
-            format = "pretty"
+            format = "json"
 
             [telemetry]
             enabled = true

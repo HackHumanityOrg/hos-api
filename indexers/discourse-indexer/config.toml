@@ -24,7 +24,7 @@ recent_update_interval_sec = 300   # 5m for this instance
 
 [logging]
 level = "debug"
-format = "pretty"
+format = "json"
 
 [telemetry]
 enabled = true

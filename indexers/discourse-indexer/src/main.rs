@@ -17,12 +17,11 @@ fn main() -> Result<()> {
     let config =
         AppConfig::load_indexer("discourse-indexer").context("Failed to load configuration")?;
 
-    // Initialize telemetry (Sentry if configured, basic tracing otherwise)
+    // Initialize telemetry and tracing
     let telemetry_setup = TelemetrySetup::from_config(
         "discourse-indexer",
         config.telemetry(),
         &config.logging().level,
-        config.logging().format.as_deref(),
     )
     .context("Failed to create telemetry setup")?;
 
@@ -35,7 +34,7 @@ fn main() -> Result<()> {
         .context("Failed to create Tokio runtime")?;
 
     if let Err(err) = runtime.block_on(run(config)) {
-        sentry::integrations::anyhow::capture_anyhow(&err);
+        error!(error = ?err, "Discourse indexer terminated with error");
         return Err(err);
     }
 

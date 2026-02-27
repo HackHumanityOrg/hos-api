@@ -345,12 +345,8 @@ fn main() -> Result<()> {
     let config =
         AppConfig::load_indexer("near-indexer").context("Failed to load indexer config")?;
 
-    let telemetry_setup = TelemetrySetup::from_config(
-        "near-indexer",
-        config.telemetry(),
-        &config.logging().level,
-        config.logging().format.as_deref(),
-    )?;
+    let telemetry_setup =
+        TelemetrySetup::from_config("near-indexer", config.telemetry(), &config.logging().level)?;
     let _guard = telemetry::init_telemetry(telemetry_setup)?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -359,7 +355,7 @@ fn main() -> Result<()> {
         .context("Failed to create Tokio runtime")?;
 
     if let Err(err) = runtime.block_on(run(config)) {
-        sentry::integrations::anyhow::capture_anyhow(&err);
+        error!(error = ?err, "NEAR indexer terminated with error");
         return Err(err);
     }
 

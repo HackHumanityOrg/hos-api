@@ -4,10 +4,11 @@ use tracing::info;
 
 /// Initialize tracing subscriber with sensible defaults
 pub fn init_tracing(level: &str) -> anyhow::Result<()> {
-    use tracing_subscriber::{EnvFilter, FmtSubscriber};
+    use tracing_subscriber::EnvFilter;
 
-    let subscriber = FmtSubscriber::builder()
+    let subscriber = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_new(level)?)
+        .json()
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)?;

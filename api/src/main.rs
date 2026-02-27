@@ -11,13 +11,12 @@ mod state;
 mod types;
 
 use anyhow::{Context, Result};
-use axum::{body::Body, http::Request as HttpRequest, Router};
+use axum::Router;
 use common::config::AppConfig;
 use common::telemetry::{self, KeyValue, TelemetrySetup};
-use sentry::integrations::tower::{NewSentryLayer, SentryHttpLayer};
 use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
-use tracing::info;
+use tracing::{error, info};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -28,14 +27,10 @@ fn main() -> Result<()> {
     // Load API-specific configuration (type-safe)
     let config = AppConfig::load_api().context("Failed to load configuration")?;
 
-    // Initialize telemetry (Sentry if configured, basic tracing otherwise)
-    let telemetry_setup = TelemetrySetup::from_config(
-        "api",
-        config.telemetry(),
-        &config.logging().level,
-        config.logging().format.as_deref(),
-    )
-    .context("Failed to create telemetry setup")?;
+    // Initialize telemetry and tracing
+    let telemetry_setup =
+        TelemetrySetup::from_config("api", config.telemetry(), &config.logging().level)
+            .context("Failed to create telemetry setup")?;
 
     let _telemetry_guard =
         telemetry::init_telemetry(telemetry_setup).context("Failed to initialize telemetry")?;
@@ -46,7 +41,7 @@ fn main() -> Result<()> {
         .context("Failed to create Tokio runtime")?;
 
     if let Err(err) = runtime.block_on(run(config)) {
-        sentry::integrations::anyhow::capture_anyhow(&err);
+        error!(error = ?err, "API service terminated with error");
         return Err(err);
     }
 
@@ -73,18 +68,10 @@ async fn run(config: AppConfig) -> Result<()> {
     let app_state = state::AppState::from_database(db_result.ok());
 
     // Create the router with API routes
-    let mut app = Router::new()
+    let app = Router::new()
         .nest("/api/v1", routes::create_routes())
-        .merge(routes::health::health_routes());
-
-    // Add Sentry HTTP middleware only when Sentry is active.
-    if config.telemetry().enabled && telemetry::is_sentry_enabled() {
-        app = app
-            // Axum applies layers in reverse order; keep this ordering to avoid leaks.
-            .layer(SentryHttpLayer::new().enable_transaction())
-            .layer(NewSentryLayer::<HttpRequest<Body>>::new_from_top())
-            .layer(TraceLayer::new_for_http()); // HTTP tracing
-    }
+        .merge(routes::health::health_routes())
+        .layer(TraceLayer::new_for_http());
 
     let app = app.with_state(app_state.clone());
 

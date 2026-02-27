@@ -83,6 +83,7 @@ pub fn init_test_tracing() {
     INIT.call_once(|| {
         tracing_subscriber::fmt()
             .with_env_filter("debug")
+            .json()
             .with_test_writer()
             .init();
     });
