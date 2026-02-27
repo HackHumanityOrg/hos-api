@@ -326,19 +326,22 @@ cargo test -p near-indexer
 cargo test -p api -- --nocapture --test-threads=1
 ```
 
-#### Live HTTP Tests (gated)
+#### Live HTTP Tests
 
-Some indexer tests call the live Discourse API (meta.discourse.org). These are gated behind the `live_http` feature and are skipped by default to keep CI deterministic and fast.
+The Discourse indexer test suite includes live upstream integration tests by default. These tests call real Discourse APIs (`meta.discourse.org` and `gov.near.org`) and persist results into PostgreSQL testcontainers.
 
-- Run fast, deterministic tests (default):
-  - `cargo test -p discourse-indexer`
+- Run the full crate test suite:
+  - `cargo test-discourse-indexer`
 
-- Run live HTTP tests explicitly:
-  - `cargo test -p discourse-indexer --features live_http`
+- Run with coverage enforcement (85% line coverage gate):
+  - `./scripts/coverage_discourse_indexer.sh 85`
+
+- Generate a full llvm-cov report (no gate):
+  - `cargo coverage-discourse-indexer`
 
 Notes:
-- The live tests use timeouts and may scan multiple pages; they can be slow and occasionally flaky due to upstream changes.
-- Mocked tests using `mockito` cover headers, rate limits, and error/retry logic without network access.
+- Live tests use bounded page limits, explicit timeouts, and one retry for transient upstream failures.
+- Deterministic mocked tests still run alongside live tests to cover retry, caching, and edge-case logic without network dependence.
 
 ### Writing Tests
 

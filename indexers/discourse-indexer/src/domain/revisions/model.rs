@@ -165,3 +165,63 @@ fn extract_title_columns(content: &str) -> Option<(String, String)> {
     let after = clean_title_markdown(sections.next()?.inner_html().trim());
     Some((before, after))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_markdown_columns_and_cleans_diff_markup() {
+        let html = r#"
+            <table>
+              <tr>
+                <td><del>before</del> &amp; text</td>
+                <td><ins>after</ins> &amp; text</td>
+              </tr>
+            </table>
+        "#;
+
+        let (before, after) = extract_markdown_columns(html).expect("columns should parse");
+        assert_eq!(before, vec!["before & text".to_string()]);
+        assert_eq!(after, vec!["after & text".to_string()]);
+    }
+
+    #[test]
+    fn falls_back_to_cleaned_body_when_no_diff_table_exists() {
+        let inline = "<del>old</del> and <ins>new</ins> &amp; more";
+
+        let before = extract_raw_markdown_before(inline).expect("before fallback");
+        let after = extract_raw_markdown_after(inline).expect("after fallback");
+
+        assert_eq!(before, "old and new & more");
+        assert_eq!(after, "old and new & more");
+    }
+
+    #[test]
+    fn extracts_title_columns_from_revision_html() {
+        let html = r#"
+            <div class="revision-content">
+                <div><del>Old &amp; Title</del></div>
+                <div><ins>New &amp; Title</ins></div>
+            </div>
+        "#;
+
+        let (before, after) = extract_title_columns(html).expect("title columns should parse");
+        assert_eq!(before, "Old & Title");
+        assert_eq!(after, "New & Title");
+    }
+
+    #[test]
+    fn parses_real_revision_fixture_and_exposes_raw_helpers() {
+        let raw = include_str!("../../../tests/fixtures/meta/post_326680_revision_2.json");
+        let revision: Revision = serde_json::from_str(raw).expect("fixture should parse");
+
+        let before = revision.get_raw_markdown_before();
+        let after = revision.get_raw_markdown_after();
+
+        assert!(before.contains("Repo:"));
+        assert!(after.contains("More notes:"));
+        assert!(!before.contains("<del>"));
+        assert!(!after.contains("<ins>"));
+    }
+}

@@ -371,3 +371,183 @@ impl JsonFetcher for DiscourseClient {
         DiscourseClient::get_json(self, path).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockito::Server;
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct Payload {
+        value: i32,
+    }
+
+    fn test_client(base_url: String) -> DiscourseClient {
+        let mut client = DiscourseClient::new(base_url);
+        client.max_retries = 1;
+        client.retry_base_delay = Duration::from_millis(1);
+        client.jitter_min_ms = 0;
+        client.jitter_max_ms = 0;
+        client.cache_ttl = Duration::from_secs(60);
+        client
+    }
+
+    #[test]
+    fn classifies_permanent_status_codes() {
+        let client = DiscourseClient::new("https://example.com".to_string());
+
+        let permanent = [
+            StatusCode::BAD_REQUEST,
+            StatusCode::UNAUTHORIZED,
+            StatusCode::PAYMENT_REQUIRED,
+            StatusCode::NOT_FOUND,
+            StatusCode::METHOD_NOT_ALLOWED,
+            StatusCode::NOT_ACCEPTABLE,
+            StatusCode::PROXY_AUTHENTICATION_REQUIRED,
+            StatusCode::REQUEST_TIMEOUT,
+            StatusCode::CONFLICT,
+            StatusCode::GONE,
+            StatusCode::LENGTH_REQUIRED,
+            StatusCode::PRECONDITION_FAILED,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            StatusCode::URI_TOO_LONG,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            StatusCode::EXPECTATION_FAILED,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            StatusCode::LOCKED,
+            StatusCode::FAILED_DEPENDENCY,
+            StatusCode::UPGRADE_REQUIRED,
+            StatusCode::PRECONDITION_REQUIRED,
+            StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
+            StatusCode::IM_A_TEAPOT,
+        ];
+        for status in permanent {
+            assert!(
+                client.is_permanent_error(status),
+                "{status} should be permanent"
+            );
+        }
+
+        assert!(!client.is_permanent_error(StatusCode::TOO_MANY_REQUESTS));
+        assert!(!client.is_permanent_error(StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(!client.is_permanent_error(StatusCode::OK));
+        assert!(!client.is_permanent_error(StatusCode::MOVED_PERMANENTLY));
+    }
+
+    #[tokio::test]
+    async fn caches_responses_within_ttl() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/payload")
+            .with_status(200)
+            .with_body(r#"{"value":42}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let client = test_client(server.url());
+
+        let first: Payload = client.get_json("/payload").await.expect("first payload");
+        let second: Payload = client.get_json("/payload").await.expect("second payload");
+
+        assert_eq!(first, Payload { value: 42 });
+        assert_eq!(second, first);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn returns_status_error_for_not_found() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/missing")
+            .with_status(404)
+            .create_async()
+            .await;
+
+        let client = test_client(server.url());
+
+        let err = client
+            .get_json::<Payload>("/missing")
+            .await
+            .expect_err("404 should fail");
+
+        let status = err
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<HttpStatusError>().map(|e| e.status));
+        assert_eq!(status, Some(StatusCode::NOT_FOUND));
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn returns_status_error_for_not_modified() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/not-modified")
+            .with_status(304)
+            .create_async()
+            .await;
+
+        let client = test_client(server.url());
+
+        let err = client
+            .get_json::<Payload>("/not-modified")
+            .await
+            .expect_err("304 should fail");
+
+        let status = err
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<HttpStatusError>().map(|e| e.status));
+        assert_eq!(status, Some(StatusCode::NOT_MODIFIED));
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn retries_transient_errors_until_max_retries() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/unstable")
+            .with_status(503)
+            .expect(2)
+            .create_async()
+            .await;
+
+        let client = test_client(server.url());
+
+        let err = client
+            .get_json::<Payload>("/unstable")
+            .await
+            .expect_err("503 should eventually fail");
+
+        let status = err.chain().find_map(|cause| {
+            cause
+                .downcast_ref::<MaxRetriesReachedError>()
+                .map(|e| e.status)
+        });
+        assert_eq!(status, Some(StatusCode::SERVICE_UNAVAILABLE));
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn includes_json_path_context_on_deserialization_failure() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("GET", "/bad-json")
+            .with_status(200)
+            .with_body(r#"{"value":"not-a-number"}"#)
+            .create_async()
+            .await;
+
+        let client = test_client(server.url());
+        let err = client
+            .get_json::<Payload>("/bad-json")
+            .await
+            .expect_err("invalid payload should fail");
+
+        let rendered = format!("{err:#}");
+        assert!(rendered.contains("invalid json body at path"));
+        assert!(rendered.contains("/bad-json"));
+        mock.assert_async().await;
+    }
+}

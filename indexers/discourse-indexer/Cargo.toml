@@ -58,6 +58,6 @@ name = "domain_revisions_live_db_e2e"
 path = "tests/domains/domain_revisions_live_db_e2e.rs"
 
 [features]
-# Enable tests that hit the live Discourse API (meta.discourse.org)
-# Disabled by default for determinism and CI stability.
+# Kept for backward compatibility with older scripts.
+# Live upstream tests now run by default in `cargo test -p discourse-indexer`.
 live_http = []

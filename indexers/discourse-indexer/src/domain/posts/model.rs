@@ -93,3 +93,55 @@ mod date_format {
             .map_err(serde::de::Error::custom)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use serde_json::json;
+
+    #[test]
+    fn post_model_deserializes_defaults_and_serializes_dates() {
+        let payload = json!({
+            "id": 42,
+            "name": "Alice",
+            "username": "alice",
+            "avatar_template": "/user_avatar/example/{size}/1_2.png",
+            "created_at": "2026-01-01T12:00:00Z",
+            "updated_at": "2026-01-01T12:01:00Z",
+            "post_number": 1,
+            "reply_to_post_number": null,
+            "topic_id": 99,
+            "topic_slug": "example-topic",
+            "display_username": "Alice",
+            "primary_group_name": null,
+            "flair_name": null,
+            "flair_url": null,
+            "flair_bg_color": null,
+            "flair_color": null,
+            "user_id": 7
+        });
+
+        let post: Post = serde_json::from_value(payload).expect("post should deserialize");
+        assert_eq!(post.id, 42);
+        assert_eq!(post.post_type, 0);
+        assert_eq!(post.version, 1);
+        assert!(post.actions_summary.is_empty());
+        assert!(!post.deleted);
+
+        let serialized = serde_json::to_value(&post).expect("post should serialize");
+        assert_eq!(serialized["created_at"], "2026-01-01T12:00:00+00:00");
+        assert_eq!(serialized["updated_at"], "2026-01-01T12:01:00+00:00");
+    }
+
+    #[test]
+    fn date_format_module_handles_rfc3339_roundtrip() {
+        let dt = Utc.with_ymd_and_hms(2026, 2, 3, 4, 5, 6).unwrap();
+        let encoded = serde_json::to_string(&dt.with_timezone(&Utc).to_rfc3339())
+            .expect("encode date string");
+
+        let mut de = serde_json::Deserializer::from_str(&encoded);
+        let parsed = date_format::deserialize(&mut de).expect("decode rfc3339");
+        assert_eq!(parsed, dt);
+    }
+}
