@@ -25,7 +25,6 @@ docs/
 
 # Testing
 target/debug/
-**/*test*
 tests/
 
 # Logs

@@ -67,6 +67,30 @@ impl TelemetrySetup {
     }
 }
 
+fn env_var_non_empty(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn resolve_deployment_environment(config_environment: &str) -> String {
+    env_var_non_empty("APP_TELEMETRY__ENVIRONMENT")
+        .or_else(|| env_var_non_empty("RAILWAY_ENVIRONMENT_NAME"))
+        .or_else(|| env_var_non_empty("RAILWAY_ENVIRONMENT"))
+        .unwrap_or_else(|| config_environment.to_string())
+}
+
+fn resolve_deployment_region(config_region: Option<&str>) -> String {
+    env_var_non_empty("APP_TELEMETRY__DEPLOYMENT_REGION")
+        .or_else(|| env_var_non_empty("DEPLOYMENT_REGION"))
+        .or_else(|| env_var_non_empty("RAILWAY_REGION"))
+        .or_else(|| env_var_non_empty("RAILWAY_DEPLOYMENT_REGION"))
+        .or_else(|| env_var_non_empty("RAILWAY_REPLICA_REGION"))
+        .or_else(|| config_region.map(|value| value.to_string()))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 /// Telemetry guard that ensures Sentry flushes data on shutdown.
 pub struct TelemetryGuard {
     sentry_guard: Option<ClientInitGuard>,
@@ -100,16 +124,18 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
         0.0
     };
 
+    let deployment_environment = resolve_deployment_environment(&setup.config.environment);
+
     info!(
         "Initializing Sentry telemetry for service={} release={} environment={}",
-        setup.service_name, release, setup.config.environment
+        setup.service_name, release, deployment_environment
     );
 
     let sentry_guard = sentry::init((
         dsn,
         sentry::ClientOptions {
             release: Some(release.into()),
-            environment: Some(setup.config.environment.clone().into()),
+            environment: Some(deployment_environment.clone().into()),
             traces_sample_rate,
             sample_rate: setup.config.event_sample_rate,
             enable_logs: setup.config.enable_logs,
@@ -122,11 +148,20 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
     sentry::configure_scope(|scope| {
         scope.set_tag("service.name", setup.service_name.clone());
         scope.set_tag("service.version", setup.config.service_version.clone());
-        scope.set_tag("deployment.environment", setup.config.environment.clone());
+        scope.set_tag("deployment.environment", deployment_environment.clone());
 
         for (key, value) in &setup.config.tags {
             scope.set_tag(key, value.clone());
         }
+
+        let deployment_region = resolve_deployment_region(
+            setup
+                .config
+                .tags
+                .get("deployment.region")
+                .map(String::as_str),
+        );
+        scope.set_tag("deployment.region", deployment_region);
     });
 
     let env_filter = build_env_filter(&setup.service_name, &setup.log_level)?;

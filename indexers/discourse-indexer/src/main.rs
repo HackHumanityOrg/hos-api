@@ -7,7 +7,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, warn};
 
 fn main() -> Result<()> {
     // Load environment variables
@@ -58,26 +58,41 @@ async fn run(config: AppConfig) -> Result<()> {
         );
     }
 
-    // Initialize database connection
-    let db_result = db_core::connection::from_config(config.database()).await;
+    let db = connect_db_with_retry(config.database()).await;
 
-    match &db_result {
-        Ok(_) => {
-            info!("Database connection established successfully");
-        }
-        Err(e) => {
-            tracing::warn!("Failed to connect to database: {}", e);
-            info!("Starting indexer without database connection - will retry when needed");
-        }
-    }
-
-    run_indexing_loop(&config).await?;
+    run_indexing_loop(&config, db).await?;
 
     Ok(())
 }
 
-#[instrument(skip(config))]
-async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
+#[instrument(skip(database_config))]
+async fn connect_db_with_retry(
+    database_config: &common::config::DatabaseConfig,
+) -> Arc<sea_orm::DatabaseConnection> {
+    let mut attempt: u32 = 1;
+
+    loop {
+        match db_core::connection::from_config(database_config).await {
+            Ok(db) => {
+                info!(attempt, "Database connection established successfully");
+                return Arc::new(db);
+            }
+            Err(e) => {
+                warn!(
+                    attempt,
+                    error = %e,
+                    retry_secs = 5,
+                    "DB connect failed; retrying shortly"
+                );
+                attempt = attempt.saturating_add(1);
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
+        }
+    }
+}
+
+#[instrument(skip(config, db))]
+async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnection>) -> Result<()> {
     use tokio::time::{interval_at, Duration, Instant, MissedTickBehavior};
 
     const INITIAL_FULL_DELAY_SECS: u64 = 5;
@@ -92,15 +107,6 @@ async fn run_indexing_loop(config: &AppConfig) -> Result<()> {
             loop {
                 tokio::time::sleep(Duration::from_secs(30)).await;
             }
-        }
-    };
-
-    let db = match db_core::connection::from_config(config.database()).await {
-        Ok(db) => Arc::new(db),
-        Err(e) => {
-            error!(error = %e, "DB connect failed; retrying shortly");
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            Arc::new(db_core::connection::from_config(config.database()).await?)
         }
     };
 

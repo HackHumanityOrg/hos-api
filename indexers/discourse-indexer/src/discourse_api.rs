@@ -286,13 +286,23 @@ impl DiscourseClient {
             }
             // Check if this is a permanent error that we should not retry
             if self.is_permanent_error(status) {
-                error!(
-                    path = path,
-                    status = %status,
-                    attempt = attempt,
-                    total_ms = start.elapsed().as_millis(),
-                    "Permanent error - not retrying"
-                );
+                if status == StatusCode::NOT_FOUND {
+                    warn!(
+                        path = path,
+                        status = %status,
+                        attempt = attempt,
+                        total_ms = start.elapsed().as_millis(),
+                        "Resource not found - not retrying"
+                    );
+                } else {
+                    error!(
+                        path = path,
+                        status = %status,
+                        attempt = attempt,
+                        total_ms = start.elapsed().as_millis(),
+                        "Permanent error - not retrying"
+                    );
+                }
                 return Err(anyhow!(HttpStatusError {
                     status,
                     url: url.clone()
