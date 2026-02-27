@@ -1,0 +1,6 @@
+[deploy.multiRegionConfig."us-east4-eqdc4a"]
+numReplicas = 1
+
+[deploy.limitOverride.containers]
+cpu = 4
+memoryBytes = 4000000000
