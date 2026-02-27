@@ -7,10 +7,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info, warn};
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let startup_time = Instant::now();
-
+fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     let config =
@@ -23,6 +20,22 @@ async fn main() -> Result<()> {
         config.logging().format.as_deref(),
     )?;
     let _guard = telemetry::init_telemetry(telemetry_setup)?;
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("Failed to create Tokio runtime")?;
+
+    if let Err(err) = runtime.block_on(run(config)) {
+        sentry::integrations::anyhow::capture_anyhow(&err);
+        return Err(err);
+    }
+
+    Ok(())
+}
+
+async fn run(config: AppConfig) -> Result<()> {
+    let startup_time = Instant::now();
 
     info!(
         config = %config.to_log(),

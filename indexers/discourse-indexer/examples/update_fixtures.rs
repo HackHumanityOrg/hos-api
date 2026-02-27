@@ -1,6 +1,6 @@
 use anyhow::Result;
 use discourse_indexer::discourse_api::DiscourseClient;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 
 #[tokio::main]
@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
 async fn fetch_and_save(
     client: &DiscourseClient,
     path: &str,
-    fixtures_dir: &PathBuf,
+    fixtures_dir: &Path,
     filename: &str,
 ) -> Result<()> {
     print!("Fetching {} ... ", filename);

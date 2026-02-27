@@ -16,4 +16,4 @@ Tests mirror module layout (e.g., `api/tests/handlers/`). Prefer deterministic h
 Write concise, imperative commit subjects (≈50 characters) similar to "fix Railway caching" or "observability". Pull requests should summarize the change, link relevant issues, note testing performed, and call out config or migration impacts; include Swagger screenshots when UI behavior changes.
 
 ## Security & Configuration Tips
-Never commit secrets. Copy `.env.example` to `.env` locally and configure runtime with environment variables such as `DATABASE_URL`, `RUST_LOG`, `DASH0_OTLP_ENDPOINT`, and `DASH0_AUTH_TOKEN`. Override Figment settings by exporting keys like `APP_SERVER__HOST` or `APP_LOGGING__LEVEL` for service-specific tuning.
+Never commit secrets. Copy `.env.example` to `.env` locally and configure runtime with environment variables such as `DATABASE_URL`, `RUST_LOG`, and `SENTRY_DSN`. Override Figment settings by exporting keys like `APP_SERVER__HOST` or `APP_LOGGING__LEVEL` for service-specific tuning.

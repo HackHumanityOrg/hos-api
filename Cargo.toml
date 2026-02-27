@@ -58,28 +58,13 @@ dotenvy = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-# OpenTelemetry Core
-opentelemetry = "0.31"
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-opentelemetry-semantic-conventions = "0.31"
-opentelemetry-http = { version = "0.31", features = ["reqwest-rustls-webpki-roots"] }
-
-# OpenTelemetry OTLP Exporter
-opentelemetry-otlp = { version = "0.31", features = [
-    "http-proto",
-    "http-json",
-    "reqwest-client",
-    "reqwest-rustls-webpki-roots",
-    "metrics",
+# Sentry
+sentry = { version = "0.46.2", features = [
+    "tracing",
     "logs",
+    "anyhow",
+    "tower-axum-matched-path",
 ] }
-
-# OpenTelemetry Bridges
-tracing-opentelemetry = "0.32"
-opentelemetry-appender-tracing = "0.31.1"
-
-# Axum OpenTelemetry Integration
-axum-tracing-opentelemetry = "0.32"
 
 # Additional dependencies for telemetry
 tower = "0.5"

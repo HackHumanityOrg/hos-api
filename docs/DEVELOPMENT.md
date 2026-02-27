@@ -9,6 +9,7 @@ This guide covers development workflows, best practices, and common tasks for th
 - **Rust 1.89+** with Cargo
 - **PostgreSQL/PlanetScale Postgres** database access
 - **Git** for version control
+- **direnv + Doppler CLI** for environment loading
 
 ### Initial Setup
 
@@ -20,17 +21,15 @@ This guide covers development workflows, best practices, and common tasks for th
 
 2. **Install development tools**
    ```bash
-   # Install cargo-run-bin for project-scoped tools
-   cargo install cargo-run-bin
-   
-   # Install project-scoped sea-orm-cli
-   cargo bin --install
+   # Install SeaORM CLI used by entity generation workflow
+   cargo install sea-orm-cli --version 1.1.15 --locked
    ```
 
 3. **Configure environment**
    ```bash
    cp .env.example .env
-   # Edit .env with your database credentials
+   # Edit .env if needed, then load Doppler-managed environment
+   direnv allow
    ```
 
 4. **Initialize database**
@@ -85,9 +84,8 @@ data-commons/
 │   │   └── lib.rs          # Library exports
 │   └── Cargo.toml
 ├── indexers/               # Data processing services
-│   ├── indexer-1/          # Primary data processor
-│   ├── indexer-2/          # Secondary processor
-│   └── indexer-3/          # Tertiary processor
+│   ├── discourse-indexer/  # Discourse data processor
+│   └── near-indexer/       # NEAR blockchain processor
 ├── shared/                 # Shared libraries
 │   ├── common/             # Common utilities
 │   │   ├── src/
@@ -321,9 +319,8 @@ cargo test -p api handlers::health
 cargo test -p api routes::health
 
 # Individual packages
-cargo test -p indexer-1
-cargo test -p indexer-2
-cargo test -p indexer-3
+cargo test -p discourse-indexer
+cargo test -p near-indexer
 
 # With output and timing
 cargo test -p api -- --nocapture --test-threads=1
@@ -396,7 +393,7 @@ async fn test_health_endpoint_http_methods() {
 
 #### Test Database Setup
 
-The `TestDatabase` struct manages MySQL containers via testcontainers-rs:
+The `TestDatabase` struct manages PostgreSQL containers via testcontainers-rs:
 
 ```rust
 pub struct TestDatabase {
@@ -407,7 +404,7 @@ pub struct TestDatabase {
 
 impl TestDatabase {
     pub async fn new() -> Self {
-        // Creates MySQL container, runs migrations, returns connection
+        // Creates PostgreSQL container, runs migrations, returns connection
     }
     
     pub fn db(&self) -> DatabaseConnection {
@@ -435,8 +432,11 @@ level = "debug"
 # Check connection
 cargo migrate-status
 
-# Inspect current schema
-sea-orm-cli generate entity -o /tmp/current_schema
+# Inspect current schema (discourse)
+sea-orm-cli generate entity --database-schema discourse -o /tmp/current_schema_discourse
+
+# Inspect current schema (near)
+sea-orm-cli generate entity --database-schema near -o /tmp/current_schema_near
 
 # Reset database for testing
 cargo migrate-reset
@@ -503,7 +503,7 @@ ls -la target/release/
 
 ```bash
 # Production environment variables
-DATABASE_URL=mysql://prod_user:password@prod_host/database
+DATABASE_URL=postgresql://prod_user:password@prod_host:5432/database?sslmode=require
 RUST_LOG=info
 # Use double underscores for nested keys
 APP_SERVER__PORT=80
@@ -544,8 +544,7 @@ cargo migrate-status
 
 **Entity Generation Issues:**
 ```bash
-# Remove old entities and regenerate
-rm -rf shared/entities/src/*.rs
+# Regenerate entities from the current database schema
 cargo generate-entities
 ```
 

@@ -147,14 +147,8 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
     );
     assert_eq!(stored.raw_body_before.as_deref(), Some(raw_before.as_str()));
     assert_eq!(stored.raw_body_after.as_deref(), Some(raw_after.as_str()));
-    assert_eq!(
-        stored.raw_title_before.as_deref(),
-        title_before.as_deref()
-    );
-    assert_eq!(
-        stored.raw_title_after.as_deref(),
-        title_after.as_deref()
-    );
+    assert_eq!(stored.raw_title_before.as_deref(), title_before.as_deref());
+    assert_eq!(stored.raw_title_after.as_deref(), title_after.as_deref());
     assert_eq!(stored.body_changes, body_changes);
     assert_eq!(stored.title_changes, title_changes);
 

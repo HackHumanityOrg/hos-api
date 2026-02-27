@@ -1,17 +1,15 @@
 use anyhow::{Context, Result};
 use common::config::{AppConfig, ToLog};
-use common::telemetry::{self, TelemetrySetup};
+use common::telemetry::{self, KeyValue, TelemetrySetup};
 use discourse_indexer::sync as services;
 use discourse_indexer::sync::Concurrency;
-use opentelemetry::KeyValue;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 use tracing::{error, info, instrument};
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     // Load environment variables
     dotenvy::dotenv().ok();
 
@@ -19,7 +17,7 @@ async fn main() -> Result<()> {
     let config =
         AppConfig::load_indexer("discourse-indexer").context("Failed to load configuration")?;
 
-    // Initialize telemetry (Dash0 if configured, basic tracing otherwise)
+    // Initialize telemetry (Sentry if configured, basic tracing otherwise)
     let telemetry_setup = TelemetrySetup::from_config(
         "discourse-indexer",
         config.telemetry(),
@@ -31,6 +29,20 @@ async fn main() -> Result<()> {
     let _telemetry_guard =
         telemetry::init_telemetry(telemetry_setup).context("Failed to initialize telemetry")?;
 
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("Failed to create Tokio runtime")?;
+
+    if let Err(err) = runtime.block_on(run(config)) {
+        sentry::integrations::anyhow::capture_anyhow(&err);
+        return Err(err);
+    }
+
+    Ok(())
+}
+
+async fn run(config: AppConfig) -> Result<()> {
     info!("Starting Indexer 1 Service...");
     // Log sanitized configuration
     info!(config = %config.to_log(), "Configuration loaded");

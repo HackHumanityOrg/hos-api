@@ -11,26 +11,24 @@ mod state;
 mod types;
 
 use anyhow::{Context, Result};
-use axum::Router;
-use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
+use axum::{body::Body, http::Request as HttpRequest, Router};
 use common::config::AppConfig;
-use common::telemetry::{self, TelemetrySetup};
-use opentelemetry::KeyValue;
+use common::telemetry::{self, KeyValue, TelemetrySetup};
+use sentry::integrations::tower::{NewSentryLayer, SentryHttpLayer};
 use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     // Load environment variables
     dotenvy::dotenv().ok();
 
     // Load API-specific configuration (type-safe)
     let config = AppConfig::load_api().context("Failed to load configuration")?;
 
-    // Initialize telemetry (Dash0 if configured, basic tracing otherwise)
+    // Initialize telemetry (Sentry if configured, basic tracing otherwise)
     let telemetry_setup = TelemetrySetup::from_config(
         "api",
         config.telemetry(),
@@ -42,6 +40,20 @@ async fn main() -> Result<()> {
     let _telemetry_guard =
         telemetry::init_telemetry(telemetry_setup).context("Failed to initialize telemetry")?;
 
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("Failed to create Tokio runtime")?;
+
+    if let Err(err) = runtime.block_on(run(config)) {
+        sentry::integrations::anyhow::capture_anyhow(&err);
+        return Err(err);
+    }
+
+    Ok(())
+}
+
+async fn run(config: AppConfig) -> Result<()> {
     info!("Starting API Server...");
 
     // Try to initialize database connection from configuration
@@ -65,14 +77,12 @@ async fn main() -> Result<()> {
         .nest("/api/v1", routes::create_routes())
         .merge(routes::health::health_routes());
 
-    // Add OpenTelemetry middleware only when telemetry is enabled and credentials are present
-    if config.telemetry().enabled
-        && std::env::var("DASH0_OTLP_ENDPOINT").is_ok()
-        && std::env::var("DASH0_AUTH_TOKEN").is_ok()
-    {
+    // Add Sentry HTTP middleware only when Sentry is active.
+    if config.telemetry().enabled && telemetry::is_sentry_enabled() {
         app = app
-            .layer(OtelInResponseLayer) // Add trace context to responses
-            .layer(OtelAxumLayer::default()) // Create spans for requests
+            // Axum applies layers in reverse order; keep this ordering to avoid leaks.
+            .layer(SentryHttpLayer::new().enable_transaction())
+            .layer(NewSentryLayer::<HttpRequest<Body>>::new_from_top())
             .layer(TraceLayer::new_for_http()); // HTTP tracing
     }
 

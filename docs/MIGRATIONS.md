@@ -6,6 +6,13 @@ This guide covers database schema management using SeaORM migrations in the Data
 
 The project uses SeaORM's migration system to manage database schema changes in a version-controlled, team-friendly way. All migrations are stored in the `migration/` crate and can be run using convenient cargo aliases.
 
+### Migration Philosophy
+
+- Define schema migrations in Rust code using `SchemaManager` + SeaQuery builders.
+- Prefer DSL methods (`create_table`, `alter_table`, `create_index`) over raw SQL.
+- Use raw SQL only for operations that are not supported by SeaQuery.
+- Keep all migrations reversible with a corresponding `down()` implementation.
+
 ## Quick Reference
 
 ```bash
@@ -26,6 +33,9 @@ cargo migrate-fresh
 
 # Generate a new migration file
 cargo migrate-generate create_users_table
+
+# Regenerate entities from the live DB schemas
+cargo generate-entities
 ```
 
 ## Creating New Migrations
@@ -230,13 +240,18 @@ async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
 
 ### Generating Entities
 
-After applying migrations, regenerate SeaORM entities:
+After applying migrations, regenerate SeaORM entities from the database:
 
 ```bash
 cargo generate-entities
 ```
 
-This updates files in `shared/entities/src/` to match your current database schema.
+This command introspects both PostgreSQL schemas and updates:
+
+- `shared/entities/src/discourse`
+- `shared/entities/src/near`
+
+The generator reads `DATABASE_URL` and runs `sea-orm-cli generate entity` under the hood.
 
 ### Using Entities in Code
 
@@ -364,8 +379,8 @@ cargo migrate-up      # Apply carefully
 ### Entity Generation Issues
 
 ```bash
-# If entities aren't updating
-rm -rf shared/entities/src/*.rs
+# Ensure schema is current and regenerate from DB
+cargo migrate-status
 cargo generate-entities
 ```
 
@@ -377,12 +392,18 @@ Migration commands use the same database configuration as your application:
 
 ```bash
 # Set in .env
-DATABASE_URL=mysql://user:pass@host/database
+DATABASE_URL=postgresql://user:pass@host:5432/database?sslmode=require
 
 # Or in config.toml
 [database]
 max_connections = 10
 connection_timeout = 30
+```
+
+If you use Doppler + direnv, ensure env is loaded first:
+
+```bash
+direnv allow
 ```
 
 ### Custom Migration Path

@@ -8,7 +8,7 @@ A high-performance Rust monorepo for data indexing and API services built with m
 - **Indexers** - Parallel data processing services  
 - **Shared Libraries** - Database, configuration, utilities, and telemetry
 - **Migrations** - SeaORM-powered PostgreSQL/PlanetScale Postgres schema management
-- **Observability** - Complete Dash0 OpenTelemetry integration (logs, traces, metrics)
+- **Observability** - Full Sentry integration (errors, traces, and logs)
 
 ```
 data-commons/
@@ -23,9 +23,9 @@ data-commons/
 
 ```bash
 git clone <repository-url> && cd data-commons
-cargo install cargo-run-bin
-cargo bin --install
-cp .env.example .env  # Edit with database and optional Dash0 credentials
+cargo install sea-orm-cli --version 1.1.15 --locked
+cp .env.example .env  # Edit with database and optional Sentry DSN
+direnv allow
 cargo migrate-up && cargo generate-entities
 cargo run-api
 ```
@@ -70,25 +70,24 @@ cargo test -p api           # API tests with real database containers
 
 ## Observability
 
-Complete OpenTelemetry integration with Dash0 for production-ready monitoring. This project uses the OTLP HTTP/JSON exporters (not gRPC).
+Sentry integration for production-ready error monitoring, distributed tracing, and structured logs.
 
 ```bash
 # Set environment variables (optional - services degrade gracefully)
-# Provide the base HTTPS endpoint (no /v1/* path)
-export DASH0_OTLP_ENDPOINT=https://ingress.region.aws.dash0.com
-export DASH0_AUTH_TOKEN=auth_your_token_here
+export SENTRY_DSN=https://<public_key>@<org>.ingest.us.sentry.io/<project_id>
+export SENTRY_ENVIRONMENT=production
 ```
 
 **Features**:
-- **Logs**: Structured JSON with trace correlation
-- **Traces**: HTTP requests, database queries, custom spans
-- **Metrics**: Request counters, duration histograms, custom metrics
-- **Export timing**: Traces (1s), Metrics (2s), Logs (real-time)
+- **Errors**: Automatic panic/error capture with request correlation
+- **Traces**: HTTP requests, background jobs, and instrumented spans
+- **Logs**: Structured logs, breadcrumbs, and event context
+- **Shutdown draining**: Guarded flush on graceful shutdown
 
 ## Tech Stack
 
-**Backend**: Rust • Tokio • Axum • SeaORM • MySQL/PlanetScale
-**Observability**: OpenTelemetry • Dash0 • tracing • structured logging
+**Backend**: Rust • Tokio • Axum • SeaORM • PostgreSQL/PlanetScale Postgres
+**Observability**: Sentry • tracing • structured logging
 **Testing**: testcontainers-rs • rstest • axum-test
 **Docs**: Utoipa • Swagger UI
 **Config**: Figment • Environment variables

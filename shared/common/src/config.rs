@@ -75,34 +75,34 @@ impl ToLog for LoggingConfig {
     }
 }
 
-/// Telemetry configuration for OpenTelemetry/Dash0 integration
+/// Telemetry configuration for Sentry integration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryConfig {
     pub enabled: bool,
     pub service_version: String,
     pub environment: String,
-    pub enable_metrics: bool,
     pub enable_traces: bool,
     pub enable_logs: bool,
-    pub batch_size: u16,
-    pub export_timeout_sec: u64,
-    pub export_interval_sec: u64,
-    pub resource_attributes: std::collections::HashMap<String, String>,
+    pub traces_sample_rate: f32,
+    pub event_sample_rate: f32,
+    pub shutdown_timeout_sec: u64,
+    pub send_default_pii: bool,
+    pub tags: std::collections::HashMap<String, String>,
 }
 
 impl ToLog for TelemetryConfig {
     fn to_log(&self) -> JsonValue {
-        // Omit resource_attributes entirely to avoid leaking any data via logs
+        // Omit tags to avoid leaking sensitive metadata via logs
         json!({
             "enabled": self.enabled,
             "service_version": self.service_version,
             "environment": self.environment,
-            "enable_metrics": self.enable_metrics,
             "enable_traces": self.enable_traces,
             "enable_logs": self.enable_logs,
-            "batch_size": self.batch_size,
-            "export_timeout_sec": self.export_timeout_sec,
-            "export_interval_sec": self.export_interval_sec,
+            "traces_sample_rate": self.traces_sample_rate,
+            "event_sample_rate": self.event_sample_rate,
+            "shutdown_timeout_sec": self.shutdown_timeout_sec,
+            "send_default_pii": self.send_default_pii,
         })
     }
 }
@@ -679,13 +679,13 @@ impl Default for TelemetryConfig {
             enabled: true,
             service_version: "0.1.0".to_string(),
             environment: "development".to_string(),
-            enable_metrics: true,
             enable_traces: true,
             enable_logs: true,
-            batch_size: 512,
-            export_timeout_sec: 10,
-            export_interval_sec: 5,
-            resource_attributes: std::collections::HashMap::new(),
+            traces_sample_rate: 1.0,
+            event_sample_rate: 1.0,
+            shutdown_timeout_sec: 2,
+            send_default_pii: true,
+            tags: std::collections::HashMap::new(),
         }
     }
 }
@@ -745,13 +745,13 @@ mod tests {
             enabled = true
             service_version = "0.1.0"
             environment = "development"
-            enable_metrics = true
             enable_traces = true
             enable_logs = true
-            batch_size = 512
-            export_timeout_sec = 10
-            export_interval_sec = 5
-            resource_attributes = {}
+            traces_sample_rate = 1.0
+            event_sample_rate = 1.0
+            shutdown_timeout_sec = 2
+            send_default_pii = true
+            tags = {}
         "#;
         fs::write(base.join("api").join("config.toml"), api_cfg).unwrap();
 
@@ -826,13 +826,13 @@ mod tests {
             enabled = true
             service_version = "0.1.0"
             environment = "development"
-            enable_metrics = true
             enable_traces = true
             enable_logs = true
-            batch_size = 512
-            export_timeout_sec = 10
-            export_interval_sec = 5
-            resource_attributes = {}
+            traces_sample_rate = 1.0
+            event_sample_rate = 1.0
+            shutdown_timeout_sec = 2
+            send_default_pii = true
+            tags = {}
         "#;
         fs::write(
             base.join("indexers").join("indexer-1").join("config.toml"),
@@ -856,7 +856,7 @@ mod tests {
                 // Host config loaded
                 assert_eq!(cfg.logging.level, "debug");
                 // Env override applied
-                assert_eq!(cfg.telemetry.enabled, false);
+                assert!(!cfg.telemetry.enabled);
             }
             _ => panic!("Expected Indexer config"),
         }
@@ -899,13 +899,13 @@ mod tests {
             enabled = true
             service_version = "0.1.0"
             environment = "development"
-            enable_metrics = true
             enable_traces = true
             enable_logs = true
-            batch_size = 512
-            export_timeout_sec = 10
-            export_interval_sec = 5
-            resource_attributes = {}
+            traces_sample_rate = 1.0
+            event_sample_rate = 1.0
+            shutdown_timeout_sec = 2
+            send_default_pii = true
+            tags = {}
         "#;
         fs::write(base.join("indexers/indexer-1/config.toml"), idx_cfg).unwrap();
 
@@ -914,7 +914,7 @@ mod tests {
         std::env::set_var("DATABASE_URL", "mysql://user:pass@localhost/panic");
 
         let app_cfg = AppConfig::load_indexer("indexer-1").unwrap();
-        assert!(matches!(app_cfg.server(), None));
+        assert!(app_cfg.server().is_none());
 
         // Cleanup
         std::env::set_current_dir(&old_cwd).unwrap();

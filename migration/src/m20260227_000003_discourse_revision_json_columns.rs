@@ -6,28 +6,43 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        db.execute_unprepared(
-            "ALTER TABLE discourse.discourse_post_revisions ADD COLUMN IF NOT EXISTS body_changes JSONB",
-        )
-        .await?;
-        db.execute_unprepared(
-            "ALTER TABLE discourse.discourse_post_revisions ADD COLUMN IF NOT EXISTS title_changes JSONB",
-        )
-        .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table((Alias::new("discourse"), DiscoursePostRevisions::Table))
+                    .add_column(
+                        ColumnDef::new(DiscoursePostRevisions::BodyChanges)
+                            .json_binary()
+                            .null(),
+                    )
+                    .add_column(
+                        ColumnDef::new(DiscoursePostRevisions::TitleChanges)
+                            .json_binary()
+                            .null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        db.execute_unprepared(
-            "ALTER TABLE discourse.discourse_post_revisions DROP COLUMN IF EXISTS title_changes",
-        )
-        .await?;
-        db.execute_unprepared(
-            "ALTER TABLE discourse.discourse_post_revisions DROP COLUMN IF EXISTS body_changes",
-        )
-        .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table((Alias::new("discourse"), DiscoursePostRevisions::Table))
+                    .drop_column(DiscoursePostRevisions::TitleChanges)
+                    .drop_column(DiscoursePostRevisions::BodyChanges)
+                    .to_owned(),
+            )
+            .await?;
         Ok(())
     }
+}
+
+#[derive(DeriveIden)]
+enum DiscoursePostRevisions {
+    Table,
+    BodyChanges,
+    TitleChanges,
 }

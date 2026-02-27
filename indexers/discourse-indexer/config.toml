@@ -30,14 +30,14 @@ format = "pretty"
 enabled = true
 service_version = "0.1.0"
 environment = "development"
-enable_metrics = true
 enable_traces = true
 enable_logs = false
-batch_size = 256
-export_timeout_sec = 10
-export_interval_sec = 10
+traces_sample_rate = 1.0
+event_sample_rate = 1.0
+shutdown_timeout_sec = 2
+send_default_pii = true
 
-[telemetry.resource_attributes]
+[telemetry.tags]
 "service.namespace" = "data-commons"
 "service.component" = "discourse-indexer"
 "deployment.region" = "local"

@@ -1,280 +1,193 @@
-//! Centralized telemetry module for OpenTelemetry integration with Dash0
+//! Centralized telemetry module for Sentry integration.
 //!
-//! This module provides a unified telemetry setup for logs, traces, and metrics
-//! that can be used across all services in the monorepo.
+//! This module initializes tracing for all services and, when configured,
+//! forwards errors, spans, breadcrumbs, and logs to Sentry.
 
 use crate::config::TelemetryConfig as ConfigTelemetry;
 use anyhow::{Context, Result};
-use opentelemetry::trace::TracerProvider; // bring trait into scope for .tracer()
-use opentelemetry::{global, KeyValue};
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_otlp::{
-    LogExporter, MetricExporter, Protocol, SpanExporter, WithExportConfig, WithHttpConfig,
-};
-use opentelemetry_sdk::{
-    logs::{BatchLogProcessor, SdkLoggerProvider},
-    metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider},
-    propagation::TraceContextPropagator,
-    trace::{BatchSpanProcessor, SdkTracerProvider},
-    Resource,
-};
-use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_VERSION};
+use sentry::integrations::tracing::{self as sentry_tracing, EventFilter};
+use sentry::ClientInitGuard;
+use serde_json::{Map as JsonMap, Value as JsonValue};
 use std::time::Duration;
 use tracing::info;
-use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{
     layer::{Layer, SubscriberExt},
     util::SubscriberInitExt,
     EnvFilter, Registry,
 };
 
-/// Telemetry setup combining config.toml settings with environment secrets
+/// Telemetry setup combining config.toml settings with environment values.
 pub struct TelemetrySetup {
-    /// Service name (e.g., "api", "indexer-1")
+    /// Service name (for example: "api", "discourse-indexer").
     pub service_name: String,
-    /// Configuration from config.toml
+    /// Configuration from service config.toml.
     pub config: ConfigTelemetry,
-    /// Dash0 OTLP endpoint from environment
-    pub otlp_endpoint: Option<String>,
-    /// Dash0 authentication token from environment
-    pub auth_token: Option<String>,
-    /// Log level filter
+    /// Sentry DSN from environment.
+    pub dsn: Option<String>,
+    /// Log level filter.
     pub log_level: String,
-    /// Preferred log formatting ("json" to emit structured logs, anything else pretty)
+    /// Preferred log formatting ("json" for structured logs, otherwise pretty).
     pub log_format: Option<String>,
 }
 
 impl TelemetrySetup {
-    /// Create telemetry setup from config and environment
+    /// Create telemetry setup from config and environment.
     pub fn from_config(
         service_name: &str,
         config: &ConfigTelemetry,
         log_level: &str,
         log_format: Option<&str>,
     ) -> Result<Self> {
-        // Only check for Dash0 credentials if telemetry is enabled
-        let (otlp_endpoint, auth_token) = if config.enabled {
-            match (
-                std::env::var("DASH0_OTLP_ENDPOINT").ok(),
-                std::env::var("DASH0_AUTH_TOKEN").ok(),
-            ) {
-                (Some(endpoint), Some(token)) => (Some(endpoint), Some(token)),
-                _ => {
+        let dsn = if config.enabled {
+            match std::env::var("SENTRY_DSN").ok() {
+                Some(dsn) => Some(dsn),
+                None => {
                     tracing::warn!(
-                        "Dash0 credentials not found in environment, telemetry will be disabled"
+                        "SENTRY_DSN is not set; Sentry telemetry disabled for this service"
                     );
-                    (None, None)
+                    None
                 }
             }
         } else {
-            (None, None)
+            None
         };
 
         Ok(Self {
             service_name: service_name.to_string(),
             config: config.clone(),
-            otlp_endpoint,
-            auth_token,
+            dsn,
             log_level: log_level.to_string(),
-            log_format: log_format.map(|s| s.to_string()),
+            log_format: log_format.map(str::to_string),
         })
     }
 
-    /// Check if Dash0 telemetry is available
-    pub fn is_dash0_available(&self) -> bool {
-        self.config.enabled && self.otlp_endpoint.is_some() && self.auth_token.is_some()
+    /// Check if Sentry telemetry is available.
+    pub fn is_sentry_available(&self) -> bool {
+        self.config.enabled && self.dsn.is_some()
     }
 }
 
-/// Telemetry guard that ensures proper shutdown on drop
+/// Telemetry guard that ensures Sentry flushes data on shutdown.
 pub struct TelemetryGuard {
-    _meter_provider: Option<SdkMeterProvider>,
+    sentry_guard: Option<ClientInitGuard>,
 }
 
 impl Drop for TelemetryGuard {
     fn drop(&mut self) {
-        info!("Flushing and shutting down telemetry providers...");
-
-        // Force flush any pending traces before shutdown
-        use opentelemetry::trace::{Span, Tracer};
-        let tracer = global::tracer("shutdown_flush");
-        let mut span = tracer.start("shutdown_flush_span");
-        span.end();
-        if let Some(meter_provider) = self._meter_provider.take() {
-            if let Err(e) = meter_provider.shutdown() {
-                eprintln!("Error shutting down meter provider: {}", e);
-            }
+        if self.sentry_guard.is_some() {
+            info!("Flushing telemetry to Sentry before shutdown...");
         }
-        info!("Telemetry providers shut down complete");
+        self.sentry_guard.take();
     }
 }
 
-/// Initialize complete telemetry stack
+/// Initialize complete telemetry stack.
 pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
-    if !setup.is_dash0_available() {
-        // Fallback to simple tracing without OpenTelemetry
-        info!("Initializing basic tracing (Dash0 not configured)");
+    if !setup.is_sentry_available() {
+        info!("Initializing basic tracing (Sentry not configured)");
         init_basic_tracing(&setup.log_level, setup.log_format.as_deref())?;
-        return Ok(TelemetryGuard {
-            _meter_provider: None,
-        });
+        return Ok(TelemetryGuard { sentry_guard: None });
     }
+
+    let dsn = setup.dsn.clone().expect("checked by is_sentry_available");
+    let release = std::env::var("SENTRY_RELEASE")
+        .ok()
+        .unwrap_or_else(|| format!("{}@{}", setup.service_name, setup.config.service_version));
+
+    let traces_sample_rate = if setup.config.enable_traces {
+        setup.config.traces_sample_rate
+    } else {
+        0.0
+    };
 
     info!(
-        "Initializing Dash0 telemetry for service: {} v{} in {}",
-        setup.service_name, setup.config.service_version, setup.config.environment
+        "Initializing Sentry telemetry for service={} release={} environment={}",
+        setup.service_name, release, setup.config.environment
     );
 
-    // Build resource with all attributes following semantic conventions schema 1.36.0
-    let mut resource_attrs = vec![
-        KeyValue::new(SERVICE_NAME, setup.service_name.clone()),
-        KeyValue::new(SERVICE_VERSION, setup.config.service_version.clone()),
-        KeyValue::new("deployment.environment", setup.config.environment.clone()),
-        KeyValue::new("telemetry.sdk.language", "rust"),
-        KeyValue::new("telemetry.sdk.name", "opentelemetry"),
-        KeyValue::new("telemetry.sdk.version", env!("CARGO_PKG_VERSION")),
-        KeyValue::new("telemetry.destination", "dash0"), // Custom attribute for Dash0
-    ];
+    let sentry_guard = sentry::init((
+        dsn,
+        sentry::ClientOptions {
+            release: Some(release.into()),
+            environment: Some(setup.config.environment.clone().into()),
+            traces_sample_rate,
+            sample_rate: setup.config.event_sample_rate,
+            enable_logs: setup.config.enable_logs,
+            send_default_pii: setup.config.send_default_pii,
+            shutdown_timeout: Duration::from_secs(setup.config.shutdown_timeout_sec),
+            ..Default::default()
+        },
+    ));
 
-    // Add custom resource attributes from config
-    for (key, value) in &setup.config.resource_attributes {
-        resource_attrs.push(KeyValue::new(key.clone(), value.clone()));
-    }
+    sentry::configure_scope(|scope| {
+        scope.set_tag("service.name", setup.service_name.clone());
+        scope.set_tag("service.version", setup.config.service_version.clone());
+        scope.set_tag("deployment.environment", setup.config.environment.clone());
 
-    let resource: Resource = opentelemetry_sdk::Resource::builder_empty()
-        .with_attributes(resource_attrs)
-        .build();
+        for (key, value) in &setup.config.tags {
+            scope.set_tag(key, value.clone());
+        }
+    });
 
-    // Setup trace context propagator
-    global::set_text_map_propagator(TraceContextPropagator::new());
-
-    let otlp_endpoint = setup.otlp_endpoint.as_ref().unwrap();
-    let auth_token = setup.auth_token.as_ref().unwrap();
-
-    // Common headers for authentication
-    let headers = vec![(
-        "Authorization".to_string(),
-        format!("Bearer {}", auth_token),
-    )];
-
-    // Initialize tracing if enabled
-    let tracer_provider = if setup.config.enable_traces {
-        info!("Initializing tracing exporter...");
-        Some(init_tracer(
-            resource.clone(),
-            otlp_endpoint.clone(),
-            headers.clone(),
-            &setup.config,
-        )?)
-    } else {
-        info!("Tracing is disabled in config");
-        None
-    };
-
-    // Initialize metrics if enabled
-    let meter_provider = if setup.config.enable_metrics {
-        Some(init_metrics(
-            resource.clone(),
-            otlp_endpoint.clone(),
-            headers.clone(),
-            &setup.config,
-        )?)
-    } else {
-        None
-    };
-
-    // Initialize logging if enabled
-    let _logger_provider = if setup.config.enable_logs {
-        Some(init_logger(
-            resource.clone(),
-            otlp_endpoint.clone(),
-            headers.clone(),
-            &setup.config,
-        )?)
-    } else {
-        None
-    };
-
-    // Setup enhanced log filtering to exclude noisy infrastructure logs
-    let base_log_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| setup.log_level.clone());
-    let env_filter = EnvFilter::try_new(base_log_filter)
-        .context("Invalid log level filter")?
-        // Filter out noisy HTTP connection pool debug logs
-        .add_directive("hyper_util::client::legacy::pool=info".parse()?)
-        .add_directive("reqwest::connect=info".parse()?)
-        .add_directive("hyper_util::client::legacy::connect=info".parse()?)
-        // Filter out OpenTelemetry internal debug logs
-        .add_directive("opentelemetry_sdk=info".parse()?)
-        .add_directive("opentelemetry_otlp=info".parse()?)
-        .add_directive("opentelemetry_appender_tracing=info".parse()?)
-        // Reduce other potentially noisy logs
-        .add_directive("tokio_util=info".parse()?)
-        .add_directive("tower=info".parse()?)
-        .add_directive("h2=info".parse()?)
-        // Keep application logs at the configured level
-        .add_directive(
-            format!(
-                "{}={}",
-                setup.service_name.replace("-", "_"),
-                setup.log_level
-            )
-            .parse()?,
-        )
-        .add_directive(format!("api={}", setup.log_level).parse()?)
-        .add_directive(format!("common={}", setup.log_level).parse()?)
-        .add_directive(format!("db_core={}", setup.log_level).parse()?);
+    let env_filter = build_env_filter(&setup.service_name, &setup.log_level)?;
     let fmt_layer = build_fmt_layer(setup.log_format.as_deref());
 
-    // Build the subscriber with all layers
-    if let Some(provider) = &tracer_provider {
-        let telemetry_layer = OpenTelemetryLayer::new(provider.tracer("tracing"));
+    let enable_logs = setup.config.enable_logs;
+    let enable_traces = setup.config.enable_traces;
 
-        // Add log appender layer if logging is enabled
-        if let Some(logger_provider) = &_logger_provider {
-            // Create log layer that sends structured logs to OpenTelemetry
-            let log_layer = OpenTelemetryTracingBridge::new(logger_provider);
+    let sentry_layer = sentry_tracing::layer()
+        .event_filter(move |metadata| match *metadata.level() {
+            tracing::Level::TRACE => EventFilter::Ignore,
+            tracing::Level::DEBUG => EventFilter::Breadcrumb,
+            tracing::Level::INFO => {
+                if enable_logs {
+                    EventFilter::Breadcrumb | EventFilter::Log
+                } else {
+                    EventFilter::Breadcrumb
+                }
+            }
+            tracing::Level::WARN => {
+                if enable_logs {
+                    EventFilter::Breadcrumb | EventFilter::Log
+                } else {
+                    EventFilter::Breadcrumb
+                }
+            }
+            tracing::Level::ERROR => {
+                if enable_logs {
+                    EventFilter::Event | EventFilter::Log
+                } else {
+                    EventFilter::Event
+                }
+            }
+        })
+        .span_filter(move |metadata| {
+            enable_traces
+                && !matches!(
+                    *metadata.level(),
+                    tracing::Level::TRACE | tracing::Level::DEBUG
+                )
+        });
 
-            let subscriber = Registry::default()
-                .with(fmt_layer)
-                .with(env_filter)
-                .with(telemetry_layer)
-                .with(log_layer);
-            subscriber
-                .try_init()
-                .context("Failed to initialize tracing subscriber")?;
-        } else {
-            let subscriber = Registry::default()
-                .with(fmt_layer)
-                .with(env_filter)
-                .with(telemetry_layer);
-            subscriber
-                .try_init()
-                .context("Failed to initialize tracing subscriber")?;
-        }
-    } else {
-        let subscriber = Registry::default().with(fmt_layer).with(env_filter);
-        subscriber
-            .try_init()
-            .context("Failed to initialize tracing subscriber")?;
-    }
+    let subscriber = Registry::default()
+        .with(fmt_layer)
+        .with(env_filter)
+        .with(sentry_layer);
 
-    info!("Dash0 telemetry initialization complete");
+    subscriber
+        .try_init()
+        .context("Failed to initialize tracing subscriber")?;
+
+    info!("Sentry telemetry initialization complete");
 
     Ok(TelemetryGuard {
-        _meter_provider: meter_provider,
+        sentry_guard: Some(sentry_guard),
     })
 }
 
-/// Initialize basic tracing without OpenTelemetry
+/// Initialize basic tracing without Sentry.
 pub fn init_basic_tracing(log_level: &str, log_format: Option<&str>) -> Result<()> {
-    let base_log_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| log_level.to_string());
-    let env_filter = EnvFilter::try_new(base_log_filter)
-        .context("Invalid log level filter")?
-        // Reduce other potentially noisy logs
-        .add_directive("tokio_util=info".parse()?)
-        .add_directive("tower=info".parse()?)
-        .add_directive("h2=info".parse()?);
-
+    let env_filter = build_env_filter("common", log_level)?;
     let fmt_layer = build_fmt_layer(log_format);
     let subscriber = Registry::default().with(fmt_layer).with(env_filter);
 
@@ -282,6 +195,25 @@ pub fn init_basic_tracing(log_level: &str, log_format: Option<&str>) -> Result<(
         .try_init()
         .context("Failed to initialize tracing subscriber")?;
     Ok(())
+}
+
+fn build_env_filter(service_name: &str, log_level: &str) -> Result<EnvFilter> {
+    let base_log_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| log_level.to_string());
+
+    let env_filter = EnvFilter::try_new(base_log_filter)
+        .context("Invalid log level filter")?
+        .add_directive("hyper_util::client::legacy::pool=info".parse()?)
+        .add_directive("reqwest::connect=info".parse()?)
+        .add_directive("tokio_util=info".parse()?)
+        .add_directive("tower=info".parse()?)
+        .add_directive("h2=info".parse()?)
+        .add_directive("sentry=info".parse()?)
+        .add_directive(format!("{}={}", service_name.replace('-', "_"), log_level).parse()?)
+        .add_directive(format!("api={}", log_level).parse()?)
+        .add_directive(format!("common={}", log_level).parse()?)
+        .add_directive(format!("db_core={}", log_level).parse()?);
+
+    Ok(env_filter)
 }
 
 fn build_fmt_layer(log_format: Option<&str>) -> Box<dyn Layer<Registry> + Send + Sync + 'static> {
@@ -302,210 +234,148 @@ fn build_fmt_layer(log_format: Option<&str>) -> Box<dyn Layer<Registry> + Send +
     }
 }
 
-/// Initialize OpenTelemetry tracer
-fn init_tracer(
-    resource: Resource,
-    endpoint: String,
-    headers: Vec<(String, String)>,
-    config: &ConfigTelemetry,
-) -> Result<SdkTracerProvider> {
-    // Set authentication and dataset headers via environment variable for OTLP
-    if let Some((_, token)) = headers.first() {
-        std::env::set_var(
-            "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
-            format!("Authorization={},Dash0-Dataset=default", token), // token already includes "Bearer "
-        );
+/// Returns true when a Sentry client is active for the current process.
+pub fn is_sentry_enabled() -> bool {
+    sentry::Hub::current()
+        .client()
+        .map(|client| client.is_enabled())
+        .unwrap_or(false)
+}
+
+/// Lightweight telemetry attribute used by compatibility metric helpers.
+#[derive(Debug, Clone)]
+pub struct KeyValue {
+    key: String,
+    value: JsonValue,
+}
+
+impl KeyValue {
+    pub fn new<K, V>(key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: Into<MetricValue>,
+    {
+        Self {
+            key: key.into(),
+            value: value.into().into_json(),
+        }
     }
-
-    // Use the endpoint with specific path for traces
-    let endpoint_url = format!("{}/v1/traces", endpoint);
-    info!(
-        "Configuring traces exporter with endpoint: {}",
-        endpoint_url
-    );
-
-    // Create HTTP client for OTLP exporter
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .context("Failed to create HTTP client")?;
-
-    let exporter = SpanExporter::builder()
-        .with_http()
-        .with_http_client(http_client.clone())
-        .with_endpoint(endpoint_url)
-        .with_protocol(Protocol::HttpJson) // Use JSON like your working curl example
-        .with_timeout(Duration::from_secs(30))
-        .build()
-        .context("Failed to create span exporter")?;
-
-    // Configure batch processor using TelemetryConfig (Dash0-friendly defaults in config)
-    std::env::set_var(
-        "OTEL_BSP_MAX_EXPORT_BATCH_SIZE",
-        config.batch_size.to_string(),
-    );
-    std::env::set_var("OTEL_BSP_MAX_QUEUE_SIZE", config.batch_size.to_string());
-    std::env::set_var(
-        "OTEL_BSP_SCHEDULE_DELAY",
-        (config.export_interval_sec * 1000).to_string(),
-    );
-    std::env::set_var(
-        "OTEL_BSP_EXPORT_TIMEOUT",
-        (config.export_timeout_sec * 1000).to_string(),
-    );
-
-    // Create batch processor with environment-configured settings
-    let batch_processor = BatchSpanProcessor::builder(exporter).build();
-
-    let provider = SdkTracerProvider::builder()
-        .with_resource(resource)
-        .with_span_processor(batch_processor)
-        .build();
-
-    info!(
-        "Tracer initialized successfully with endpoint: {}/v1/traces",
-        endpoint
-    );
-    Ok(provider)
 }
 
-/// Initialize OpenTelemetry metrics
-fn init_metrics(
-    resource: Resource,
-    endpoint: String,
-    headers: Vec<(String, String)>,
-    config: &ConfigTelemetry,
-) -> Result<SdkMeterProvider> {
-    // Set authentication and dataset headers via environment variable for OTLP
-    if let Some((_, token)) = headers.first() {
-        std::env::set_var(
-            "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
-            format!("Authorization={},Dash0-Dataset=default", token), // token already includes "Bearer "
-        );
+/// Value type for [`KeyValue`] helper construction.
+#[derive(Debug, Clone)]
+pub enum MetricValue {
+    Bool(bool),
+    I64(i64),
+    U64(u64),
+    F64(f64),
+    String(String),
+    Json(JsonValue),
+}
+
+impl MetricValue {
+    fn into_json(self) -> JsonValue {
+        match self {
+            Self::Bool(value) => JsonValue::from(value),
+            Self::I64(value) => JsonValue::from(value),
+            Self::U64(value) => JsonValue::from(value),
+            Self::F64(value) => JsonValue::from(value),
+            Self::String(value) => JsonValue::from(value),
+            Self::Json(value) => value,
+        }
     }
-
-    // Use the endpoint with specific path for metrics
-    let endpoint_url = format!("{}/v1/metrics", endpoint);
-    info!(
-        "Configuring metrics exporter with endpoint: {}",
-        endpoint_url
-    );
-
-    // Create HTTP client for OTLP exporter
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .context("Failed to create HTTP client")?;
-
-    let exporter = MetricExporter::builder()
-        .with_http()
-        .with_http_client(http_client)
-        .with_endpoint(endpoint_url)
-        .with_protocol(Protocol::HttpJson) // Use JSON like your working curl example
-        .with_timeout(Duration::from_secs(30))
-        .build()
-        .context("Failed to create metrics exporter")?;
-
-    // Configure metric export based on TelemetryConfig (Dash0-friendly defaults in config)
-    std::env::set_var(
-        "OTEL_METRIC_EXPORT_INTERVAL",
-        (config.export_interval_sec * 1000).to_string(),
-    );
-    std::env::set_var(
-        "OTEL_METRIC_EXPORT_TIMEOUT",
-        (config.export_timeout_sec * 1000).to_string(),
-    );
-
-    let reader = PeriodicReader::builder(exporter)
-        .with_interval(Duration::from_secs(config.export_interval_sec))
-        .build();
-
-    let provider = MeterProviderBuilder::default()
-        .with_resource(resource)
-        .with_reader(reader)
-        .build();
-
-    global::set_meter_provider(provider.clone());
-
-    info!("Metrics provider initialized successfully");
-    Ok(provider)
 }
 
-/// Initialize OpenTelemetry logger
-fn init_logger(
-    resource: Resource,
-    endpoint: String,
-    headers: Vec<(String, String)>,
-    _config: &ConfigTelemetry,
-) -> Result<SdkLoggerProvider> {
-    // Set authentication and dataset headers via environment variable for OTLP
-    if let Some((_, token)) = headers.first() {
-        std::env::set_var(
-            "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
-            format!("Authorization={},Dash0-Dataset=default", token), // token already includes "Bearer "
-        );
+impl From<bool> for MetricValue {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
     }
-
-    // Use the endpoint with specific path for logs
-    let endpoint_url = format!("{}/v1/logs", endpoint);
-    info!("Configuring logs exporter with endpoint: {}", endpoint_url);
-
-    // Create HTTP client for OTLP exporter
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .context("Failed to create HTTP client")?;
-
-    let exporter = LogExporter::builder()
-        .with_http()
-        .with_http_client(http_client)
-        .with_endpoint(endpoint_url)
-        .with_protocol(Protocol::HttpJson) // Use JSON like your working curl example
-        .with_timeout(Duration::from_secs(30))
-        .build()
-        .context("Failed to create log exporter")?;
-
-    let batch_processor = BatchLogProcessor::builder(exporter).build();
-
-    let provider = SdkLoggerProvider::builder()
-        .with_resource(resource)
-        .with_log_processor(batch_processor)
-        .build();
-
-    info!("Logger provider initialized successfully");
-    Ok(provider)
 }
 
-/// Helper to create a tracer for a specific component
-pub fn tracer(name: &'static str) -> opentelemetry::global::BoxedTracer {
-    global::tracer(name)
+impl From<i64> for MetricValue {
+    fn from(value: i64) -> Self {
+        Self::I64(value)
+    }
 }
 
-/// Helper to create a meter for a specific component
-pub fn meter(name: &'static str) -> opentelemetry::metrics::Meter {
-    global::meter(name)
+impl From<u64> for MetricValue {
+    fn from(value: u64) -> Self {
+        Self::U64(value)
+    }
 }
 
-/// Record a custom metric value
+impl From<usize> for MetricValue {
+    fn from(value: usize) -> Self {
+        Self::U64(value as u64)
+    }
+}
+
+impl From<f64> for MetricValue {
+    fn from(value: f64) -> Self {
+        Self::F64(value)
+    }
+}
+
+impl From<String> for MetricValue {
+    fn from(value: String) -> Self {
+        Self::String(value)
+    }
+}
+
+impl From<&str> for MetricValue {
+    fn from(value: &str) -> Self {
+        Self::String(value.to_string())
+    }
+}
+
+impl From<JsonValue> for MetricValue {
+    fn from(value: JsonValue) -> Self {
+        Self::Json(value)
+    }
+}
+
+fn attributes_to_json(attributes: &[KeyValue]) -> JsonValue {
+    let mut map = JsonMap::new();
+    for attribute in attributes {
+        map.insert(attribute.key.clone(), attribute.value.clone());
+    }
+    JsonValue::Object(map)
+}
+
+fn emit_metric(kind: &str, name: &'static str, value: f64, attributes: &[KeyValue]) {
+    let attrs = attributes_to_json(attributes);
+    tracing::info!(
+        target: "metrics",
+        metric_kind = kind,
+        metric_name = name,
+        metric_value = value,
+        metric_attributes = %attrs,
+        "metric"
+    );
+}
+
+/// Record a custom metric value.
 pub fn record_metric(name: &'static str, value: f64, attributes: &[KeyValue]) {
-    let meter = meter("custom_metrics");
-    let gauge = meter.f64_gauge(name).build();
-    gauge.record(value, attributes);
+    emit_metric("gauge", name, value, attributes);
 }
 
-/// Record a counter increment
+/// Record a counter increment.
 pub fn increment_counter(name: &'static str, attributes: &[KeyValue]) {
-    let meter = meter("custom_metrics");
-    let counter = meter.u64_counter(name).build();
-    counter.add(1, attributes);
+    emit_metric("counter", name, 1.0, attributes);
 }
 
-/// Create a histogram for recording durations
-pub fn duration_histogram(name: &'static str) -> opentelemetry::metrics::Histogram<f64> {
-    let meter = meter("custom_metrics");
-    meter
-        .f64_histogram(name)
-        .with_unit("ms")
-        .with_description("Duration in milliseconds")
-        .build()
+/// Histogram handle used for compatibility with existing call sites.
+pub struct DurationHistogram {
+    name: &'static str,
+}
+
+impl DurationHistogram {
+    pub fn record(&self, value: f64, attributes: &[KeyValue]) {
+        emit_metric("histogram", self.name, value, attributes);
+    }
+}
+
+/// Create a histogram for recording durations.
+pub fn duration_histogram(name: &'static str) -> DurationHistogram {
+    DurationHistogram { name }
 }

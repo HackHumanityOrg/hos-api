@@ -16,29 +16,24 @@ host = "0.0.0.0"
 port = 3000
 
 [logging]
-level = "debug"   # Set to 'debug' for application debugging, 'info' to reduce noise in Dash0
+level = "debug"   # Set to 'debug' for local debugging, 'info' for quieter production logs
 format = "pretty"
 
 [telemetry]
-# Dash0 OpenTelemetry configuration for API service
-# OTLP endpoint and auth token must be set via environment variables:
-# - DASH0_OTLP_ENDPOINT (e.g., "https://ingress.us-west-2.aws.dash0.com")
-# - DASH0_AUTH_TOKEN
-#
-# Note: Noisy HTTP connection pool and OpenTelemetry internal logs are automatically
-# filtered out. Only INFO+ level infrastructure logs are sent to reduce noise.
+# Sentry telemetry configuration for API service.
+# Requires SENTRY_DSN in the environment.
 enabled = true
 service_version = "0.1.0"
 environment = "development" # Options: development, staging, production
-enable_metrics = true
 enable_traces = true
 enable_logs = true
-batch_size = 8192           # Max number of spans/logs/metrics per batch (Dash0 default)
-export_timeout_sec = 30     # Timeout for export operations (Dash0 recommended)
-export_interval_sec = 60    # How often to export batches (cost optimization)
+traces_sample_rate = 1.0
+event_sample_rate = 1.0
+shutdown_timeout_sec = 2
+send_default_pii = true
 
-# API-specific resource attributes
-[telemetry.resource_attributes]
+# API-specific tags
+[telemetry.tags]
 "service.namespace" = "data-commons"
 "service.component" = "api"
 "deployment.region" = "local"
