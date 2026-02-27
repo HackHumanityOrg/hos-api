@@ -102,16 +102,13 @@ async fn resolve_stream_start_height(
 ) -> Result<(u64, bool)> {
     let mut stream_start_height: Option<u64> = None;
     let mut any_module_has_cursor = false;
-    let has_explicit_module_start = module_names
-        .iter()
-        .any(|module_name| module_start_heights.contains_key(module_name));
 
     for module_name in module_names {
         let module_explicit_start_height = module_start_heights.get(module_name).copied();
         let cursor = near_indexer::core::cursor::get_module_cursor(db, module_name).await?;
 
         let module_start_height = if let Some(height) = cursor {
-            let next_height = (height.max(0) as u64).saturating_add(1);
+            let next_height = height.saturating_add(1).max(0) as u64;
             any_module_has_cursor = true;
 
             info!(
@@ -122,70 +119,43 @@ async fn resolve_stream_start_height(
                 "Module cursor found"
             );
 
-            Some(next_height)
+            next_height
         } else {
-            match module_explicit_start_height {
-                Some(module_start) => {
-                    if module_start > 0 {
-                        // Seed in-memory cursor so out-of-order block completion still advances
-                        // contiguous cursors correctly from the configured start.
-                        let seed_height =
-                            i64::try_from(module_start.saturating_sub(1)).unwrap_or(i64::MAX);
-                        near_indexer::core::cursor::seed_module_cursor(module_name, seed_height);
-                    }
+            let module_start_height =
+                module_explicit_start_height.unwrap_or(configured_start_height);
 
-                    info!(
-                        stream_id = stream_id,
-                        module = module_name,
-                        configured_start_height = module_start,
-                        "No cursor found, will start from module-specific configured height"
-                    );
-
-                    Some(module_start)
-                }
-                None if has_explicit_module_start => {
-                    info!(
-                        stream_id = stream_id,
-                        module = module_name,
-                        "No cursor or module-specific start height; ignoring module for shared start-height minimum"
-                    );
-                    None
-                }
-                None if configured_start_height > 0 => {
-                    // Seed in-memory cursor so out-of-order block completion still advances
-                    // contiguous cursors correctly from the configured start.
-                    let seed_height = i64::try_from(configured_start_height.saturating_sub(1))
-                        .unwrap_or(i64::MAX);
-                    near_indexer::core::cursor::seed_module_cursor(module_name, seed_height);
-
-                    info!(
-                        stream_id = stream_id,
-                        module = module_name,
-                        configured_start_height = configured_start_height,
-                        "No cursor found, will start from global configured height"
-                    );
-
-                    Some(configured_start_height)
-                }
-                None => {
-                    info!(
-                        stream_id = stream_id,
-                        module = module_name,
-                        configured_start_height = configured_start_height,
-                        "No cursor found, using default stream start height"
-                    );
-                    Some(configured_start_height)
-                }
+            if module_start_height > 0 {
+                // Seed in-memory cursor so out-of-order block completion still advances
+                // contiguous cursors correctly from the configured start.
+                let seed_height =
+                    i64::try_from(module_start_height.saturating_sub(1)).unwrap_or(i64::MAX);
+                near_indexer::core::cursor::seed_module_cursor(module_name, seed_height);
             }
+
+            if module_explicit_start_height.is_some() {
+                info!(
+                    stream_id = stream_id,
+                    module = module_name,
+                    configured_start_height = module_start_height,
+                    "No cursor found, will start from module-specific configured height"
+                );
+            } else {
+                info!(
+                    stream_id = stream_id,
+                    module = module_name,
+                    configured_start_height = module_start_height,
+                    "No cursor found, will start from global configured height"
+                );
+            }
+
+            module_start_height
         };
 
-        if let Some(module_start_height) = module_start_height {
-            stream_start_height = Some(
-                stream_start_height
-                    .map(|current| current.min(module_start_height))
-                    .unwrap_or(module_start_height),
-            );
-        }
+        stream_start_height = Some(
+            stream_start_height
+                .map(|current| current.min(module_start_height))
+                .unwrap_or(module_start_height),
+        );
     }
 
     Ok((
@@ -489,33 +459,22 @@ mod tests {
     ) -> u64 {
         assert_eq!(module_cursors.len(), module_names.len());
         let mut stream_start_height: Option<u64> = None;
-        let has_explicit_module_start = module_names
-            .iter()
-            .any(|module_name| module_start_heights.contains_key(*module_name));
 
         for (index, cursor) in module_cursors.iter().enumerate() {
             let module_name = module_names[index];
             let module_explicit_start_height = module_start_heights.get(module_name).copied();
 
             let module_start_height = if let Some(height) = cursor {
-                let non_negative = (*height).max(0) as u64;
-                Some(non_negative.saturating_add(1))
+                height.saturating_add(1).max(0) as u64
             } else {
-                match module_explicit_start_height {
-                    Some(module_start) => Some(module_start),
-                    None if has_explicit_module_start => None,
-                    None if configured_start_height > 0 => Some(configured_start_height),
-                    None => Some(configured_start_height),
-                }
+                module_explicit_start_height.unwrap_or(configured_start_height)
             };
 
-            if let Some(module_start_height) = module_start_height {
-                stream_start_height = Some(
-                    stream_start_height
-                        .map(|current| current.min(module_start_height))
-                        .unwrap_or(module_start_height),
-                );
-            }
+            stream_start_height = Some(
+                stream_start_height
+                    .map(|current| current.min(module_start_height))
+                    .unwrap_or(module_start_height),
+            );
         }
 
         stream_start_height.unwrap_or(configured_start_height)
@@ -731,7 +690,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_stream_ignores_unset_module_defaults_when_overrides_exist() {
+    fn shared_stream_includes_unset_module_global_start_in_minimum() {
         let assignments = plan_stream_assignments_from_modes(&[
             ("raw".to_string(), NearModuleStreamMode::Shared),
             ("accounts".to_string(), NearModuleStreamMode::Shared),
@@ -752,7 +711,7 @@ mod tests {
             &HashMap::new(),
         );
 
-        assert_eq!(start_height, 160_000_000);
+        assert_eq!(start_height, 0);
     }
 
     #[test]
@@ -786,18 +745,25 @@ mod tests {
                 expected_start_height: 500,
             },
             Case {
-                name: "single explicit override with unset peer",
+                name: "single explicit override with unset peer uses lower global",
                 configured_start_height: 0,
                 module_start_heights: vec![("raw", 160_000_000)],
                 module_cursors: vec![],
-                expected_start_height: 160_000_000,
+                expected_start_height: 0,
             },
             Case {
-                name: "single explicit override beats non-zero global",
-                configured_start_height: 100,
+                name: "single explicit override lower than global wins minimum",
+                configured_start_height: 300,
                 module_start_heights: vec![("raw", 200)],
                 module_cursors: vec![],
                 expected_start_height: 200,
+            },
+            Case {
+                name: "single explicit override higher than global loses minimum",
+                configured_start_height: 100,
+                module_start_heights: vec![("raw", 200)],
+                module_cursors: vec![],
+                expected_start_height: 100,
             },
             Case {
                 name: "two explicit overrides use minimum",
@@ -830,9 +796,23 @@ mod tests {
             Case {
                 name: "explicit module with cursor uses cursor",
                 configured_start_height: 0,
-                module_start_heights: vec![("raw", 600)],
+                module_start_heights: vec![("raw", 600), ("accounts", 900)],
                 module_cursors: vec![("raw", Some(750))],
                 expected_start_height: 751,
+            },
+            Case {
+                name: "two cursors use the lower next height",
+                configured_start_height: 0,
+                module_start_heights: vec![],
+                module_cursors: vec![("raw", Some(2)), ("accounts", Some(9))],
+                expected_start_height: 3,
+            },
+            Case {
+                name: "negative cursor resumes from zero",
+                configured_start_height: 500,
+                module_start_heights: vec![],
+                module_cursors: vec![("raw", Some(-1))],
+                expected_start_height: 0,
             },
         ];
 
@@ -887,6 +867,20 @@ mod tests {
                 expected_start_height: 160_000_000,
             },
             Case {
+                name: "module override can be lower than global",
+                configured_start_height: 500,
+                module_start_height: Some(200),
+                cursor: None,
+                expected_start_height: 200,
+            },
+            Case {
+                name: "module override can be higher than global",
+                configured_start_height: 100,
+                module_start_height: Some(200),
+                cursor: None,
+                expected_start_height: 200,
+            },
+            Case {
                 name: "global only",
                 configured_start_height: 500,
                 module_start_height: None,
@@ -906,6 +900,13 @@ mod tests {
                 module_start_height: None,
                 cursor: Some(700),
                 expected_start_height: 701,
+            },
+            Case {
+                name: "negative cursor resumes from zero",
+                configured_start_height: 500,
+                module_start_height: None,
+                cursor: Some(-1),
+                expected_start_height: 0,
             },
         ];
 
