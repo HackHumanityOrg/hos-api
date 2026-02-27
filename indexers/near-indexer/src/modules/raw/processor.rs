@@ -91,8 +91,8 @@ impl RawModule {
                     author: Set(chunk.author.to_string()),
                     height_created: Set(header.height_created as i64),
                     height_included: Set(header.height_included as i64),
-                    gas_used: Set(header.gas_used as i64),
-                    gas_limit: Set(header.gas_limit as i64),
+                    gas_used: Set(header.gas_used.as_gas() as i64),
+                    gas_limit: Set(header.gas_limit.as_gas() as i64),
                     validator_reward: Set(header.validator_reward.to_string()),
                 };
 

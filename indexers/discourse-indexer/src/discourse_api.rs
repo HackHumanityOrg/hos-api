@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use rand::Rng;
+use rand::RngExt;
 use reqwest::{header::HeaderMap, Client, StatusCode};
 use serde::de::DeserializeOwned;
 use serde_path_to_error as spte;
