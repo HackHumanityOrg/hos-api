@@ -20,6 +20,18 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         paths.contains_key("/api/v1/discourse/instances/{instance}/sync-lag"),
         "sync lag path present"
     );
+    assert!(
+        paths.contains_key("/api/v1/venear/proposals"),
+        "venear proposals path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/proposals/{proposal_id}/events"),
+        "venear proposal events path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/lockups/{lockup_account_id}/actions"),
+        "venear lockup actions path present"
+    );
 
     let schemas = value
         .get("components")
@@ -31,4 +43,7 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(schemas.contains_key("ApiError"));
     assert!(schemas.contains_key("DiscourseTopicDto"));
     assert!(schemas.contains_key("SyncLagResponse"));
+    assert!(schemas.contains_key("VenearProposalDto"));
+    assert!(schemas.contains_key("VenearVoteDto"));
+    assert!(schemas.contains_key("VenearLockupActionDto"));
 }

@@ -27,6 +27,12 @@ use utoipa::OpenApi;
         handlers::discourse::get_user,
         handlers::discourse::list_user_posts,
         handlers::discourse::get_sync_lag,
+        handlers::venear::list_proposals,
+        handlers::venear::list_proposal_events,
+        handlers::venear::list_proposal_votes,
+        handlers::venear::list_account_balances,
+        handlers::venear::list_lockups,
+        handlers::venear::list_lockup_actions,
     ),
     components(schemas(
         types::HealthResponse,
@@ -50,11 +56,24 @@ use utoipa::OpenApi;
         types::SyncLagSummary,
         types::SyncLagCheck,
         types::SyncLagResponse,
+        types::VenearProposalsListResponse,
+        types::VenearProposalEventsListResponse,
+        types::VenearVotesListResponse,
+        types::VenearAccountBalancesListResponse,
+        types::VenearLockupsListResponse,
+        types::VenearLockupActionsListResponse,
+        types::VenearProposalDto,
+        types::VenearProposalEventDto,
+        types::VenearVoteDto,
+        types::VenearAccountBalanceDto,
+        types::VenearLockupDto,
+        types::VenearLockupActionDto,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
         (name = "discourse", description = "Discourse read endpoints"),
-        (name = "discourse-ops", description = "Discourse operational diagnostics")
+        (name = "discourse-ops", description = "Discourse operational diagnostics"),
+        (name = "venear", description = "veNEAR governance read endpoints")
     )
 )]
 pub struct ApiDoc;

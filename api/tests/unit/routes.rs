@@ -52,3 +52,20 @@ async fn discourse_routes_are_wired_under_api_v1() {
 
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
+
+#[tokio::test]
+async fn venear_routes_are_wired_under_api_v1() {
+    support::init_test_tracing();
+
+    let response = support::build_router_with_state(None)
+        .into_service()
+        .oneshot(
+            Request::get("/api/v1/venear/proposals")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+}

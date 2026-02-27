@@ -303,3 +303,215 @@ pub struct UserPostsQuery {
     pub limit: Option<u64>,
     pub cursor: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalsListResponse {
+    pub data: Vec<VenearProposalDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalEventsListResponse {
+    pub data: Vec<VenearProposalEventDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearVotesListResponse {
+    pub data: Vec<VenearVoteDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountBalancesListResponse {
+    pub data: Vec<VenearAccountBalanceDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearLockupsListResponse {
+    pub data: Vec<VenearLockupDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearLockupActionsListResponse {
+    pub data: Vec<VenearLockupActionDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalDto {
+    pub id: i64,
+    pub proposal_id: i64,
+    pub latest_event_type: String,
+    pub account_id: Option<String>,
+    pub proposer_id: Option<String>,
+    pub reviewer_id: Option<String>,
+    pub voting_start_time_sec: Option<i64>,
+    pub voting_start_time: Option<String>,
+    pub snapshot_block_height: Option<i64>,
+    pub snapshot_root: Option<String>,
+    pub snapshot_total_venear: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub payload: Option<serde_json::Value>,
+    pub block_height: i64,
+    pub block_timestamp_ns: i64,
+    pub block_timestamp: String,
+    pub shard_id: i32,
+    pub receipt_id: String,
+    pub execution_outcome_id: String,
+    pub predecessor_account_id: String,
+    pub contract_id: String,
+    pub log_index: i32,
+    pub data_index: i32,
+    pub created_at: String,
+    pub created_at_epoch: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalEventDto {
+    pub id: i64,
+    pub proposal_id: i64,
+    pub event_type: String,
+    pub account_id: Option<String>,
+    pub proposer_id: Option<String>,
+    pub reviewer_id: Option<String>,
+    pub voting_start_time_sec: Option<i64>,
+    pub voting_start_time: Option<String>,
+    pub snapshot_block_height: Option<i64>,
+    pub snapshot_root: Option<String>,
+    pub snapshot_total_venear: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub payload: Option<serde_json::Value>,
+    pub block_height: i64,
+    pub block_timestamp_ns: i64,
+    pub block_timestamp: String,
+    pub shard_id: i32,
+    pub receipt_id: String,
+    pub execution_outcome_id: String,
+    pub predecessor_account_id: String,
+    pub contract_id: String,
+    pub log_index: i32,
+    pub data_index: i32,
+    pub created_at: String,
+    pub created_at_epoch: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearVoteDto {
+    pub id: i64,
+    pub proposal_id: i64,
+    pub account_id: String,
+    pub vote: i32,
+    pub account_balance: String,
+    pub event_type: String,
+    pub payload: Option<serde_json::Value>,
+    pub block_height: i64,
+    pub block_timestamp_ns: i64,
+    pub block_timestamp: String,
+    pub shard_id: i32,
+    pub receipt_id: String,
+    pub execution_outcome_id: String,
+    pub predecessor_account_id: String,
+    pub contract_id: String,
+    pub log_index: i32,
+    pub data_index: i32,
+    pub created_at: String,
+    pub created_at_epoch: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountBalanceDto {
+    pub id: i64,
+    pub account_id: String,
+    pub event_type: String,
+    pub delta_amount: Option<String>,
+    pub total_balance: String,
+    pub locked_near_balance: Option<String>,
+    pub lockup_update_nonce: Option<i64>,
+    pub lockup_version: Option<i64>,
+    pub block_height: i64,
+    pub block_timestamp_ns: i64,
+    pub block_timestamp: String,
+    pub shard_id: i32,
+    pub receipt_id: String,
+    pub execution_outcome_id: String,
+    pub predecessor_account_id: String,
+    pub contract_id: String,
+    pub log_index: i32,
+    pub data_index: i32,
+    pub payload: Option<serde_json::Value>,
+    pub created_at: String,
+    pub created_at_epoch: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearLockupDto {
+    pub lockup_account_id: String,
+    pub owner_account_id: String,
+    pub lockup_version: Option<i64>,
+    pub discovery_source: String,
+    pub discovered_at_height: i64,
+    pub discovered_at_timestamp_ns: i64,
+    pub discovered_at_timestamp: String,
+    pub last_seen_height: i64,
+    pub last_seen_timestamp_ns: i64,
+    pub last_seen_timestamp: String,
+    pub is_active: bool,
+    pub deleted_at_height: Option<i64>,
+    pub deleted_at_timestamp_ns: Option<i64>,
+    pub deleted_at_timestamp: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearLockupActionDto {
+    pub id: i64,
+    pub lockup_account_id: String,
+    pub owner_account_id: Option<String>,
+    pub predecessor_account_id: String,
+    pub receiver_account_id: String,
+    pub method_name: String,
+    pub action_source: String,
+    pub action_index: i32,
+    pub args_json: Option<serde_json::Value>,
+    pub args_base64: String,
+    pub attached_deposit: String,
+    pub transaction_hash: Option<String>,
+    pub receipt_id: String,
+    pub execution_outcome_id: String,
+    pub success: bool,
+    pub block_height: i64,
+    pub block_timestamp_ns: i64,
+    pub block_timestamp: String,
+    pub shard_id: i32,
+    pub staking_pool_account_id: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: String,
+    pub created_at_epoch: i64,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearLockupsQuery {
+    #[param(minimum = 1, maximum = 100)]
+    pub limit: Option<u64>,
+    pub cursor: Option<String>,
+    pub owner_account_id: Option<String>,
+    pub is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearLockupActionsQuery {
+    #[param(minimum = 1, maximum = 100)]
+    pub limit: Option<u64>,
+    pub cursor: Option<String>,
+    pub method_name: Option<String>,
+    pub success: Option<bool>,
+}
