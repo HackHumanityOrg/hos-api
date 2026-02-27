@@ -581,6 +581,46 @@ async fn test_proposal_lifecycle() -> Result<()> {
             finalized_count >= 1,
             "expected >= 1 proposal_approve_finalized event row after on_get_snapshot, got {finalized_count}"
         );
+
+        let finalized_with_snapshot = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_proposal_events
+             WHERE event_type = 'proposal_approve_finalized'
+               AND reviewer_id IS NOT NULL
+               AND snapshot_block_height IS NOT NULL
+               AND snapshot_root IS NOT NULL
+               AND snapshot_total_venear IS NOT NULL",
+        )
+        .await?;
+        assert!(
+            finalized_with_snapshot >= 1,
+            "expected finalized callback rows to include reviewer and snapshot fields, got {finalized_with_snapshot}"
+        );
+
+        let finalized_with_metadata = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_proposal_events
+             WHERE event_type = 'proposal_approve_finalized'
+               AND metadata->>'title' IS NOT NULL
+               AND metadata->>'status' IS NOT NULL",
+        )
+        .await?;
+        assert!(
+            finalized_with_metadata >= 1,
+            "expected finalized callback metadata (title/status) to be populated, got {finalized_with_metadata}"
+        );
+
+        let finalized_with_success_value = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_proposal_events
+             WHERE event_type = 'proposal_approve_finalized'
+               AND payload->'success_value' IS NOT NULL",
+        )
+        .await?;
+        assert!(
+            finalized_with_success_value >= 1,
+            "expected finalized callback payload to include decoded success_value, got {finalized_with_success_value}"
+        );
     }
 
     // near_venear_events_raw: create_proposal and proposal_approve events recorded

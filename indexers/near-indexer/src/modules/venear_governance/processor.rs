@@ -175,16 +175,15 @@ impl VenearGovernanceModule {
     fn merge_process_state(&self, state: &ProcessState) {
         {
             let mut known_lockups = self.known_lockups.write().unwrap();
-            for lockup in &state.known_lockups {
+            *known_lockups = state.known_lockups.clone();
+            for lockup in &self.configured_known_lockups {
                 known_lockups.insert(lockup.clone());
             }
         }
 
         {
             let mut lockup_owners = self.lockup_owners.write().unwrap();
-            for (lockup, owner) in &state.lockup_owners {
-                lockup_owners.insert(lockup.clone(), owner.clone());
-            }
+            *lockup_owners = state.lockup_owners.clone();
         }
     }
 
@@ -192,6 +191,7 @@ impl VenearGovernanceModule {
         contract_id == self.venear_contract_id
             || contract_id == self.voting_contract_id
             || state.known_lockups.contains(contract_id)
+            || contract_id.ends_with(&self.lockup_account_suffix)
     }
 
     async fn process_shard(
@@ -328,8 +328,8 @@ impl VenearGovernanceModule {
                     contract_id,
                     log_index as i32,
                     0,
-                    None,
-                    None,
+                    parsed.standard.as_deref(),
+                    parsed.event_type.as_deref(),
                     success,
                     Some(parse_error.clone()),
                     None,
@@ -387,23 +387,55 @@ impl VenearGovernanceModule {
                     continue;
                 }
 
-                self.normalize_event(
-                    db,
-                    state,
-                    parsed.standard.as_deref(),
-                    parsed.event_type.as_deref(),
-                    data_item,
-                    block_height,
-                    block_timestamp,
-                    shard_id,
-                    receipt_id,
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
-                    log_index as i32,
-                    data_index as i32,
-                )
-                .await?;
+                if let Err(err) = self
+                    .normalize_event(
+                        db,
+                        state,
+                        parsed.standard.as_deref(),
+                        parsed.event_type.as_deref(),
+                        data_item,
+                        block_height,
+                        block_timestamp,
+                        shard_id,
+                        receipt_id,
+                        execution_outcome_id,
+                        predecessor_id,
+                        contract_id,
+                        log_index as i32,
+                        data_index as i32,
+                    )
+                    .await
+                {
+                    warn!(
+                        execution_outcome_id = execution_outcome_id,
+                        log_index = log_index,
+                        data_index = data_index,
+                        standard = ?parsed.standard,
+                        event_type = ?parsed.event_type,
+                        error = %err,
+                        "failed to normalize venear event data item"
+                    );
+
+                    self.upsert_raw_event(
+                        db,
+                        block_height,
+                        block_timestamp,
+                        shard_id,
+                        receipt_id,
+                        execution_outcome_id,
+                        predecessor_id,
+                        contract_id,
+                        log_index as i32,
+                        data_index as i32,
+                        parsed.standard.as_deref(),
+                        parsed.event_type.as_deref(),
+                        success,
+                        Some(format!("failed to normalize event: {err}")),
+                        Some(data_item.clone()),
+                        log,
+                    )
+                    .await?;
+                }
             }
         }
 
@@ -534,8 +566,11 @@ impl VenearGovernanceModule {
                     return Ok(());
                 };
 
-                let proposal_id = i64::try_from(proposal_id_raw)
-                    .map_err(|_| anyhow!("proposal_id out of i64 range"))?;
+                let proposal_id = i64::try_from(proposal_id_raw).map_err(|_| {
+                    anyhow!(
+                        "proposal_id out of i64 range for event {event_type}: {proposal_id_raw}"
+                    )
+                })?;
 
                 let proposer_id = json_string(data, "proposer_id");
                 let account_id = json_string(data, "account_id");
@@ -576,9 +611,16 @@ impl VenearGovernanceModule {
                 let Some(proposal_id_raw) = json_u64(data, "proposal_id") else {
                     return Ok(());
                 };
-                let proposal_id = i64::try_from(proposal_id_raw)
-                    .map_err(|_| anyhow!("proposal_id out of i64 range"))?;
-                let vote = parse_i32_field(data, "vote")?;
+                let proposal_id = i64::try_from(proposal_id_raw).map_err(|_| {
+                    anyhow!(
+                        "proposal_id out of i64 range for vote event {event_type}: {proposal_id_raw}"
+                    )
+                })?;
+                let vote = parse_i32_field(data, "vote").map_err(|err| {
+                    anyhow!(
+                        "invalid vote field for account {account_id}, proposal {proposal_id}, event {event_type}: {err}"
+                    )
+                })?;
                 let account_balance = json_u128(data, "account_balance")
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "0".to_string());
@@ -719,7 +761,9 @@ impl VenearGovernanceModule {
                 .await?;
             }
 
-            if !state.known_lockups.contains(&context.receiver_id) {
+            if !state.known_lockups.contains(&context.receiver_id)
+                && !context.receiver_id.ends_with(&self.lockup_account_suffix)
+            {
                 continue;
             }
 
@@ -829,8 +873,14 @@ impl VenearGovernanceModule {
             return Ok(());
         };
 
-        let proposal_id =
-            i64::try_from(proposal_id_raw).map_err(|_| anyhow!("proposal_id out of i64 range"))?;
+        let Ok(proposal_id) = i64::try_from(proposal_id_raw) else {
+            warn!(
+                proposal_id = proposal_id_raw,
+                receipt_id = context.receipt_id,
+                "proposal_id out of i64 range in on_get_snapshot callback; skipping"
+            );
+            return Ok(());
+        };
 
         let reviewer_id = json_string(args_json, "reviewer_id");
         let voting_start_time_sec = json_u64(args_json, "voting_start_time_sec").map(|v| v as i64);
@@ -876,7 +926,7 @@ impl VenearGovernanceModule {
             db,
             proposal_id,
             "proposal_approve_finalized",
-            reviewer_id.clone(),
+            None,
             None,
             reviewer_id,
             voting_start_time_sec,
@@ -1051,10 +1101,16 @@ impl VenearGovernanceModule {
               discovered_at_height = LEAST(near.near_venear_lockups.discovered_at_height, EXCLUDED.discovered_at_height),
               discovered_at_timestamp = LEAST(near.near_venear_lockups.discovered_at_timestamp, EXCLUDED.discovered_at_timestamp),
               last_seen_height = GREATEST(near.near_venear_lockups.last_seen_height, EXCLUDED.last_seen_height),
-              last_seen_timestamp = EXCLUDED.last_seen_timestamp,
+              last_seen_timestamp = GREATEST(near.near_venear_lockups.last_seen_timestamp, EXCLUDED.last_seen_timestamp),
               is_active = EXCLUDED.is_active,
-              deleted_at_height = COALESCE(EXCLUDED.deleted_at_height, near.near_venear_lockups.deleted_at_height),
-              deleted_at_timestamp = COALESCE(EXCLUDED.deleted_at_timestamp, near.near_venear_lockups.deleted_at_timestamp),
+              deleted_at_height = CASE
+                WHEN EXCLUDED.is_active THEN NULL
+                ELSE COALESCE(EXCLUDED.deleted_at_height, near.near_venear_lockups.deleted_at_height)
+              END,
+              deleted_at_timestamp = CASE
+                WHEN EXCLUDED.is_active THEN NULL
+                ELSE COALESCE(EXCLUDED.deleted_at_timestamp, near.near_venear_lockups.deleted_at_timestamp)
+              END,
               metadata = COALESCE(EXCLUDED.metadata, near.near_venear_lockups.metadata)",
             vec![
                 lockup_account_id.into(),
@@ -1515,6 +1571,205 @@ mod tests {
             .expect("expected one row");
 
         Ok(row.try_get("", "value")?)
+    }
+
+    #[tokio::test]
+    async fn parse_error_rows_keep_standard_and_event_type() -> Result<()> {
+        init_test_tracing();
+
+        let db = TestDatabase::new().await;
+        let conn = db.db();
+        let module = VenearGovernanceModule::new(&build_test_config());
+        module.initialize(conn.as_ref()).await?;
+        let mut state = module.build_process_state();
+
+        let log = r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"add_vote"}"#;
+
+        module
+            .process_logs(
+                &[log.to_string()],
+                "venear.dao",
+                "alice.near",
+                "rcpt-missing-data",
+                "exec-missing-data",
+                0,
+                102,
+                1002,
+                true,
+                conn.as_ref(),
+                &mut state,
+            )
+            .await?;
+
+        let standard = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT standard AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-missing-data' LIMIT 1",
+        )
+        .await?;
+        assert_eq!(standard.as_deref(), Some("venear"));
+
+        let event_type = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT event_type AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-missing-data' LIMIT 1",
+        )
+        .await?;
+        assert_eq!(event_type.as_deref(), Some("add_vote"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn invalid_vote_payload_does_not_fail_block() -> Result<()> {
+        init_test_tracing();
+
+        let db = TestDatabase::new().await;
+        let conn = db.db();
+        let module = VenearGovernanceModule::new(&build_test_config());
+        module.initialize(conn.as_ref()).await?;
+        let mut state = module.build_process_state();
+
+        let logs = vec![r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"add_vote","data":[{"account_id":"alice.near","proposal_id":1,"vote":"not-an-int","account_balance":"10"}]}"#.to_string()];
+
+        module
+            .process_logs(
+                &logs,
+                "venear.dao",
+                "alice.near",
+                "rcpt-invalid-vote",
+                "exec-invalid-vote",
+                0,
+                103,
+                1003,
+                true,
+                conn.as_ref(),
+                &mut state,
+            )
+            .await?;
+
+        let raw_count = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-invalid-vote'",
+        )
+        .await?;
+        assert_eq!(raw_count, 1);
+
+        let parse_error = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT parse_error AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-invalid-vote' LIMIT 1",
+        )
+        .await?;
+        assert!(parse_error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("failed to normalize event"));
+
+        let votes_count = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_votes",
+        )
+        .await?;
+        assert_eq!(votes_count, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn merge_process_state_applies_deletions() -> Result<()> {
+        init_test_tracing();
+
+        let module = VenearGovernanceModule::new(&build_test_config());
+
+        let mut add_state = ProcessState::default();
+        add_state
+            .known_lockups
+            .insert("example-lockup.venear.dao".to_string());
+        add_state.lockup_owners.insert(
+            "example-lockup.venear.dao".to_string(),
+            "alice.near".to_string(),
+        );
+        module.merge_process_state(&add_state);
+
+        assert!(module
+            .known_lockups
+            .read()
+            .unwrap()
+            .contains("example-lockup.venear.dao"));
+
+        let mut remove_state = ProcessState::default();
+        remove_state.lockup_owners.insert(
+            "another-lockup.venear.dao".to_string(),
+            "bob.near".to_string(),
+        );
+        module.merge_process_state(&remove_state);
+
+        assert!(!module
+            .known_lockups
+            .read()
+            .unwrap()
+            .contains("example-lockup.venear.dao"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn lockup_reactivation_clears_delete_markers() -> Result<()> {
+        init_test_tracing();
+
+        let db = TestDatabase::new().await;
+        let conn = db.db();
+        let module = VenearGovernanceModule::new(&build_test_config());
+        module.initialize(conn.as_ref()).await?;
+
+        module
+            .upsert_lockup(
+                conn.as_ref(),
+                "reactivate.venear.dao",
+                "alice.near",
+                Some(1),
+                "lockup_delete_event",
+                100,
+                1000,
+                false,
+                Some(100),
+            )
+            .await?;
+
+        module
+            .upsert_lockup(
+                conn.as_ref(),
+                "reactivate.venear.dao",
+                "alice.near",
+                Some(1),
+                "lockup_deployed_event",
+                101,
+                1001,
+                true,
+                None,
+            )
+            .await?;
+
+        let is_active = scalar_bool(
+            conn.as_ref(),
+            "SELECT is_active AS value FROM near.near_venear_lockups WHERE lockup_account_id = 'reactivate.venear.dao' LIMIT 1",
+        )
+        .await?;
+        assert!(is_active);
+
+        let deleted_at_height = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT deleted_at_height::text AS value FROM near.near_venear_lockups WHERE lockup_account_id = 'reactivate.venear.dao' LIMIT 1",
+        )
+        .await?;
+        assert_eq!(deleted_at_height, None);
+
+        let deleted_at_timestamp = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT deleted_at_timestamp::text AS value FROM near.near_venear_lockups WHERE lockup_account_id = 'reactivate.venear.dao' LIMIT 1",
+        )
+        .await?;
+        assert_eq!(deleted_at_timestamp, None);
+
+        Ok(())
     }
 
     #[tokio::test]
