@@ -129,7 +129,6 @@ pub async fn upsert_posts_bulk(
                 ])
                 .to_owned(),
             )
-            .do_nothing()
             .exec(db)
             .await?;
     }

@@ -52,7 +52,6 @@ pub async fn upsert_user(
             ])
             .to_owned(),
         )
-        .do_nothing()
         .exec(db)
         .await?;
     debug!("upserted user");
@@ -98,7 +97,6 @@ pub async fn upsert_user_profile(
             ])
             .to_owned(),
         )
-        .do_nothing()
         .exec(db)
         .await?;
     debug!("upserted user profile");
@@ -159,7 +157,6 @@ pub async fn upsert_user_profiles_bulk(
                 ])
                 .to_owned(),
             )
-            .do_nothing()
             .exec(db)
             .await?;
     }
@@ -218,7 +215,6 @@ pub async fn upsert_users_bulk(
                 ])
                 .to_owned(),
             )
-            .do_nothing()
             .exec(db)
             .await?;
     }

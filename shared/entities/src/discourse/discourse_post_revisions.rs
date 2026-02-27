@@ -24,6 +24,10 @@ pub struct Model {
     pub raw_title_before: Option<String>,
     #[sea_orm(column_type = "Text", nullable)]
     pub raw_title_after: Option<String>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub body_changes: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub title_changes: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

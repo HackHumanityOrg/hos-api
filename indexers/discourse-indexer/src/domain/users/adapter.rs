@@ -2,6 +2,7 @@ use crate::discourse_api::JsonFetcher;
 use crate::domain::users::model::{DirectoryItem, User, UserProfileResponse, UserResponse};
 use anyhow::Result;
 use sea_orm::DatabaseConnection;
+use std::collections::HashSet;
 use tracing::{debug, instrument, warn};
 
 #[instrument(skip(client), fields(recent = recent, page_limit = page_limit, max_pages = max_pages))]
@@ -12,6 +13,8 @@ pub async fn fetch_users_directory<F: JsonFetcher>(
     max_pages: u32,
 ) -> Result<Vec<DirectoryItem>> {
     let mut all_users = Vec::new();
+    let mut seen_user_ids = HashSet::new();
+    let mut prev_page_ids: Option<Vec<i32>> = None;
     let mut page = 0;
 
     loop {
@@ -19,15 +22,18 @@ pub async fn fetch_users_directory<F: JsonFetcher>(
             break;
         }
 
-        let order = if recent {
-            "posts_read"
+        let (order, period, asc) = if recent {
+            ("post_count", "weekly", false)
         } else {
-            "likes_received"
+            ("username", "all", true)
         };
-        let path = format!(
-            "/directory_items.json?period=all&order={}&page={}",
-            order, page
+        let mut path = format!(
+            "/directory_items.json?period={}&order={}&page={}",
+            period, order, page
         );
+        if asc {
+            path.push_str("&asc=true");
+        }
 
         let response: UserResponse = client.get_json(&path).await?;
         debug!(
@@ -41,7 +47,24 @@ pub async fn fetch_users_directory<F: JsonFetcher>(
             break;
         }
 
-        all_users.extend(response.directory_items);
+        let page_ids: Vec<i32> = response
+            .directory_items
+            .iter()
+            .map(|item| item.user.id)
+            .collect();
+        if let Some(prev) = &prev_page_ids {
+            if prev == &page_ids {
+                debug!(page, "detected repeated users page, stopping");
+                break;
+            }
+        }
+        prev_page_ids = Some(page_ids);
+
+        for item in response.directory_items {
+            if seen_user_ids.insert(item.user.id) {
+                all_users.push(item);
+            }
+        }
 
         if page >= page_limit {
             break;
@@ -81,7 +104,7 @@ pub async fn fetch_user_by_username<F: JsonFetcher>(
     debug!("User not found in database, fetching from individual user API");
 
     // Fetch user profile from individual user API
-    let path = format!("/users/{}.json", username);
+    let path = format!("/u/{}.json", username);
     let user_profile_result = client.get_json::<UserProfileResponse>(&path).await;
 
     match user_profile_result {

@@ -58,7 +58,6 @@ pub async fn upsert_category(
             ])
             .to_owned(),
         )
-        .do_nothing()
         .exec(db)
         .await?;
     debug!("upserted category record");

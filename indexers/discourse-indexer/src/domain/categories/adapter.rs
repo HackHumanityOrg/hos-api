@@ -9,6 +9,7 @@ pub async fn fetch_categories_all<F: JsonFetcher>(
     max_pages: u32,
 ) -> Result<Vec<Category>> {
     let mut all = Vec::new();
+    let mut prev_root_ids: Option<Vec<i32>> = None;
     let mut page: u32 = 0;
     loop {
         if page > max_pages {
@@ -24,6 +25,16 @@ pub async fn fetch_categories_all<F: JsonFetcher>(
         if r.category_list.categories.is_empty() {
             break;
         }
+
+        let root_ids: Vec<i32> = r.category_list.categories.iter().map(|c| c.id).collect();
+        if let Some(prev) = &prev_root_ids {
+            if prev == &root_ids {
+                debug!(page, "detected repeated categories page, stopping");
+                break;
+            }
+        }
+        prev_root_ids = Some(root_ids);
+
         flatten_categories_with_parent(&r.category_list.categories, &mut all, None);
         page += 1;
     }

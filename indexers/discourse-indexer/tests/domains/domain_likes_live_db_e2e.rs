@@ -24,10 +24,16 @@ const POST_ID: i32 = 326680;
 
 #[tokio::test]
 async fn fetch_post_likes_parses_fixture() -> Result<()> {
-    let fetcher = FixtureFetcher::new(&[(
-        "/post_action_users.json?id=326680&post_action_type_id=2",
-        "meta/post_326680_likes.json",
-    )])?;
+    let fetcher = FixtureFetcher::new(&[
+        (
+            "/post_action_users.json?id=326680&post_action_type_id=2&page=0&limit=50",
+            "meta/post_326680_likes.json",
+        ),
+        (
+            "/post_action_users.json?id=326680&post_action_type_id=2&page=1&limit=50",
+            "meta/post_326680_likes.json",
+        ),
+    ])?;
 
     let likes = adapter::fetch_post_likes(&fetcher, POST_ID).await?;
     assert!(
@@ -69,7 +75,7 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
     topics::repo::upsert_topics_bulk(conn.as_ref(), INSTANCE_KEY, &topics).await?;
 
     let posts_fetcher = FixtureFetcher::new(&[(
-        "/t/69776.json?page=0&include_raw=true",
+        "/t/69776.json?page=1&include_raw=true",
         "meta/topic_69776_posts_page_0.json",
     )])?;
     let posts = posts::adapter::fetch_posts_page(&posts_fetcher, TOPIC_ID, 0)
@@ -78,10 +84,16 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
         .posts;
     posts::repo::upsert_posts_bulk(conn.as_ref(), INSTANCE_KEY, &posts).await?;
 
-    let likes_fetcher = FixtureFetcher::new(&[(
-        "/post_action_users.json?id=326680&post_action_type_id=2",
-        "meta/post_326680_likes.json",
-    )])?;
+    let likes_fetcher = FixtureFetcher::new(&[
+        (
+            "/post_action_users.json?id=326680&post_action_type_id=2&page=0&limit=50",
+            "meta/post_326680_likes.json",
+        ),
+        (
+            "/post_action_users.json?id=326680&post_action_type_id=2&page=1&limit=50",
+            "meta/post_326680_likes.json",
+        ),
+    ])?;
     let likes = adapter::fetch_post_likes(&likes_fetcher, POST_ID).await?;
 
     let before = Utc::now()

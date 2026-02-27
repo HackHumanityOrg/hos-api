@@ -22,6 +22,12 @@ pub async fn upsert_revision(
         .title_changes
         .as_ref()
         .map(|tc| tc.get_raw_title_after());
+    let body_changes = Some(serde_json::to_value(&revision.body_changes)?);
+    let title_changes = revision
+        .title_changes
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()?;
 
     let am = discourse_post_revisions::ActiveModel {
         instance: Set(instance.to_string()),
@@ -34,6 +40,8 @@ pub async fn upsert_revision(
         raw_body_after: Set(Some(raw_body_after)),
         raw_title_before: Set(raw_title_before),
         raw_title_after: Set(raw_title_after),
+        body_changes: Set(body_changes),
+        title_changes: Set(title_changes),
         ..Default::default()
     };
     discourse_post_revisions::Entity::insert(am.clone())
@@ -51,6 +59,8 @@ pub async fn upsert_revision(
                 discourse_post_revisions::Column::RawBodyAfter,
                 discourse_post_revisions::Column::RawTitleBefore,
                 discourse_post_revisions::Column::RawTitleAfter,
+                discourse_post_revisions::Column::BodyChanges,
+                discourse_post_revisions::Column::TitleChanges,
             ])
             .to_owned(),
         )

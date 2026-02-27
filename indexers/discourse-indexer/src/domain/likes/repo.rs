@@ -74,7 +74,6 @@ pub async fn upsert_post_likes_batch(
                 .update_columns([discourse_post_likes::Column::CreatedAt])
                 .to_owned(),
             )
-            .do_nothing()
             .exec(db)
             .await?;
     }

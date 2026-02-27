@@ -76,7 +76,6 @@ pub async fn upsert_topics_bulk(
                 ])
                 .to_owned(),
             )
-            .do_nothing()
             .exec(db)
             .await?;
     }

@@ -64,13 +64,19 @@ impl TitleChanges {
 }
 
 fn extract_raw_markdown_before(content: &str) -> Option<String> {
-    let (before, _) = extract_markdown_columns(content)?;
-    Some(before.join("\n\n"))
+    if let Some((before, _)) = extract_markdown_columns(content) {
+        return Some(before.join("\n\n"));
+    }
+
+    Some(clean_body_markdown(content))
 }
 
 fn extract_raw_markdown_after(content: &str) -> Option<String> {
-    let (_, after) = extract_markdown_columns(content)?;
-    Some(after.join("\n\n"))
+    if let Some((_, after)) = extract_markdown_columns(content) {
+        return Some(after.join("\n\n"));
+    }
+
+    Some(clean_body_markdown(content))
 }
 
 fn clean_body_markdown(markdown: &str) -> String {
@@ -80,6 +86,8 @@ fn clean_body_markdown(markdown: &str) -> String {
         ("</del>", ""),
         ("<ins>", ""),
         ("</ins>", ""),
+        (r#" class=\"diff-ins\""#, ""),
+        (r#" class=\"diff-del\""#, ""),
         ("&amp;", "&"),
         ("&lt;", "<"),
         ("&gt;", ">"),
@@ -130,8 +138,12 @@ fn extract_markdown_columns(content: &str) -> Option<(Vec<String>, Vec<String>)>
 
     for row in document.select(&row_selector) {
         let mut cells = row.select(&cell_selector);
-        let before_cell = cells.next()?;
-        let after_cell = cells.next()?;
+        let Some(before_cell) = cells.next() else {
+            continue;
+        };
+        let Some(after_cell) = cells.next() else {
+            continue;
+        };
         let before_html = before_cell.inner_html();
         let after_html = after_cell.inner_html();
         before.push(clean_body_markdown(&before_html));

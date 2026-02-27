@@ -94,7 +94,7 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
     topics::repo::upsert_topics_bulk(conn.as_ref(), INSTANCE_KEY, &topics).await?;
 
     let posts_fetcher = FixtureFetcher::new(&[(
-        "/t/69776.json?page=0&include_raw=true",
+        "/t/69776.json?page=1&include_raw=true",
         "meta/topic_69776_posts_page_0.json",
     )])?;
     let posts = posts::adapter::fetch_posts_page(&posts_fetcher, 69776, 0)
@@ -118,6 +118,12 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
         .title_changes
         .as_ref()
         .map(|tc| tc.get_raw_title_after());
+    let body_changes = Some(serde_json::to_value(&revision.body_changes)?);
+    let title_changes = revision
+        .title_changes
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()?;
 
     repo::upsert_revision(conn.as_ref(), INSTANCE_KEY, 326680, &revision).await?;
 
@@ -143,12 +149,14 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
     assert_eq!(stored.raw_body_after.as_deref(), Some(raw_after.as_str()));
     assert_eq!(
         stored.raw_title_before.as_deref(),
-        title_before.as_ref().map(|s| s.as_str())
+        title_before.as_deref()
     );
     assert_eq!(
         stored.raw_title_after.as_deref(),
-        title_after.as_ref().map(|s| s.as_str())
+        title_after.as_deref()
     );
+    assert_eq!(stored.body_changes, body_changes);
+    assert_eq!(stored.title_changes, title_changes);
 
     let post = DiscoursePosts::find()
         .filter(discourse_posts::Column::Instance.eq(INSTANCE_KEY))

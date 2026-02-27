@@ -3,7 +3,7 @@ use discourse_indexer::domain::instances;
 use discourse_indexer::domain::users::{adapter, repo};
 use entities::{discourse::discourse_users, prelude::DiscourseUsers};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use test_support::{init_test_tracing, TestDatabase};
 
 #[path = "../support/mod.rs"]
@@ -17,29 +17,23 @@ const INSTANCE_URL: &str = "https://meta.discourse.org";
 async fn fetch_users_directory_paginates_until_empty_page() -> Result<()> {
     let fetcher = FixtureFetcher::new(&[
         (
-            "/directory_items.json?period=all&order=likes_received&page=0",
+            "/directory_items.json?period=all&order=username&page=0&asc=true",
             "meta/directory_items_page_0.json",
         ),
         (
-            "/directory_items.json?period=all&order=likes_received&page=1",
+            "/directory_items.json?period=all&order=username&page=1&asc=true",
             "meta/directory_items_page_1.json",
         ),
         (
-            "/directory_items.json?period=all&order=likes_received&page=2",
+            "/directory_items.json?period=all&order=username&page=2&asc=true",
             "meta/directory_items_page_2.json",
         ),
     ])?;
 
     let items = adapter::fetch_users_directory(&fetcher, false, 1, 5).await?;
     assert_eq!(items.len(), 100);
-    for window in items.windows(2) {
-        let current = window[0].likes_received.unwrap_or(0);
-        let next = window[1].likes_received.unwrap_or(0);
-        assert!(
-            current >= next,
-            "directory items should be sorted by likes_received desc"
-        );
-    }
+    let unique_ids: HashSet<i32> = items.iter().map(|item| item.user.id).collect();
+    assert_eq!(unique_ids.len(), items.len());
 
     Ok(())
 }
@@ -53,10 +47,14 @@ async fn user_upsert_validates_all_columns() -> Result<()> {
     instances::repo::register_instance(conn.as_ref(), INSTANCE_KEY, INSTANCE_URL).await?;
 
     let fetcher = FixtureFetcher::new(&[(
-        "/directory_items.json?period=all&order=likes_received&page=0",
+        "/directory_items.json?period=all&order=username&page=0&asc=true",
         "meta/directory_items_page_0.json",
     )])?;
-    let items = adapter::fetch_users_directory(&fetcher, false, 0, 0).await?;
+    let items = adapter::fetch_users_directory(&fetcher, false, 0, 1).await?;
+    assert!(
+        !items.is_empty(),
+        "expected user directory items from fixture"
+    );
 
     for item in &items {
         repo::upsert_user(conn.as_ref(), INSTANCE_KEY, item).await?;

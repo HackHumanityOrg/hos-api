@@ -15,4 +15,6 @@ pub struct PostActionUser {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PostLikeResponse {
     pub post_action_users: Vec<PostActionUser>,
+    #[serde(default)]
+    pub total_rows_post_action_users: Option<i32>,
 }

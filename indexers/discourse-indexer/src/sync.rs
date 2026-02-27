@@ -67,6 +67,7 @@ pub async fn sync_full(
 
 mod services_helpers {
     use super::*;
+    use reqwest::StatusCode;
 
     pub struct TopicSyncOptions<'a> {
         pub mode: TopicSyncMode,
@@ -80,6 +81,39 @@ mod services_helpers {
             lookback_hours: Option<i64>,
         },
         Full,
+    }
+
+    fn extract_http_status(err: &anyhow::Error) -> Option<StatusCode> {
+        for cause in err.chain() {
+            if let Some(status_err) = cause.downcast_ref::<discourse_api::HttpStatusError>() {
+                return Some(status_err.status);
+            }
+            if let Some(status_err) = cause.downcast_ref::<discourse_api::MaxRetriesReachedError>()
+            {
+                return Some(status_err.status);
+            }
+        }
+        None
+    }
+
+    fn is_not_found_error(err: &anyhow::Error) -> bool {
+        if matches!(extract_http_status(err), Some(StatusCode::NOT_FOUND)) {
+            return true;
+        }
+
+        let msg = err.to_string();
+        msg.contains("404") || msg.contains("Not Found")
+    }
+
+    fn is_skippable_item_error(err: &anyhow::Error) -> bool {
+        if let Some(status) = extract_http_status(err) {
+            return matches!(
+                status,
+                StatusCode::FORBIDDEN | StatusCode::NOT_FOUND | StatusCode::GONE
+            );
+        }
+
+        false
     }
 
     pub async fn sync_categories(
@@ -179,7 +213,7 @@ mod services_helpers {
                 match domain::topics::adapter::fetch_topics_recent_page(client, page).await {
                     Ok(r) => r,
                     Err(e) => {
-                        if e.to_string().contains("404") || e.to_string().contains("Not Found") {
+                        if is_not_found_error(&e) {
                             break;
                         }
                         return Err(e);
@@ -189,7 +223,7 @@ mod services_helpers {
                 match domain::topics::adapter::fetch_topics_created_page(client, page).await {
                     Ok(r) => r,
                     Err(e) => {
-                        if e.to_string().contains("404") || e.to_string().contains("Not Found") {
+                        if is_not_found_error(&e) {
                             break;
                         }
                         return Err(e);
@@ -206,7 +240,7 @@ mod services_helpers {
             topics_processed += resp.topic_list.topics.len() as u32;
 
             // Log progress every 10 pages
-            if pages_fetched.is_multiple_of(10) {
+            if pages_fetched % 10 == 0 {
                 info!(
                     pages_fetched = pages_fetched,
                     topics_processed = topics_processed,
@@ -252,7 +286,7 @@ mod services_helpers {
             .await?;
 
             for t in resp.topic_list.topics {
-                sync_posts_for_topic(
+                if let Err(e) = sync_posts_for_topic(
                     db.clone(),
                     client,
                     instance,
@@ -261,7 +295,19 @@ mod services_helpers {
                     conc,
                     max_pages_per_run,
                 )
-                .await?;
+                .await
+                {
+                    if is_skippable_item_error(&e) {
+                        warn!(
+                            topic_id = t.id,
+                            error = %e,
+                            "Skipping topic due skippable posts error"
+                        );
+                        continue;
+                    }
+
+                    return Err(e);
+                }
             }
 
             // Recent: cap to a few pages; Full: continue until empty or repeat
@@ -331,7 +377,16 @@ mod services_helpers {
                 match domain::posts::adapter::fetch_posts_page(client, topic_id, page).await {
                     Ok(r) => r,
                     Err(e) => {
-                        if e.to_string().contains("404") || e.to_string().contains("Not Found") {
+                        if is_skippable_item_error(&e) {
+                            warn!(
+                                topic_id = topic_id,
+                                page = page,
+                                error = %e,
+                                "Skipping topic posts due skippable status"
+                            );
+                            return Ok(());
+                        }
+                        if is_not_found_error(&e) {
                             break;
                         }
                         return Err(e);
@@ -398,28 +453,59 @@ mod services_helpers {
 
                     if has_likes {
                         let _permit = likes_sem.acquire().await.unwrap();
-                        if let Ok(likes) =
-                            domain::likes::adapter::fetch_post_likes(&client_all, p.id).await
-                        {
-                            for like_user in &likes {
-                                let _ = domain::users::adapter::fetch_user_by_username(
-                                    db_all.as_ref(),
-                                    &client_all,
-                                    &instance_all,
-                                    &like_user.username,
-                                    like_user.id,
-                                )
-                                .await;
-                            }
+                        match domain::likes::adapter::fetch_post_likes(&client_all, p.id).await {
+                            Ok(likes) => {
+                                for like_user in &likes {
+                                    if let Err(e) = domain::users::adapter::fetch_user_by_username(
+                                        db_all.as_ref(),
+                                        &client_all,
+                                        &instance_all,
+                                        &like_user.username,
+                                        like_user.id,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!(
+                                            post_id = p.id,
+                                            like_user = %like_user.username,
+                                            error = %e,
+                                            "Failed to upsert like user"
+                                        );
+                                    }
+                                }
 
-                            post_likes_count = likes.len() as u32;
-                            let _ = domain::likes::repo::upsert_post_likes_batch(
-                                db_all.as_ref(),
-                                &instance_all,
-                                p.id,
-                                &likes,
-                            )
-                            .await;
+                                post_likes_count = likes.len() as u32;
+                                if let Err(e) = domain::likes::repo::upsert_post_likes_batch(
+                                    db_all.as_ref(),
+                                    &instance_all,
+                                    p.id,
+                                    &likes,
+                                )
+                                .await
+                                {
+                                    tracing::warn!(
+                                        post_id = p.id,
+                                        error = %e,
+                                        "Failed to upsert post likes"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                post_likes_skipped = 1;
+                                if is_skippable_item_error(&e) {
+                                    tracing::warn!(
+                                        post_id = p.id,
+                                        error = %e,
+                                        "Skipping likes due skippable status"
+                                    );
+                                } else {
+                                    tracing::warn!(
+                                        post_id = p.id,
+                                        error = %e,
+                                        "Failed to fetch likes"
+                                    );
+                                }
+                            }
                         }
                     } else {
                         post_likes_skipped = 1;
@@ -433,21 +519,50 @@ mod services_helpers {
                     if p.can_view_edit_history && p.version > 1 {
                         let _permit = rev_sem.acquire().await.unwrap();
                         for ver in 2..=p.version {
-                            if let Ok(rev) = domain::revisions::adapter::fetch_post_revision(
+                            match domain::revisions::adapter::fetch_post_revision(
                                 &client_all,
                                 p.id,
                                 ver,
                             )
                             .await
                             {
-                                post_revisions_count += 1;
-                                let _ = domain::revisions::repo::upsert_revision(
-                                    db_all.as_ref(),
-                                    &instance_all,
-                                    p.id,
-                                    &rev,
-                                )
-                                .await;
+                                Ok(rev) => {
+                                    post_revisions_count += 1;
+                                    if let Err(e) = domain::revisions::repo::upsert_revision(
+                                        db_all.as_ref(),
+                                        &instance_all,
+                                        p.id,
+                                        &rev,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!(
+                                            post_id = p.id,
+                                            version = ver,
+                                            error = %e,
+                                            "Failed to upsert post revision"
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    post_revisions_skipped = 1;
+                                    if is_skippable_item_error(&e) {
+                                        tracing::warn!(
+                                            post_id = p.id,
+                                            version = ver,
+                                            error = %e,
+                                            "Skipping revision due skippable status"
+                                        );
+                                        break;
+                                    }
+
+                                    tracing::warn!(
+                                        post_id = p.id,
+                                        version = ver,
+                                        error = %e,
+                                        "Failed to fetch revision"
+                                    );
+                                }
                             }
                         }
                     } else {
