@@ -81,6 +81,7 @@ parse_events = true
 [near.modules.venear_governance]
 enabled = true
 stream_mode = "shared"
+start_height = 160000000
 venear_contract_id = "venear.dao"
 voting_contract_id = "vote.dao"
 lockup_account_suffix = ".venear.dao"

@@ -106,6 +106,7 @@ fn build_live_test_config(start_height: u64) -> AppConfig {
                 venear_governance: Some(VenearGovernanceModuleConfig {
                     enabled: true,
                     stream_mode: NearModuleStreamMode::Shared,
+                    start_height: None,
                     venear_contract_id: "venear.dao".to_string(),
                     voting_contract_id: "vote.dao".to_string(),
                     lockup_account_suffix: ".venear.dao".to_string(),

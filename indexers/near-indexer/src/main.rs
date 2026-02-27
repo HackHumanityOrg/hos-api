@@ -4,7 +4,7 @@ use common::telemetry::{self, TelemetrySetup};
 use db_core::connection::from_config as db_from_config;
 use futures::future::try_join_all;
 use near_indexer::{modules, ModuleRegistry};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -55,16 +55,59 @@ fn plan_stream_assignments_from_modes(
     assignments
 }
 
+fn configured_module_start_heights(config: &AppConfig) -> HashMap<String, u64> {
+    let mut start_heights = HashMap::new();
+
+    let AppConfig::Indexer(idx) = config else {
+        return start_heights;
+    };
+
+    let Some(near) = idx.near.as_ref() else {
+        return start_heights;
+    };
+
+    let Some(modules) = near.modules.as_ref() else {
+        return start_heights;
+    };
+
+    if let Some(start_height) = modules.raw.as_ref().and_then(|m| m.start_height) {
+        start_heights.insert("raw".to_string(), start_height);
+    }
+    if let Some(start_height) = modules.accounts.as_ref().and_then(|m| m.start_height) {
+        start_heights.insert("accounts".to_string(), start_height);
+    }
+    if let Some(start_height) = modules.tokens.as_ref().and_then(|m| m.start_height) {
+        start_heights.insert("tokens".to_string(), start_height);
+    }
+    if let Some(start_height) = modules.staking_pools.as_ref().and_then(|m| m.start_height) {
+        start_heights.insert("staking_pools".to_string(), start_height);
+    }
+    if let Some(start_height) = modules
+        .venear_governance
+        .as_ref()
+        .and_then(|m| m.start_height)
+    {
+        start_heights.insert("venear_governance".to_string(), start_height);
+    }
+
+    start_heights
+}
+
 async fn resolve_stream_start_height(
     db: &sea_orm::DatabaseConnection,
     stream_id: &str,
     module_names: &[String],
     configured_start_height: u64,
+    module_start_heights: &HashMap<String, u64>,
 ) -> Result<(u64, bool)> {
     let mut stream_start_height: Option<u64> = None;
     let mut any_module_has_cursor = false;
+    let has_explicit_module_start = module_names
+        .iter()
+        .any(|module_name| module_start_heights.contains_key(module_name));
 
     for module_name in module_names {
+        let module_explicit_start_height = module_start_heights.get(module_name).copied();
         let cursor = near_indexer::core::cursor::get_module_cursor(db, module_name).await?;
 
         let module_start_height = if let Some(height) = cursor {
@@ -79,31 +122,70 @@ async fn resolve_stream_start_height(
                 "Module cursor found"
             );
 
-            next_height
+            Some(next_height)
         } else {
-            if configured_start_height > 0 {
-                // Seed in-memory cursor so out-of-order block completion still advances
-                // contiguous cursors correctly from the configured start.
-                let seed_height =
-                    i64::try_from(configured_start_height.saturating_sub(1)).unwrap_or(i64::MAX);
-                near_indexer::core::cursor::seed_module_cursor(module_name, seed_height);
+            match module_explicit_start_height {
+                Some(module_start) => {
+                    if module_start > 0 {
+                        // Seed in-memory cursor so out-of-order block completion still advances
+                        // contiguous cursors correctly from the configured start.
+                        let seed_height =
+                            i64::try_from(module_start.saturating_sub(1)).unwrap_or(i64::MAX);
+                        near_indexer::core::cursor::seed_module_cursor(module_name, seed_height);
+                    }
+
+                    info!(
+                        stream_id = stream_id,
+                        module = module_name,
+                        configured_start_height = module_start,
+                        "No cursor found, will start from module-specific configured height"
+                    );
+
+                    Some(module_start)
+                }
+                None if has_explicit_module_start => {
+                    info!(
+                        stream_id = stream_id,
+                        module = module_name,
+                        "No cursor or module-specific start height; ignoring module for shared start-height minimum"
+                    );
+                    None
+                }
+                None if configured_start_height > 0 => {
+                    // Seed in-memory cursor so out-of-order block completion still advances
+                    // contiguous cursors correctly from the configured start.
+                    let seed_height = i64::try_from(configured_start_height.saturating_sub(1))
+                        .unwrap_or(i64::MAX);
+                    near_indexer::core::cursor::seed_module_cursor(module_name, seed_height);
+
+                    info!(
+                        stream_id = stream_id,
+                        module = module_name,
+                        configured_start_height = configured_start_height,
+                        "No cursor found, will start from global configured height"
+                    );
+
+                    Some(configured_start_height)
+                }
+                None => {
+                    info!(
+                        stream_id = stream_id,
+                        module = module_name,
+                        configured_start_height = configured_start_height,
+                        "No cursor found, using default stream start height"
+                    );
+                    Some(configured_start_height)
+                }
             }
-
-            info!(
-                stream_id = stream_id,
-                module = module_name,
-                configured_start_height,
-                "No cursor found, will start from configured height"
-            );
-
-            configured_start_height
         };
 
-        stream_start_height = Some(
-            stream_start_height
-                .map(|current| current.min(module_start_height))
-                .unwrap_or(module_start_height),
-        );
+        if let Some(module_start_height) = module_start_height {
+            stream_start_height = Some(
+                stream_start_height
+                    .map(|current| current.min(module_start_height))
+                    .unwrap_or(module_start_height),
+            );
+        }
     }
 
     Ok((
@@ -112,11 +194,13 @@ async fn resolve_stream_start_height(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_stream_worker(
     registry: Arc<ModuleRegistry>,
     db: Arc<sea_orm::DatabaseConnection>,
     chain: String,
     configured_start_height: u64,
+    module_start_heights: Arc<HashMap<String, u64>>,
     configured_concurrency: usize,
     configured_preload_pool_size: usize,
     assignment: StreamAssignment,
@@ -138,6 +222,7 @@ async fn run_stream_worker(
             &assignment.stream_id,
             &assignment.module_names,
             configured_start_height,
+            module_start_heights.as_ref(),
         )
         .await
         {
@@ -340,6 +425,7 @@ async fn run(config: AppConfig) -> Result<()> {
             }
             _ => ("mainnet".to_string(), 0, 6, 1),
         };
+    let module_start_heights = Arc::new(configured_module_start_heights(&config));
 
     let stream_assignments = plan_stream_assignments(registry.as_ref());
     let stream_count = stream_assignments.len();
@@ -361,6 +447,7 @@ async fn run(config: AppConfig) -> Result<()> {
         stream_plan = ?stream_plan,
         configured_concurrency = configured_concurrency,
         configured_start_height = configured_start_height,
+        module_start_heights = ?module_start_heights,
         configured_preload_pool_size = configured_preload_pool_size,
         enabled_modules = enabled_count,
         startup_ms = startup_elapsed.as_millis(),
@@ -375,6 +462,7 @@ async fn run(config: AppConfig) -> Result<()> {
                 db.clone(),
                 chain.clone(),
                 configured_start_height,
+                module_start_heights.clone(),
                 configured_concurrency,
                 configured_preload_pool_size,
                 assignment,
@@ -393,42 +481,121 @@ async fn run(config: AppConfig) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::{plan_stream_assignments_from_modes, NearModuleStreamMode, StreamAssignment};
 
     fn resolve_stream_start_height_for_test(
         configured_start_height: u64,
         module_cursors: &[Option<i64>],
+        module_start_heights: &HashMap<String, u64>,
+        module_names: &[&str],
     ) -> u64 {
+        assert_eq!(module_cursors.len(), module_names.len());
         let mut stream_start_height: Option<u64> = None;
+        let has_explicit_module_start = module_names
+            .iter()
+            .any(|module_name| module_start_heights.contains_key(*module_name));
 
-        for cursor in module_cursors {
+        for (index, cursor) in module_cursors.iter().enumerate() {
+            let module_name = module_names[index];
+            let module_explicit_start_height = module_start_heights.get(module_name).copied();
+
             let module_start_height = if let Some(height) = cursor {
                 let non_negative = (*height).max(0) as u64;
-                non_negative.saturating_add(1)
+                Some(non_negative.saturating_add(1))
             } else {
-                configured_start_height
+                match module_explicit_start_height {
+                    Some(module_start) => Some(module_start),
+                    None if has_explicit_module_start => None,
+                    None if configured_start_height > 0 => Some(configured_start_height),
+                    None => Some(configured_start_height),
+                }
             };
 
-            stream_start_height = Some(
-                stream_start_height
-                    .map(|current| current.min(module_start_height))
-                    .unwrap_or(module_start_height),
-            );
+            if let Some(module_start_height) = module_start_height {
+                stream_start_height = Some(
+                    stream_start_height
+                        .map(|current| current.min(module_start_height))
+                        .unwrap_or(module_start_height),
+                );
+            }
         }
 
         stream_start_height.unwrap_or(configured_start_height)
     }
 
+    fn resolve_assignment_start_for_test(
+        assignment: &StreamAssignment,
+        configured_start_height: u64,
+        module_start_heights: &HashMap<String, u64>,
+        module_cursors: &HashMap<String, Option<i64>>,
+    ) -> u64 {
+        let module_names: Vec<&str> = assignment.module_names.iter().map(String::as_str).collect();
+        let cursors: Vec<Option<i64>> = assignment
+            .module_names
+            .iter()
+            .map(|name| module_cursors.get(name).copied().flatten())
+            .collect();
+
+        resolve_stream_start_height_for_test(
+            configured_start_height,
+            &cursors,
+            module_start_heights,
+            &module_names,
+        )
+    }
+
     #[test]
     fn stream_start_uses_min_cursor_plus_one_when_all_modules_resuming() {
-        let start = resolve_stream_start_height_for_test(0, &[Some(120), Some(95), Some(300)]);
+        let start = resolve_stream_start_height_for_test(
+            0,
+            &[Some(120), Some(95), Some(300)],
+            &HashMap::new(),
+            &["raw", "accounts", "tokens"],
+        );
         assert_eq!(start, 96);
     }
 
     #[test]
     fn stream_start_uses_config_for_modules_without_cursor() {
-        let start = resolve_stream_start_height_for_test(500, &[Some(900), None, Some(800)]);
+        let start = resolve_stream_start_height_for_test(
+            500,
+            &[Some(900), None, Some(800)],
+            &HashMap::new(),
+            &["raw", "accounts", "tokens"],
+        );
         assert_eq!(start, 500);
+    }
+
+    #[test]
+    fn stream_start_uses_module_override_without_cursor() {
+        let mut module_start_heights = HashMap::new();
+        module_start_heights.insert("venear_governance".to_string(), 160_000_000);
+
+        let start = resolve_stream_start_height_for_test(
+            0,
+            &[Some(220_000_000), None],
+            &module_start_heights,
+            &["tokens", "venear_governance"],
+        );
+
+        assert_eq!(start, 160_000_000);
+    }
+
+    #[test]
+    fn stream_start_ignores_module_override_when_cursor_exists() {
+        let mut module_start_heights = HashMap::new();
+        module_start_heights.insert("venear_governance".to_string(), 160_000_000);
+
+        let start = resolve_stream_start_height_for_test(
+            0,
+            &[Some(170_000_000)],
+            &module_start_heights,
+            &["venear_governance"],
+        );
+
+        assert_eq!(start, 170_000_001);
     }
 
     #[test]
@@ -481,5 +648,294 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn shared_stream_start_uses_earliest_module_override() {
+        let assignments = plan_stream_assignments_from_modes(&[
+            ("raw".to_string(), NearModuleStreamMode::Shared),
+            ("accounts".to_string(), NearModuleStreamMode::Shared),
+        ]);
+
+        let assignment = assignments
+            .iter()
+            .find(|assignment| assignment.stream_id == "shared")
+            .expect("shared assignment should exist");
+
+        let mut module_start_heights = HashMap::new();
+        module_start_heights.insert("raw".to_string(), 120);
+        module_start_heights.insert("accounts".to_string(), 250);
+
+        let start_height = resolve_assignment_start_for_test(
+            assignment,
+            1_000,
+            &module_start_heights,
+            &HashMap::new(),
+        );
+
+        assert_eq!(start_height, 120);
+    }
+
+    #[test]
+    fn mixed_stream_modes_resolve_starts_per_assignment() {
+        let assignments = plan_stream_assignments_from_modes(&[
+            ("raw".to_string(), NearModuleStreamMode::Shared),
+            ("accounts".to_string(), NearModuleStreamMode::Shared),
+            ("tokens".to_string(), NearModuleStreamMode::Independent),
+            (
+                "venear_governance".to_string(),
+                NearModuleStreamMode::Independent,
+            ),
+        ]);
+
+        let mut module_start_heights = HashMap::new();
+        module_start_heights.insert("raw".to_string(), 400);
+        module_start_heights.insert("accounts".to_string(), 800);
+        module_start_heights.insert("tokens".to_string(), 1_500);
+        module_start_heights.insert("venear_governance".to_string(), 160_000_000);
+
+        let mut module_cursors = HashMap::new();
+        module_cursors.insert("tokens".to_string(), Some(1_550));
+
+        let shared_assignment = assignments
+            .iter()
+            .find(|assignment| assignment.stream_id == "shared")
+            .expect("shared assignment should exist");
+        let tokens_assignment = assignments
+            .iter()
+            .find(|assignment| assignment.stream_id == "module:tokens")
+            .expect("tokens independent assignment should exist");
+        let venear_assignment = assignments
+            .iter()
+            .find(|assignment| assignment.stream_id == "module:venear_governance")
+            .expect("venear independent assignment should exist");
+
+        let shared_start = resolve_assignment_start_for_test(
+            shared_assignment,
+            0,
+            &module_start_heights,
+            &module_cursors,
+        );
+        let tokens_start = resolve_assignment_start_for_test(
+            tokens_assignment,
+            0,
+            &module_start_heights,
+            &module_cursors,
+        );
+        let venear_start = resolve_assignment_start_for_test(
+            venear_assignment,
+            0,
+            &module_start_heights,
+            &module_cursors,
+        );
+
+        assert_eq!(shared_start, 400);
+        assert_eq!(tokens_start, 1_551);
+        assert_eq!(venear_start, 160_000_000);
+    }
+
+    #[test]
+    fn shared_stream_ignores_unset_module_defaults_when_overrides_exist() {
+        let assignments = plan_stream_assignments_from_modes(&[
+            ("raw".to_string(), NearModuleStreamMode::Shared),
+            ("accounts".to_string(), NearModuleStreamMode::Shared),
+        ]);
+
+        let assignment = assignments
+            .iter()
+            .find(|assignment| assignment.stream_id == "shared")
+            .expect("shared assignment should exist");
+
+        let mut module_start_heights = HashMap::new();
+        module_start_heights.insert("raw".to_string(), 160_000_000);
+
+        let start_height = resolve_assignment_start_for_test(
+            assignment,
+            0,
+            &module_start_heights,
+            &HashMap::new(),
+        );
+
+        assert_eq!(start_height, 160_000_000);
+    }
+
+    #[test]
+    fn shared_stream_start_height_combinations() {
+        let assignment = StreamAssignment {
+            stream_id: "shared".to_string(),
+            module_names: vec!["raw".to_string(), "accounts".to_string()],
+        };
+
+        struct Case {
+            name: &'static str,
+            configured_start_height: u64,
+            module_start_heights: Vec<(&'static str, u64)>,
+            module_cursors: Vec<(&'static str, Option<i64>)>,
+            expected_start_height: u64,
+        }
+
+        let cases = vec![
+            Case {
+                name: "no overrides use global zero",
+                configured_start_height: 0,
+                module_start_heights: vec![],
+                module_cursors: vec![],
+                expected_start_height: 0,
+            },
+            Case {
+                name: "no overrides use global non-zero",
+                configured_start_height: 500,
+                module_start_heights: vec![],
+                module_cursors: vec![],
+                expected_start_height: 500,
+            },
+            Case {
+                name: "single explicit override with unset peer",
+                configured_start_height: 0,
+                module_start_heights: vec![("raw", 160_000_000)],
+                module_cursors: vec![],
+                expected_start_height: 160_000_000,
+            },
+            Case {
+                name: "single explicit override beats non-zero global",
+                configured_start_height: 100,
+                module_start_heights: vec![("raw", 200)],
+                module_cursors: vec![],
+                expected_start_height: 200,
+            },
+            Case {
+                name: "two explicit overrides use minimum",
+                configured_start_height: 0,
+                module_start_heights: vec![("raw", 400), ("accounts", 250)],
+                module_cursors: vec![],
+                expected_start_height: 250,
+            },
+            Case {
+                name: "cursor beats explicit when lower",
+                configured_start_height: 0,
+                module_start_heights: vec![("raw", 400), ("accounts", 800)],
+                module_cursors: vec![("accounts", Some(199))],
+                expected_start_height: 200,
+            },
+            Case {
+                name: "explicit beats cursor when lower",
+                configured_start_height: 0,
+                module_start_heights: vec![("raw", 120), ("accounts", 800)],
+                module_cursors: vec![("accounts", Some(250))],
+                expected_start_height: 120,
+            },
+            Case {
+                name: "cursor plus unset without overrides uses global minimum",
+                configured_start_height: 500,
+                module_start_heights: vec![],
+                module_cursors: vec![("raw", Some(900))],
+                expected_start_height: 500,
+            },
+            Case {
+                name: "explicit module with cursor uses cursor",
+                configured_start_height: 0,
+                module_start_heights: vec![("raw", 600)],
+                module_cursors: vec![("raw", Some(750))],
+                expected_start_height: 751,
+            },
+        ];
+
+        for case in cases {
+            let module_start_heights: HashMap<String, u64> = case
+                .module_start_heights
+                .iter()
+                .map(|(name, height)| ((*name).to_string(), *height))
+                .collect();
+            let module_cursors: HashMap<String, Option<i64>> = case
+                .module_cursors
+                .iter()
+                .map(|(name, cursor)| ((*name).to_string(), *cursor))
+                .collect();
+
+            let start_height = resolve_assignment_start_for_test(
+                &assignment,
+                case.configured_start_height,
+                &module_start_heights,
+                &module_cursors,
+            );
+
+            assert_eq!(
+                start_height, case.expected_start_height,
+                "case '{}' failed",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn independent_stream_start_height_combinations() {
+        let assignment = StreamAssignment {
+            stream_id: "module:venear_governance".to_string(),
+            module_names: vec!["venear_governance".to_string()],
+        };
+
+        struct Case {
+            name: &'static str,
+            configured_start_height: u64,
+            module_start_height: Option<u64>,
+            cursor: Option<i64>,
+            expected_start_height: u64,
+        }
+
+        let cases = vec![
+            Case {
+                name: "module override only",
+                configured_start_height: 0,
+                module_start_height: Some(160_000_000),
+                cursor: None,
+                expected_start_height: 160_000_000,
+            },
+            Case {
+                name: "global only",
+                configured_start_height: 500,
+                module_start_height: None,
+                cursor: None,
+                expected_start_height: 500,
+            },
+            Case {
+                name: "cursor overrides module start",
+                configured_start_height: 0,
+                module_start_height: Some(160_000_000),
+                cursor: Some(170_000_000),
+                expected_start_height: 170_000_001,
+            },
+            Case {
+                name: "cursor overrides global",
+                configured_start_height: 500,
+                module_start_height: None,
+                cursor: Some(700),
+                expected_start_height: 701,
+            },
+        ];
+
+        for case in cases {
+            let mut module_start_heights = HashMap::new();
+            if let Some(start_height) = case.module_start_height {
+                module_start_heights.insert("venear_governance".to_string(), start_height);
+            }
+
+            let mut module_cursors = HashMap::new();
+            if case.cursor.is_some() {
+                module_cursors.insert("venear_governance".to_string(), case.cursor);
+            }
+
+            let start_height = resolve_assignment_start_for_test(
+                &assignment,
+                case.configured_start_height,
+                &module_start_heights,
+                &module_cursors,
+            );
+
+            assert_eq!(
+                start_height, case.expected_start_height,
+                "case '{}' failed",
+                case.name
+            );
+        }
     }
 }

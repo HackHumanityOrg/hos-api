@@ -290,6 +290,8 @@ pub struct RawModuleConfig {
     pub enabled: bool,
     #[serde(default)]
     pub stream_mode: NearModuleStreamMode,
+    #[serde(default)]
+    pub start_height: Option<u64>,
 }
 
 /// Accounts module configuration
@@ -299,6 +301,8 @@ pub struct AccountsModuleConfig {
     pub enabled: bool,
     #[serde(default)]
     pub stream_mode: NearModuleStreamMode,
+    #[serde(default)]
+    pub start_height: Option<u64>,
 }
 
 /// Tokens module configuration
@@ -308,6 +312,8 @@ pub struct TokensModuleConfig {
     pub enabled: bool,
     #[serde(default)]
     pub stream_mode: NearModuleStreamMode,
+    #[serde(default)]
+    pub start_height: Option<u64>,
     #[serde(default = "default_true")]
     pub track_nep141: bool,
     #[serde(default = "default_true")]
@@ -325,6 +331,8 @@ pub struct StakingPoolsModuleConfig {
     pub enabled: bool,
     #[serde(default)]
     pub stream_mode: NearModuleStreamMode,
+    #[serde(default)]
+    pub start_height: Option<u64>,
     #[serde(default = "default_pool_patterns")]
     pub pool_patterns: Vec<String>,
     #[serde(default)]
@@ -344,6 +352,8 @@ pub struct VenearGovernanceModuleConfig {
     pub enabled: bool,
     #[serde(default)]
     pub stream_mode: NearModuleStreamMode,
+    #[serde(default)]
+    pub start_height: Option<u64>,
     #[serde(default = "default_venear_contract_id")]
     pub venear_contract_id: String,
     #[serde(default = "default_voting_contract_id")]
@@ -403,6 +413,7 @@ impl ToLog for RawModuleConfig {
         json!({
             "enabled": self.enabled,
             "stream_mode": self.stream_mode.as_str(),
+            "start_height": self.start_height,
         })
     }
 }
@@ -412,6 +423,7 @@ impl ToLog for AccountsModuleConfig {
         json!({
             "enabled": self.enabled,
             "stream_mode": self.stream_mode.as_str(),
+            "start_height": self.start_height,
         })
     }
 }
@@ -421,6 +433,7 @@ impl ToLog for TokensModuleConfig {
         json!({
             "enabled": self.enabled,
             "stream_mode": self.stream_mode.as_str(),
+            "start_height": self.start_height,
             "track_nep141": self.track_nep141,
             "track_nep171": self.track_nep171,
             "track_nep245": self.track_nep245,
@@ -438,6 +451,7 @@ impl ToLog for StakingPoolsModuleConfig {
         json!({
             "enabled": self.enabled,
             "stream_mode": self.stream_mode.as_str(),
+            "start_height": self.start_height,
             "pool_patterns": self.pool_patterns,
             "custom_pools": if self.custom_pools.is_empty() {
                 "none".to_string()
@@ -456,6 +470,7 @@ impl ToLog for VenearGovernanceModuleConfig {
         json!({
             "enabled": self.enabled,
             "stream_mode": self.stream_mode.as_str(),
+            "start_height": self.start_height,
             "venear_contract_id": self.venear_contract_id,
             "voting_contract_id": self.voting_contract_id,
             "lockup_account_suffix": self.lockup_account_suffix,
@@ -1011,26 +1026,23 @@ mod tests {
             NearModuleStreamMode::default(),
             NearModuleStreamMode::Shared
         );
-        assert_eq!(
-            RawModuleConfig::default().stream_mode,
-            NearModuleStreamMode::Shared
-        );
-        assert_eq!(
-            AccountsModuleConfig::default().stream_mode,
-            NearModuleStreamMode::Shared
-        );
-        assert_eq!(
-            TokensModuleConfig::default().stream_mode,
-            NearModuleStreamMode::Shared
-        );
-        assert_eq!(
-            StakingPoolsModuleConfig::default().stream_mode,
-            NearModuleStreamMode::Shared
-        );
-        assert_eq!(
-            VenearGovernanceModuleConfig::default().stream_mode,
-            NearModuleStreamMode::Shared
-        );
+        let raw = RawModuleConfig::default();
+        let accounts = AccountsModuleConfig::default();
+        let tokens = TokensModuleConfig::default();
+        let staking_pools = StakingPoolsModuleConfig::default();
+        let venear = VenearGovernanceModuleConfig::default();
+
+        assert_eq!(raw.stream_mode, NearModuleStreamMode::Shared);
+        assert_eq!(accounts.stream_mode, NearModuleStreamMode::Shared);
+        assert_eq!(tokens.stream_mode, NearModuleStreamMode::Shared);
+        assert_eq!(staking_pools.stream_mode, NearModuleStreamMode::Shared);
+        assert_eq!(venear.stream_mode, NearModuleStreamMode::Shared);
+
+        assert_eq!(raw.start_height, None);
+        assert_eq!(accounts.start_height, None);
+        assert_eq!(tokens.start_height, None);
+        assert_eq!(staking_pools.start_height, None);
+        assert_eq!(venear.start_height, None);
     }
 
     #[test]
@@ -1042,5 +1054,16 @@ mod tests {
         .expect("stream mode should deserialize");
 
         assert_eq!(cfg.stream_mode, NearModuleStreamMode::Independent);
+    }
+
+    #[test]
+    fn near_module_start_height_deserializes() {
+        let cfg: VenearGovernanceModuleConfig = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "start_height": 160000000
+        }))
+        .expect("start height should deserialize");
+
+        assert_eq!(cfg.start_height, Some(160000000));
     }
 }
