@@ -39,8 +39,8 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::discourse_categories::Entity",
-        from = "(Column::Instance, Column::Instance, Column::ExternalCategoryId, Column::ExternalCategoryId)",
-        to = "(super::discourse_categories::Column::ExternalId, super::discourse_categories::Column::Instance, super::discourse_categories::Column::ExternalId, super::discourse_categories::Column::Instance)",
+        from = "(Column::Instance, Column::ExternalCategoryId)",
+        to = "(super::discourse_categories::Column::Instance, super::discourse_categories::Column::ExternalId)",
         on_update = "Cascade",
         on_delete = "Restrict"
     )]

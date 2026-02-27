@@ -26,16 +26,16 @@ pub enum Relation {
     DiscourseInstances,
     #[sea_orm(
         belongs_to = "super::discourse_posts::Entity",
-        from = "(Column::Instance, Column::Instance, Column::ExternalPostId, Column::ExternalPostId)",
-        to = "(super::discourse_posts::Column::ExternalId, super::discourse_posts::Column::Instance, super::discourse_posts::Column::ExternalId, super::discourse_posts::Column::Instance)",
+        from = "(Column::Instance, Column::ExternalPostId)",
+        to = "(super::discourse_posts::Column::Instance, super::discourse_posts::Column::ExternalId)",
         on_update = "Cascade",
         on_delete = "Cascade"
     )]
     DiscoursePosts,
     #[sea_orm(
         belongs_to = "super::discourse_users::Entity",
-        from = "(Column::Instance, Column::Instance, Column::ExternalUserId, Column::ExternalUserId)",
-        to = "(super::discourse_users::Column::ExternalId, super::discourse_users::Column::Instance, super::discourse_users::Column::ExternalId, super::discourse_users::Column::Instance)",
+        from = "(Column::Instance, Column::ExternalUserId)",
+        to = "(super::discourse_users::Column::Instance, super::discourse_users::Column::ExternalId)",
         on_update = "Cascade",
         on_delete = "NoAction"
     )]

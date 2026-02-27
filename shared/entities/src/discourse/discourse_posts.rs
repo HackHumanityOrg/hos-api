@@ -65,16 +65,16 @@ pub enum Relation {
     DiscoursePostRevisions,
     #[sea_orm(
         belongs_to = "super::discourse_topics::Entity",
-        from = "(Column::Instance, Column::Instance, Column::ExternalTopicId, Column::ExternalTopicId)",
-        to = "(super::discourse_topics::Column::ExternalId, super::discourse_topics::Column::Instance, super::discourse_topics::Column::ExternalId, super::discourse_topics::Column::Instance)",
+        from = "(Column::Instance, Column::ExternalTopicId)",
+        to = "(super::discourse_topics::Column::Instance, super::discourse_topics::Column::ExternalId)",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
     DiscourseTopics,
     #[sea_orm(
         belongs_to = "super::discourse_users::Entity",
-        from = "(Column::Instance, Column::Instance, Column::ExternalUserId, Column::ExternalUserId)",
-        to = "(super::discourse_users::Column::ExternalId, super::discourse_users::Column::Instance, super::discourse_users::Column::ExternalId, super::discourse_users::Column::Instance)",
+        from = "(Column::Instance, Column::ExternalUserId)",
+        to = "(super::discourse_users::Column::Instance, super::discourse_users::Column::ExternalId)",
         on_update = "NoAction",
         on_delete = "Restrict"
     )]

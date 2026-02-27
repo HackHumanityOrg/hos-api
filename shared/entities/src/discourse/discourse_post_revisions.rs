@@ -42,8 +42,8 @@ pub enum Relation {
     DiscourseInstances,
     #[sea_orm(
         belongs_to = "super::discourse_posts::Entity",
-        from = "(Column::Instance, Column::Instance, Column::ExternalPostId, Column::ExternalPostId)",
-        to = "(super::discourse_posts::Column::ExternalId, super::discourse_posts::Column::Instance, super::discourse_posts::Column::ExternalId, super::discourse_posts::Column::Instance)",
+        from = "(Column::Instance, Column::ExternalPostId)",
+        to = "(super::discourse_posts::Column::Instance, super::discourse_posts::Column::ExternalId)",
         on_update = "Cascade",
         on_delete = "Cascade"
     )]
