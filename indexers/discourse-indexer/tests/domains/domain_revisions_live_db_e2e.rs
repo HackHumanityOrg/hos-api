@@ -35,16 +35,24 @@ async fn fetch_post_revision_parses_fixture_and_extracts_markdown() -> Result<()
         "before markdown should include repo summary"
     );
     assert!(
-        before_raw.contains("<del>Dev </del>notes:"),
-        "before markdown should capture diff-deleted heading"
+        before_raw.contains("Dev notes:"),
+        "before markdown should capture original heading"
+    );
+    assert!(
+        !before_raw.contains("<del>"),
+        "before markdown should not include diff deletion tags"
     );
     assert!(
         after_raw.contains("(when it is released)"),
         "after markdown should include inserted clarification"
     );
     assert!(
-        after_raw.contains("<ins>More </ins>notes:"),
-        "after markdown should capture diff-inserted heading"
+        after_raw.contains("More notes:"),
+        "after markdown should capture updated heading"
+    );
+    assert!(
+        !after_raw.contains("<ins>"),
+        "after markdown should not include diff insertion tags"
     );
     let title_changes = revision
         .title_changes

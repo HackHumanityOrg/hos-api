@@ -1,25 +1,9 @@
 use crate::domain::users::model::{DirectoryItem, User, UserProfile};
 use anyhow::Result;
 use entities::discourse::discourse_users;
-use rand::Rng;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
 use tracing::{debug, instrument};
-
-// Per-instance async lock to serialize writes to `discourse_users` and avoid
-// interleaving UPSERTs from directory, posts, and likes that can cause deadlocks.
-static USER_LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
-
-fn get_user_lock(instance: &str) -> Arc<tokio::sync::Mutex<()>> {
-    let map_mutex = USER_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut map = map_mutex.lock().unwrap();
-    Arc::clone(
-        map.entry(instance.to_string())
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
-    )
-}
 
 #[instrument(skip(db, item), fields(instance = instance, external_user_id = item.user.id))]
 pub async fn upsert_user(
@@ -27,9 +11,6 @@ pub async fn upsert_user(
     instance: &str,
     item: &DirectoryItem,
 ) -> Result<()> {
-    // Serialize per-instance writers to users
-    let lock = get_user_lock(instance);
-    let _guard = lock.lock().await;
     let u = &item.user;
 
     let am = discourse_users::ActiveModel {
@@ -49,52 +30,31 @@ pub async fn upsert_user(
         trust_level: Set(Some(u.trust_level)),
         ..Default::default()
     };
-    // Retry on deadlocks to avoid aborting batch runs under contention
-    let mut attempts = 0u32;
-    loop {
-        attempts += 1;
-        let res = discourse_users::Entity::insert(am.clone())
-            .on_conflict(
-                OrmOnConflict::columns([
-                    discourse_users::Column::Instance,
-                    discourse_users::Column::ExternalId,
-                ])
-                .update_columns([
-                    discourse_users::Column::Username,
-                    discourse_users::Column::Name,
-                    discourse_users::Column::AvatarTemplate,
-                    discourse_users::Column::Title,
-                    discourse_users::Column::LikesReceived,
-                    discourse_users::Column::LikesGiven,
-                    discourse_users::Column::TopicsEntered,
-                    discourse_users::Column::TopicCount,
-                    discourse_users::Column::PostCount,
-                    discourse_users::Column::PostsRead,
-                    discourse_users::Column::DaysVisited,
-                    discourse_users::Column::TrustLevel,
-                ])
-                .to_owned(),
-            )
-            .do_nothing()
-            .exec(db)
-            .await;
-        match res {
-            Ok(_) => break,
-            Err(e) => {
-                let s = e.to_string();
-                let is_deadlock = s.contains("Deadlock found") || s.contains("errno 1213");
-                if is_deadlock && attempts <= 5 {
-                    let jitter_ms: u64 = rand::rng().random_range(0..20);
-                    tokio::time::sleep(std::time::Duration::from_millis(
-                        20 * attempts as u64 + jitter_ms,
-                    ))
-                    .await;
-                    continue;
-                }
-                return Err(e.into());
-            }
-        }
-    }
+    discourse_users::Entity::insert(am)
+        .on_conflict(
+            OrmOnConflict::columns([
+                discourse_users::Column::Instance,
+                discourse_users::Column::ExternalId,
+            ])
+            .update_columns([
+                discourse_users::Column::Username,
+                discourse_users::Column::Name,
+                discourse_users::Column::AvatarTemplate,
+                discourse_users::Column::Title,
+                discourse_users::Column::LikesReceived,
+                discourse_users::Column::LikesGiven,
+                discourse_users::Column::TopicsEntered,
+                discourse_users::Column::TopicCount,
+                discourse_users::Column::PostCount,
+                discourse_users::Column::PostsRead,
+                discourse_users::Column::DaysVisited,
+                discourse_users::Column::TrustLevel,
+            ])
+            .to_owned(),
+        )
+        .do_nothing()
+        .exec(db)
+        .await?;
     debug!("upserted user");
     Ok(())
 }
@@ -108,9 +68,6 @@ pub async fn upsert_user_profile(
     instance: &str,
     profile: &UserProfile,
 ) -> Result<()> {
-    // Serialize per-instance writers to users
-    let lock = get_user_lock(instance);
-    let _guard = lock.lock().await;
     let am = discourse_users::ActiveModel {
         instance: Set(instance.to_string()),
         external_id: Set(profile.id),
@@ -157,10 +114,6 @@ pub async fn upsert_user_profiles_bulk(
     instance: &str,
     profiles: &[UserProfile],
 ) -> Result<()> {
-    // Serialize per-instance writers to users
-    let lock = get_user_lock(instance);
-    let _guard = lock.lock().await;
-    use rand::{rng, Rng};
     if profiles.is_empty() {
         return Ok(());
     }
@@ -169,7 +122,7 @@ pub async fn upsert_user_profiles_bulk(
     uniq.sort_by_key(|p| p.id);
     uniq.dedup_by_key(|p| p.id);
 
-    // Chunk to reduce lock footprint and the probability of deadlocks
+    // Chunk to reduce large batch sizes into manageable operations
     const CHUNK_SIZE: usize = 200;
     for chunk in uniq.chunks(CHUNK_SIZE) {
         let ams: Vec<discourse_users::ActiveModel> = chunk
@@ -192,41 +145,23 @@ pub async fn upsert_user_profiles_bulk(
             })
             .collect();
 
-        // Retry on deadlock with small jittered backoff
-        let mut attempts = 0u32;
-        loop {
-            attempts += 1;
-            let res = discourse_users::Entity::insert_many(ams.clone())
-                .on_conflict(
-                    OrmOnConflict::columns([
-                        discourse_users::Column::Instance,
-                        discourse_users::Column::ExternalId,
-                    ])
-                    .update_columns([
-                        discourse_users::Column::Username,
-                        discourse_users::Column::Name,
-                        discourse_users::Column::AvatarTemplate,
-                        discourse_users::Column::Title,
-                    ])
-                    .to_owned(),
-                )
-                .do_nothing()
-                .exec(db)
-                .await;
-            match res {
-                Ok(_) => break,
-                Err(e) => {
-                    let s = e.to_string();
-                    let is_deadlock = s.contains("Deadlock found") || s.contains("errno 1213");
-                    if is_deadlock && attempts <= 5 {
-                        let sleep_ms: u64 = 20 * attempts as u64 + rng().random_range(0..20);
-                        tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
-                        continue;
-                    }
-                    return Err(e.into());
-                }
-            }
-        }
+        discourse_users::Entity::insert_many(ams)
+            .on_conflict(
+                OrmOnConflict::columns([
+                    discourse_users::Column::Instance,
+                    discourse_users::Column::ExternalId,
+                ])
+                .update_columns([
+                    discourse_users::Column::Username,
+                    discourse_users::Column::Name,
+                    discourse_users::Column::AvatarTemplate,
+                    discourse_users::Column::Title,
+                ])
+                .to_owned(),
+            )
+            .do_nothing()
+            .exec(db)
+            .await?;
     }
     debug!("upserted user profiles batch");
     Ok(())
@@ -239,9 +174,6 @@ pub async fn upsert_users_bulk(
     instance: &str,
     users: &[User],
 ) -> Result<()> {
-    let lock = get_user_lock(instance);
-    let _guard = lock.lock().await;
-
     if users.is_empty() {
         return Ok(());
     }
@@ -272,26 +204,23 @@ pub async fn upsert_users_bulk(
             })
             .collect();
 
-        db_core::with_db_retry(|| async {
-            discourse_users::Entity::insert_many(ams.clone())
-                .on_conflict(
-                    OrmOnConflict::columns([
-                        discourse_users::Column::Instance,
-                        discourse_users::Column::ExternalId,
-                    ])
-                    .update_columns([
-                        discourse_users::Column::Username,
-                        discourse_users::Column::Name,
-                        discourse_users::Column::AvatarTemplate,
-                        discourse_users::Column::Title,
-                    ])
-                    .to_owned(),
-                )
-                .do_nothing()
-                .exec(db)
-                .await
-        })
-        .await?;
+        discourse_users::Entity::insert_many(ams)
+            .on_conflict(
+                OrmOnConflict::columns([
+                    discourse_users::Column::Instance,
+                    discourse_users::Column::ExternalId,
+                ])
+                .update_columns([
+                    discourse_users::Column::Username,
+                    discourse_users::Column::Name,
+                    discourse_users::Column::AvatarTemplate,
+                    discourse_users::Column::Title,
+                ])
+                .to_owned(),
+            )
+            .do_nothing()
+            .exec(db)
+            .await?;
     }
     debug!("upserted simple users batch");
     Ok(())

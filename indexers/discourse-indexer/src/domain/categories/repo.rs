@@ -1,6 +1,5 @@
 use crate::domain::categories::model::Category;
 use anyhow::Result;
-use db_core::with_db_retry;
 use entities::discourse::discourse_categories;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -33,38 +32,35 @@ pub async fn upsert_category(
         read_restricted: Set(c.read_restricted),
         ..Default::default()
     };
-    with_db_retry(|| async {
-        discourse_categories::Entity::insert(am.clone())
-            .on_conflict(
-                OrmOnConflict::columns([
-                    discourse_categories::Column::Instance,
-                    discourse_categories::Column::ExternalId,
-                ])
-                .update_columns([
-                    discourse_categories::Column::Name,
-                    discourse_categories::Column::Color,
-                    discourse_categories::Column::TextColor,
-                    discourse_categories::Column::Slug,
-                    discourse_categories::Column::TopicCount,
-                    discourse_categories::Column::PostCount,
-                    discourse_categories::Column::Description,
-                    discourse_categories::Column::DescriptionText,
-                    discourse_categories::Column::TopicsDay,
-                    discourse_categories::Column::TopicsWeek,
-                    discourse_categories::Column::TopicsMonth,
-                    discourse_categories::Column::TopicsYear,
-                    discourse_categories::Column::TopicsAllTime,
-                    discourse_categories::Column::ParentCategoryId,
-                    discourse_categories::Column::Position,
-                    discourse_categories::Column::ReadRestricted,
-                ])
-                .to_owned(),
-            )
-            .do_nothing()
-            .exec(db)
-            .await
-    })
-    .await?;
+    discourse_categories::Entity::insert(am.clone())
+        .on_conflict(
+            OrmOnConflict::columns([
+                discourse_categories::Column::Instance,
+                discourse_categories::Column::ExternalId,
+            ])
+            .update_columns([
+                discourse_categories::Column::Name,
+                discourse_categories::Column::Color,
+                discourse_categories::Column::TextColor,
+                discourse_categories::Column::Slug,
+                discourse_categories::Column::TopicCount,
+                discourse_categories::Column::PostCount,
+                discourse_categories::Column::Description,
+                discourse_categories::Column::DescriptionText,
+                discourse_categories::Column::TopicsDay,
+                discourse_categories::Column::TopicsWeek,
+                discourse_categories::Column::TopicsMonth,
+                discourse_categories::Column::TopicsYear,
+                discourse_categories::Column::TopicsAllTime,
+                discourse_categories::Column::ParentCategoryId,
+                discourse_categories::Column::Position,
+                discourse_categories::Column::ReadRestricted,
+            ])
+            .to_owned(),
+        )
+        .do_nothing()
+        .exec(db)
+        .await?;
     debug!("upserted category record");
     Ok(())
 }

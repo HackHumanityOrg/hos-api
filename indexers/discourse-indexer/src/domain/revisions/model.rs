@@ -73,6 +73,26 @@ fn extract_raw_markdown_after(content: &str) -> Option<String> {
     Some(after.join("\n\n"))
 }
 
+fn clean_body_markdown(markdown: &str) -> String {
+    let mut cleaned = markdown.replace("\r\n", "\n");
+    for (target, replacement) in [
+        ("<del>", ""),
+        ("</del>", ""),
+        ("<ins>", ""),
+        ("</ins>", ""),
+        ("&amp;", "&"),
+        ("&lt;", "<"),
+        ("&gt;", ">"),
+        ("&quot;", "\""),
+        ("&#x27;", "'"),
+        ("&#39;", "'"),
+        ("&nbsp;", " "),
+    ] {
+        cleaned = cleaned.replace(target, replacement);
+    }
+    cleaned.trim().to_string()
+}
+
 fn extract_title_before_side_by_side(content: &str) -> Option<String> {
     let (before, _) = extract_title_columns(content)?;
     Some(before)
@@ -112,8 +132,10 @@ fn extract_markdown_columns(content: &str) -> Option<(Vec<String>, Vec<String>)>
         let mut cells = row.select(&cell_selector);
         let before_cell = cells.next()?;
         let after_cell = cells.next()?;
-        before.push(before_cell.inner_html().trim().to_string());
-        after.push(after_cell.inner_html().trim().to_string());
+        let before_html = before_cell.inner_html();
+        let after_html = after_cell.inner_html();
+        before.push(clean_body_markdown(&before_html));
+        after.push(clean_body_markdown(&after_html));
     }
 
     if before.is_empty() {

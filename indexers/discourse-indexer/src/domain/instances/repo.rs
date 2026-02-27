@@ -1,5 +1,4 @@
 use anyhow::Result;
-use db_core::with_db_retry;
 use entities::discourse::discourse_instances;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -15,19 +14,16 @@ pub async fn register_instance(
         enabled: Set(true),
         ..Default::default()
     };
-    with_db_retry(|| async {
-        discourse_instances::Entity::insert(am.clone())
-            .on_conflict(
-                OrmOnConflict::column(discourse_instances::Column::Key)
-                    .update_columns([
-                        discourse_instances::Column::BaseUrl,
-                        discourse_instances::Column::Enabled,
-                    ])
-                    .to_owned(),
-            )
-            .exec(db)
-            .await
-    })
-    .await?;
+    discourse_instances::Entity::insert(am.clone())
+        .on_conflict(
+            OrmOnConflict::column(discourse_instances::Column::Key)
+                .update_columns([
+                    discourse_instances::Column::BaseUrl,
+                    discourse_instances::Column::Enabled,
+                ])
+                .to_owned(),
+        )
+        .exec(db)
+        .await?;
     Ok(())
 }

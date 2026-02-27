@@ -97,8 +97,16 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(DiscourseCategories::TopicsYear).integer())
                     .col(ColumnDef::new(DiscourseCategories::TopicsAllTime).integer())
                     .col(ColumnDef::new(DiscourseCategories::ParentCategoryId).integer())
-                    .col(ColumnDef::new(DiscourseCategories::Position).integer().default(0))
-                    .col(ColumnDef::new(DiscourseCategories::ReadRestricted).boolean().default(false))
+                    .col(
+                        ColumnDef::new(DiscourseCategories::Position)
+                            .integer()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(DiscourseCategories::ReadRestricted)
+                            .boolean()
+                            .default(false),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -194,7 +202,11 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(DiscourseUsers::PostCount).big_integer())
                     .col(ColumnDef::new(DiscourseUsers::PostsRead).big_integer())
                     .col(ColumnDef::new(DiscourseUsers::DaysVisited).big_integer())
-                    .col(ColumnDef::new(DiscourseUsers::TrustLevel).integer().default(0))
+                    .col(
+                        ColumnDef::new(DiscourseUsers::TrustLevel)
+                            .integer()
+                            .default(0),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -323,8 +335,16 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(DiscourseTopics::HighestPostNumber).integer().not_null())
-                    .col(ColumnDef::new(DiscourseTopics::Archetype).string_len(50).not_null())
+                    .col(
+                        ColumnDef::new(DiscourseTopics::HighestPostNumber)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DiscourseTopics::Archetype)
+                            .string_len(50)
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(DiscourseTopics::ImageUrl).text())
                     .to_owned(),
             )

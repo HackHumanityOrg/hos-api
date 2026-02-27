@@ -1,6 +1,5 @@
 use crate::domain::topics::model::Topic;
 use anyhow::Result;
-use db_core::with_db_retry;
 use entities::discourse::discourse_topics;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -48,41 +47,38 @@ pub async fn upsert_topics_bulk(
                 ..Default::default()
             })
             .collect();
-        with_db_retry(|| async {
-            discourse_topics::Entity::insert_many(ams.clone())
-                .on_conflict(
-                    OrmOnConflict::columns([
-                        discourse_topics::Column::Instance,
-                        discourse_topics::Column::ExternalId,
-                    ])
-                    .update_columns([
-                        discourse_topics::Column::Title,
-                        discourse_topics::Column::FancyTitle,
-                        discourse_topics::Column::Slug,
-                        discourse_topics::Column::PostsCount,
-                        discourse_topics::Column::ReplyCount,
-                        discourse_topics::Column::CreatedAt,
-                        discourse_topics::Column::LastPostedAt,
-                        discourse_topics::Column::BumpedAt,
-                        discourse_topics::Column::Pinned,
-                        discourse_topics::Column::PinnedGlobally,
-                        discourse_topics::Column::Visible,
-                        discourse_topics::Column::Closed,
-                        discourse_topics::Column::Archived,
-                        discourse_topics::Column::Views,
-                        discourse_topics::Column::LikeCount,
-                        discourse_topics::Column::ExternalCategoryId,
-                        discourse_topics::Column::HighestPostNumber,
-                        discourse_topics::Column::Archetype,
-                        discourse_topics::Column::ImageUrl,
-                    ])
-                    .to_owned(),
-                )
-                .do_nothing()
-                .exec(db)
-                .await
-        })
-        .await?;
+        discourse_topics::Entity::insert_many(ams.clone())
+            .on_conflict(
+                OrmOnConflict::columns([
+                    discourse_topics::Column::Instance,
+                    discourse_topics::Column::ExternalId,
+                ])
+                .update_columns([
+                    discourse_topics::Column::Title,
+                    discourse_topics::Column::FancyTitle,
+                    discourse_topics::Column::Slug,
+                    discourse_topics::Column::PostsCount,
+                    discourse_topics::Column::ReplyCount,
+                    discourse_topics::Column::CreatedAt,
+                    discourse_topics::Column::LastPostedAt,
+                    discourse_topics::Column::BumpedAt,
+                    discourse_topics::Column::Pinned,
+                    discourse_topics::Column::PinnedGlobally,
+                    discourse_topics::Column::Visible,
+                    discourse_topics::Column::Closed,
+                    discourse_topics::Column::Archived,
+                    discourse_topics::Column::Views,
+                    discourse_topics::Column::LikeCount,
+                    discourse_topics::Column::ExternalCategoryId,
+                    discourse_topics::Column::HighestPostNumber,
+                    discourse_topics::Column::Archetype,
+                    discourse_topics::Column::ImageUrl,
+                ])
+                .to_owned(),
+            )
+            .do_nothing()
+            .exec(db)
+            .await?;
     }
     debug!("upserted topics batch");
     Ok(())

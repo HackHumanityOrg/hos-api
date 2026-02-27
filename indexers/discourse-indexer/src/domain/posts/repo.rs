@@ -3,7 +3,6 @@ use crate::domain::users::model::User;
 use crate::domain::users::repo::upsert_users_bulk;
 use anyhow::Result;
 use chrono::Timelike;
-use db_core::with_db_retry;
 use entities::discourse::discourse_posts;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -94,48 +93,45 @@ pub async fn upsert_posts_bulk(
                 ..Default::default()
             })
             .collect();
-        with_db_retry(|| async {
-            discourse_posts::Entity::insert_many(ams.clone())
-                .on_conflict(
-                    OrmOnConflict::columns([
-                        discourse_posts::Column::Instance,
-                        discourse_posts::Column::ExternalId,
-                    ])
-                    .update_columns([
-                        discourse_posts::Column::Name,
-                        discourse_posts::Column::Username,
-                        discourse_posts::Column::CreatedAt,
-                        discourse_posts::Column::Raw,
-                        discourse_posts::Column::PostNumber,
-                        discourse_posts::Column::PostType,
-                        discourse_posts::Column::UpdatedAt,
-                        discourse_posts::Column::ReplyCount,
-                        discourse_posts::Column::ReplyToPostNumber,
-                        discourse_posts::Column::QuoteCount,
-                        discourse_posts::Column::IncomingLinkCount,
-                        discourse_posts::Column::Reads,
-                        discourse_posts::Column::ReadersCount,
-                        discourse_posts::Column::Score,
-                        discourse_posts::Column::ExternalTopicId,
-                        discourse_posts::Column::TopicSlug,
-                        discourse_posts::Column::DisplayUsername,
-                        discourse_posts::Column::PrimaryGroupName,
-                        discourse_posts::Column::FlairName,
-                        discourse_posts::Column::FlairUrl,
-                        discourse_posts::Column::FlairBgColor,
-                        discourse_posts::Column::FlairColor,
-                        discourse_posts::Column::Version,
-                        discourse_posts::Column::ExternalUserId,
-                        discourse_posts::Column::CanViewEditHistory,
-                        discourse_posts::Column::Deleted,
-                    ])
-                    .to_owned(),
-                )
-                .do_nothing()
-                .exec(db)
-                .await
-        })
-        .await?;
+        discourse_posts::Entity::insert_many(ams.clone())
+            .on_conflict(
+                OrmOnConflict::columns([
+                    discourse_posts::Column::Instance,
+                    discourse_posts::Column::ExternalId,
+                ])
+                .update_columns([
+                    discourse_posts::Column::Name,
+                    discourse_posts::Column::Username,
+                    discourse_posts::Column::CreatedAt,
+                    discourse_posts::Column::Raw,
+                    discourse_posts::Column::PostNumber,
+                    discourse_posts::Column::PostType,
+                    discourse_posts::Column::UpdatedAt,
+                    discourse_posts::Column::ReplyCount,
+                    discourse_posts::Column::ReplyToPostNumber,
+                    discourse_posts::Column::QuoteCount,
+                    discourse_posts::Column::IncomingLinkCount,
+                    discourse_posts::Column::Reads,
+                    discourse_posts::Column::ReadersCount,
+                    discourse_posts::Column::Score,
+                    discourse_posts::Column::ExternalTopicId,
+                    discourse_posts::Column::TopicSlug,
+                    discourse_posts::Column::DisplayUsername,
+                    discourse_posts::Column::PrimaryGroupName,
+                    discourse_posts::Column::FlairName,
+                    discourse_posts::Column::FlairUrl,
+                    discourse_posts::Column::FlairBgColor,
+                    discourse_posts::Column::FlairColor,
+                    discourse_posts::Column::Version,
+                    discourse_posts::Column::ExternalUserId,
+                    discourse_posts::Column::CanViewEditHistory,
+                    discourse_posts::Column::Deleted,
+                ])
+                .to_owned(),
+            )
+            .do_nothing()
+            .exec(db)
+            .await?;
     }
     debug!("upserted posts batch");
     Ok(())

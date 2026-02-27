@@ -1,6 +1,5 @@
 use crate::domain::revisions::model::Revision;
 use anyhow::Result;
-use db_core::with_db_retry;
 use entities::discourse::discourse_post_revisions;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -37,29 +36,26 @@ pub async fn upsert_revision(
         raw_title_after: Set(raw_title_after),
         ..Default::default()
     };
-    with_db_retry(|| async {
-        discourse_post_revisions::Entity::insert(am.clone())
-            .on_conflict(
-                OrmOnConflict::columns([
-                    discourse_post_revisions::Column::Instance,
-                    discourse_post_revisions::Column::ExternalPostId,
-                    discourse_post_revisions::Column::Version,
-                ])
-                .update_columns([
-                    discourse_post_revisions::Column::CreatedAt,
-                    discourse_post_revisions::Column::Username,
-                    discourse_post_revisions::Column::EditReason,
-                    discourse_post_revisions::Column::RawBodyBefore,
-                    discourse_post_revisions::Column::RawBodyAfter,
-                    discourse_post_revisions::Column::RawTitleBefore,
-                    discourse_post_revisions::Column::RawTitleAfter,
-                ])
-                .to_owned(),
-            )
-            .exec(db)
-            .await
-    })
-    .await?;
+    discourse_post_revisions::Entity::insert(am.clone())
+        .on_conflict(
+            OrmOnConflict::columns([
+                discourse_post_revisions::Column::Instance,
+                discourse_post_revisions::Column::ExternalPostId,
+                discourse_post_revisions::Column::Version,
+            ])
+            .update_columns([
+                discourse_post_revisions::Column::CreatedAt,
+                discourse_post_revisions::Column::Username,
+                discourse_post_revisions::Column::EditReason,
+                discourse_post_revisions::Column::RawBodyBefore,
+                discourse_post_revisions::Column::RawBodyAfter,
+                discourse_post_revisions::Column::RawTitleBefore,
+                discourse_post_revisions::Column::RawTitleAfter,
+            ])
+            .to_owned(),
+        )
+        .exec(db)
+        .await?;
     debug!("upserted revision");
     Ok(())
 }

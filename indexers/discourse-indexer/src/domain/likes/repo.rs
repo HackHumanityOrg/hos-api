@@ -3,7 +3,6 @@ use crate::domain::users::model::User;
 use crate::domain::users::repo::upsert_users_bulk;
 use anyhow::Result;
 use chrono::{Timelike, Utc};
-use db_core::with_db_retry;
 use entities::discourse::discourse_post_likes;
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
 use sea_orm::{ActiveValue::Set, EntityTrait};
@@ -50,7 +49,7 @@ pub async fn upsert_post_likes_batch(
         .with_nanosecond(0)
         .expect("valid UTC timestamp")
         .naive_utc();
-    // Normalize order to reduce deadlocks and chunk the writes
+    // Normalize order for consistent writes and chunk the operations
     let mut users = likes.to_vec();
     users.sort_by_key(|u| u.id);
     const CHUNK_SIZE: usize = 200;
@@ -65,22 +64,19 @@ pub async fn upsert_post_likes_batch(
                 ..Default::default()
             })
             .collect();
-        with_db_retry(|| async {
-            discourse_post_likes::Entity::insert_many(ams.clone())
-                .on_conflict(
-                    OrmOnConflict::columns([
-                        discourse_post_likes::Column::Instance,
-                        discourse_post_likes::Column::ExternalPostId,
-                        discourse_post_likes::Column::ExternalUserId,
-                    ])
-                    .update_columns([discourse_post_likes::Column::CreatedAt])
-                    .to_owned(),
-                )
-                .do_nothing()
-                .exec(db)
-                .await
-        })
-        .await?;
+        discourse_post_likes::Entity::insert_many(ams.clone())
+            .on_conflict(
+                OrmOnConflict::columns([
+                    discourse_post_likes::Column::Instance,
+                    discourse_post_likes::Column::ExternalPostId,
+                    discourse_post_likes::Column::ExternalUserId,
+                ])
+                .update_columns([discourse_post_likes::Column::CreatedAt])
+                .to_owned(),
+            )
+            .do_nothing()
+            .exec(db)
+            .await?;
     }
     debug!("upserted likes batch");
     Ok(())
