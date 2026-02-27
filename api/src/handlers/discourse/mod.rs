@@ -60,6 +60,9 @@ struct UserPostsCursor {
     external_id: i32,
 }
 
+const CATEGORY_TOPICS_COUNTER_MISMATCH_KEY: &str = "category_topics_counter_mismatch_count";
+const CATEGORY_POSTS_COUNTER_MISMATCH_KEY: &str = "category_posts_counter_mismatch_count";
+
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances",
@@ -979,18 +982,24 @@ pub async fn get_sync_lag(
             None,
         ),
         build_check(
-            "category_topics_counter_mismatch_count",
+            CATEGORY_TOPICS_COUNTER_MISMATCH_KEY,
             "Categories where topic_count differs from actual topic rows",
             0,
             category_topic_counter_mismatches,
-            None,
+            Some(
+                "Category counters represent upstream totals and can stay mismatched while full backfill is incomplete."
+                    .to_string(),
+            ),
         ),
         build_check(
-            "category_posts_counter_mismatch_count",
+            CATEGORY_POSTS_COUNTER_MISMATCH_KEY,
             "Categories where post_count differs from posts grouped via topics",
             0,
             category_post_counter_mismatches,
-            None,
+            Some(
+                "Category counters represent upstream totals and can stay mismatched while full backfill is incomplete."
+                    .to_string(),
+            ),
         ),
         build_check(
             "topic_likes_total",
@@ -1018,21 +1027,12 @@ pub async fn get_sync_lag(
         ),
     ];
 
-    let out_of_sync_checks = checks.iter().filter(|check| check.delta != 0).count() as u32;
-    let max_abs_delta = checks
-        .iter()
-        .map(|check| check.delta.unsigned_abs())
-        .max()
-        .unwrap_or_default() as i64;
+    let summary = summarize_sync_lag_checks(&checks);
 
     Ok(Json(SyncLagResponse {
         instance,
         generated_at: Utc::now().to_rfc3339(),
-        summary: SyncLagSummary {
-            total_checks: checks.len() as u32,
-            out_of_sync_checks,
-            max_abs_delta,
-        },
+        summary,
         checks,
     }))
 }
@@ -1065,6 +1065,41 @@ fn build_check(
         },
         caveat,
     }
+}
+
+fn summarize_sync_lag_checks(checks: &[SyncLagCheck]) -> SyncLagSummary {
+    let (integrity_out_of_sync_checks, coverage_out_of_sync_checks) =
+        checks.iter().filter(|check| check.delta != 0).fold(
+            (0_u32, 0_u32),
+            |(integrity_count, coverage_count), check| {
+                if is_coverage_check_key(&check.key) {
+                    (integrity_count, coverage_count + 1)
+                } else {
+                    (integrity_count + 1, coverage_count)
+                }
+            },
+        );
+
+    let max_abs_delta = checks
+        .iter()
+        .map(|check| check.delta.unsigned_abs())
+        .max()
+        .unwrap_or_default() as i64;
+
+    SyncLagSummary {
+        total_checks: checks.len() as u32,
+        out_of_sync_checks: integrity_out_of_sync_checks + coverage_out_of_sync_checks,
+        integrity_out_of_sync_checks,
+        coverage_out_of_sync_checks,
+        max_abs_delta,
+    }
+}
+
+fn is_coverage_check_key(key: &str) -> bool {
+    matches!(
+        key,
+        CATEGORY_TOPICS_COUNTER_MISMATCH_KEY | CATEGORY_POSTS_COUNTER_MISMATCH_KEY
+    )
 }
 
 fn to_instance_dto(row: discourse_instances::Model) -> DiscourseInstanceDto {
@@ -1405,5 +1440,34 @@ mod tests {
         assert_eq!(resolve_limit(Some(0)), 1);
         assert_eq!(resolve_limit(Some(10)), 10);
         assert_eq!(resolve_limit(Some(10_000)), 100);
+    }
+
+    #[test]
+    fn sync_lag_summary_splits_integrity_and_coverage_checks() {
+        let checks = vec![
+            build_check(CATEGORY_TOPICS_COUNTER_MISMATCH_KEY, "", 0, 12, None),
+            build_check(CATEGORY_POSTS_COUNTER_MISMATCH_KEY, "", 0, 0, None),
+            build_check("topic_likes_total", "", 100, 98, None),
+            build_check("orphan_post_user_refs", "", 0, 0, None),
+        ];
+
+        let summary = summarize_sync_lag_checks(&checks);
+
+        assert_eq!(summary.total_checks, 4);
+        assert_eq!(summary.out_of_sync_checks, 2);
+        assert_eq!(summary.integrity_out_of_sync_checks, 1);
+        assert_eq!(summary.coverage_out_of_sync_checks, 1);
+        assert_eq!(summary.max_abs_delta, 12);
+    }
+
+    #[test]
+    fn sync_lag_summary_treats_unknown_keys_as_integrity_checks() {
+        let checks = vec![build_check("custom_check", "", 0, 3, None)];
+
+        let summary = summarize_sync_lag_checks(&checks);
+
+        assert_eq!(summary.out_of_sync_checks, 1);
+        assert_eq!(summary.integrity_out_of_sync_checks, 1);
+        assert_eq!(summary.coverage_out_of_sync_checks, 0);
     }
 }

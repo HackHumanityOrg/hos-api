@@ -219,6 +219,8 @@ pub struct DiscoursePostRevisionDto {
 pub struct SyncLagSummary {
     pub total_checks: u32,
     pub out_of_sync_checks: u32,
+    pub integrity_out_of_sync_checks: u32,
+    pub coverage_out_of_sync_checks: u32,
     pub max_abs_delta: i64,
 }
 
