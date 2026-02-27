@@ -1,27 +1,12 @@
 # syntax=docker/dockerfile:1.9
-# Ultra-optimized multi-platform Dockerfile for API server following 2025 best practices
-# Supports x64 and ARM on both Linux and macOS via Docker Desktop
 
-# Base stage with cargo-chef, sccache, and optimal cross-platform setup
-FROM rust:1.88-bookworm AS base
+FROM lukemathwalker/cargo-chef:0.1.72-rust-1.88-bookworm@sha256:d184d41fd934afd282bf8f04b602aaa952af88341c48b8738b0c0a85ac7a6cec AS base
 
-# Install cargo-chef and sccache for build optimization
-RUN cargo install --locked cargo-chef sccache
-
-# Performance optimizations for 2025 + cross-platform support
-ENV RUSTC_WRAPPER=sccache
-ENV SCCACHE_DIR=/sccache
 ENV CARGO_TERM_COLOR=always
-
-# Cross-platform OpenSSL configuration - use vendored OpenSSL for full static linking
 ENV OPENSSL_STATIC=1
 ENV OPENSSL_VENDORED=1
-
-# Use lld linker for faster builds and lower memory usage.
-# Avoid target-cpu=native to keep images portable across hosts/architectures.
 ENV RUSTFLAGS="-C link-arg=-fuse-ld=lld"
 
-# Install build dependencies for cross-platform support
 RUN apt-get update && apt-get install -y \
     lld \
     clang \
@@ -29,57 +14,37 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     ca-certificates \
     build-essential \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+  && rm -rf /var/lib/apt/lists/* \
+  && apt-get clean
 
-# Planner stage - generates dependency recipe for optimal layer caching
 FROM base AS planner
 WORKDIR /app
-
-# Copy workspace files for recipe generation
 COPY Cargo.toml Cargo.lock ./
 COPY shared/ shared/
 COPY migration/ migration/
 COPY api/ api/
 COPY indexers/ indexers/
+RUN cargo chef prepare --recipe-path recipe.json --bin api
 
-# Generate recipe.json for dependency caching
-RUN cargo chef prepare --recipe-path recipe.json
-
-# Builder stage - builds dependencies and application with 2025 optimizations
 FROM base AS builder
 WORKDIR /app
-
-# Copy recipe and build dependencies with extensive caching
 COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json --bin api
 
-# Build dependencies with Railway optimization
-# Using vendored OpenSSL ensures cross-platform compatibility
-RUN cargo chef cook --release --recipe-path recipe.json
-
-# Copy source code (this layer will be rebuilt when source changes)
 COPY Cargo.toml Cargo.lock ./
 COPY shared/ shared/
 COPY migration/ migration/
 COPY api/ api/
 COPY indexers/ indexers/
-
-# Build application with size and performance optimizations for Railway
-RUN cargo build --release -p api && \
+RUN cargo build --release --bin api && \
     cp target/release/api /tmp/api
 
-# Runtime stage - distroless for maximum security and minimal size
-# Works on both x64 and ARM, Linux and macOS Docker Desktop
 FROM gcr.io/distroless/cc-debian12 AS runtime
-
-# Copy optimized statically-linked binary and configuration
 COPY --from=builder /tmp/api /api-bin
 COPY api/config.toml /api/config.toml
 
-# Expose port
 EXPOSE 3000
 
-# Add metadata labels for better maintainability
 LABEL maintainer="data-commons-team" \
     version="1.0" \
     description="Data Commons API Server - 2025 Cross-Platform Optimized" \
@@ -88,5 +53,4 @@ LABEL maintainer="data-commons-team" \
     platforms="linux/amd64,linux/arm64" \
     openssl="vendored-static"
 
-# Run the API server (distroless runs as non-root by default)
 ENTRYPOINT ["/api-bin"]

@@ -37,6 +37,9 @@ docs/
 # Testing
 .coverage
 coverage/
+api/tests/
+indexers/discourse-indexer/tests/
+indexers/near-indexer/tests/
 
 # Logs
 *.log

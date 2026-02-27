@@ -6,7 +6,8 @@ watchPatterns = [
   "shared/**",
   "migration/**",
   "Cargo.toml",
-  "Cargo.lock"
+  "Cargo.lock",
+  ".dockerignore"
 ]
 
 [deploy]
