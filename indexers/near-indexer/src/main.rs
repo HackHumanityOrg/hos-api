@@ -94,17 +94,17 @@ async fn run(config: AppConfig) -> Result<()> {
             _ => ("mainnet".to_string(), 0, 6, 1),
         };
 
-    // Find the minimum cursor across all modules to determine stream start point
-    let mut stream_start_height = configured_start_height;
+    // Find stream start point from per-module starts:
+    // - modules with cursor resume from cursor + 1
+    // - modules without cursor start from configured_start_height
+    let mut stream_start_height: Option<u64> = None;
     let mut any_module_has_cursor = false;
 
     for module in registry.enabled_modules() {
         let cursor = near_indexer::core::cursor::get_module_cursor(&db, module.name()).await?;
 
-        if let Some(height) = cursor {
+        let module_start_height = if let Some(height) = cursor {
             let next_height = (height as u64).saturating_add(1);
-            // Stream needs to start from the earliest position any module needs
-            stream_start_height = stream_start_height.min(next_height);
             any_module_has_cursor = true;
 
             info!(
@@ -113,14 +113,34 @@ async fn run(config: AppConfig) -> Result<()> {
                 next_height,
                 "Module cursor found"
             );
+
+            next_height
         } else {
+            if configured_start_height > 0 {
+                // Seed in-memory cursor so out-of-order block completion still advances
+                // contiguous cursors correctly from the configured start.
+                let seed_height =
+                    i64::try_from(configured_start_height.saturating_sub(1)).unwrap_or(i64::MAX);
+                near_indexer::core::cursor::seed_module_cursor(module.name(), seed_height);
+            }
+
             // Module has no cursor, needs to start from configured start height
             info!(
                 module = module.name(),
-                "No cursor found, will start from configured height"
+                configured_start_height, "No cursor found, will start from configured height"
             );
-        }
+
+            configured_start_height
+        };
+
+        stream_start_height = Some(
+            stream_start_height
+                .map(|current| current.min(module_start_height))
+                .unwrap_or(module_start_height),
+        );
     }
+
+    let stream_start_height = stream_start_height.unwrap_or(configured_start_height);
 
     // Configure NEAR Lake stream
     let lake_config = near_indexer::core::lake_stream::LakeStreamConfig {
@@ -163,5 +183,44 @@ async fn run(config: AppConfig) -> Result<()> {
             error!(error = %e, "NEAR indexer processing failed");
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    fn resolve_stream_start_height_for_test(
+        configured_start_height: u64,
+        module_cursors: &[Option<i64>],
+    ) -> u64 {
+        let mut stream_start_height: Option<u64> = None;
+
+        for cursor in module_cursors {
+            let module_start_height = if let Some(height) = cursor {
+                let non_negative = (*height).max(0) as u64;
+                non_negative.saturating_add(1)
+            } else {
+                configured_start_height
+            };
+
+            stream_start_height = Some(
+                stream_start_height
+                    .map(|current| current.min(module_start_height))
+                    .unwrap_or(module_start_height),
+            );
+        }
+
+        stream_start_height.unwrap_or(configured_start_height)
+    }
+
+    #[test]
+    fn stream_start_uses_min_cursor_plus_one_when_all_modules_resuming() {
+        let start = resolve_stream_start_height_for_test(0, &[Some(120), Some(95), Some(300)]);
+        assert_eq!(start, 96);
+    }
+
+    #[test]
+    fn stream_start_uses_config_for_modules_without_cursor() {
+        let start = resolve_stream_start_height_for_test(500, &[Some(900), None, Some(800)]);
+        assert_eq!(start, 500);
     }
 }

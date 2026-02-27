@@ -2,7 +2,7 @@ use anyhow::Result;
 use sea_orm::prelude::Expr;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{ActiveValue::NotSet, ConnectionTrait, DatabaseConnection, EntityTrait, Set};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use tracing::{debug, info};
@@ -13,6 +13,10 @@ static CURSORS: OnceLock<RwLock<HashMap<String, i64>>> = OnceLock::new();
 /// Global rate limiter for DB writes
 static LAST_WRITES: OnceLock<RwLock<HashMap<String, Instant>>> = OnceLock::new();
 
+/// Heights processed ahead of the contiguous cursor per module.
+/// We only advance persisted cursor when all intermediate heights are complete.
+static PENDING_HEIGHTS: OnceLock<RwLock<HashMap<String, BTreeSet<i64>>>> = OnceLock::new();
+
 fn get_cursors() -> &'static RwLock<HashMap<String, i64>> {
     CURSORS.get_or_init(|| RwLock::new(HashMap::new()))
 }
@@ -21,9 +25,60 @@ fn get_last_writes() -> &'static RwLock<HashMap<String, Instant>> {
     LAST_WRITES.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
+fn get_pending_heights() -> &'static RwLock<HashMap<String, BTreeSet<i64>>> {
+    PENDING_HEIGHTS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn advance_contiguous_cursor(
+    cursor_map: &mut HashMap<String, i64>,
+    pending_map: &mut HashMap<String, BTreeSet<i64>>,
+    module_name: &str,
+    height: i64,
+) -> Option<i64> {
+    let current = cursor_map.get(module_name).copied().unwrap_or(-1);
+
+    if height <= current {
+        return None;
+    }
+
+    let pending = pending_map.entry(module_name.to_string()).or_default();
+    pending.insert(height);
+
+    let mut next = current.saturating_add(1);
+    while pending.remove(&next) {
+        next = next.saturating_add(1);
+    }
+
+    let new_current = next.saturating_sub(1);
+    if new_current > current {
+        cursor_map.insert(module_name.to_string(), new_current);
+        Some(new_current)
+    } else {
+        None
+    }
+}
+
+/// Seed an in-memory cursor for modules without persisted cursor.
+/// This is used to support configured non-zero start heights while preserving
+/// contiguous cursor advancement under out-of-order processing.
+pub fn seed_module_cursor(module_name: &str, height: i64) {
+    let cursors = get_cursors();
+    let mut cursor_map = cursors.write().unwrap();
+    cursor_map.entry(module_name.to_string()).or_insert(height);
+
+    debug!(
+        module = module_name,
+        height = height,
+        "Seeded in-memory cursor"
+    );
+}
+
 /// Initialize cursors from database
 pub async fn initialize_cursor_storage(db: &DatabaseConnection) -> Result<()> {
     info!("Initializing cursor storage from database");
+
+    // Reset pending non-contiguous state for fresh startup.
+    get_pending_heights().write().unwrap().clear();
 
     // Load all cursors from database
     let all_cursors = entities::near::near_sync_cursors::Entity::find()
@@ -96,28 +151,30 @@ where
 {
     let cursors = get_cursors();
     let last_writes = get_last_writes();
+    let pending_heights = get_pending_heights();
 
-    // Update in memory
-    let memory_updated = {
+    // Advance in-memory cursor only when contiguous heights are complete.
+    let committed_height = {
         let mut cursor_map = cursors.write().unwrap();
-        if cursor_map
-            .get(module_name)
-            .is_none_or(|&current| height > current)
-        {
-            cursor_map.insert(module_name.to_string(), height);
-            true
-        } else {
-            false
-        }
+        let mut pending_map = pending_heights.write().unwrap();
+        advance_contiguous_cursor(&mut cursor_map, &mut pending_map, module_name, height)
     };
 
-    if memory_updated {
+    let Some(committed_height) = committed_height else {
         debug!(
             module = module_name,
-            height = height,
-            "Updated cursor in memory cache"
+            processed_height = height,
+            "Processed height did not advance contiguous cursor"
         );
-    }
+        return Ok(());
+    };
+
+    debug!(
+        module = module_name,
+        processed_height = height,
+        committed_height = committed_height,
+        "Advanced contiguous cursor in memory cache"
+    );
 
     // Check if we should write to DB (rate limited)
     let now = Instant::now();
@@ -131,7 +188,7 @@ where
     if !should_write {
         debug!(
             module = module_name,
-            height = height,
+            height = committed_height,
             "Skipping database write due to rate limiting"
         );
         return Ok(());
@@ -148,7 +205,7 @@ where
     entities::near::near_sync_cursors::Entity::insert(
         entities::near::near_sync_cursors::ActiveModel {
             module_name: Set(stream_name),
-            last_processed_height: Set(height),
+            last_processed_height: Set(committed_height),
             updated_at: NotSet,
         },
     )
@@ -161,7 +218,7 @@ where
             .values([
                 (
                     entities::near::near_sync_cursors::Column::LastProcessedHeight,
-                    Expr::value(height),
+                    Expr::value(committed_height),
                 ),
                 (
                     entities::near::near_sync_cursors::Column::UpdatedAt,
@@ -175,7 +232,7 @@ where
 
     debug!(
         module = module_name,
-        height = height,
+        height = committed_height,
         "Successfully wrote cursor to database"
     );
 
@@ -201,9 +258,61 @@ pub fn reset_cursor_storage() {
         0
     };
 
+    let pending_count = if let Some(pending) = PENDING_HEIGHTS.get() {
+        let count = pending.read().unwrap().len();
+        pending.write().unwrap().clear();
+        count
+    } else {
+        0
+    };
+
     info!(
         cursor_count = cursor_count,
         write_count = write_count,
+        pending_count = pending_count,
         "Cursor storage reset completed"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn advance_contiguous_cursor_waits_for_gaps() {
+        let mut cursors = HashMap::new();
+        let mut pending = HashMap::new();
+        cursors.insert("tokens".to_string(), 99);
+
+        // Processed ahead of gap: should not advance yet
+        assert_eq!(
+            advance_contiguous_cursor(&mut cursors, &mut pending, "tokens", 101),
+            None
+        );
+        assert_eq!(cursors.get("tokens"), Some(&99));
+
+        // Gap filled: should jump to contiguous max (101)
+        assert_eq!(
+            advance_contiguous_cursor(&mut cursors, &mut pending, "tokens", 100),
+            Some(101)
+        );
+        assert_eq!(cursors.get("tokens"), Some(&101));
+    }
+
+    #[test]
+    fn advance_contiguous_cursor_supports_seeded_starts() {
+        let mut cursors = HashMap::new();
+        let mut pending = HashMap::new();
+        cursors.insert("staking_pools".to_string(), 499);
+
+        assert_eq!(
+            advance_contiguous_cursor(&mut cursors, &mut pending, "staking_pools", 501),
+            None
+        );
+        assert_eq!(
+            advance_contiguous_cursor(&mut cursors, &mut pending, "staking_pools", 500),
+            Some(501)
+        );
+        assert_eq!(cursors.get("staking_pools"), Some(&501));
+    }
 }

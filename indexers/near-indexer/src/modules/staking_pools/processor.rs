@@ -294,6 +294,8 @@ impl StakingPoolsModule {
     async fn process_staking_actions(
         &self,
         shard: &IndexerShard,
+        block_height: u64,
+        block_timestamp: i64,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         let mut new_pools = Vec::new();
@@ -310,8 +312,8 @@ impl StakingPoolsModule {
                     receiver_id: tx.receiver_id.clone(),
                     transaction_hash: tx.hash.to_string(),
                     receipt_id: outcome.id.to_string(),
-                    block_height: shard.chunk.as_ref().unwrap().header.height_included,
-                    timestamp: shard.chunk.as_ref().unwrap().header.height_created as i64,
+                    block_height,
+                    timestamp: block_timestamp,
                 };
 
                 // Check if receiver is a known pool
@@ -346,8 +348,8 @@ impl StakingPoolsModule {
                 receiver_id: receipt.receiver_id.clone(),
                 transaction_hash: "".to_string(), // Receipts don't have tx hash directly
                 receipt_id: receipt.receipt_id.to_string(),
-                block_height: shard.chunk.as_ref().unwrap().header.height_included,
-                timestamp: shard.chunk.as_ref().unwrap().header.height_created as i64,
+                block_height,
+                timestamp: block_timestamp,
             };
 
             // Only process Action receipts
@@ -448,7 +450,7 @@ impl StakingPoolsModule {
                 pool_id.as_ref(),
                 pool_type,
                 detection_method,
-                shard.chunk.as_ref().unwrap().header.height_included as i64,
+                block_height as i64,
                 db,
             )
             .await?;
@@ -775,6 +777,7 @@ impl IndexerModule for StakingPoolsModule {
         }
 
         let block_height = streamer_message.block.header.height;
+        let block_timestamp = streamer_message.block.header.timestamp as i64;
         let start_time = Instant::now();
         debug!(
             height = block_height,
@@ -806,7 +809,7 @@ impl IndexerModule for StakingPoolsModule {
 
         // Process each shard
         for shard in &streamer_message.shards {
-            self.process_staking_actions(shard, &txn)
+            self.process_staking_actions(shard, block_height, block_timestamp, &txn)
                 .await
                 .with_context(|| {
                     format!(

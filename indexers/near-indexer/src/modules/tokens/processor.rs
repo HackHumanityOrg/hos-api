@@ -12,6 +12,7 @@ use tracing::{debug, info, instrument};
 /// Struct to group raw event log parameters
 struct RawEventLogData {
     log_text: String,
+    receipt_id: String,
     execution_outcome_id: String,
     predecessor_id: String,
     contract_id: String,
@@ -119,11 +120,13 @@ impl TokensModule {
             for tx_with_outcome in &chunk.transactions {
                 let outcome = &tx_with_outcome.outcome.execution_outcome;
                 let transaction = &tx_with_outcome.transaction;
+                let execution_outcome_id = outcome.id.to_string();
 
                 self.process_logs(
                     &outcome.outcome.logs,
                     transaction.receiver_id.as_ref(),
-                    &outcome.id.to_string(),
+                    &execution_outcome_id,
+                    &execution_outcome_id,
                     transaction.signer_id.as_ref(),
                     shard.shard_id.into(),
                     block_height,
@@ -138,11 +141,14 @@ impl TokensModule {
         for outcome_with_receipt in &shard.receipt_execution_outcomes {
             let outcome = &outcome_with_receipt.execution_outcome;
             let receipt = &outcome_with_receipt.receipt;
+            let execution_outcome_id = outcome.id.to_string();
+            let receipt_id = receipt.receipt_id.to_string();
 
             self.process_logs(
                 &outcome.outcome.logs,
                 receipt.receiver_id.as_ref(),
-                &outcome.id.to_string(),
+                &execution_outcome_id,
+                &receipt_id,
                 receipt.predecessor_id.as_ref(),
                 shard.shard_id.into(),
                 block_height,
@@ -161,6 +167,7 @@ impl TokensModule {
         logs: &[String],
         contract_id: &str,
         execution_outcome_id: &str,
+        receipt_id: &str,
         predecessor_id: &str,
         shard_id: u64,
         block_height: i64,
@@ -201,6 +208,7 @@ impl TokensModule {
                 .store_raw_event_log(
                     RawEventLogData {
                         log_text: logs.get(log_index).unwrap().clone(),
+                        receipt_id: receipt_id.to_string(),
                         execution_outcome_id: execution_outcome_id.to_string(),
                         predecessor_id: predecessor_id.to_string(),
                         contract_id: contract_id.to_string(),
@@ -265,7 +273,7 @@ impl TokensModule {
             block_height: Set(log_data.block_height),
             block_timestamp: Set(log_data.block_timestamp),
             shard_id: Set(log_data.shard_id),
-            receipt_id: Set("".to_string()), // We don't have receipt_id from this context
+            receipt_id: Set(log_data.receipt_id),
             execution_outcome_id: Set(log_data.execution_outcome_id),
             predecessor_account_id: Set(log_data.predecessor_id),
             contract_id: Set(log_data.contract_id),
@@ -296,7 +304,7 @@ impl TokensModule {
             block_timestamp: Set(block_timestamp),
             contract_id: Set(contract_id.to_string()),
             standard: Set(parsed_event.standard.as_str().to_string()),
-            version: Set("1.0.0".to_string()), // Default version
+            version: Set(parsed_event.version.clone()),
             event_type: Set(parsed_event.event_type.as_str().to_string()),
             event_data: Set(parsed_event.data.clone()),
             affected_accounts: Set(affected_accounts),
@@ -365,101 +373,106 @@ impl TokensModule {
         block_timestamp: i64,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
-        let data = &parsed_event.data;
+        let data_array = parsed_event
+            .data
+            .as_array()
+            .context("Token event data should be an array")?;
 
-        let from_account = data.get("old_owner_id").and_then(|v| v.as_str());
-        let to_account = data.get("new_owner_id").and_then(|v| v.as_str());
-        let memo = data.get("memo").and_then(|v| v.as_str());
+        for data in data_array {
+            let from_account = data.get("old_owner_id").and_then(|v| v.as_str());
+            let to_account = data.get("new_owner_id").and_then(|v| v.as_str());
+            let memo = data.get("memo").and_then(|v| v.as_str());
 
-        match parsed_event.standard {
-            types::TokenStandard::Nep141 => {
-                let amount = data.get("amount").and_then(|v| v.as_str()).unwrap_or("0");
+            match parsed_event.standard {
+                types::TokenStandard::Nep141 => {
+                    let amount = data.get("amount").and_then(|v| v.as_str()).unwrap_or("0");
 
-                let transfer = near_token_transfers::ActiveModel {
-                    id: sea_orm::NotSet,
-                    event_id: Set(event_id),
-                    block_height: Set(block_height),
-                    block_timestamp: Set(block_timestamp),
-                    contract_id: Set(contract_id.to_string()),
-                    standard: Set(parsed_event.standard.as_str().to_string()),
-                    token_type_id: Set(None),
-                    token_id: Set(None),
-                    from_account: Set(from_account.map(|s| s.to_string())),
-                    to_account: Set(to_account.map(|s| s.to_string())),
-                    amount: Set(amount.to_string()),
-                    memo: Set(memo.map(|s| s.to_string())),
-                };
+                    let transfer = near_token_transfers::ActiveModel {
+                        id: sea_orm::NotSet,
+                        event_id: Set(event_id),
+                        block_height: Set(block_height),
+                        block_timestamp: Set(block_timestamp),
+                        contract_id: Set(contract_id.to_string()),
+                        standard: Set(parsed_event.standard.as_str().to_string()),
+                        token_type_id: Set(None),
+                        token_id: Set(None),
+                        from_account: Set(from_account.map(|s| s.to_string())),
+                        to_account: Set(to_account.map(|s| s.to_string())),
+                        amount: Set(amount.to_string()),
+                        memo: Set(memo.map(|s| s.to_string())),
+                    };
 
-                transfer.insert(db).await?;
-            }
-            types::TokenStandard::Nep171 => {
-                let empty_vec = vec![];
-                let token_ids = data
-                    .get("token_ids")
-                    .and_then(|v| v.as_array())
-                    .unwrap_or(&empty_vec);
+                    transfer.insert(db).await?;
+                }
+                types::TokenStandard::Nep171 => {
+                    let empty_vec = vec![];
+                    let token_ids = data
+                        .get("token_ids")
+                        .and_then(|v| v.as_array())
+                        .unwrap_or(&empty_vec);
 
-                for token_id_value in token_ids {
-                    if let Some(token_id) = token_id_value.as_str() {
-                        let transfer = near_token_transfers::ActiveModel {
-                            id: sea_orm::NotSet,
-                            event_id: Set(event_id),
-                            block_height: Set(block_height),
-                            block_timestamp: Set(block_timestamp),
-                            contract_id: Set(contract_id.to_string()),
-                            standard: Set(parsed_event.standard.as_str().to_string()),
-                            token_type_id: Set(None),
-                            token_id: Set(Some(token_id.to_string())),
-                            from_account: Set(from_account.map(|s| s.to_string())),
-                            to_account: Set(to_account.map(|s| s.to_string())),
-                            amount: Set("1".to_string()),
-                            memo: Set(memo.map(|s| s.to_string())),
-                        };
+                    for token_id_value in token_ids {
+                        if let Some(token_id) = token_id_value.as_str() {
+                            let transfer = near_token_transfers::ActiveModel {
+                                id: sea_orm::NotSet,
+                                event_id: Set(event_id),
+                                block_height: Set(block_height),
+                                block_timestamp: Set(block_timestamp),
+                                contract_id: Set(contract_id.to_string()),
+                                standard: Set(parsed_event.standard.as_str().to_string()),
+                                token_type_id: Set(None),
+                                token_id: Set(Some(token_id.to_string())),
+                                from_account: Set(from_account.map(|s| s.to_string())),
+                                to_account: Set(to_account.map(|s| s.to_string())),
+                                amount: Set("1".to_string()),
+                                memo: Set(memo.map(|s| s.to_string())),
+                            };
 
-                        transfer.insert(db).await?;
+                            transfer.insert(db).await?;
+                        }
                     }
                 }
-            }
-            types::TokenStandard::Nep245 => {
-                let empty_token_vec = vec![];
-                let empty_amount_vec = vec![];
-                let token_ids = data
-                    .get("token_ids")
-                    .and_then(|v| v.as_array())
-                    .unwrap_or(&empty_token_vec);
-                let amounts = data
-                    .get("amounts")
-                    .and_then(|v| v.as_array())
-                    .unwrap_or(&empty_amount_vec);
+                types::TokenStandard::Nep245 => {
+                    let empty_token_vec = vec![];
+                    let empty_amount_vec = vec![];
+                    let token_ids = data
+                        .get("token_ids")
+                        .and_then(|v| v.as_array())
+                        .unwrap_or(&empty_token_vec);
+                    let amounts = data
+                        .get("amounts")
+                        .and_then(|v| v.as_array())
+                        .unwrap_or(&empty_amount_vec);
 
-                for (token_id_value, amount_value) in token_ids.iter().zip(amounts.iter()) {
-                    if let (Some(token_id), Some(amount)) =
-                        (token_id_value.as_str(), amount_value.as_str())
-                    {
-                        // Parse token_type_id from token_id if it contains ":"
-                        let (token_type_id, final_token_id) = if token_id.contains(':') {
-                            let parts: Vec<&str> = token_id.splitn(2, ':').collect();
-                            (Some(parts[0].to_string()), Some(parts[1].to_string()))
-                        } else {
-                            (None, Some(token_id.to_string()))
-                        };
+                    for (token_id_value, amount_value) in token_ids.iter().zip(amounts.iter()) {
+                        if let (Some(token_id), Some(amount)) =
+                            (token_id_value.as_str(), amount_value.as_str())
+                        {
+                            // Parse token_type_id from token_id if it contains ":"
+                            let (token_type_id, final_token_id) = if token_id.contains(':') {
+                                let parts: Vec<&str> = token_id.splitn(2, ':').collect();
+                                (Some(parts[0].to_string()), Some(parts[1].to_string()))
+                            } else {
+                                (None, Some(token_id.to_string()))
+                            };
 
-                        let transfer = near_token_transfers::ActiveModel {
-                            id: sea_orm::NotSet,
-                            event_id: Set(event_id),
-                            block_height: Set(block_height),
-                            block_timestamp: Set(block_timestamp),
-                            contract_id: Set(contract_id.to_string()),
-                            standard: Set(parsed_event.standard.as_str().to_string()),
-                            token_type_id: Set(token_type_id),
-                            token_id: Set(final_token_id),
-                            from_account: Set(from_account.map(|s| s.to_string())),
-                            to_account: Set(to_account.map(|s| s.to_string())),
-                            amount: Set(amount.to_string()),
-                            memo: Set(memo.map(|s| s.to_string())),
-                        };
+                            let transfer = near_token_transfers::ActiveModel {
+                                id: sea_orm::NotSet,
+                                event_id: Set(event_id),
+                                block_height: Set(block_height),
+                                block_timestamp: Set(block_timestamp),
+                                contract_id: Set(contract_id.to_string()),
+                                standard: Set(parsed_event.standard.as_str().to_string()),
+                                token_type_id: Set(token_type_id),
+                                token_id: Set(final_token_id),
+                                from_account: Set(from_account.map(|s| s.to_string())),
+                                to_account: Set(to_account.map(|s| s.to_string())),
+                                amount: Set(amount.to_string()),
+                                memo: Set(memo.map(|s| s.to_string())),
+                            };
 
-                        transfer.insert(db).await?;
+                            transfer.insert(db).await?;
+                        }
                     }
                 }
             }

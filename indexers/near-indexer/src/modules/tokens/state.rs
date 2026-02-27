@@ -36,42 +36,44 @@ impl TokenStateManager {
         block_height: i64,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
-        let (from_account, to_account, transfers) = Self::extract_transfer_data(event)?;
+        let transfer_batches = Self::extract_transfer_data(event)?;
 
-        // Process each transfer individually (for NEP-245 parallel arrays)
-        for transfer in transfers {
-            // Update sender balance (decrease)
-            if let Some(ref from) = from_account {
-                Self::update_balance(
-                    contract_id,
-                    transfer.token_type_id.as_deref(),
-                    transfer.token_id.as_deref(),
-                    from,
-                    &transfer.amount,
-                    false, // decrease
-                    &event.standard,
-                    block_height,
-                    transfer.metadata.as_ref(),
-                    db,
-                )
-                .await?;
-            }
+        // Process each transfer batch and each transfer inside it
+        for batch in transfer_batches {
+            for transfer in batch.transfers {
+                // Update sender balance (decrease)
+                if let Some(ref from) = batch.from_account {
+                    Self::update_balance(
+                        contract_id,
+                        transfer.token_type_id.as_deref(),
+                        transfer.token_id.as_deref(),
+                        from,
+                        &transfer.amount,
+                        false, // decrease
+                        &event.standard,
+                        block_height,
+                        transfer.metadata.as_ref(),
+                        db,
+                    )
+                    .await?;
+                }
 
-            // Update receiver balance (increase)
-            if let Some(ref to) = to_account {
-                Self::update_balance(
-                    contract_id,
-                    transfer.token_type_id.as_deref(),
-                    transfer.token_id.as_deref(),
-                    to,
-                    &transfer.amount,
-                    true, // increase
-                    &event.standard,
-                    block_height,
-                    transfer.metadata.as_ref(),
-                    db,
-                )
-                .await?;
+                // Update receiver balance (increase)
+                if let Some(ref to) = batch.to_account {
+                    Self::update_balance(
+                        contract_id,
+                        transfer.token_type_id.as_deref(),
+                        transfer.token_id.as_deref(),
+                        to,
+                        &transfer.amount,
+                        true, // increase
+                        &event.standard,
+                        block_height,
+                        transfer.metadata.as_ref(),
+                        db,
+                    )
+                    .await?;
+                }
             }
         }
 
@@ -84,23 +86,25 @@ impl TokenStateManager {
         block_height: i64,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
-        let (owner_id, mints) = Self::extract_mint_data(event)?;
+        let mint_batches = Self::extract_mint_data(event)?;
 
-        // Process each mint individually
-        for mint in mints {
-            Self::update_balance(
-                contract_id,
-                mint.token_type_id.as_deref(),
-                mint.token_id.as_deref(),
-                &owner_id,
-                &mint.amount,
-                true, // increase
-                &event.standard,
-                block_height,
-                mint.metadata.as_ref(),
-                db,
-            )
-            .await?;
+        // Process each mint batch and each transfer inside it
+        for (owner_id, mints) in mint_batches {
+            for mint in mints {
+                Self::update_balance(
+                    contract_id,
+                    mint.token_type_id.as_deref(),
+                    mint.token_id.as_deref(),
+                    &owner_id,
+                    &mint.amount,
+                    true, // increase
+                    &event.standard,
+                    block_height,
+                    mint.metadata.as_ref(),
+                    db,
+                )
+                .await?;
+            }
         }
 
         Ok(())
@@ -112,23 +116,25 @@ impl TokenStateManager {
         block_height: i64,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
-        let (owner_id, burns) = Self::extract_burn_data(event)?;
+        let burn_batches = Self::extract_burn_data(event)?;
 
-        // Process each burn individually
-        for burn in burns {
-            Self::update_balance(
-                contract_id,
-                burn.token_type_id.as_deref(),
-                burn.token_id.as_deref(),
-                &owner_id,
-                &burn.amount,
-                false, // decrease
-                &event.standard,
-                block_height,
-                burn.metadata.as_ref(),
-                db,
-            )
-            .await?;
+        // Process each burn batch and each transfer inside it
+        for (owner_id, burns) in burn_batches {
+            for burn in burns {
+                Self::update_balance(
+                    contract_id,
+                    burn.token_type_id.as_deref(),
+                    burn.token_id.as_deref(),
+                    &owner_id,
+                    &burn.amount,
+                    false, // decrease
+                    &event.standard,
+                    block_height,
+                    burn.metadata.as_ref(),
+                    db,
+                )
+                .await?;
+            }
         }
 
         Ok(())
@@ -168,25 +174,21 @@ impl TokenStateManager {
             .one(db)
             .await?;
 
-        let balance_record = if let Some(existing) = existing_balance {
+        if let Some(existing) = existing_balance {
             // Update existing balance
-            let current_amount = existing.amount;
+            let current_amount = existing.amount.clone();
             let new_amount = if is_increase {
                 Self::add_amounts(&current_amount, amount_value)?
             } else {
                 Self::subtract_amounts(&current_amount, amount_value)?
             };
 
-            near_token_balances::ActiveModel {
-                contract_id: Set(contract_id.to_string()),
-                token_type_id: Set(token_type_id.unwrap_or("").to_string()),
-                token_id: Set(token_id.unwrap_or("").to_string()),
-                account_id: Set(account_id.to_string()),
-                amount: Set(new_amount),
-                standard: Set(standard.as_str().to_string()),
-                last_updated_block: Set(block_height),
-                metadata: Set(metadata.cloned()),
-            }
+            let mut balance_record: near_token_balances::ActiveModel = existing.into();
+            balance_record.amount = Set(new_amount);
+            balance_record.standard = Set(standard.as_str().to_string());
+            balance_record.last_updated_block = Set(block_height);
+            balance_record.metadata = Set(metadata.cloned());
+            balance_record.update(db).await?;
         } else {
             // Create new balance record
             let initial_amount = if is_increase {
@@ -200,7 +202,7 @@ impl TokenStateManager {
                 "0".to_string()
             };
 
-            near_token_balances::ActiveModel {
+            let balance_record = near_token_balances::ActiveModel {
                 contract_id: Set(contract_id.to_string()),
                 token_type_id: Set(token_type_id.unwrap_or("").to_string()),
                 token_id: Set(token_id.unwrap_or("").to_string()),
@@ -209,11 +211,9 @@ impl TokenStateManager {
                 standard: Set(standard.as_str().to_string()),
                 last_updated_block: Set(block_height),
                 metadata: Set(metadata.cloned()),
-            }
-        };
-
-        // Insert or update (upsert)
-        balance_record.save(db).await?;
+            };
+            balance_record.insert(db).await?;
+        }
 
         debug!(
             "Updated balance for {}/{}: {} {} {}",
@@ -247,9 +247,7 @@ impl TokenStateManager {
     }
 
     // Extract transfer data from event
-    fn extract_transfer_data(
-        event: &ParsedTokenEvent,
-    ) -> Result<(Option<String>, Option<String>, Vec<TransferData>)> {
+    fn extract_transfer_data(event: &ParsedTokenEvent) -> Result<Vec<TransferBatch>> {
         let data_array = event
             .data
             .as_array()
@@ -259,95 +257,102 @@ impl TokenStateManager {
             return Err(anyhow!("Event data array is empty"));
         }
 
-        // Get the first data element (most transfer events have single data object)
-        let data = &data_array[0];
+        let mut batches = Vec::new();
 
-        let from_account = data
-            .get("old_owner_id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        for data in data_array {
+            let from_account = data
+                .get("old_owner_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
-        let to_account = data
-            .get("new_owner_id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            let to_account = data
+                .get("new_owner_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
-        let transfers = match event.standard {
-            TokenStandard::Nep141 => {
-                let amount = data
-                    .get("amount")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0")
-                    .to_string();
+            let transfers = match event.standard {
+                TokenStandard::Nep141 => {
+                    let amount = data
+                        .get("amount")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("0")
+                        .to_string();
 
-                vec![TransferData {
-                    token_type_id: None,
-                    token_id: None,
-                    amount,
-                    metadata: None,
-                }]
-            }
-            TokenStandard::Nep171 => {
-                let empty_vec = vec![];
-                let token_ids = data
-                    .get("token_ids")
-                    .and_then(|v| v.as_array())
-                    .unwrap_or(&empty_vec);
-
-                token_ids
-                    .iter()
-                    .filter_map(|v| v.as_str())
-                    .map(|token_id| TransferData {
+                    vec![TransferData {
                         token_type_id: None,
-                        token_id: Some(token_id.to_string()),
-                        amount: "1".to_string(), // NFTs always have amount 1
+                        token_id: None,
+                        amount,
                         metadata: None,
-                    })
-                    .collect()
-            }
-            TokenStandard::Nep245 => {
-                let empty_token_vec = vec![];
-                let empty_amount_vec = vec![];
-                let token_ids = data
-                    .get("token_ids")
-                    .and_then(|v| v.as_array())
-                    .unwrap_or(&empty_token_vec);
+                    }]
+                }
+                TokenStandard::Nep171 => {
+                    let empty_vec = vec![];
+                    let token_ids = data
+                        .get("token_ids")
+                        .and_then(|v| v.as_array())
+                        .unwrap_or(&empty_vec);
 
-                let amounts = data
-                    .get("amounts")
-                    .and_then(|v| v.as_array())
-                    .unwrap_or(&empty_amount_vec);
-
-                token_ids
-                    .iter()
-                    .zip(amounts.iter())
-                    .filter_map(|(tid, amt)| {
-                        let token_id = tid.as_str()?;
-                        let amount = amt.as_str()?;
-
-                        // Parse token_type_id from token_id if it contains ":"
-                        let (token_type_id, final_token_id) = if token_id.contains(':') {
-                            let parts: Vec<&str> = token_id.splitn(2, ':').collect();
-                            (Some(parts[0].to_string()), Some(parts[1].to_string()))
-                        } else {
-                            (None, Some(token_id.to_string()))
-                        };
-
-                        Some(TransferData {
-                            token_type_id,
-                            token_id: final_token_id,
-                            amount: amount.to_string(),
+                    token_ids
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .map(|token_id| TransferData {
+                            token_type_id: None,
+                            token_id: Some(token_id.to_string()),
+                            amount: "1".to_string(), // NFTs always have amount 1
                             metadata: None,
                         })
-                    })
-                    .collect()
-            }
-        };
+                        .collect()
+                }
+                TokenStandard::Nep245 => {
+                    let empty_token_vec = vec![];
+                    let empty_amount_vec = vec![];
+                    let token_ids = data
+                        .get("token_ids")
+                        .and_then(|v| v.as_array())
+                        .unwrap_or(&empty_token_vec);
 
-        Ok((from_account, to_account, transfers))
+                    let amounts = data
+                        .get("amounts")
+                        .and_then(|v| v.as_array())
+                        .unwrap_or(&empty_amount_vec);
+
+                    token_ids
+                        .iter()
+                        .zip(amounts.iter())
+                        .filter_map(|(tid, amt)| {
+                            let token_id = tid.as_str()?;
+                            let amount = amt.as_str()?;
+
+                            // Parse token_type_id from token_id if it contains ":"
+                            let (token_type_id, final_token_id) = if token_id.contains(':') {
+                                let parts: Vec<&str> = token_id.splitn(2, ':').collect();
+                                (Some(parts[0].to_string()), Some(parts[1].to_string()))
+                            } else {
+                                (None, Some(token_id.to_string()))
+                            };
+
+                            Some(TransferData {
+                                token_type_id,
+                                token_id: final_token_id,
+                                amount: amount.to_string(),
+                                metadata: None,
+                            })
+                        })
+                        .collect()
+                }
+            };
+
+            batches.push(TransferBatch {
+                from_account,
+                to_account,
+                transfers,
+            });
+        }
+
+        Ok(batches)
     }
 
-    fn extract_mint_data(event: &ParsedTokenEvent) -> Result<(String, Vec<TransferData>)> {
+    fn extract_mint_data(event: &ParsedTokenEvent) -> Result<Vec<(String, Vec<TransferData>)>> {
         let data_array = event
             .data
             .as_array()
@@ -357,90 +362,93 @@ impl TokenStateManager {
             return Err(anyhow!("Event data array is empty"));
         }
 
-        // Get the first data element (most mint events have single data object)
-        let data = &data_array[0];
+        let mut mint_batches = Vec::new();
 
-        let owner_id = data
-            .get("owner_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing owner_id in mint event"))?
-            .to_string();
+        for data in data_array {
+            let owner_id = data
+                .get("owner_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("Missing owner_id in mint event"))?
+                .to_string();
 
-        let mints = match event.standard {
-            TokenStandard::Nep141 => {
-                let amount = data
-                    .get("amount")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0")
-                    .to_string();
+            let mints = match event.standard {
+                TokenStandard::Nep141 => {
+                    let amount = data
+                        .get("amount")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("0")
+                        .to_string();
 
-                vec![TransferData {
-                    token_type_id: None,
-                    token_id: None,
-                    amount,
-                    metadata: None,
-                }]
-            }
-            TokenStandard::Nep171 => {
-                let empty_vec = vec![];
-                let token_ids = data
-                    .get("token_ids")
-                    .and_then(|v| v.as_array())
-                    .unwrap_or(&empty_vec);
-
-                token_ids
-                    .iter()
-                    .filter_map(|v| v.as_str())
-                    .map(|token_id| TransferData {
+                    vec![TransferData {
                         token_type_id: None,
-                        token_id: Some(token_id.to_string()),
-                        amount: "1".to_string(),
+                        token_id: None,
+                        amount,
                         metadata: None,
-                    })
-                    .collect()
-            }
-            TokenStandard::Nep245 => {
-                let empty_token_vec = vec![];
-                let empty_amount_vec = vec![];
-                let token_ids = data
-                    .get("token_ids")
-                    .and_then(|v| v.as_array())
-                    .unwrap_or(&empty_token_vec);
+                    }]
+                }
+                TokenStandard::Nep171 => {
+                    let empty_vec = vec![];
+                    let token_ids = data
+                        .get("token_ids")
+                        .and_then(|v| v.as_array())
+                        .unwrap_or(&empty_vec);
 
-                let amounts = data
-                    .get("amounts")
-                    .and_then(|v| v.as_array())
-                    .unwrap_or(&empty_amount_vec);
-
-                token_ids
-                    .iter()
-                    .zip(amounts.iter())
-                    .filter_map(|(tid, amt)| {
-                        let token_id = tid.as_str()?;
-                        let amount = amt.as_str()?;
-
-                        let (token_type_id, final_token_id) = if token_id.contains(':') {
-                            let parts: Vec<&str> = token_id.splitn(2, ':').collect();
-                            (Some(parts[0].to_string()), Some(parts[1].to_string()))
-                        } else {
-                            (None, Some(token_id.to_string()))
-                        };
-
-                        Some(TransferData {
-                            token_type_id,
-                            token_id: final_token_id,
-                            amount: amount.to_string(),
+                    token_ids
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .map(|token_id| TransferData {
+                            token_type_id: None,
+                            token_id: Some(token_id.to_string()),
+                            amount: "1".to_string(),
                             metadata: None,
                         })
-                    })
-                    .collect()
-            }
-        };
+                        .collect()
+                }
+                TokenStandard::Nep245 => {
+                    let empty_token_vec = vec![];
+                    let empty_amount_vec = vec![];
+                    let token_ids = data
+                        .get("token_ids")
+                        .and_then(|v| v.as_array())
+                        .unwrap_or(&empty_token_vec);
 
-        Ok((owner_id, mints))
+                    let amounts = data
+                        .get("amounts")
+                        .and_then(|v| v.as_array())
+                        .unwrap_or(&empty_amount_vec);
+
+                    token_ids
+                        .iter()
+                        .zip(amounts.iter())
+                        .filter_map(|(tid, amt)| {
+                            let token_id = tid.as_str()?;
+                            let amount = amt.as_str()?;
+
+                            let (token_type_id, final_token_id) = if token_id.contains(':') {
+                                let parts: Vec<&str> = token_id.splitn(2, ':').collect();
+                                (Some(parts[0].to_string()), Some(parts[1].to_string()))
+                            } else {
+                                (None, Some(token_id.to_string()))
+                            };
+
+                            Some(TransferData {
+                                token_type_id,
+                                token_id: final_token_id,
+                                amount: amount.to_string(),
+                                metadata: None,
+                            })
+                        })
+                        .collect()
+                }
+            };
+
+            mint_batches.push((owner_id, mints));
+        }
+
+        Ok(mint_batches)
     }
 
-    fn extract_burn_data(event: &ParsedTokenEvent) -> Result<(String, Vec<TransferData>)> {
+    fn extract_burn_data(event: &ParsedTokenEvent) -> Result<Vec<(String, Vec<TransferData>)>> {
         // Burn data has the same structure as mint data
         Self::extract_mint_data(event)
     }
@@ -452,4 +460,73 @@ struct TransferData {
     token_id: Option<String>,
     amount: String,
     metadata: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone)]
+struct TransferBatch {
+    from_account: Option<String>,
+    to_account: Option<String>,
+    transfers: Vec<TransferData>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn extract_transfer_data_handles_multiple_data_items() {
+        let event = ParsedTokenEvent::new(
+            TokenStandard::Nep141,
+            "1.0.0".to_string(),
+            EventType::FtTransfer,
+            json!([
+                {
+                    "old_owner_id": "alice.near",
+                    "new_owner_id": "bob.near",
+                    "amount": "10"
+                },
+                {
+                    "old_owner_id": "carol.near",
+                    "new_owner_id": "dave.near",
+                    "amount": "5"
+                }
+            ]),
+        );
+
+        let batches = TokenStateManager::extract_transfer_data(&event).unwrap();
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].from_account.as_deref(), Some("alice.near"));
+        assert_eq!(batches[0].to_account.as_deref(), Some("bob.near"));
+        assert_eq!(batches[0].transfers[0].amount, "10");
+        assert_eq!(batches[1].from_account.as_deref(), Some("carol.near"));
+        assert_eq!(batches[1].to_account.as_deref(), Some("dave.near"));
+        assert_eq!(batches[1].transfers[0].amount, "5");
+    }
+
+    #[test]
+    fn extract_mint_data_handles_multiple_data_items() {
+        let event = ParsedTokenEvent::new(
+            TokenStandard::Nep171,
+            "1.0.0".to_string(),
+            EventType::NftMint,
+            json!([
+                {
+                    "owner_id": "alice.near",
+                    "token_ids": ["1", "2"]
+                },
+                {
+                    "owner_id": "bob.near",
+                    "token_ids": ["3"]
+                }
+            ]),
+        );
+
+        let mint_batches = TokenStateManager::extract_mint_data(&event).unwrap();
+        assert_eq!(mint_batches.len(), 2);
+        assert_eq!(mint_batches[0].0, "alice.near");
+        assert_eq!(mint_batches[0].1.len(), 2);
+        assert_eq!(mint_batches[1].0, "bob.near");
+        assert_eq!(mint_batches[1].1.len(), 1);
+    }
 }

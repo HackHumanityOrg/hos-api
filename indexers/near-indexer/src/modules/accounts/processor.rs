@@ -78,26 +78,35 @@ impl AccountsModule {
             return Err(anyhow::anyhow!("Public key cannot be empty"));
         }
 
-        // Basic length check - NEAR public keys are typically base58 encoded
-        // Ed25519 keys are usually around 43-44 characters when base58 encoded
-        // Secp256k1 keys can be longer
-        if public_key.len() < 20 || public_key.len() > 128 {
+        // NEAR keys are typically formatted as <curve>:<base58>
+        let (curve, key_data) = if let Some((curve, key_data)) = public_key.split_once(':') {
+            (Some(curve), key_data)
+        } else {
+            (None, public_key)
+        };
+
+        if let Some(curve) = curve {
+            if curve != "ed25519" && curve != "secp256k1" {
+                return Err(anyhow::anyhow!("Unsupported public key curve: {}", curve));
+            }
+        }
+
+        // Basic length check for base58 payload
+        if key_data.len() < 20 || key_data.len() > 128 {
             return Err(anyhow::anyhow!(
                 "Public key has invalid length: {}",
-                public_key.len()
+                key_data.len()
             ));
         }
 
-        // Check that it contains valid base58 characters
-        for char in public_key.chars() {
-            if !char.is_ascii_alphanumeric() {
-                // Base58 excludes 0, O, I, l to avoid confusion
-                if "0OIl".contains(char) {
-                    return Err(anyhow::anyhow!(
-                        "Public key contains invalid base58 character: {}",
-                        char
-                    ));
-                }
+        // Validate base58 charset (no 0, O, I, l, or symbols)
+        const BASE58_ALPHABET: &str = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+        for ch in key_data.chars() {
+            if !BASE58_ALPHABET.contains(ch) {
+                return Err(anyhow::anyhow!(
+                    "Public key contains invalid base58 character: {}",
+                    ch
+                ));
             }
         }
 
@@ -527,7 +536,7 @@ impl AccountsModule {
         if let Some(existing_key) = near_access_keys::Entity::find()
             .filter(near_access_keys::Column::AccountId.eq(&key_data.account_id))
             .filter(near_access_keys::Column::PublicKey.eq(&key_data.public_key))
-            .filter(near_access_keys::Column::IsActive.eq(1))
+            .filter(near_access_keys::Column::IsActive.eq(true))
             .one(db)
             .await?
         {
@@ -590,7 +599,7 @@ impl AccountsModule {
         if let Some(access_key) = near_access_keys::Entity::find()
             .filter(near_access_keys::Column::AccountId.eq(account_id))
             .filter(near_access_keys::Column::PublicKey.eq(public_key))
-            .filter(near_access_keys::Column::IsActive.eq(1))
+            .filter(near_access_keys::Column::IsActive.eq(true))
             .one(db)
             .await?
         {
@@ -693,5 +702,47 @@ impl IndexerModule for AccountsModule {
 
     async fn update_cursor(&self, db: &DatabaseConnection, height: i64) -> Result<()> {
         cursor::upsert_module_cursor(db, MODULE_NAME, height).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn module() -> AccountsModule {
+        AccountsModule { enabled: true }
+    }
+
+    #[test]
+    fn validate_public_key_accepts_valid_near_keys() {
+        let accounts_module = module();
+
+        assert!(accounts_module
+            .validate_public_key("ed25519:5ZE7dM8jkVdwf2EgYwjY2JgUUhzj4xwNubBca8h2P6Hp")
+            .is_ok());
+        assert!(accounts_module
+            .validate_public_key("secp256k1:4NfTiv6b2wtqP5MBoYQ6nQ6QJ6w6V4Y5y6KLdM9AbCdE")
+            .is_ok());
+    }
+
+    #[test]
+    fn validate_public_key_rejects_invalid_base58_chars() {
+        let accounts_module = module();
+
+        assert!(accounts_module
+            .validate_public_key("ed25519:abc0defghijklmnopqrstuvwxy")
+            .is_err());
+        assert!(accounts_module
+            .validate_public_key("ed25519:abc*defghijklmnopqrstuvwxy")
+            .is_err());
+    }
+
+    #[test]
+    fn validate_public_key_rejects_unknown_curve() {
+        let accounts_module = module();
+
+        assert!(accounts_module
+            .validate_public_key("rsa:5ZE7dM8jkVdwf2EgYwjY2JgUUhzj4xwNubBca8h2P6Hp")
+            .is_err());
     }
 }

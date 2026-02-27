@@ -187,16 +187,23 @@ pub struct MtBurnData {
 #[derive(Debug, Clone)]
 pub struct ParsedTokenEvent {
     pub standard: TokenStandard,
+    pub version: String,
     pub event_type: EventType,
     pub data: JsonValue,
     pub affected_accounts: Vec<String>,
 }
 
 impl ParsedTokenEvent {
-    pub fn new(standard: TokenStandard, event_type: EventType, data: JsonValue) -> Self {
+    pub fn new(
+        standard: TokenStandard,
+        version: String,
+        event_type: EventType,
+        data: JsonValue,
+    ) -> Self {
         let affected_accounts = Self::extract_affected_accounts(&standard, &event_type, &data);
         Self {
             standard,
+            version,
             event_type,
             data,
             affected_accounts,
@@ -209,62 +216,101 @@ impl ParsedTokenEvent {
         data: &JsonValue,
     ) -> Vec<String> {
         let mut accounts = Vec::new();
+        let data_items = data
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_else(|| std::slice::from_ref(data));
 
-        match (standard, event_type) {
-            // NEP-141 events
-            (TokenStandard::Nep141, EventType::FtTransfer) => {
-                if let (Some(old_owner), Some(new_owner)) = (
-                    data.get("old_owner_id").and_then(|v| v.as_str()),
-                    data.get("new_owner_id").and_then(|v| v.as_str()),
-                ) {
-                    accounts.push(old_owner.to_string());
-                    accounts.push(new_owner.to_string());
+        for data_item in data_items {
+            match (standard, event_type) {
+                // NEP-141 events
+                (TokenStandard::Nep141, EventType::FtTransfer) => {
+                    if let (Some(old_owner), Some(new_owner)) = (
+                        data_item.get("old_owner_id").and_then(|v| v.as_str()),
+                        data_item.get("new_owner_id").and_then(|v| v.as_str()),
+                    ) {
+                        accounts.push(old_owner.to_string());
+                        accounts.push(new_owner.to_string());
+                    }
                 }
-            }
-            (TokenStandard::Nep141, EventType::FtMint | EventType::FtBurn) => {
-                if let Some(owner) = data.get("owner_id").and_then(|v| v.as_str()) {
-                    accounts.push(owner.to_string());
+                (TokenStandard::Nep141, EventType::FtMint | EventType::FtBurn) => {
+                    if let Some(owner) = data_item.get("owner_id").and_then(|v| v.as_str()) {
+                        accounts.push(owner.to_string());
+                    }
                 }
-            }
 
-            // NEP-171 events
-            (TokenStandard::Nep171, EventType::NftTransfer) => {
-                if let (Some(old_owner), Some(new_owner)) = (
-                    data.get("old_owner_id").and_then(|v| v.as_str()),
-                    data.get("new_owner_id").and_then(|v| v.as_str()),
-                ) {
-                    accounts.push(old_owner.to_string());
-                    accounts.push(new_owner.to_string());
+                // NEP-171 events
+                (TokenStandard::Nep171, EventType::NftTransfer) => {
+                    if let (Some(old_owner), Some(new_owner)) = (
+                        data_item.get("old_owner_id").and_then(|v| v.as_str()),
+                        data_item.get("new_owner_id").and_then(|v| v.as_str()),
+                    ) {
+                        accounts.push(old_owner.to_string());
+                        accounts.push(new_owner.to_string());
+                    }
                 }
-            }
-            (TokenStandard::Nep171, EventType::NftMint | EventType::NftBurn) => {
-                if let Some(owner) = data.get("owner_id").and_then(|v| v.as_str()) {
-                    accounts.push(owner.to_string());
+                (TokenStandard::Nep171, EventType::NftMint | EventType::NftBurn) => {
+                    if let Some(owner) = data_item.get("owner_id").and_then(|v| v.as_str()) {
+                        accounts.push(owner.to_string());
+                    }
                 }
-            }
 
-            // NEP-245 events
-            (TokenStandard::Nep245, EventType::MtTransfer) => {
-                if let (Some(old_owner), Some(new_owner)) = (
-                    data.get("old_owner_id").and_then(|v| v.as_str()),
-                    data.get("new_owner_id").and_then(|v| v.as_str()),
-                ) {
-                    accounts.push(old_owner.to_string());
-                    accounts.push(new_owner.to_string());
+                // NEP-245 events
+                (TokenStandard::Nep245, EventType::MtTransfer) => {
+                    if let (Some(old_owner), Some(new_owner)) = (
+                        data_item.get("old_owner_id").and_then(|v| v.as_str()),
+                        data_item.get("new_owner_id").and_then(|v| v.as_str()),
+                    ) {
+                        accounts.push(old_owner.to_string());
+                        accounts.push(new_owner.to_string());
+                    }
                 }
-            }
-            (TokenStandard::Nep245, EventType::MtMint | EventType::MtBurn) => {
-                if let Some(owner) = data.get("owner_id").and_then(|v| v.as_str()) {
-                    accounts.push(owner.to_string());
+                (TokenStandard::Nep245, EventType::MtMint | EventType::MtBurn) => {
+                    if let Some(owner) = data_item.get("owner_id").and_then(|v| v.as_str()) {
+                        accounts.push(owner.to_string());
+                    }
                 }
-            }
 
-            _ => {}
+                _ => {}
+            }
         }
 
         // Remove duplicates and return
         accounts.sort();
         accounts.dedup();
         accounts
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parsed_event_tracks_version_and_affected_accounts_from_array() {
+        let event = ParsedTokenEvent::new(
+            TokenStandard::Nep141,
+            "1.2.3".to_string(),
+            EventType::FtTransfer,
+            json!([
+                {
+                    "old_owner_id": "alice.near",
+                    "new_owner_id": "bob.near",
+                    "amount": "1"
+                },
+                {
+                    "old_owner_id": "carol.near",
+                    "new_owner_id": "dave.near",
+                    "amount": "2"
+                }
+            ]),
+        );
+
+        assert_eq!(event.version, "1.2.3");
+        assert_eq!(
+            event.affected_accounts,
+            vec!["alice.near", "bob.near", "carol.near", "dave.near"]
+        );
     }
 }
