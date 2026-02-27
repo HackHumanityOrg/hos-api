@@ -81,7 +81,10 @@ async fn run(config: AppConfig) -> Result<()> {
             .url("/api-docs/openapi.json", docs::ApiDoc::openapi())
             .config(
                 utoipa_swagger_ui::Config::new(["/api-docs/openapi.json"])
-                    .display_request_duration(true),
+                    .display_request_duration(true)
+                    .display_operation_id(true)
+                    .filter(true)
+                    .doc_expansion("list"),
             ),
     );
 

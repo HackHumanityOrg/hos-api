@@ -29,61 +29,93 @@ pub struct DatabaseHealth {
     pub error: Option<String>,
 }
 
+/// Cursor pagination metadata shared by list endpoints.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CursorPageMeta {
+    /// Opaque cursor to request the next page; `null` when there is no next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether additional rows are available after this page.
     pub has_more: bool,
 }
 
+/// Paginated response of registered Discourse instances.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InstancesListResponse {
+    /// Page of instance rows.
     pub data: Vec<DiscourseInstanceDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Paginated response of Discourse categories.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CategoriesListResponse {
+    /// Page of category rows.
     pub data: Vec<DiscourseCategoryDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Paginated response of Discourse topics.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TopicsListResponse {
+    /// Page of topic rows.
     pub data: Vec<DiscourseTopicDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Paginated response of Discourse posts.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PostsListResponse {
+    /// Page of post rows.
     pub data: Vec<DiscoursePostDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Paginated response of Discourse users.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UsersListResponse {
+    /// Page of user rows.
     pub data: Vec<DiscourseUserDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Paginated response of Discourse post-like events.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PostLikesListResponse {
+    /// Page of like rows.
     pub data: Vec<DiscoursePostLikeDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Paginated response of Discourse post revisions.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PostRevisionsListResponse {
+    /// Page of revision rows.
     pub data: Vec<DiscoursePostRevisionDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Indexed Discourse instance metadata.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscourseInstanceDto {
     pub key: String,
@@ -93,6 +125,7 @@ pub struct DiscourseInstanceDto {
     pub updated_at: Option<String>,
 }
 
+/// Indexed Discourse category row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscourseCategoryDto {
     pub instance: String,
@@ -115,6 +148,7 @@ pub struct DiscourseCategoryDto {
     pub read_restricted: Option<bool>,
 }
 
+/// Indexed Discourse topic row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscourseTopicDto {
     pub instance: String,
@@ -140,6 +174,7 @@ pub struct DiscourseTopicDto {
     pub image_url: Option<String>,
 }
 
+/// Indexed Discourse post row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscoursePostDto {
     pub instance: String,
@@ -172,6 +207,7 @@ pub struct DiscoursePostDto {
     pub raw: Option<String>,
 }
 
+/// Indexed Discourse user row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscourseUserDto {
     pub instance: String,
@@ -190,6 +226,7 @@ pub struct DiscourseUserDto {
     pub trust_level: Option<i32>,
 }
 
+/// Indexed Discourse post-like row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscoursePostLikeDto {
     pub instance: String,
@@ -199,6 +236,7 @@ pub struct DiscoursePostLikeDto {
     pub created_at: String,
 }
 
+/// Indexed Discourse post revision row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscoursePostRevisionDto {
     pub instance: String,
@@ -215,137 +253,226 @@ pub struct DiscoursePostRevisionDto {
     pub title_changes: Option<serde_json::Value>,
 }
 
+/// High-level aggregate of sync-lag checks.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SyncLagSummary {
+    /// Total number of checks produced in `checks`.
     pub total_checks: u32,
+    /// Number of checks currently marked as `out_of_sync`.
     pub out_of_sync_checks: u32,
+    /// Number of integrity checks marked as `out_of_sync`.
     pub integrity_out_of_sync_checks: u32,
+    /// Number of coverage checks marked as `out_of_sync`.
     pub coverage_out_of_sync_checks: u32,
+    /// Largest absolute delta across all checks.
     pub max_abs_delta: i64,
 }
 
+/// Detailed sync-lag check row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SyncLagCheck {
+    /// Stable check identifier.
     pub key: String,
+    /// Human-readable meaning of the check.
     pub description: String,
+    /// Expected count/value used as baseline.
     pub expected: i64,
+    /// Actual indexed count/value observed.
     pub actual: i64,
+    /// Difference `actual - expected`.
     pub delta: i64,
+    /// Optional ratio `actual / expected` when expected is positive.
     pub ratio: Option<f64>,
+    /// Check status (`ok` or `out_of_sync`).
     pub status: String,
+    /// Optional caveat for checks that may drift during partial backfill.
     pub caveat: Option<String>,
 }
 
+/// Sync-lag diagnostics payload for one Discourse instance.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SyncLagResponse {
+    /// Discourse instance key used for diagnostics.
     pub instance: String,
+    /// RFC 3339 timestamp when diagnostics were generated.
     pub generated_at: String,
+    /// Aggregated check summary.
     pub summary: SyncLagSummary,
+    /// Per-check diagnostic rows.
     pub checks: Vec<SyncLagCheck>,
 }
 
+/// Common cursor pagination query used by multiple list endpoints.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct CursorPaginationQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100)]
+    #[param(minimum = 1, maximum = 100, example = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
+    #[param(example = "eyJrZXkiOiJmb3J1bS5uZWFyIn0")]
     pub cursor: Option<String>,
 }
 
+/// Query options for listing categories of one Discourse instance.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct CategoriesQuery {
-    #[param(minimum = 1, maximum = 100)]
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
     pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJleHRlcm5hbF9pZCI6MTIzfQ")]
     pub cursor: Option<String>,
+    /// Filter by upstream Discourse parent category id.
+    #[param(example = 1)]
     pub parent_category_id: Option<i32>,
+    /// Case-insensitive substring match on category name or slug.
+    #[param(example = "governance")]
     pub q: Option<String>,
 }
 
+/// Query options for listing topics of one Discourse instance.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TopicsQuery {
-    #[param(minimum = 1, maximum = 100)]
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
     pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJidW1wZWRfYXRfZXBvY2giOjE3MzU2ODY0MDAsImV4dGVybmFsX2lkIjo5OX0")]
     pub cursor: Option<String>,
+    /// Case-insensitive substring match on topic title or slug.
+    #[param(example = "funding")]
     pub q: Option<String>,
+    /// Filter by upstream Discourse category id.
+    #[param(example = 6)]
     pub category_id: Option<i32>,
+    /// Filter to pinned topics only (or unpinned when false).
     pub pinned: Option<bool>,
+    /// Filter to closed topics only (or open when false).
     pub closed: Option<bool>,
+    /// Filter to archived topics only (or non-archived when false).
     pub archived: Option<bool>,
+    /// Filter to visible topics only (or hidden when false).
     pub visible: Option<bool>,
     /// ISO-8601 datetime lower bound for bumped_at.
+    #[param(example = "2026-01-01T00:00:00Z")]
     pub bumped_after: Option<String>,
     /// ISO-8601 datetime upper bound for bumped_at.
+    #[param(example = "2026-01-31T23:59:59Z")]
     pub bumped_before: Option<String>,
 }
 
+/// Query options for listing posts under a single topic.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TopicPostsQuery {
-    #[param(minimum = 1, maximum = 100)]
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
     pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJwb3N0X251bWJlciI6MiwgImV4dGVybmFsX2lkIjo0Mn0")]
     pub cursor: Option<String>,
+    /// Filter to posts authored by this username.
+    #[param(example = "alice")]
     pub username: Option<String>,
+    /// Case-insensitive substring match on raw post body.
+    #[param(example = "staking")]
     pub q: Option<String>,
 }
 
+/// Query options for listing users of one Discourse instance.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct UsersQuery {
-    #[param(minimum = 1, maximum = 100)]
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
     pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJleHRlcm5hbF9pZCI6MjAwfQ")]
     pub cursor: Option<String>,
+    /// Case-insensitive substring match on username or display name.
+    #[param(example = "near")]
     pub q: Option<String>,
+    /// Filter by Discourse trust level.
+    #[param(example = 2)]
     pub trust_level: Option<i32>,
 }
 
+/// Query options for listing posts authored by one user.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct UserPostsQuery {
-    #[param(minimum = 1, maximum = 100)]
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
     pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJjcmVhdGVkX2F0X2Vwb2NoIjoxNzM1Njg2NDAwLCJleHRlcm5hbF9pZCI6NDJ9")]
     pub cursor: Option<String>,
 }
 
+/// Paginated response of latest proposal state rows.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearProposalsListResponse {
+    /// Page of proposal rows.
     pub data: Vec<VenearProposalDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Paginated response of proposal event rows.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearProposalEventsListResponse {
+    /// Page of proposal event rows.
     pub data: Vec<VenearProposalEventDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Paginated response of proposal vote rows.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearVotesListResponse {
+    /// Page of vote rows.
     pub data: Vec<VenearVoteDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Paginated response of account balance mutation rows.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearAccountBalancesListResponse {
+    /// Page of account balance rows.
     pub data: Vec<VenearAccountBalanceDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Paginated response of discovered lockup rows.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearLockupsListResponse {
+    /// Page of lockup rows.
     pub data: Vec<VenearLockupDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Paginated response of lockup action rows.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearLockupActionsListResponse {
+    /// Page of lockup action rows.
     pub data: Vec<VenearLockupActionDto>,
+    /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
+/// Latest-state projection for a veNEAR proposal.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearProposalDto {
     pub id: i64,
@@ -375,6 +502,7 @@ pub struct VenearProposalDto {
     pub created_at_epoch: i64,
 }
 
+/// Event row from the proposal event stream.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearProposalEventDto {
     pub id: i64,
@@ -404,6 +532,7 @@ pub struct VenearProposalEventDto {
     pub created_at_epoch: i64,
 }
 
+/// Vote row recorded for a proposal.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearVoteDto {
     pub id: i64,
@@ -427,6 +556,7 @@ pub struct VenearVoteDto {
     pub created_at_epoch: i64,
 }
 
+/// Account balance mutation row for veNEAR governance balances.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearAccountBalanceDto {
     pub id: i64,
@@ -452,6 +582,7 @@ pub struct VenearAccountBalanceDto {
     pub created_at_epoch: i64,
 }
 
+/// Discovered veNEAR lockup account lifecycle row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearLockupDto {
     pub lockup_account_id: String,
@@ -471,6 +602,7 @@ pub struct VenearLockupDto {
     pub metadata: Option<serde_json::Value>,
 }
 
+/// Indexed action row tied to a lockup account.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearLockupActionDto {
     pub id: i64,
@@ -498,20 +630,34 @@ pub struct VenearLockupActionDto {
     pub created_at_epoch: i64,
 }
 
+/// Query options for listing discovered veNEAR lockup accounts.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearLockupsQuery {
-    #[param(minimum = 1, maximum = 100)]
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
     pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJrZXkiOiJsb2NrdXAuZXhhbXBsZS5uZWFyIn0")]
     pub cursor: Option<String>,
+    /// Filter by owner account id.
+    #[param(example = "alice.near")]
     pub owner_account_id: Option<String>,
+    /// Filter by active lockup lifecycle state.
     pub is_active: Option<bool>,
 }
 
+/// Query options for listing actions linked to one lockup account.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearLockupActionsQuery {
-    #[param(minimum = 1, maximum = 100)]
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
     pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJibG9ja19oZWlnaHQiOjE2Nzg4ODAwMCwiaWQiOjEwMn0")]
     pub cursor: Option<String>,
+    /// Filter by lockup action method name.
+    #[param(example = "on_withdraw_unvested")]
     pub method_name: Option<String>,
+    /// Filter by execution success status.
     pub success: Option<bool>,
 }

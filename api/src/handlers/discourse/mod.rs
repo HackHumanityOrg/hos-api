@@ -66,6 +66,8 @@ const CATEGORY_POSTS_COUNTER_MISMATCH_KEY: &str = "category_posts_counter_mismat
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances",
+    summary = "List indexed Discourse instances",
+    description = "Returns registered Discourse instances known to the indexer. Results are ordered by instance key in ascending order and support cursor pagination.",
     params(CursorPaginationQuery),
     tag = "discourse",
     operation_id = "listDiscourseInstances",
@@ -118,6 +120,8 @@ pub async fn list_instances(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}",
+    summary = "Get one Discourse instance",
+    description = "Fetches a single registered Discourse instance by its stable `instance` key.",
     tag = "discourse",
     operation_id = "getDiscourseInstance",
     params(("instance" = String, Path, description = "Discourse instance key")),
@@ -144,6 +148,8 @@ pub async fn get_instance(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/categories",
+    summary = "List categories for an instance",
+    description = "Returns indexed categories for a Discourse instance. Supports parent-category filtering, text search on name and slug, and cursor pagination.",
     params(
         ("instance" = String, Path, description = "Discourse instance key"),
         CategoriesQuery
@@ -218,6 +224,8 @@ pub async fn list_categories(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/categories/{category_id}",
+    summary = "Get one category by external id",
+    description = "Fetches a single indexed category for the given instance and upstream Discourse `category_id`.",
     params(
         ("instance" = String, Path, description = "Discourse instance key"),
         ("category_id" = i32, Path, description = "External category id")
@@ -251,6 +259,8 @@ pub async fn get_category(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/topics",
+    summary = "List topics for an instance",
+    description = "Returns indexed topics sorted by `bumped_at` descending. Supports category and status filters, text search, bumped-at time bounds, and cursor pagination.",
     params(
         ("instance" = String, Path, description = "Discourse instance key"),
         TopicsQuery
@@ -357,6 +367,8 @@ pub async fn list_topics(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/topics/{topic_id}",
+    summary = "Get one topic by external id",
+    description = "Fetches a single indexed topic for the given instance and upstream Discourse `topic_id`.",
     params(
         ("instance" = String, Path, description = "Discourse instance key"),
         ("topic_id" = i32, Path, description = "External topic id")
@@ -390,6 +402,8 @@ pub async fn get_topic(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/topics/{topic_id}/posts",
+    summary = "List posts for a topic",
+    description = "Returns posts for a topic ordered by `post_number` ascending. Supports username filtering, raw text search, and cursor pagination.",
     params(
         ("instance" = String, Path, description = "Discourse instance key"),
         ("topic_id" = i32, Path, description = "External topic id"),
@@ -475,6 +489,8 @@ pub async fn list_topic_posts(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/posts/{post_id}",
+    summary = "Get one post by external id",
+    description = "Fetches a single indexed post for the given instance and upstream Discourse `post_id`.",
     params(
         ("instance" = String, Path, description = "Discourse instance key"),
         ("post_id" = i32, Path, description = "External post id")
@@ -506,6 +522,8 @@ pub async fn get_post(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/posts/{post_id}/likes",
+    summary = "List likes for a post",
+    description = "Returns indexed like events for a post ordered by like timestamp descending, with best-effort username enrichment from indexed users.",
     params(
         ("instance" = String, Path, description = "Discourse instance key"),
         ("post_id" = i32, Path, description = "External post id"),
@@ -595,6 +613,8 @@ pub async fn list_post_likes(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/posts/{post_id}/revisions",
+    summary = "List revisions for a post",
+    description = "Returns indexed edit-history revisions for a post ordered by revision `version` ascending.",
     params(
         ("instance" = String, Path, description = "Discourse instance key"),
         ("post_id" = i32, Path, description = "External post id"),
@@ -658,6 +678,8 @@ pub async fn list_post_revisions(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/users",
+    summary = "List users for an instance",
+    description = "Returns indexed users for a Discourse instance. Supports text search over username/name, optional trust-level filtering, and cursor pagination.",
     params(
         ("instance" = String, Path, description = "Discourse instance key"),
         UsersQuery
@@ -730,6 +752,8 @@ pub async fn list_users(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/users/{user_id}",
+    summary = "Get one user by external id",
+    description = "Fetches a single indexed Discourse user by instance key and upstream `user_id`.",
     params(
         ("instance" = String, Path, description = "Discourse instance key"),
         ("user_id" = i32, Path, description = "External user id")
@@ -761,6 +785,8 @@ pub async fn get_user(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/users/{user_id}/posts",
+    summary = "List posts authored by a user",
+    description = "Returns indexed posts authored by a user, ordered by creation time descending, with cursor pagination.",
     params(
         ("instance" = String, Path, description = "Discourse instance key"),
         ("user_id" = i32, Path, description = "External user id"),
@@ -835,6 +861,8 @@ pub async fn list_user_posts(
 #[utoipa::path(
     get,
     path = "/api/v1/discourse/instances/{instance}/sync-lag",
+    summary = "Get sync lag diagnostics",
+    description = "Returns integrity and coverage checks comparing denormalized counters versus indexed rows for one Discourse instance.",
     params(("instance" = String, Path, description = "Discourse instance key")),
     tag = "discourse-ops",
     operation_id = "getDiscourseSyncLag",

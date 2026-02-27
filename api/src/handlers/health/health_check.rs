@@ -11,9 +11,11 @@ use tracing::{info, instrument};
 #[utoipa::path(
     get,
     path = "/health",
+    summary = "Get API health status",
+    description = "Performs service liveness checks and an optional database probe (`SELECT 1`). Returns `healthy` when the database probe succeeds and `degraded` when the database is unavailable or fails.",
     tag = "health",
     responses(
-        (status = 200, description = "Health check passed", body = HealthResponse),
+        (status = 200, description = "Current API health report", body = HealthResponse),
         (status = 500, description = "Health check failed", body = crate::errors::ApiError)
     )
 )]

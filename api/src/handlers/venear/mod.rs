@@ -32,6 +32,8 @@ struct StringCursor {
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals",
+    summary = "List latest state per proposal",
+    description = "Returns one latest-event snapshot per proposal from the indexed proposal event stream, ordered by proposal id descending with cursor pagination.",
     params(CursorPaginationQuery),
     tag = "venear",
     operation_id = "listVenearProposals",
@@ -122,6 +124,8 @@ pub async fn list_proposals(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals/{proposal_id}/events",
+    summary = "List all events for a proposal",
+    description = "Returns the full indexed event stream for a proposal, ordered by block height and row id descending with cursor pagination.",
     params(
         ("proposal_id" = i64, Path, description = "Proposal id"),
         CursorPaginationQuery
@@ -227,6 +231,8 @@ pub async fn list_proposal_events(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals/{proposal_id}/votes",
+    summary = "List votes for a proposal",
+    description = "Returns indexed vote rows for a proposal, ordered by block height and row id descending with cursor pagination.",
     params(
         ("proposal_id" = i64, Path, description = "Proposal id"),
         CursorPaginationQuery
@@ -327,6 +333,8 @@ pub async fn list_proposal_votes(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/accounts/{account_id}/balances",
+    summary = "List veNEAR balances for an account",
+    description = "Returns balance mutation rows for a governance account, including deltas and totals, ordered by block height and row id descending.",
     params(
         ("account_id" = String, Path, description = "NEAR account id"),
         CursorPaginationQuery
@@ -429,6 +437,8 @@ pub async fn list_account_balances(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/lockups",
+    summary = "List discovered lockup accounts",
+    description = "Returns discovered veNEAR lockup accounts with lifecycle metadata. Supports owner and active-state filters and cursor pagination by lockup account id.",
     params(VenearLockupsQuery),
     tag = "venear",
     operation_id = "listVenearLockups",
@@ -521,6 +531,8 @@ pub async fn list_lockups(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/lockups/{lockup_account_id}/actions",
+    summary = "List actions for a lockup account",
+    description = "Returns indexed lockup-contract actions for a lockup account, with optional method-name and success filters, ordered by block height and row id descending.",
     params(
         ("lockup_account_id" = String, Path, description = "Lockup account id"),
         VenearLockupActionsQuery
