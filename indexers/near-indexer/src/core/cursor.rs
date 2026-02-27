@@ -211,20 +211,11 @@ where
     )
     .on_conflict(
         OnConflict::column(entities::near::near_sync_cursors::Column::ModuleName)
-            .update_columns([
-                entities::near::near_sync_cursors::Column::LastProcessedHeight,
+            .update_column(entities::near::near_sync_cursors::Column::LastProcessedHeight)
+            .value(
                 entities::near::near_sync_cursors::Column::UpdatedAt,
-            ])
-            .values([
-                (
-                    entities::near::near_sync_cursors::Column::LastProcessedHeight,
-                    Expr::value(committed_height),
-                ),
-                (
-                    entities::near::near_sync_cursors::Column::UpdatedAt,
-                    Expr::current_timestamp().into(),
-                ),
-            ])
+                Expr::current_timestamp(),
+            )
             .to_owned(),
     )
     .exec(db)
@@ -277,6 +268,7 @@ pub fn reset_cursor_storage() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sea_orm::{DbBackend, QueryTrait};
 
     #[test]
     fn advance_contiguous_cursor_waits_for_gaps() {
@@ -314,5 +306,33 @@ mod tests {
             Some(501)
         );
         assert_eq!(cursors.get("staking_pools"), Some(&501));
+    }
+
+    #[test]
+    fn upsert_query_has_single_assignment_per_column() {
+        let committed_height = 123_i64;
+        let stream_name = "near-indexer:venear_governance".to_string();
+
+        let sql = entities::near::near_sync_cursors::Entity::insert(
+            entities::near::near_sync_cursors::ActiveModel {
+                module_name: Set(stream_name),
+                last_processed_height: Set(committed_height),
+                updated_at: NotSet,
+            },
+        )
+        .on_conflict(
+            OnConflict::column(entities::near::near_sync_cursors::Column::ModuleName)
+                .update_column(entities::near::near_sync_cursors::Column::LastProcessedHeight)
+                .value(
+                    entities::near::near_sync_cursors::Column::UpdatedAt,
+                    Expr::current_timestamp(),
+                )
+                .to_owned(),
+        )
+        .build(DbBackend::Postgres)
+        .to_string();
+
+        assert_eq!(sql.matches("\"last_processed_height\" = ").count(), 1);
+        assert_eq!(sql.matches("\"updated_at\" = ").count(), 1);
     }
 }
