@@ -15,6 +15,12 @@ pub trait IndexerModule: Send + Sync {
     /// Whether this module is enabled and should process blocks
     fn enabled(&self) -> bool;
 
+    /// Stream assignment mode for this module.
+    /// Defaults to shared stream execution.
+    fn stream_mode(&self) -> common::config::NearModuleStreamMode {
+        common::config::NearModuleStreamMode::Shared
+    }
+
     /// Process a single streamer message for this module
     async fn process_block(
         &self,
@@ -50,11 +56,13 @@ impl ModuleRegistry {
     pub fn register_module(&mut self, module: Box<dyn IndexerModule>) {
         let module_name = module.name().to_string();
         let enabled = module.enabled();
+        let stream_mode = module.stream_mode();
         self.modules.push(module);
 
         debug!(
             module = %module_name,
             enabled = enabled,
+            stream_mode = stream_mode.as_str(),
             total_modules = self.modules.len(),
             "Registered indexer module"
         );

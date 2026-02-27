@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use common::config::NearModuleStreamMode;
 use entities::near::*;
 use near_lake_framework::near_indexer_primitives::{
     views::{AccessKeyPermissionView, StateChangeCauseView, StateChangeValueView},
@@ -43,11 +44,12 @@ const MODULE_NAME: &str = "accounts";
 
 pub struct AccountsModule {
     enabled: bool,
+    stream_mode: NearModuleStreamMode,
 }
 
 impl AccountsModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
-        let enabled = match config {
+        let (enabled, stream_mode) = match config {
             common::config::AppConfig::Indexer(idx) => {
                 let idx = idx.as_ref();
                 let near_config = idx.near.as_ref();
@@ -56,20 +58,33 @@ impl AccountsModule {
                 let near_enabled = near_config.map(|c| c.chain != "disabled").unwrap_or(false);
 
                 if !near_enabled {
-                    return Self { enabled: false };
+                    return Self {
+                        enabled: false,
+                        stream_mode: NearModuleStreamMode::Shared,
+                    };
                 }
 
                 // Get accounts module configuration
-                near_config
+                let module_config = near_config
                     .and_then(|c| c.modules.as_ref())
                     .and_then(|m| m.accounts.as_ref())
-                    .map(|a| a.enabled)
-                    .unwrap_or(true) // Default enabled if not specified
+                    .cloned();
+
+                (
+                    module_config.as_ref().map(|a| a.enabled).unwrap_or(true),
+                    module_config
+                        .as_ref()
+                        .map(|a| a.stream_mode)
+                        .unwrap_or_default(),
+                )
             }
-            _ => false,
+            _ => (false, NearModuleStreamMode::Shared),
         };
 
-        Self { enabled }
+        Self {
+            enabled,
+            stream_mode,
+        }
     }
 
     /// Validate public key format
@@ -654,6 +669,10 @@ impl IndexerModule for AccountsModule {
         self.enabled
     }
 
+    fn stream_mode(&self) -> NearModuleStreamMode {
+        self.stream_mode
+    }
+
     async fn initialize(&self, db: &DatabaseConnection) -> Result<()> {
         self.load_existing_accounts(db).await?;
         info!("Accounts module initialized");
@@ -710,7 +729,10 @@ mod tests {
     use super::*;
 
     fn module() -> AccountsModule {
-        AccountsModule { enabled: true }
+        AccountsModule {
+            enabled: true,
+            stream_mode: NearModuleStreamMode::Shared,
+        }
     }
 
     #[test]

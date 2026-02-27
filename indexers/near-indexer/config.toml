@@ -49,14 +49,19 @@ preload_pool_size = 1
 # Raw data module - stores all NEAR blockchain data as-is
 [near.modules.raw]
 enabled = false
+# Stream mode: "shared" (default) or "independent"
+stream_mode = "shared"
 
 # Accounts module - tracks account lifecycle and metadata
 [near.modules.accounts]
 enabled = false
+# Stream mode: "shared" (default) or "independent"
+stream_mode = "shared"
 
 # Tokens module - indexes NEP-141 (FT), NEP-171 (NFT), and NEP-245 (Multi-Token) events
 [near.modules.tokens]
 enabled = false             # Disabled in dedicated veNEAR governance profile
+stream_mode = "shared"
 track_nep141 = true
 track_nep171 = true
 track_nep245 = true
@@ -65,6 +70,7 @@ contracts = []
 # Staking pools module - indexes validator staking pools and delegator interactions
 [near.modules.staking_pools]
 enabled = false             # Disabled in dedicated veNEAR governance profile
+stream_mode = "shared"
 pool_patterns = ["*.poolv1.near", "*.pool.near"]
 custom_pools = []
 track_epochs = true
@@ -74,6 +80,7 @@ parse_events = true
 # veNEAR governance module - House of Stake governance and lockups timeseries
 [near.modules.venear_governance]
 enabled = true
+stream_mode = "shared"
 venear_contract_id = "venear.dao"
 voting_contract_id = "vote.dao"
 lockup_account_suffix = ".venear.dao"

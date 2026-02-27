@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use common::config::NearModuleStreamMode;
 use entities::near::*;
 use near_lake_framework::near_indexer_primitives::{IndexerShard, StreamerMessage};
 use sea_orm::{
@@ -30,6 +31,7 @@ const MODULE_NAME: &str = "tokens";
 
 pub struct TokensModule {
     enabled: bool,
+    stream_mode: NearModuleStreamMode,
     track_nep141: bool,
     track_nep171: bool,
     track_nep245: bool,
@@ -38,54 +40,66 @@ pub struct TokensModule {
 
 impl TokensModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
-        let (enabled, track_nep141, track_nep171, track_nep245, contract_whitelist) = match config {
-            common::config::AppConfig::Indexer(idx) => {
-                let idx = idx.as_ref();
-                let near_config = idx.near.as_ref();
+        let (enabled, stream_mode, track_nep141, track_nep171, track_nep245, contract_whitelist) =
+            match config {
+                common::config::AppConfig::Indexer(idx) => {
+                    let idx = idx.as_ref();
+                    let near_config = idx.near.as_ref();
 
-                // Check if NEAR indexing is enabled at all
-                let near_enabled = near_config.map(|c| c.chain != "disabled").unwrap_or(false);
+                    // Check if NEAR indexing is enabled at all
+                    let near_enabled = near_config.map(|c| c.chain != "disabled").unwrap_or(false);
 
-                if !near_enabled {
-                    return Self {
-                        enabled: false,
-                        track_nep141: false,
-                        track_nep171: false,
-                        track_nep245: false,
-                        contract_whitelist: None,
-                    };
-                }
-
-                // Get tokens module configuration
-                let tokens_config = near_config
-                    .and_then(|c| c.modules.as_ref())
-                    .and_then(|m| m.tokens.as_ref());
-
-                let enabled = tokens_config.map(|t| t.enabled).unwrap_or(false);
-                let track_nep141 = tokens_config.map(|t| t.track_nep141).unwrap_or(true);
-                let track_nep171 = tokens_config.map(|t| t.track_nep171).unwrap_or(true);
-                let track_nep245 = tokens_config.map(|t| t.track_nep245).unwrap_or(true);
-                let contract_whitelist = tokens_config.and_then(|t| {
-                    if t.contracts.is_empty() {
-                        None
-                    } else {
-                        Some(t.contracts.clone())
+                    if !near_enabled {
+                        return Self {
+                            enabled: false,
+                            stream_mode: NearModuleStreamMode::Shared,
+                            track_nep141: false,
+                            track_nep171: false,
+                            track_nep245: false,
+                            contract_whitelist: None,
+                        };
                     }
-                });
 
-                (
-                    enabled,
-                    track_nep141,
-                    track_nep171,
-                    track_nep245,
-                    contract_whitelist,
-                )
-            }
-            _ => (false, false, false, false, None),
-        };
+                    // Get tokens module configuration
+                    let tokens_config = near_config
+                        .and_then(|c| c.modules.as_ref())
+                        .and_then(|m| m.tokens.as_ref());
+
+                    let enabled = tokens_config.map(|t| t.enabled).unwrap_or(false);
+                    let stream_mode = tokens_config.map(|t| t.stream_mode).unwrap_or_default();
+                    let track_nep141 = tokens_config.map(|t| t.track_nep141).unwrap_or(true);
+                    let track_nep171 = tokens_config.map(|t| t.track_nep171).unwrap_or(true);
+                    let track_nep245 = tokens_config.map(|t| t.track_nep245).unwrap_or(true);
+                    let contract_whitelist = tokens_config.and_then(|t| {
+                        if t.contracts.is_empty() {
+                            None
+                        } else {
+                            Some(t.contracts.clone())
+                        }
+                    });
+
+                    (
+                        enabled,
+                        stream_mode,
+                        track_nep141,
+                        track_nep171,
+                        track_nep245,
+                        contract_whitelist,
+                    )
+                }
+                _ => (
+                    false,
+                    NearModuleStreamMode::Shared,
+                    false,
+                    false,
+                    false,
+                    None,
+                ),
+            };
 
         Self {
             enabled,
+            stream_mode,
             track_nep141,
             track_nep171,
             track_nep245,
@@ -490,6 +504,10 @@ impl IndexerModule for TokensModule {
 
     fn enabled(&self) -> bool {
         self.enabled
+    }
+
+    fn stream_mode(&self) -> NearModuleStreamMode {
+        self.stream_mode
     }
 
     #[instrument(skip(self, msg, db), fields(module = "tokens", height = %msg.block.header.height))]

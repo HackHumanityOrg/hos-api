@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use common::config::NearModuleStreamMode;
 use entities::near::*;
 use near_lake_framework::near_indexer_primitives::views::BlockView;
 use near_lake_framework::near_indexer_primitives::{IndexerShard, StreamerMessage};
@@ -15,11 +16,12 @@ const MODULE_NAME: &str = "raw";
 
 pub struct RawModule {
     enabled: bool,
+    stream_mode: NearModuleStreamMode,
 }
 
 impl RawModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
-        let enabled = match config {
+        let (enabled, stream_mode) = match config {
             common::config::AppConfig::Indexer(idx) => {
                 let idx = idx.as_ref();
                 let near_config = idx.near.as_ref();
@@ -28,20 +30,33 @@ impl RawModule {
                 let near_enabled = near_config.map(|c| c.chain != "disabled").unwrap_or(false);
 
                 if !near_enabled {
-                    return Self { enabled: false };
+                    return Self {
+                        enabled: false,
+                        stream_mode: NearModuleStreamMode::Shared,
+                    };
                 }
 
                 // Get raw module configuration
-                near_config
+                let module_config = near_config
                     .and_then(|c| c.modules.as_ref())
                     .and_then(|m| m.raw.as_ref())
-                    .map(|r| r.enabled)
-                    .unwrap_or(true) // Default enabled if not specified
+                    .cloned();
+
+                (
+                    module_config.as_ref().map(|r| r.enabled).unwrap_or(true),
+                    module_config
+                        .as_ref()
+                        .map(|r| r.stream_mode)
+                        .unwrap_or_default(),
+                )
             }
-            _ => false,
+            _ => (false, NearModuleStreamMode::Shared),
         };
 
-        Self { enabled }
+        Self {
+            enabled,
+            stream_mode,
+        }
     }
 
     async fn store_block(&self, block: &BlockView, db: &impl ConnectionTrait) -> Result<()> {
@@ -319,6 +334,10 @@ impl IndexerModule for RawModule {
 
     fn enabled(&self) -> bool {
         self.enabled
+    }
+
+    fn stream_mode(&self) -> NearModuleStreamMode {
+        self.stream_mode
     }
 
     async fn initialize(&self, _db: &DatabaseConnection) -> Result<()> {

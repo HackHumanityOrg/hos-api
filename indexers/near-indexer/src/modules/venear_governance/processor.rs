@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use base64::Engine;
+use common::config::NearModuleStreamMode;
 use near_lake_framework::near_indexer_primitives::{
     views::{ActionView, ReceiptEnumView, ReceiptView},
     IndexerShard, StreamerMessage,
@@ -44,6 +45,7 @@ struct ActionContext {
 
 pub struct VenearGovernanceModule {
     enabled: bool,
+    stream_mode: NearModuleStreamMode,
     venear_contract_id: String,
     voting_contract_id: String,
     lockup_account_suffix: String,
@@ -83,6 +85,7 @@ impl VenearGovernanceModule {
 
     pub fn new(config: &common::config::AppConfig) -> Self {
         let mut enabled = false;
+        let mut stream_mode = NearModuleStreamMode::Shared;
         let mut venear_contract_id = "venear.dao".to_string();
         let mut voting_contract_id = "vote.dao".to_string();
         let mut lockup_account_suffix = ".venear.dao".to_string();
@@ -99,6 +102,7 @@ impl VenearGovernanceModule {
                         .and_then(|m| m.venear_governance.as_ref())
                     {
                         enabled = module_cfg.enabled;
+                        stream_mode = module_cfg.stream_mode;
                         venear_contract_id = module_cfg.venear_contract_id.clone();
                         voting_contract_id = module_cfg.voting_contract_id.clone();
                         lockup_account_suffix = module_cfg.lockup_account_suffix.clone();
@@ -111,6 +115,7 @@ impl VenearGovernanceModule {
 
         Self {
             enabled,
+            stream_mode,
             venear_contract_id,
             voting_contract_id,
             lockup_account_suffix,
@@ -1350,6 +1355,10 @@ impl IndexerModule for VenearGovernanceModule {
         self.enabled
     }
 
+    fn stream_mode(&self) -> NearModuleStreamMode {
+        self.stream_mode
+    }
+
     async fn initialize(&self, db: &DatabaseConnection) -> Result<()> {
         if !self.enabled {
             return Ok(());
@@ -1414,8 +1423,8 @@ mod tests {
     use super::*;
     use anyhow::Result;
     use common::config::{
-        AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig, NearModulesConfig,
-        TelemetryConfig, VenearGovernanceModuleConfig,
+        AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig,
+        NearModuleStreamMode, NearModulesConfig, TelemetryConfig, VenearGovernanceModuleConfig,
     };
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     use test_support::{init_test_tracing, TestDatabase};
@@ -1443,6 +1452,7 @@ mod tests {
                     staking_pools: None,
                     venear_governance: Some(VenearGovernanceModuleConfig {
                         enabled: true,
+                        stream_mode: NearModuleStreamMode::Shared,
                         venear_contract_id: "venear.dao".to_string(),
                         voting_contract_id: "vote.dao".to_string(),
                         lockup_account_suffix: ".venear.dao".to_string(),

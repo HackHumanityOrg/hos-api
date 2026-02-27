@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use common::config::NearModuleStreamMode;
 use entities::near::*;
 use near_lake_framework::near_indexer_primitives::{
     views::{
@@ -28,6 +29,7 @@ const MODULE_NAME: &str = "staking_pools";
 
 pub struct StakingPoolsModule {
     enabled: bool,
+    stream_mode: NearModuleStreamMode,
     pool_detector: PoolDetector,
     track_epochs: bool,
     track_delegators: bool,
@@ -58,60 +60,78 @@ struct BalanceEventRecord<'a> {
 
 impl StakingPoolsModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
-        let (enabled, pool_patterns, custom_pools, track_epochs, track_delegators, parse_events) =
-            match config {
-                common::config::AppConfig::Indexer(idx) => {
-                    let idx = idx.as_ref();
-                    let near_config = idx.near.as_ref();
+        let (
+            enabled,
+            stream_mode,
+            pool_patterns,
+            custom_pools,
+            track_epochs,
+            track_delegators,
+            parse_events,
+        ) = match config {
+            common::config::AppConfig::Indexer(idx) => {
+                let idx = idx.as_ref();
+                let near_config = idx.near.as_ref();
 
-                    // Check if NEAR indexing is enabled at all
-                    let near_enabled = near_config.map(|c| c.chain != "disabled").unwrap_or(false);
+                // Check if NEAR indexing is enabled at all
+                let near_enabled = near_config.map(|c| c.chain != "disabled").unwrap_or(false);
 
-                    if !near_enabled {
-                        return Self {
-                            enabled: false,
-                            pool_detector: PoolDetector::new(vec![], vec![]),
-                            track_epochs: false,
-                            track_delegators: false,
-                            parse_events: false,
-                        };
-                    }
-
-                    // Get staking pools module configuration
-                    let staking_config = near_config
-                        .and_then(|c| c.modules.as_ref())
-                        .and_then(|m| m.staking_pools.as_ref());
-
-                    let enabled = staking_config.map(|s| s.enabled).unwrap_or(false);
-                    let pool_patterns = staking_config
-                        .map(|s| s.pool_patterns.clone())
-                        .unwrap_or_else(|| {
-                            vec!["*.poolv1.near".to_string(), "*.pool.near".to_string()]
-                        });
-                    let custom_pools = staking_config
-                        .map(|s| s.custom_pools.clone())
-                        .unwrap_or_default();
-                    let track_epochs = staking_config.map(|s| s.track_epochs).unwrap_or(true);
-                    let track_delegators =
-                        staking_config.map(|s| s.track_delegators).unwrap_or(true);
-                    let parse_events = staking_config.map(|s| s.parse_events).unwrap_or(true);
-
-                    (
-                        enabled,
-                        pool_patterns,
-                        custom_pools,
-                        track_epochs,
-                        track_delegators,
-                        parse_events,
-                    )
+                if !near_enabled {
+                    return Self {
+                        enabled: false,
+                        stream_mode: NearModuleStreamMode::Shared,
+                        pool_detector: PoolDetector::new(vec![], vec![]),
+                        track_epochs: false,
+                        track_delegators: false,
+                        parse_events: false,
+                    };
                 }
-                _ => (false, vec![], vec![], false, false, false),
-            };
+
+                // Get staking pools module configuration
+                let staking_config = near_config
+                    .and_then(|c| c.modules.as_ref())
+                    .and_then(|m| m.staking_pools.as_ref());
+
+                let enabled = staking_config.map(|s| s.enabled).unwrap_or(false);
+                let stream_mode = staking_config.map(|s| s.stream_mode).unwrap_or_default();
+                let pool_patterns = staking_config
+                    .map(|s| s.pool_patterns.clone())
+                    .unwrap_or_else(|| {
+                        vec!["*.poolv1.near".to_string(), "*.pool.near".to_string()]
+                    });
+                let custom_pools = staking_config
+                    .map(|s| s.custom_pools.clone())
+                    .unwrap_or_default();
+                let track_epochs = staking_config.map(|s| s.track_epochs).unwrap_or(true);
+                let track_delegators = staking_config.map(|s| s.track_delegators).unwrap_or(true);
+                let parse_events = staking_config.map(|s| s.parse_events).unwrap_or(true);
+
+                (
+                    enabled,
+                    stream_mode,
+                    pool_patterns,
+                    custom_pools,
+                    track_epochs,
+                    track_delegators,
+                    parse_events,
+                )
+            }
+            _ => (
+                false,
+                NearModuleStreamMode::Shared,
+                vec![],
+                vec![],
+                false,
+                false,
+                false,
+            ),
+        };
 
         let pool_detector = PoolDetector::new(pool_patterns, custom_pools);
 
         Self {
             enabled,
+            stream_mode,
             pool_detector,
             track_epochs,
             track_delegators,
@@ -764,6 +784,10 @@ impl IndexerModule for StakingPoolsModule {
 
     fn enabled(&self) -> bool {
         self.enabled
+    }
+
+    fn stream_mode(&self) -> NearModuleStreamMode {
+        self.stream_mode
     }
 
     #[instrument(skip(self, streamer_message, db), fields(module = "staking_pools", height = %streamer_message.block.header.height))]

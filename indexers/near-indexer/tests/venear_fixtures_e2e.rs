@@ -14,8 +14,8 @@ mod support;
 
 use anyhow::Result;
 use common::config::{
-    AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig, NearModulesConfig,
-    TelemetryConfig, VenearGovernanceModuleConfig,
+    AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig, NearModuleStreamMode,
+    NearModulesConfig, TelemetryConfig, VenearGovernanceModuleConfig,
 };
 use near_indexer::modules::venear_governance::VenearGovernanceModule;
 use near_indexer::IndexerModule;
@@ -228,6 +228,7 @@ fn build_test_config() -> AppConfig {
                 staking_pools: None,
                 venear_governance: Some(VenearGovernanceModuleConfig {
                     enabled: true,
+                    stream_mode: NearModuleStreamMode::Shared,
                     venear_contract_id: "venear.dao".to_string(),
                     voting_contract_id: "vote.dao".to_string(),
                     lockup_account_suffix: ".venear.dao".to_string(),

@@ -242,6 +242,27 @@ pub struct NearLakeConfig {
     pub modules: Option<NearModulesConfig>,
 }
 
+/// Stream assignment mode for NEAR modules.
+///
+/// `shared` means the module consumes from the shared stream with other shared modules.
+/// `independent` means the module runs on its own dedicated stream.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum NearModuleStreamMode {
+    #[default]
+    Shared,
+    Independent,
+}
+
+impl NearModuleStreamMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Shared => "shared",
+            Self::Independent => "independent",
+        }
+    }
+}
+
 /// NEAR indexer modules configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NearModulesConfig {
@@ -267,6 +288,8 @@ pub struct NearModulesConfig {
 pub struct RawModuleConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
+    pub stream_mode: NearModuleStreamMode,
 }
 
 /// Accounts module configuration
@@ -274,6 +297,8 @@ pub struct RawModuleConfig {
 pub struct AccountsModuleConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
+    pub stream_mode: NearModuleStreamMode,
 }
 
 /// Tokens module configuration
@@ -281,6 +306,8 @@ pub struct AccountsModuleConfig {
 pub struct TokensModuleConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub stream_mode: NearModuleStreamMode,
     #[serde(default = "default_true")]
     pub track_nep141: bool,
     #[serde(default = "default_true")]
@@ -296,6 +323,8 @@ pub struct TokensModuleConfig {
 pub struct StakingPoolsModuleConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub stream_mode: NearModuleStreamMode,
     #[serde(default = "default_pool_patterns")]
     pub pool_patterns: Vec<String>,
     #[serde(default)]
@@ -313,6 +342,8 @@ pub struct StakingPoolsModuleConfig {
 pub struct VenearGovernanceModuleConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub stream_mode: NearModuleStreamMode,
     #[serde(default = "default_venear_contract_id")]
     pub venear_contract_id: String,
     #[serde(default = "default_voting_contract_id")]
@@ -371,6 +402,7 @@ impl ToLog for RawModuleConfig {
     fn to_log(&self) -> JsonValue {
         json!({
             "enabled": self.enabled,
+            "stream_mode": self.stream_mode.as_str(),
         })
     }
 }
@@ -379,6 +411,7 @@ impl ToLog for AccountsModuleConfig {
     fn to_log(&self) -> JsonValue {
         json!({
             "enabled": self.enabled,
+            "stream_mode": self.stream_mode.as_str(),
         })
     }
 }
@@ -387,6 +420,7 @@ impl ToLog for TokensModuleConfig {
     fn to_log(&self) -> JsonValue {
         json!({
             "enabled": self.enabled,
+            "stream_mode": self.stream_mode.as_str(),
             "track_nep141": self.track_nep141,
             "track_nep171": self.track_nep171,
             "track_nep245": self.track_nep245,
@@ -403,6 +437,7 @@ impl ToLog for StakingPoolsModuleConfig {
     fn to_log(&self) -> JsonValue {
         json!({
             "enabled": self.enabled,
+            "stream_mode": self.stream_mode.as_str(),
             "pool_patterns": self.pool_patterns,
             "custom_pools": if self.custom_pools.is_empty() {
                 "none".to_string()
@@ -420,6 +455,7 @@ impl ToLog for VenearGovernanceModuleConfig {
     fn to_log(&self) -> JsonValue {
         json!({
             "enabled": self.enabled,
+            "stream_mode": self.stream_mode.as_str(),
             "venear_contract_id": self.venear_contract_id,
             "voting_contract_id": self.voting_contract_id,
             "lockup_account_suffix": self.lockup_account_suffix,
@@ -967,5 +1003,44 @@ mod tests {
         std::env::set_current_dir(&old_cwd).unwrap();
         std::env::remove_var("DATABASE_URL");
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn near_module_stream_mode_defaults_to_shared() {
+        assert_eq!(
+            NearModuleStreamMode::default(),
+            NearModuleStreamMode::Shared
+        );
+        assert_eq!(
+            RawModuleConfig::default().stream_mode,
+            NearModuleStreamMode::Shared
+        );
+        assert_eq!(
+            AccountsModuleConfig::default().stream_mode,
+            NearModuleStreamMode::Shared
+        );
+        assert_eq!(
+            TokensModuleConfig::default().stream_mode,
+            NearModuleStreamMode::Shared
+        );
+        assert_eq!(
+            StakingPoolsModuleConfig::default().stream_mode,
+            NearModuleStreamMode::Shared
+        );
+        assert_eq!(
+            VenearGovernanceModuleConfig::default().stream_mode,
+            NearModuleStreamMode::Shared
+        );
+    }
+
+    #[test]
+    fn near_module_stream_mode_deserializes_independent() {
+        let cfg: VenearGovernanceModuleConfig = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "stream_mode": "independent"
+        }))
+        .expect("stream mode should deserialize");
+
+        assert_eq!(cfg.stream_mode, NearModuleStreamMode::Independent);
     }
 }
