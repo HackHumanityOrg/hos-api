@@ -38,8 +38,8 @@ chain = "mainnet"
 # Starting block height (0 for genesis, or specific height)
 start_height = 0
 # Concurrency for parallel block processing (number of blocks to process simultaneously)
-# Reduced from 20 to 4 to prevent database connection exhaustion
-concurrency = 4
+# Keep at 1 for deterministic cumulative veNEAR balances
+concurrency = 1
 # Limit NEAR Lake prefetch to avoid unbounded upstream buffering and memory growth
 # Keep this small (1–2) unless you’ve verified DB can keep up
 preload_pool_size = 1
@@ -48,25 +48,33 @@ preload_pool_size = 1
 
 # Raw data module - stores all NEAR blockchain data as-is
 [near.modules.raw]
-enabled = true
+enabled = false
 
 # Accounts module - tracks account lifecycle and metadata
 [near.modules.accounts]
-enabled = true
+enabled = false
 
 # Tokens module - indexes NEP-141 (FT), NEP-171 (NFT), and NEP-245 (Multi-Token) events
 [near.modules.tokens]
-enabled = true              # Set to true to enable token indexing
-track_nep141 = true         # Track Fungible Token (NEP-141) events
-track_nep171 = true         # Track Non-Fungible Token (NEP-171) events
-track_nep245 = true         # Track Multi-Token (NEP-245) events
-contracts = []              # Empty array = index all contracts, or specify contract IDs to whitelist
+enabled = false             # Disabled in dedicated veNEAR governance profile
+track_nep141 = true
+track_nep171 = true
+track_nep245 = true
+contracts = []
 
 # Staking pools module - indexes validator staking pools and delegator interactions
 [near.modules.staking_pools]
-enabled = true              # Set to true to enable staking pools indexing
-pool_patterns = ["*.poolv1.near", "*.pool.near"]  # Patterns to identify staking pool contracts
-custom_pools = []           # Specify known custom pool account IDs
-track_epochs = true         # Track validator epoch transitions and rewards
-track_delegators = true     # Track delegator relationships with pools
-parse_events = true         # Parse and store events from pool contracts
+enabled = false             # Disabled in dedicated veNEAR governance profile
+pool_patterns = ["*.poolv1.near", "*.pool.near"]
+custom_pools = []
+track_epochs = true
+track_delegators = true
+parse_events = true
+
+# veNEAR governance module - House of Stake governance and lockups timeseries
+[near.modules.venear_governance]
+enabled = true
+venear_contract_id = "venear.dao"
+voting_contract_id = "vote.dao"
+lockup_account_suffix = ".venear.dao"
+known_lockups = []

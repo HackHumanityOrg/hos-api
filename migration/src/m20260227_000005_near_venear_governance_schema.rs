@@ -1,0 +1,871 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        // near.near_venear_events_raw
+        manager
+            .create_table(
+                Table::create()
+                    .table((Alias::new("near"), NearVenearEventsRaw::Table))
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::BlockTimestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::ShardId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::ReceiptId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::ExecutionOutcomeId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::PredecessorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::ContractId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::LogIndex)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::DataIndex)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearVenearEventsRaw::Standard).string_len(32))
+                    .col(ColumnDef::new(NearVenearEventsRaw::EventType).string_len(64))
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::Success)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(ColumnDef::new(NearVenearEventsRaw::ParseError).text())
+                    .col(ColumnDef::new(NearVenearEventsRaw::EventData).json())
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::LogText)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearEventsRaw::CreatedAt)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ux_near_venear_events_raw_identity")
+                    .table((Alias::new("near"), NearVenearEventsRaw::Table))
+                    .col(NearVenearEventsRaw::ExecutionOutcomeId)
+                    .col(NearVenearEventsRaw::LogIndex)
+                    .col(NearVenearEventsRaw::DataIndex)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ix_near_venear_events_raw_block_height")
+                    .table((Alias::new("near"), NearVenearEventsRaw::Table))
+                    .col(NearVenearEventsRaw::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+
+        // near.near_venear_lockups
+        manager
+            .create_table(
+                Table::create()
+                    .table((Alias::new("near"), NearVenearLockups::Table))
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearVenearLockups::LockupAccountId)
+                            .string_len(128)
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockups::OwnerAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearVenearLockups::LockupVersion).big_integer())
+                    .col(
+                        ColumnDef::new(NearVenearLockups::DiscoverySource)
+                            .string_len(32)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockups::DiscoveredAtHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockups::DiscoveredAtTimestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockups::LastSeenHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockups::LastSeenTimestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockups::IsActive)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(ColumnDef::new(NearVenearLockups::DeletedAtHeight).big_integer())
+                    .col(ColumnDef::new(NearVenearLockups::DeletedAtTimestamp).big_integer())
+                    .col(ColumnDef::new(NearVenearLockups::Metadata).json())
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ix_near_venear_lockups_owner")
+                    .table((Alias::new("near"), NearVenearLockups::Table))
+                    .col(NearVenearLockups::OwnerAccountId)
+                    .to_owned(),
+            )
+            .await?;
+
+        // near.near_venear_account_balances
+        manager
+            .create_table(
+                Table::create()
+                    .table((Alias::new("near"), NearVenearAccountBalances::Table))
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::AccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::EventType)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearVenearAccountBalances::DeltaAmount).text())
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::TotalBalance)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearVenearAccountBalances::LockedNearBalance).text())
+                    .col(ColumnDef::new(NearVenearAccountBalances::LockupUpdateNonce).big_integer())
+                    .col(ColumnDef::new(NearVenearAccountBalances::LockupVersion).big_integer())
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::BlockTimestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::ShardId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::ReceiptId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::ExecutionOutcomeId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::PredecessorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::ContractId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::LogIndex)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::DataIndex)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearVenearAccountBalances::Payload).json())
+                    .col(
+                        ColumnDef::new(NearVenearAccountBalances::CreatedAt)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ux_near_venear_account_balances_identity")
+                    .table((Alias::new("near"), NearVenearAccountBalances::Table))
+                    .col(NearVenearAccountBalances::ExecutionOutcomeId)
+                    .col(NearVenearAccountBalances::LogIndex)
+                    .col(NearVenearAccountBalances::DataIndex)
+                    .col(NearVenearAccountBalances::AccountId)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ix_near_venear_account_balances_account_height")
+                    .table((Alias::new("near"), NearVenearAccountBalances::Table))
+                    .col(NearVenearAccountBalances::AccountId)
+                    .col(NearVenearAccountBalances::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+
+        // near.near_venear_proposal_events
+        manager
+            .create_table(
+                Table::create()
+                    .table((Alias::new("near"), NearVenearProposalEvents::Table))
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::ProposalId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::EventType)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearVenearProposalEvents::AccountId).string_len(128))
+                    .col(ColumnDef::new(NearVenearProposalEvents::ProposerId).string_len(128))
+                    .col(ColumnDef::new(NearVenearProposalEvents::ReviewerId).string_len(128))
+                    .col(ColumnDef::new(NearVenearProposalEvents::VotingStartTimeSec).big_integer())
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::SnapshotBlockHeight).big_integer(),
+                    )
+                    .col(ColumnDef::new(NearVenearProposalEvents::SnapshotRoot).string_len(128))
+                    .col(ColumnDef::new(NearVenearProposalEvents::SnapshotTotalVenear).text())
+                    .col(ColumnDef::new(NearVenearProposalEvents::Metadata).json())
+                    .col(ColumnDef::new(NearVenearProposalEvents::Payload).json())
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::BlockTimestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::ShardId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::ReceiptId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::ExecutionOutcomeId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::PredecessorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::ContractId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::LogIndex)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::DataIndex)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearProposalEvents::CreatedAt)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ux_near_venear_proposal_events_identity")
+                    .table((Alias::new("near"), NearVenearProposalEvents::Table))
+                    .col(NearVenearProposalEvents::ExecutionOutcomeId)
+                    .col(NearVenearProposalEvents::LogIndex)
+                    .col(NearVenearProposalEvents::DataIndex)
+                    .col(NearVenearProposalEvents::EventType)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ix_near_venear_proposal_events_proposal_height")
+                    .table((Alias::new("near"), NearVenearProposalEvents::Table))
+                    .col(NearVenearProposalEvents::ProposalId)
+                    .col(NearVenearProposalEvents::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+
+        // near.near_venear_votes
+        manager
+            .create_table(
+                Table::create()
+                    .table((Alias::new("near"), NearVenearVotes::Table))
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearVenearVotes::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::ProposalId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::AccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearVenearVotes::Vote).integer().not_null())
+                    .col(
+                        ColumnDef::new(NearVenearVotes::AccountBalance)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::EventType)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearVenearVotes::Payload).json())
+                    .col(
+                        ColumnDef::new(NearVenearVotes::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::BlockTimestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::ShardId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::ReceiptId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::ExecutionOutcomeId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::PredecessorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::ContractId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::LogIndex)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::DataIndex)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearVotes::CreatedAt)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ux_near_venear_votes_identity")
+                    .table((Alias::new("near"), NearVenearVotes::Table))
+                    .col(NearVenearVotes::ExecutionOutcomeId)
+                    .col(NearVenearVotes::LogIndex)
+                    .col(NearVenearVotes::DataIndex)
+                    .col(NearVenearVotes::AccountId)
+                    .col(NearVenearVotes::ProposalId)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ix_near_venear_votes_proposal_height")
+                    .table((Alias::new("near"), NearVenearVotes::Table))
+                    .col(NearVenearVotes::ProposalId)
+                    .col(NearVenearVotes::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ix_near_venear_votes_account_height")
+                    .table((Alias::new("near"), NearVenearVotes::Table))
+                    .col(NearVenearVotes::AccountId)
+                    .col(NearVenearVotes::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+
+        // near.near_venear_lockup_actions
+        manager
+            .create_table(
+                Table::create()
+                    .table((Alias::new("near"), NearVenearLockupActions::Table))
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::LockupAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearVenearLockupActions::OwnerAccountId).string_len(128))
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::PredecessorAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::ReceiverAccountId)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::MethodName)
+                            .string_len(128)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::ActionSource)
+                            .string_len(32)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::ActionIndex)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearVenearLockupActions::ArgsJson).json())
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::ArgsBase64)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::AttachedDeposit)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(NearVenearLockupActions::TransactionHash).string_len(64))
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::ReceiptId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::ExecutionOutcomeId)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::Success)
+                            .boolean()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::BlockHeight)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::BlockTimestamp)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::ShardId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::StakingPoolAccountId)
+                            .string_len(128),
+                    )
+                    .col(ColumnDef::new(NearVenearLockupActions::Metadata).json())
+                    .col(
+                        ColumnDef::new(NearVenearLockupActions::CreatedAt)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ux_near_venear_lockup_actions_identity")
+                    .table((Alias::new("near"), NearVenearLockupActions::Table))
+                    .col(NearVenearLockupActions::ReceiptId)
+                    .col(NearVenearLockupActions::ActionIndex)
+                    .col(NearVenearLockupActions::MethodName)
+                    .col(NearVenearLockupActions::PredecessorAccountId)
+                    .col(NearVenearLockupActions::ReceiverAccountId)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ix_near_venear_lockup_actions_lockup_height")
+                    .table((Alias::new("near"), NearVenearLockupActions::Table))
+                    .col(NearVenearLockupActions::LockupAccountId)
+                    .col(NearVenearLockupActions::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("ix_near_venear_lockup_actions_method_height")
+                    .table((Alias::new("near"), NearVenearLockupActions::Table))
+                    .col(NearVenearLockupActions::MethodName)
+                    .col(NearVenearLockupActions::BlockHeight)
+                    .to_owned(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(
+                Table::drop()
+                    .if_exists()
+                    .table((Alias::new("near"), NearVenearLockupActions::Table))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .drop_table(
+                Table::drop()
+                    .if_exists()
+                    .table((Alias::new("near"), NearVenearVotes::Table))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .drop_table(
+                Table::drop()
+                    .if_exists()
+                    .table((Alias::new("near"), NearVenearProposalEvents::Table))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .drop_table(
+                Table::drop()
+                    .if_exists()
+                    .table((Alias::new("near"), NearVenearAccountBalances::Table))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .drop_table(
+                Table::drop()
+                    .if_exists()
+                    .table((Alias::new("near"), NearVenearLockups::Table))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .drop_table(
+                Table::drop()
+                    .if_exists()
+                    .table((Alias::new("near"), NearVenearEventsRaw::Table))
+                    .to_owned(),
+            )
+            .await?;
+
+        Ok(())
+    }
+}
+
+#[derive(DeriveIden)]
+enum NearVenearEventsRaw {
+    Table,
+    Id,
+    BlockHeight,
+    BlockTimestamp,
+    ShardId,
+    ReceiptId,
+    ExecutionOutcomeId,
+    PredecessorAccountId,
+    ContractId,
+    LogIndex,
+    DataIndex,
+    Standard,
+    EventType,
+    Success,
+    ParseError,
+    EventData,
+    LogText,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum NearVenearLockups {
+    Table,
+    LockupAccountId,
+    OwnerAccountId,
+    LockupVersion,
+    DiscoverySource,
+    DiscoveredAtHeight,
+    DiscoveredAtTimestamp,
+    LastSeenHeight,
+    LastSeenTimestamp,
+    IsActive,
+    DeletedAtHeight,
+    DeletedAtTimestamp,
+    Metadata,
+}
+
+#[derive(DeriveIden)]
+enum NearVenearAccountBalances {
+    Table,
+    Id,
+    AccountId,
+    EventType,
+    DeltaAmount,
+    TotalBalance,
+    LockedNearBalance,
+    LockupUpdateNonce,
+    LockupVersion,
+    BlockHeight,
+    BlockTimestamp,
+    ShardId,
+    ReceiptId,
+    ExecutionOutcomeId,
+    PredecessorAccountId,
+    ContractId,
+    LogIndex,
+    DataIndex,
+    Payload,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum NearVenearProposalEvents {
+    Table,
+    Id,
+    ProposalId,
+    EventType,
+    AccountId,
+    ProposerId,
+    ReviewerId,
+    VotingStartTimeSec,
+    SnapshotBlockHeight,
+    SnapshotRoot,
+    SnapshotTotalVenear,
+    Metadata,
+    Payload,
+    BlockHeight,
+    BlockTimestamp,
+    ShardId,
+    ReceiptId,
+    ExecutionOutcomeId,
+    PredecessorAccountId,
+    ContractId,
+    LogIndex,
+    DataIndex,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum NearVenearVotes {
+    Table,
+    Id,
+    ProposalId,
+    AccountId,
+    Vote,
+    AccountBalance,
+    EventType,
+    Payload,
+    BlockHeight,
+    BlockTimestamp,
+    ShardId,
+    ReceiptId,
+    ExecutionOutcomeId,
+    PredecessorAccountId,
+    ContractId,
+    LogIndex,
+    DataIndex,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum NearVenearLockupActions {
+    Table,
+    Id,
+    LockupAccountId,
+    OwnerAccountId,
+    PredecessorAccountId,
+    ReceiverAccountId,
+    MethodName,
+    ActionSource,
+    ActionIndex,
+    ArgsJson,
+    ArgsBase64,
+    AttachedDeposit,
+    TransactionHash,
+    ReceiptId,
+    ExecutionOutcomeId,
+    Success,
+    BlockHeight,
+    BlockTimestamp,
+    ShardId,
+    StakingPoolAccountId,
+    Metadata,
+    CreatedAt,
+}

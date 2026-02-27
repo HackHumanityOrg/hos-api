@@ -2,6 +2,7 @@ pub mod accounts;
 pub mod raw;
 pub mod staking_pools;
 pub mod tokens;
+pub mod venear_governance;
 
 use crate::ModuleRegistry;
 
@@ -22,4 +23,8 @@ pub fn register_all_modules(registry: &mut ModuleRegistry, config: &common::conf
     // Register staking pools module - indexes validator staking pools and delegator interactions
     let staking_pools_module = staking_pools::StakingPoolsModule::new(config);
     registry.register_module(Box::new(staking_pools_module));
+
+    // Register veNEAR governance module - indexes House of Stake governance timeseries
+    let venear_governance_module = venear_governance::VenearGovernanceModule::new(config);
+    registry.register_module(Box::new(venear_governance_module));
 }

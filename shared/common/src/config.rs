@@ -257,6 +257,9 @@ pub struct NearModulesConfig {
     /// Staking pools module configuration
     #[serde(default)]
     pub staking_pools: Option<StakingPoolsModuleConfig>,
+    /// veNEAR governance module configuration
+    #[serde(default)]
+    pub venear_governance: Option<VenearGovernanceModuleConfig>,
 }
 
 /// Raw data module configuration
@@ -305,12 +308,39 @@ pub struct StakingPoolsModuleConfig {
     pub parse_events: bool,
 }
 
+/// veNEAR governance module configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VenearGovernanceModuleConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_venear_contract_id")]
+    pub venear_contract_id: String,
+    #[serde(default = "default_voting_contract_id")]
+    pub voting_contract_id: String,
+    #[serde(default = "default_lockup_account_suffix")]
+    pub lockup_account_suffix: String,
+    #[serde(default)]
+    pub known_lockups: Vec<String>,
+}
+
 fn default_chain() -> String {
     "mainnet".to_string()
 }
 
 fn default_pool_patterns() -> Vec<String> {
     vec!["*.poolv1.near".to_string(), "*.pool.near".to_string()]
+}
+
+fn default_venear_contract_id() -> String {
+    "venear.dao".to_string()
+}
+
+fn default_voting_contract_id() -> String {
+    "vote.dao".to_string()
+}
+
+fn default_lockup_account_suffix() -> String {
+    ".venear.dao".to_string()
 }
 
 impl ToLog for NearLakeConfig {
@@ -332,6 +362,7 @@ impl ToLog for NearModulesConfig {
             "accounts": self.accounts.as_ref().map(|a| a.to_log()),
             "tokens": self.tokens.as_ref().map(|t| t.to_log()),
             "staking_pools": self.staking_pools.as_ref().map(|s| s.to_log()),
+            "venear_governance": self.venear_governance.as_ref().map(|v| v.to_log()),
         })
     }
 }
@@ -381,6 +412,22 @@ impl ToLog for StakingPoolsModuleConfig {
             "track_epochs": self.track_epochs,
             "track_delegators": self.track_delegators,
             "parse_events": self.parse_events,
+        })
+    }
+}
+
+impl ToLog for VenearGovernanceModuleConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "enabled": self.enabled,
+            "venear_contract_id": self.venear_contract_id,
+            "voting_contract_id": self.voting_contract_id,
+            "lockup_account_suffix": self.lockup_account_suffix,
+            "known_lockups": if self.known_lockups.is_empty() {
+                "none".to_string()
+            } else {
+                format!("{} lockups", self.known_lockups.len())
+            },
         })
     }
 }

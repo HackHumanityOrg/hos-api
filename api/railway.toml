@@ -1,7 +1,7 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "api/Dockerfile"
-watchPaths = [
+watchPatterns = [
   "api/**",
   "shared/**",
   "migration/**",
@@ -15,7 +15,11 @@ healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+numReplicas = 1
 
-# Railway environment configuration
-[deploy.env]
-RUST_LOG = "debug"
+[deploy.multiRegionConfig."us-east4-eqdc4a"]
+numReplicas = 1
+
+[deploy.limitOverride.containers]
+cpu = 4
+memoryBytes = 4000000000

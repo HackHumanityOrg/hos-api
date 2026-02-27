@@ -1,7 +1,7 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "indexers/discourse-indexer/Dockerfile"
-watchPaths = [
+watchPatterns = [
   "indexers/discourse-indexer/**",
   "shared/**",
   "migration/**",
@@ -13,7 +13,11 @@ watchPaths = [
 startCommand = "/discourse-indexer"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
+numReplicas = 1
 
-# Railway environment configuration
-[deploy.env]
-RUST_LOG = "debug"
+[deploy.multiRegionConfig."us-east4-eqdc4a"]
+numReplicas = 1
+
+[deploy.limitOverride.containers]
+cpu = 4
+memoryBytes = 4000000000
