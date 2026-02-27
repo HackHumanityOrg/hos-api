@@ -3556,6 +3556,7 @@ dependencies = [
  "hex",
  "near-indexer-primitives",
  "near-lake-framework",
+ "reqwest",
  "rstest",
  "sea-orm",
  "sentry",
@@ -3566,6 +3567,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

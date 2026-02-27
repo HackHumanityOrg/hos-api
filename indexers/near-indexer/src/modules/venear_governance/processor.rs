@@ -39,6 +39,7 @@ struct ActionContext {
     block_timestamp: i64,
     shard_id: i32,
     success: bool,
+    success_value_base64: Option<String>,
 }
 
 pub struct VenearGovernanceModule {
@@ -52,6 +53,29 @@ pub struct VenearGovernanceModule {
 }
 
 impl VenearGovernanceModule {
+    fn extract_success_value(status_json: &JsonValue) -> Option<String> {
+        status_json
+            .as_object()
+            .and_then(|map| map.get("SuccessValue"))
+            .and_then(JsonValue::as_str)
+            .map(ToString::to_string)
+    }
+
+    fn decode_success_value_json(success_value_base64: Option<&str>) -> Option<JsonValue> {
+        let encoded = success_value_base64?;
+        let bytes = base64::prelude::BASE64_STANDARD.decode(encoded).ok()?;
+        if bytes.is_empty() {
+            return None;
+        }
+
+        serde_json::from_slice::<JsonValue>(&bytes)
+            .ok()
+            .or_else(|| {
+                let text = String::from_utf8(bytes).ok()?;
+                serde_json::from_str::<JsonValue>(&text).ok()
+            })
+    }
+
     fn shard_to_i32(shard_id: near_lake_framework::near_indexer_primitives::types::ShardId) -> i32 {
         let value: u64 = shard_id.into();
         i32::try_from(value).unwrap_or(i32::MAX)
@@ -181,6 +205,7 @@ impl VenearGovernanceModule {
                 let status_json =
                     serde_json::to_value(&outcome.outcome.status).unwrap_or(JsonValue::Null);
                 let success = is_outcome_success(&status_json);
+                let success_value_base64 = Self::extract_success_value(&status_json);
 
                 self.process_logs(
                     &outcome.outcome.logs,
@@ -207,6 +232,7 @@ impl VenearGovernanceModule {
                     block_timestamp,
                     shard_id: shard_id_i32,
                     success,
+                    success_value_base64,
                 };
 
                 self.process_actions(&tx.actions, &action_context, db, state)
@@ -221,6 +247,7 @@ impl VenearGovernanceModule {
             let status_json =
                 serde_json::to_value(&outcome.outcome.status).unwrap_or(JsonValue::Null);
             let success = is_outcome_success(&status_json);
+            let success_value_base64 = Self::extract_success_value(&status_json);
 
             self.process_logs(
                 &outcome.outcome.logs,
@@ -248,6 +275,7 @@ impl VenearGovernanceModule {
                     block_timestamp,
                     shard_id: shard_id_i32,
                     success,
+                    success_value_base64,
                 };
 
                 self.process_actions(&actions, &action_context, db, state)
@@ -799,23 +827,58 @@ impl VenearGovernanceModule {
         let proposal_id =
             i64::try_from(proposal_id_raw).map_err(|_| anyhow!("proposal_id out of i64 range"))?;
 
+        let reviewer_id = json_string(args_json, "reviewer_id");
+        let voting_start_time_sec = json_u64(args_json, "voting_start_time_sec").map(|v| v as i64);
+
+        let success_value_json =
+            Self::decode_success_value_json(context.success_value_base64.as_deref());
+
+        let snapshot_block_height = success_value_json
+            .as_ref()
+            .and_then(|v| v.get("snapshot_and_state"))
+            .and_then(|v| v.get("snapshot"))
+            .and_then(|v| json_u64(v, "block_height"))
+            .map(|v| v as i64);
+
+        let snapshot_root = success_value_json
+            .as_ref()
+            .and_then(|v| v.get("snapshot_and_state"))
+            .and_then(|v| v.get("snapshot"))
+            .and_then(|v| json_string(v, "root"));
+
+        let snapshot_total_venear = success_value_json
+            .as_ref()
+            .and_then(|v| v.get("snapshot_and_state"))
+            .and_then(|v| json_string(v, "total_venear"));
+
+        let metadata = success_value_json.as_ref().map(|value| {
+            json!({
+                "title": value.get("title"),
+                "description": value.get("description"),
+                "link": value.get("link"),
+                "voting_options": value.get("voting_options"),
+                "status": value.get("status"),
+            })
+        });
+
         let payload = json!({
             "args": args_json,
             "source": "on_get_snapshot_callback",
+            "success_value": success_value_json,
         });
 
         self.upsert_proposal_event(
             db,
             proposal_id,
             "proposal_approve_finalized",
-            Some(context.predecessor_id.clone()),
+            reviewer_id.clone(),
             None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            reviewer_id,
+            voting_start_time_sec,
+            snapshot_block_height,
+            snapshot_root,
+            snapshot_total_venear,
+            metadata,
             Some(payload),
             context.block_height,
             context.block_timestamp,
@@ -1358,8 +1421,10 @@ mod tests {
     use test_support::{init_test_tracing, TestDatabase};
 
     fn build_test_config() -> AppConfig {
-        let mut db = DatabaseConfig::default();
-        db.url = "postgres://unused".to_string();
+        let db = DatabaseConfig {
+            url: "postgres://unused".to_string(),
+            ..DatabaseConfig::default()
+        };
 
         let cfg = IndexerConfig {
             database: db,

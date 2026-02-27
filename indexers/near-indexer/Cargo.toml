@@ -38,3 +38,6 @@ common = { workspace = true }
 test-support = { workspace = true }
 futures = { workspace = true }
 rstest = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+tokio-stream = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -180,8 +180,10 @@ async fn venear_proposal_events_allow_intent_and_callback_finalization() -> Resu
 }
 
 fn build_test_config() -> AppConfig {
-    let mut db = DatabaseConfig::default();
-    db.url = "postgres://unused".to_string();
+    let db = DatabaseConfig {
+        url: "postgres://unused".to_string(),
+        ..DatabaseConfig::default()
+    };
 
     let cfg = IndexerConfig {
         database: db,

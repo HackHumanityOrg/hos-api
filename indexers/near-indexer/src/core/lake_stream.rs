@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use near_lake_framework::LakeConfigBuilder;
+use near_lake_framework::{FastNearConfigBuilder, LakeConfigBuilder};
 use tracing::{info, warn};
 
 /// Configuration for the NEAR Lake stream
@@ -50,6 +50,41 @@ pub fn create_lake_stream(config: LakeStreamConfig) -> Result<LakeStreamResult> 
     let (handle, stream) = near_lake_framework::streamer(lake_config);
 
     info!("NEAR Lake streamer created successfully");
+
+    Ok((handle, stream))
+}
+
+/// Initialize a FastNEAR (neardata.xyz) stream with the given configuration.
+/// Unlike the S3-based stream, this does not require AWS credentials and supports
+/// an optional Bearer token for authenticated access.
+pub fn create_fastnear_stream(
+    config: LakeStreamConfig,
+    api_key: Option<String>,
+) -> Result<LakeStreamResult> {
+    let mut builder = FastNearConfigBuilder::default()
+        .start_block_height(config.start_height)
+        .blocks_preload_pool_size(config.preload_pool_size);
+
+    builder = match config.chain.as_str() {
+        "testnet" => builder.testnet(),
+        _ => builder.mainnet(),
+    };
+
+    if let Some(key) = api_key {
+        builder = builder.authorization_token(Some(key));
+    }
+
+    info!(
+        chain = %config.chain,
+        start_height = config.start_height,
+        preload_pool_size = config.preload_pool_size,
+        "Initializing FastNEAR stream"
+    );
+
+    let lake_config = builder.build().context("Failed to build FastNear config")?;
+    let (handle, stream) = near_lake_framework::streamer(lake_config);
+
+    info!("FastNEAR streamer created successfully");
 
     Ok((handle, stream))
 }
