@@ -21,7 +21,7 @@ async fn health_check_returns_healthy_when_db_exec_succeeds() {
 
     let payload = match result {
         Ok(json) => json.0,
-        Err(err) => panic!("expected Ok, got error: {}", err.error.message),
+        Err(err) => panic!("expected Ok, got error: {}", err.error.title),
     };
 
     assert_eq!(payload.status, "healthy");
@@ -43,7 +43,7 @@ async fn health_check_returns_degraded_when_db_query_fails() {
 
     let payload = match result {
         Ok(json) => json.0,
-        Err(err) => panic!("expected Ok, got error: {}", err.error.message),
+        Err(err) => panic!("expected Ok, got error: {}", err.error.title),
     };
 
     assert_eq!(payload.status, "degraded");
@@ -65,7 +65,7 @@ async fn health_check_returns_degraded_without_database() {
 
     let payload = match result {
         Ok(json) => json.0,
-        Err(err) => panic!("expected Ok, got error: {}", err.error.message),
+        Err(err) => panic!("expected Ok, got error: {}", err.error.title),
     };
 
     assert_eq!(payload.status, "degraded");

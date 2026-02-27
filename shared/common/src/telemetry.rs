@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use sentry::integrations::tracing::{self as sentry_tracing, EventFilter};
 use sentry::ClientInitGuard;
 use serde_json::{Map as JsonMap, Value as JsonValue};
-use std::time::Duration;
+use std::{collections::BTreeMap, time::Duration};
 use tracing::info;
 use tracing_subscriber::{
     layer::{Layer, SubscriberExt},
@@ -91,6 +91,60 @@ fn resolve_deployment_region(config_region: Option<&str>) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+fn normalize_release(
+    service_name: &str,
+    configured_release: Option<&str>,
+    service_version: &str,
+) -> String {
+    match configured_release
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(release) if release.contains('@') => release.to_string(),
+        Some(release) => format!("{service_name}@{release}"),
+        None => format!("{service_name}@{service_version}"),
+    }
+}
+
+fn resolve_release(service_name: &str, service_version: &str) -> String {
+    normalize_release(
+        service_name,
+        env_var_non_empty("SENTRY_RELEASE").as_deref(),
+        service_version,
+    )
+}
+
+fn build_scope_tags(
+    setup: &TelemetrySetup,
+    deployment_environment: &str,
+    deployment_region: &str,
+) -> BTreeMap<String, String> {
+    let mut tags: BTreeMap<String, String> = setup
+        .config
+        .tags
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+
+    tags.insert("service.name".to_string(), setup.service_name.clone());
+    tags.insert(
+        "service.version".to_string(),
+        setup.config.service_version.clone(),
+    );
+    tags.entry("service.component".to_string())
+        .or_insert_with(|| setup.service_name.clone());
+    tags.insert(
+        "deployment.environment".to_string(),
+        deployment_environment.to_string(),
+    );
+    tags.insert(
+        "deployment.region".to_string(),
+        deployment_region.to_string(),
+    );
+
+    tags
+}
+
 /// Telemetry guard that ensures Sentry flushes data on shutdown.
 pub struct TelemetryGuard {
     sentry_guard: Option<ClientInitGuard>,
@@ -114,9 +168,7 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
     }
 
     let dsn = setup.dsn.clone().expect("checked by is_sentry_available");
-    let release = std::env::var("SENTRY_RELEASE")
-        .ok()
-        .unwrap_or_else(|| format!("{}@{}", setup.service_name, setup.config.service_version));
+    let release = resolve_release(&setup.service_name, &setup.config.service_version);
 
     let traces_sample_rate = if setup.config.enable_traces {
         setup.config.traces_sample_rate
@@ -125,10 +177,22 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
     };
 
     let deployment_environment = resolve_deployment_environment(&setup.config.environment);
+    let deployment_region = resolve_deployment_region(
+        setup
+            .config
+            .tags
+            .get("deployment.region")
+            .map(String::as_str),
+    );
+    let scope_tags = build_scope_tags(&setup, &deployment_environment, &deployment_region);
+    let log_scope_attributes: Vec<(String, sentry::protocol::LogAttribute)> = scope_tags
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone().into()))
+        .collect();
 
     info!(
-        "Initializing Sentry telemetry for service={} release={} environment={}",
-        setup.service_name, release, deployment_environment
+        "Initializing Sentry telemetry for service={} release={} environment={} region={}",
+        setup.service_name, release, deployment_environment, deployment_region
     );
 
     let sentry_guard = sentry::init((
@@ -139,6 +203,14 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
             traces_sample_rate,
             sample_rate: setup.config.event_sample_rate,
             enable_logs: setup.config.enable_logs,
+            before_send_log: Some(std::sync::Arc::new(move |mut log| {
+                for (key, value) in &log_scope_attributes {
+                    log.attributes
+                        .entry(key.clone())
+                        .or_insert_with(|| value.clone());
+                }
+                Some(log)
+            })),
             send_default_pii: setup.config.send_default_pii,
             shutdown_timeout: Duration::from_secs(setup.config.shutdown_timeout_sec),
             ..Default::default()
@@ -146,22 +218,9 @@ pub fn init_telemetry(setup: TelemetrySetup) -> Result<TelemetryGuard> {
     ));
 
     sentry::configure_scope(|scope| {
-        scope.set_tag("service.name", setup.service_name.clone());
-        scope.set_tag("service.version", setup.config.service_version.clone());
-        scope.set_tag("deployment.environment", deployment_environment.clone());
-
-        for (key, value) in &setup.config.tags {
+        for (key, value) in &scope_tags {
             scope.set_tag(key, value.clone());
         }
-
-        let deployment_region = resolve_deployment_region(
-            setup
-                .config
-                .tags
-                .get("deployment.region")
-                .map(String::as_str),
-        );
-        scope.set_tag("deployment.region", deployment_region);
     });
 
     let env_filter = build_env_filter(&setup.service_name, &setup.log_level)?;
@@ -275,6 +334,93 @@ pub fn is_sentry_enabled() -> bool {
         .client()
         .map(|client| client.is_enabled())
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn telemetry_setup_with_tags(tags: &[(&str, &str)]) -> TelemetrySetup {
+        let mut config = ConfigTelemetry {
+            service_version: "9.9.9".to_string(),
+            ..Default::default()
+        };
+
+        config.tags = tags
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect::<HashMap<_, _>>();
+
+        TelemetrySetup {
+            service_name: "api".to_string(),
+            config,
+            dsn: None,
+            log_level: "info".to_string(),
+            log_format: Some("json".to_string()),
+        }
+    }
+
+    #[test]
+    fn normalize_release_prefixes_plain_release_with_service_name() {
+        let release = normalize_release("api", Some("2026.02.27+sha.abcdef"), "0.1.0");
+        assert_eq!(release, "api@2026.02.27+sha.abcdef");
+    }
+
+    #[test]
+    fn normalize_release_preserves_scoped_release() {
+        let release = normalize_release("api", Some("near-indexer@2026.02.27"), "0.1.0");
+        assert_eq!(release, "near-indexer@2026.02.27");
+    }
+
+    #[test]
+    fn build_scope_tags_sets_distinct_service_metadata() {
+        let setup = telemetry_setup_with_tags(&[
+            ("service.name", "incorrect-name"),
+            ("service.component", "public-api"),
+            ("service.namespace", "data-commons"),
+            ("custom.tag", "custom-value"),
+        ]);
+
+        let tags = build_scope_tags(&setup, "production", "us-west-2");
+
+        assert_eq!(tags.get("service.name").map(String::as_str), Some("api"));
+        assert_eq!(
+            tags.get("service.version").map(String::as_str),
+            Some("9.9.9")
+        );
+        assert_eq!(
+            tags.get("service.component").map(String::as_str),
+            Some("public-api")
+        );
+        assert_eq!(
+            tags.get("service.namespace").map(String::as_str),
+            Some("data-commons")
+        );
+        assert_eq!(
+            tags.get("deployment.environment").map(String::as_str),
+            Some("production")
+        );
+        assert_eq!(
+            tags.get("deployment.region").map(String::as_str),
+            Some("us-west-2")
+        );
+        assert_eq!(
+            tags.get("custom.tag").map(String::as_str),
+            Some("custom-value")
+        );
+    }
+
+    #[test]
+    fn build_scope_tags_defaults_service_component_to_service_name() {
+        let setup = telemetry_setup_with_tags(&[]);
+        let tags = build_scope_tags(&setup, "staging", "eu-central-1");
+
+        assert_eq!(
+            tags.get("service.component").map(String::as_str),
+            Some("api")
+        );
+    }
 }
 
 /// Lightweight telemetry attribute used by compatibility metric helpers.

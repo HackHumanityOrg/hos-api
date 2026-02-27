@@ -35,3 +35,20 @@ async fn nested_routes_do_not_shadow_health_endpoint() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn discourse_routes_are_wired_under_api_v1() {
+    support::init_test_tracing();
+
+    let response = support::build_router_with_state(None)
+        .into_service()
+        .oneshot(
+            Request::get("/api/v1/discourse/instances")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+}

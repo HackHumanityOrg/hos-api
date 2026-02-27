@@ -12,6 +12,14 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         .as_object()
         .expect("paths object");
     assert!(paths.contains_key("/health"), "health path present");
+    assert!(
+        paths.contains_key("/api/v1/discourse/instances"),
+        "discourse instances path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/discourse/instances/{instance}/sync-lag"),
+        "sync lag path present"
+    );
 
     let schemas = value
         .get("components")
@@ -21,4 +29,6 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(schemas.contains_key("HealthResponse"));
     assert!(schemas.contains_key("DatabaseHealth"));
     assert!(schemas.contains_key("ApiError"));
+    assert!(schemas.contains_key("DiscourseTopicDto"));
+    assert!(schemas.contains_key("SyncLagResponse"));
 }
