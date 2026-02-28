@@ -149,6 +149,12 @@ pub struct DiscourseConfig {
     pub revisions_concurrency: usize,
     #[serde(default = "default_recent_topic_pages_cap")]
     pub recent_topic_pages_cap: u32,
+    #[serde(default = "default_metrics_refresh_batch_size")]
+    pub metrics_refresh_batch_size: u32,
+    #[serde(default = "default_metrics_active_window_days")]
+    pub metrics_active_window_days: i64,
+    #[serde(default = "default_metrics_active_refresh_hours")]
+    pub metrics_active_refresh_hours: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,6 +180,13 @@ pub struct DiscourseInstanceConfig {
     pub full_refresh_interval_sec: Option<u64>,
     #[serde(default)]
     pub recent_update_interval_sec: Option<u64>,
+    // Metrics refresh tuning (optional)
+    #[serde(default)]
+    pub metrics_refresh_batch_size: Option<u32>,
+    #[serde(default)]
+    pub metrics_active_window_days: Option<i64>,
+    #[serde(default)]
+    pub metrics_active_refresh_hours: Option<u64>,
 }
 
 fn default_true() -> bool {
@@ -206,6 +219,15 @@ fn default_revisions_concurrency() -> usize {
 fn default_recent_topic_pages_cap() -> u32 {
     1
 }
+fn default_metrics_refresh_batch_size() -> u32 {
+    30
+}
+fn default_metrics_active_window_days() -> i64 {
+    30
+}
+fn default_metrics_active_refresh_hours() -> u64 {
+    8
+}
 
 impl ToLog for DiscourseConfig {
     fn to_log(&self) -> JsonValue {
@@ -221,6 +243,9 @@ impl ToLog for DiscourseConfig {
                 "recent_topic_pages_cap": i.recent_topic_pages_cap,
                 "full_refresh_interval_sec": i.full_refresh_interval_sec,
                 "recent_update_interval_sec": i.recent_update_interval_sec,
+                "metrics_refresh_batch_size": i.metrics_refresh_batch_size,
+                "metrics_active_window_days": i.metrics_active_window_days,
+                "metrics_active_refresh_hours": i.metrics_active_refresh_hours,
             })).collect::<Vec<_>>(),
             "full_refresh_interval_sec": self.full_refresh_interval_sec,
             "recent_update_interval_sec": self.recent_update_interval_sec,
@@ -231,6 +256,9 @@ impl ToLog for DiscourseConfig {
             "likes_concurrency": self.likes_concurrency,
             "revisions_concurrency": self.revisions_concurrency,
             "recent_topic_pages_cap": self.recent_topic_pages_cap,
+            "metrics_refresh_batch_size": self.metrics_refresh_batch_size,
+            "metrics_active_window_days": self.metrics_active_window_days,
+            "metrics_active_refresh_hours": self.metrics_active_refresh_hours,
         })
     }
 }

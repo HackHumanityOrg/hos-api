@@ -49,3 +49,6 @@ max_post_tasks = 3
 likes_concurrency = 2
 revisions_concurrency = 1
 recent_topic_pages_cap = 1
+metrics_refresh_batch_size = 30
+metrics_active_window_days = 30
+metrics_active_refresh_hours = 8

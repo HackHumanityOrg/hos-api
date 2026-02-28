@@ -1,11 +1,32 @@
 use crate::discourse_api;
 use crate::domain;
 use anyhow::Result;
+use chrono::Utc;
 use futures::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
 use sea_orm::DatabaseConnection;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tracing::{info, warn};
+
+#[derive(Clone, Copy, Debug)]
+pub struct MetricsRefreshConfig {
+    pub cycle_interval_sec: u64,
+    pub batch_size: u32,
+    pub active_window_days: i64,
+    pub active_refresh_hours: u64,
+}
+
+impl MetricsRefreshConfig {
+    fn normalized(self) -> Self {
+        Self {
+            cycle_interval_sec: self.cycle_interval_sec.max(1),
+            batch_size: self.batch_size.max(1),
+            active_window_days: self.active_window_days.max(1),
+            active_refresh_hours: self.active_refresh_hours.max(1),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct Concurrency {
@@ -60,8 +81,7 @@ pub async fn sync_full(
         concurrency: conc,
         max_pages_per_run,
     };
-    services_helpers::sync_topics(db.clone(), client, instance, options).await?;
-    sync_directory_full(db, client, instance).await
+    services_helpers::sync_topics(db, client, instance, options).await
 }
 
 #[tracing::instrument(skip(db, client))]
@@ -69,9 +89,9 @@ pub async fn sync_directory_full(
     db: Arc<DatabaseConnection>,
     client: &discourse_api::DiscourseClient,
     instance: &str,
+    refresh: MetricsRefreshConfig,
 ) -> Result<()> {
-    services_helpers::sync_directory_users(db.as_ref(), client, instance, false, u32::MAX, u32::MAX)
-        .await
+    services_helpers::sync_directory_metrics_cycle(db.as_ref(), client, instance, refresh).await
 }
 
 mod services_helpers {
@@ -125,6 +145,14 @@ mod services_helpers {
         false
     }
 
+    fn is_skippable_posts_page_error(err: &anyhow::Error) -> bool {
+        if is_skippable_item_error(err) {
+            return true;
+        }
+
+        matches!(extract_http_status(err), Some(StatusCode::BAD_REQUEST))
+    }
+
     pub async fn sync_categories(
         db: &DatabaseConnection,
         client: &discourse_api::DiscourseClient,
@@ -145,31 +173,224 @@ mod services_helpers {
         Ok(())
     }
 
-    pub async fn sync_directory_users(
+    fn slots_for_period(period_sec: u64, cycle_interval_sec: u64) -> u32 {
+        let normalized_cycle = cycle_interval_sec.max(1);
+        let slots = (period_sec / normalized_cycle).max(1);
+        u32::try_from(slots).unwrap_or(u32::MAX)
+    }
+
+    fn cycle_tick(cycle_interval_sec: u64) -> i64 {
+        let cycle = i64::try_from(cycle_interval_sec.max(1)).unwrap_or(i64::MAX);
+        Utc::now().timestamp().div_euclid(cycle)
+    }
+
+    fn slot_for_tick(total_slots: u32, tick: i64) -> u32 {
+        let slots = total_slots.max(1);
+        tick.rem_euclid(i64::from(slots)) as u32
+    }
+
+    fn slot_for_external_id(external_id: i32, total_slots: u32) -> u32 {
+        let slots_i32 = i32::try_from(total_slots.max(1)).unwrap_or(i32::MAX);
+        external_id.rem_euclid(slots_i32) as u32
+    }
+
+    fn mix_seed(mut value: u64) -> u64 {
+        value ^= value >> 33;
+        value = value.wrapping_mul(0xff51afd7ed558ccd);
+        value ^= value >> 33;
+        value = value.wrapping_mul(0xc4ceb9fe1a85ec53);
+        value ^= value >> 33;
+        value
+    }
+
+    fn rank_for_cycle(external_id: i32, cycle_seed: u64) -> u64 {
+        let id = external_id as u64;
+        mix_seed(cycle_seed ^ id.wrapping_mul(0x9e3779b185ebca87))
+    }
+
+    fn select_by_cycle(
+        mut candidates: Vec<domain::users::repo::MetricsRefreshUser>,
+        take: usize,
+        cycle_seed: u64,
+    ) -> Vec<domain::users::repo::MetricsRefreshUser> {
+        if candidates.is_empty() || take == 0 {
+            return Vec::new();
+        }
+
+        candidates.sort_by_key(|u| rank_for_cycle(u.external_id, cycle_seed));
+        candidates.into_iter().take(take).collect()
+    }
+
+    pub async fn sync_directory_metrics_cycle(
         db: &DatabaseConnection,
         client: &discourse_api::DiscourseClient,
         instance: &str,
-        recent: bool,
-        page_limit: u32,
-        max_pages: u32,
+        refresh: MetricsRefreshConfig,
     ) -> Result<()> {
+        let refresh = refresh.normalized();
         let start = std::time::Instant::now();
-        let users =
-            domain::users::adapter::fetch_users_directory(client, recent, page_limit, max_pages)
-                .await?;
+        let all_users = domain::users::repo::list_metric_refresh_users(db, instance).await?;
 
-        for item in users.iter() {
-            domain::users::repo::upsert_user(db, instance, item).await?;
+        if all_users.is_empty() {
+            info!(
+                batch_size = refresh.batch_size,
+                duration_ms = start.elapsed().as_millis(),
+                "No users available for directory metrics refresh"
+            );
+            return Ok(());
+        }
+
+        let active_ids = domain::users::repo::list_active_user_ids_since(
+            db,
+            instance,
+            refresh.active_window_days,
+        )
+        .await?;
+
+        let current_tick = cycle_tick(refresh.cycle_interval_sec);
+        let current_seed = u64::try_from(current_tick).unwrap_or(0);
+
+        let daily_slots = slots_for_period(24 * 60 * 60, refresh.cycle_interval_sec);
+        let daily_slot = slot_for_tick(daily_slots, current_tick);
+
+        let active_slots = slots_for_period(
+            refresh.active_refresh_hours.saturating_mul(60 * 60),
+            refresh.cycle_interval_sec,
+        );
+        let active_slot = slot_for_tick(active_slots, current_tick);
+
+        let mut daily_candidates = Vec::new();
+        for user in &all_users {
+            if slot_for_external_id(user.external_id, daily_slots) == daily_slot {
+                daily_candidates.push(user.clone());
+            }
+        }
+
+        let daily_ids: HashSet<i32> = daily_candidates.iter().map(|u| u.external_id).collect();
+        let mut active_candidates = Vec::new();
+        for user in &all_users {
+            if !active_ids.contains(&user.external_id) || daily_ids.contains(&user.external_id) {
+                continue;
+            }
+            if slot_for_external_id(user.external_id, active_slots) == active_slot {
+                active_candidates.push(user.clone());
+            }
+        }
+
+        let daily_pool_count = daily_candidates.len() as u64;
+        let active_pool_count = active_candidates.len() as u64;
+
+        let batch_limit = refresh.batch_size as usize;
+        let mut selected = select_by_cycle(
+            active_candidates,
+            batch_limit,
+            current_seed ^ 0xa5a5a5a5a5a5a5a5,
+        );
+        if selected.len() < batch_limit {
+            selected.extend(select_by_cycle(
+                daily_candidates,
+                batch_limit - selected.len(),
+                current_seed ^ 0x5a5a5a5a5a5a5a5a,
+            ));
+        }
+
+        if selected.is_empty() {
+            info!(
+                batch_size = refresh.batch_size,
+                total_users = all_users.len(),
+                active_users = active_ids.len(),
+                daily_slot = daily_slot,
+                daily_slots = daily_slots,
+                active_slot = active_slot,
+                active_slots = active_slots,
+                duration_ms = start.elapsed().as_millis(),
+                "No users selected for directory metrics refresh this cycle"
+            );
+            return Ok(());
+        }
+
+        let selected_active = selected
+            .iter()
+            .filter(|u| active_ids.contains(&u.external_id))
+            .count() as u64;
+        let selected_daily = selected.len() as u64 - selected_active;
+
+        let attempted = selected.len() as u64;
+        let mut updated = 0u64;
+        let mut not_found = 0u64;
+        let mut failed = 0u64;
+
+        for user in selected {
+            match domain::users::adapter::fetch_directory_user_by_username(client, &user.username)
+                .await
+            {
+                Ok(Some(item)) => {
+                    if item.user.id != user.external_id {
+                        not_found += 1;
+                        warn!(
+                            username = %user.username,
+                            expected_external_id = user.external_id,
+                            returned_external_id = item.user.id,
+                            "Directory username lookup returned mismatched user id"
+                        );
+                        continue;
+                    }
+
+                    match domain::users::repo::upsert_user(db, instance, &item).await {
+                        Ok(()) => {
+                            updated += 1;
+                        }
+                        Err(e) => {
+                            failed += 1;
+                            warn!(
+                                username = %user.username,
+                                external_user_id = user.external_id,
+                                error = %e,
+                                "Failed to upsert user from directory username lookup"
+                            );
+                        }
+                    }
+                }
+                Ok(None) => {
+                    not_found += 1;
+                    warn!(
+                        username = %user.username,
+                        external_user_id = user.external_id,
+                        "No directory metrics found for username"
+                    );
+                }
+                Err(e) => {
+                    failed += 1;
+                    warn!(
+                        username = %user.username,
+                        external_user_id = user.external_id,
+                        error = %e,
+                        "Directory username lookup failed"
+                    );
+                }
+            }
         }
 
         info!(
-            count = users.len(),
-            recent = recent,
-            page_limit = page_limit,
-            max_pages = max_pages,
+            attempted = attempted,
+            updated = updated,
+            not_found = not_found,
+            failed = failed,
+            selected_active = selected_active,
+            selected_daily = selected_daily,
+            active_pool = active_pool_count,
+            daily_pool = daily_pool_count,
+            active_users = active_ids.len(),
+            total_users = all_users.len(),
+            daily_slot = daily_slot,
+            daily_slots = daily_slots,
+            active_slot = active_slot,
+            active_slots = active_slots,
+            batch_size = refresh.batch_size,
             duration_ms = start.elapsed().as_millis(),
-            "Synced directory users"
+            "Synced directory user metrics"
         );
+
         Ok(())
     }
 
@@ -390,14 +611,17 @@ mod services_helpers {
                 match domain::posts::adapter::fetch_posts_page(client, topic_id, page).await {
                     Ok(r) => r,
                     Err(e) => {
-                        if is_skippable_item_error(&e) {
+                        if is_skippable_posts_page_error(&e) {
                             warn!(
                                 topic_id = topic_id,
                                 page = page,
                                 error = %e,
                                 "Skipping topic posts due skippable status"
                             );
-                            return Ok(());
+                            if page == 0 {
+                                return Ok(());
+                            }
+                            break;
                         }
                         if is_not_found_error(&e) {
                             break;

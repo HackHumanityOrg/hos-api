@@ -1,9 +1,17 @@
 use crate::domain::users::model::{DirectoryItem, User, UserProfile};
 use anyhow::Result;
-use entities::discourse::discourse_users;
+use chrono::Utc;
+use entities::discourse::{discourse_posts, discourse_users};
 use sea_orm::sea_query::OnConflict as OrmOnConflict;
-use sea_orm::{ActiveValue::Set, EntityTrait};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use std::collections::HashSet;
 use tracing::{debug, instrument};
+
+#[derive(Debug, Clone)]
+pub struct MetricsRefreshUser {
+    pub external_id: i32,
+    pub username: String,
+}
 
 #[instrument(skip(db, item), fields(instance = instance, external_user_id = item.user.id))]
 pub async fn upsert_user(
@@ -56,6 +64,52 @@ pub async fn upsert_user(
         .await?;
     debug!("upserted user");
     Ok(())
+}
+
+#[instrument(skip(db), fields(instance = instance))]
+pub async fn list_metric_refresh_users(
+    db: &sea_orm::DatabaseConnection,
+    instance: &str,
+) -> Result<Vec<MetricsRefreshUser>> {
+    let rows = discourse_users::Entity::find()
+        .filter(discourse_users::Column::Instance.eq(instance))
+        .filter(discourse_users::Column::Username.is_not_null())
+        .filter(discourse_users::Column::Username.ne(""))
+        .order_by_asc(discourse_users::Column::ExternalId)
+        .all(db)
+        .await?;
+
+    let users = rows
+        .into_iter()
+        .filter(|row| !row.username.is_empty())
+        .map(|row| MetricsRefreshUser {
+            external_id: row.external_id,
+            username: row.username,
+        })
+        .collect();
+
+    Ok(users)
+}
+
+#[instrument(skip(db), fields(instance = instance))]
+pub async fn list_active_user_ids_since(
+    db: &sea_orm::DatabaseConnection,
+    instance: &str,
+    active_window_days: i64,
+) -> Result<HashSet<i32>> {
+    let window_days = active_window_days.max(1);
+    let cutoff = (Utc::now() - chrono::Duration::days(window_days)).naive_utc();
+    let active_ids: Vec<i32> = discourse_posts::Entity::find()
+        .select_only()
+        .column(discourse_posts::Column::ExternalUserId)
+        .filter(discourse_posts::Column::Instance.eq(instance))
+        .filter(discourse_posts::Column::CreatedAt.gte(cutoff))
+        .group_by(discourse_posts::Column::ExternalUserId)
+        .into_tuple::<i32>()
+        .all(db)
+        .await?;
+
+    Ok(active_ids.into_iter().collect())
 }
 
 /// Insert or update a minimal user record based on `/u/{username}.json` data.

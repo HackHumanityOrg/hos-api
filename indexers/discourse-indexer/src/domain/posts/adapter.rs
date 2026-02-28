@@ -9,9 +9,18 @@ pub async fn fetch_posts_page<F: JsonFetcher>(
     topic_id: i32,
     page: u32,
 ) -> Result<PostResponse> {
-    // Discourse topic pagination is 1-based.
-    let api_page = page.saturating_add(1);
-    let path = format!("/t/{}.json?page={}&include_raw=true", topic_id, api_page);
+    // Prefer no explicit page parameter on first fetch. Some Discourse instances
+    // reject page=1 while still returning the first chunk without a page value.
+    let (path, api_page) = if page == 0 {
+        (format!("/t/{}.json?include_raw=true", topic_id), 1)
+    } else {
+        // Discourse topic pagination is 1-based.
+        let next_page = page.saturating_add(1);
+        (
+            format!("/t/{}.json?page={}&include_raw=true", topic_id, next_page),
+            next_page,
+        )
+    };
     let response: PostResponse = client.get_json(&path).await?;
     debug!(
         topic_id,

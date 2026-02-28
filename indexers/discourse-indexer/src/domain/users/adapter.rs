@@ -1,6 +1,6 @@
 use crate::discourse_api::JsonFetcher;
 use crate::domain::users::model::{DirectoryItem, User, UserProfileResponse, UserResponse};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use sea_orm::DatabaseConnection;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -102,6 +102,54 @@ pub async fn fetch_users_directory<F: JsonFetcher>(
 
     debug!(total = all_users.len(), "fetched users directory total");
     Ok(all_users)
+}
+
+#[instrument(skip(client), fields(username = username))]
+pub async fn fetch_directory_user_by_username<F: JsonFetcher>(
+    client: &F,
+    username: &str,
+) -> Result<Option<DirectoryItem>> {
+    let url = reqwest::Url::parse_with_params(
+        "https://example.invalid/directory_items.json",
+        [
+            ("period", "all"),
+            ("order", "username"),
+            ("asc", "true"),
+            ("username", username),
+        ],
+    )
+    .context("failed to build directory username URL")?;
+
+    let query = url.query().unwrap_or_default();
+    let path = format!("{}?{}", url.path(), query);
+    let mut response: UserResponse = client.get_json(&path).await?;
+
+    if response.directory_items.is_empty() {
+        debug!(username = username, "no directory item for username");
+        return Ok(None);
+    }
+
+    let Some(idx) = response
+        .directory_items
+        .iter()
+        .position(|item| item.user.username.eq_ignore_ascii_case(username))
+    else {
+        debug!(
+            username = username,
+            count = response.directory_items.len(),
+            "directory username filter returned items but no exact username match"
+        );
+        return Ok(None);
+    };
+    let item = response.directory_items.swap_remove(idx);
+
+    debug!(
+        username = username,
+        external_user_id = item.user.id,
+        "fetched directory item by username"
+    );
+
+    Ok(Some(item))
 }
 
 /// Check if user exists in DB, if not fetch from individual user API and store

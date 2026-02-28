@@ -137,6 +137,15 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
         let recent_topic_cap = inst
             .recent_topic_pages_cap
             .unwrap_or(discourse.recent_topic_pages_cap);
+        let metrics_refresh_batch_size = inst
+            .metrics_refresh_batch_size
+            .unwrap_or(discourse.metrics_refresh_batch_size);
+        let metrics_active_window_days = inst
+            .metrics_active_window_days
+            .unwrap_or(discourse.metrics_active_window_days);
+        let metrics_active_refresh_hours = inst
+            .metrics_active_refresh_hours
+            .unwrap_or(discourse.metrics_active_refresh_hours);
         let conc = Concurrency::new(post_tasks_limit, likes_limit, revs_limit);
 
         discourse_indexer::domain::instances::repo::register_instance(
@@ -302,7 +311,7 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
             let directory_flag = directory_running.clone();
             handles.push(tokio::spawn(async move {
                 let start = Instant::now() + Duration::from_secs(INITIAL_DIRECTORY_DELAY_SECS);
-                let mut interval = interval_at(start, Duration::from_secs(full_every));
+                let mut interval = interval_at(start, Duration::from_secs(recent_every));
                 interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
                 loop {
@@ -321,6 +330,12 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
                         db_directory.clone(),
                         client_directory.as_ref(),
                         &instance_directory,
+                        services::MetricsRefreshConfig {
+                            cycle_interval_sec: recent_every,
+                            batch_size: metrics_refresh_batch_size,
+                            active_window_days: metrics_active_window_days,
+                            active_refresh_hours: metrics_active_refresh_hours,
+                        },
                     )
                     .await;
 

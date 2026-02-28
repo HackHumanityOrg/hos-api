@@ -1,7 +1,8 @@
 use anyhow::Result;
 use discourse_indexer::discourse_api::DiscourseClient;
 use discourse_indexer::domain::instances;
-use discourse_indexer::sync::{self, Concurrency};
+use discourse_indexer::domain::users::model::User;
+use discourse_indexer::sync::{self, Concurrency, MetricsRefreshConfig};
 use entities::{
     discourse::{
         discourse_categories, discourse_post_likes, discourse_post_revisions, discourse_posts,
@@ -49,7 +50,7 @@ async fn sync_recent_runs_end_to_end_against_mock_upstream_and_postgres() -> Res
         .await;
 
     let posts_page_0 = server
-        .mock("GET", "/t/501.json?page=1&include_raw=true")
+        .mock("GET", "/t/501.json?include_raw=true")
         .with_status(200)
         .with_body(posts_payload(vec![minimal_post(9001, 501, "alice", 100)], 1).to_string())
         .expect(1)
@@ -96,7 +97,7 @@ async fn sync_recent_runs_end_to_end_against_mock_upstream_and_postgres() -> Res
 }
 
 #[tokio::test]
-async fn sync_full_includes_directory_users_flow() -> Result<()> {
+async fn sync_full_runs_without_directory_metrics_lane() -> Result<()> {
     init_test_tracing();
 
     let mut server = Server::new_async().await;
@@ -131,7 +132,7 @@ async fn sync_full_includes_directory_users_flow() -> Result<()> {
         .await;
 
     let posts_page_0 = server
-        .mock("GET", "/t/502.json?page=1&include_raw=true")
+        .mock("GET", "/t/502.json?include_raw=true")
         .with_status(200)
         .with_body(posts_payload(vec![minimal_post(9002, 502, "alice", 100)], 1).to_string())
         .expect(1)
@@ -142,27 +143,6 @@ async fn sync_full_includes_directory_users_flow() -> Result<()> {
         .mock("GET", "/u/alice.json")
         .with_status(200)
         .with_body(user_profile_payload(100, "alice").to_string())
-        .expect(1)
-        .create_async()
-        .await;
-
-    let directory_page_0 = server
-        .mock(
-            "GET",
-            "/directory_items.json?period=all&order=username&page=0&asc=true",
-        )
-        .with_status(200)
-        .with_body(directory_payload(vec![directory_item(200, "directory_user")]).to_string())
-        .expect(1)
-        .create_async()
-        .await;
-    let directory_page_1 = server
-        .mock(
-            "GET",
-            "/directory_items.json?period=all&order=username&page=1&asc=true",
-        )
-        .with_status(200)
-        .with_body(directory_payload(vec![]).to_string())
         .expect(1)
         .create_async()
         .await;
@@ -185,9 +165,23 @@ async fn sync_full_includes_directory_users_flow() -> Result<()> {
     assert_eq!(count_categories(conn.as_ref(), INSTANCE_KEY).await?, 1);
     assert_eq!(count_topics(conn.as_ref(), INSTANCE_KEY).await?, 1);
     assert_eq!(count_posts(conn.as_ref(), INSTANCE_KEY).await?, 1);
-    assert_eq!(count_users(conn.as_ref(), INSTANCE_KEY).await?, 2);
+    assert_eq!(count_users(conn.as_ref(), INSTANCE_KEY).await?, 1);
     assert_eq!(count_likes(conn.as_ref(), INSTANCE_KEY).await?, 0);
     assert_eq!(count_revisions(conn.as_ref(), INSTANCE_KEY).await?, 0);
+
+    let user = DiscourseUsers::find()
+        .filter(discourse_users::Column::Instance.eq(INSTANCE_KEY))
+        .filter(discourse_users::Column::ExternalId.eq(100))
+        .one(conn.as_ref())
+        .await?
+        .expect("alice should exist");
+    assert_eq!(user.likes_received, None);
+    assert_eq!(user.likes_given, None);
+    assert_eq!(user.topics_entered, None);
+    assert_eq!(user.topic_count, None);
+    assert_eq!(user.post_count, None);
+    assert_eq!(user.posts_read, None);
+    assert_eq!(user.days_visited, None);
 
     category_page_0.assert_async().await;
     category_page_1.assert_async().await;
@@ -195,8 +189,6 @@ async fn sync_full_includes_directory_users_flow() -> Result<()> {
     topics_page_1.assert_async().await;
     posts_page_0.assert_async().await;
     user_profile.assert_async().await;
-    directory_page_0.assert_async().await;
-    directory_page_1.assert_async().await;
 
     Ok(())
 }
@@ -206,23 +198,13 @@ async fn sync_directory_full_runs_independently_of_topic_sync() -> Result<()> {
     init_test_tracing();
 
     let mut server = Server::new_async().await;
-    let directory_page_0 = server
+    let directory_user_metrics = server
         .mock(
             "GET",
-            "/directory_items.json?period=all&order=username&page=0&asc=true",
+            "/directory_items.json?period=all&order=username&asc=true&username=directory_only_user",
         )
         .with_status(200)
         .with_body(directory_payload(vec![directory_item(300, "directory_only_user")]).to_string())
-        .expect(1)
-        .create_async()
-        .await;
-    let directory_page_1 = server
-        .mock(
-            "GET",
-            "/directory_items.json?period=all&order=username&page=1&asc=true",
-        )
-        .with_status(200)
-        .with_body(directory_payload(vec![]).to_string())
         .expect(1)
         .create_async()
         .await;
@@ -232,11 +214,42 @@ async fn sync_directory_full_runs_independently_of_topic_sync() -> Result<()> {
 
     instances::repo::register_instance(conn.as_ref(), INSTANCE_KEY, &server.url()).await?;
 
+    discourse_indexer::domain::users::repo::upsert_users_bulk(
+        conn.as_ref(),
+        INSTANCE_KEY,
+        &[User {
+            id: 300,
+            username: "directory_only_user".to_string(),
+            name: Some("directory_only_user".to_string()),
+            avatar_template: "/user_avatar/example/{size}/1_2.png".to_string(),
+            title: None,
+            trust_level: 1,
+            likes_received: None,
+            likes_given: None,
+            topics_entered: None,
+            topic_count: None,
+            post_count: None,
+            posts_read: None,
+            days_visited: None,
+        }],
+    )
+    .await?;
+
     let client = DiscourseClient::new(server.url());
 
     tokio::time::timeout(
         Duration::from_secs(30),
-        sync::sync_directory_full(conn.clone(), &client, INSTANCE_KEY),
+        sync::sync_directory_full(
+            conn.clone(),
+            &client,
+            INSTANCE_KEY,
+            MetricsRefreshConfig {
+                cycle_interval_sec: 86_400,
+                batch_size: 30,
+                active_window_days: 30,
+                active_refresh_hours: 24,
+            },
+        ),
     )
     .await
     .expect("sync_directory_full timeout")?;
@@ -258,8 +271,7 @@ async fn sync_directory_full_runs_independently_of_topic_sync() -> Result<()> {
     assert_eq!(user.posts_read, Some(0));
     assert_eq!(user.days_visited, Some(0));
 
-    directory_page_0.assert_async().await;
-    directory_page_1.assert_async().await;
+    directory_user_metrics.assert_async().await;
 
     Ok(())
 }
@@ -293,7 +305,7 @@ async fn sync_recent_fetches_likes_and_revisions_when_available() -> Result<()> 
         .await;
 
     let posts_page_0 = server
-        .mock("GET", "/t/503.json?page=1&include_raw=true")
+        .mock("GET", "/t/503.json?include_raw=true")
         .with_status(200)
         .with_body(
             posts_payload(
