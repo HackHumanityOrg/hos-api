@@ -581,14 +581,14 @@ impl VenearGovernanceModule {
                     db,
                     proposal_id,
                     event_type,
-                    None,           // account_id: create_proposal has no account_id field
+                    None, // account_id: create_proposal has no account_id field
                     proposer_id,
-                    None,           // reviewer_id
+                    None, // reviewer_id
                     voting_start_time_sec,
                     None,
                     None,
                     None,
-                    metadata,       // populated from event data
+                    metadata, // populated from event data
                     Some(data.clone()),
                     block_height,
                     block_timestamp,
@@ -625,7 +625,7 @@ impl VenearGovernanceModule {
                     None,
                     None,
                     None,
-                    None,               // metadata: not in approve/reject events
+                    None, // metadata: not in approve/reject events
                     Some(data.clone()),
                     block_height,
                     block_timestamp,
@@ -1891,9 +1891,7 @@ mod tests {
         let mut state = module.build_process_state();
 
         // Simulate a lockup account emitting lockup_lock_near
-        state
-            .known_lockups
-            .insert("abc123.venear.dao".to_string());
+        state.known_lockups.insert("abc123.venear.dao".to_string());
         let log = r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"lockup_lock_near","data":[{"account_id":"abc123.venear.dao","lockup_version":1,"lockup_update_nonce":"5","locked_near_balance":"1000000000000000000000000"}]}"#;
 
         module
