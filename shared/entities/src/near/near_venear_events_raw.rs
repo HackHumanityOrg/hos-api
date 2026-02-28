@@ -22,6 +22,7 @@ pub struct Model {
     pub success: bool,
     #[sea_orm(column_type = "Text", nullable)]
     pub parse_error: Option<String>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub event_data: Option<Json>,
     #[sea_orm(column_type = "Text")]
     pub log_text: String,

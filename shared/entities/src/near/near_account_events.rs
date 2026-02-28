@@ -14,6 +14,7 @@ pub struct Model {
     pub timestamp: i64,
     pub transaction_hash: Option<String>,
     pub receipt_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub metadata: Option<Json>,
 }
 

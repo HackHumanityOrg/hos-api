@@ -18,6 +18,7 @@ pub struct Model {
     pub amount: String,
     pub standard: String,
     pub last_updated_block: i64,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub metadata: Option<Json>,
 }
 

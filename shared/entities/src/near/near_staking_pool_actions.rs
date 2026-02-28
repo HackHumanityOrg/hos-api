@@ -11,6 +11,7 @@ pub struct Model {
     pub pool_id: String,
     pub method_name: String,
     pub caller_account_id: String,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub args_json: Option<Json>,
     #[sea_orm(column_type = "Text")]
     pub args_base64: String,

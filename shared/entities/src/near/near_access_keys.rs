@@ -14,6 +14,7 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub allowance: Option<String>,
     pub receiver_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub method_names: Option<Json>,
     pub nonce: i64,
     pub created_at_height: i64,

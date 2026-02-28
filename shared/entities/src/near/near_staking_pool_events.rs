@@ -11,6 +11,7 @@ pub struct Model {
     pub pool_id: String,
     pub event_standard: Option<String>,
     pub event_type: String,
+    #[sea_orm(column_type = "JsonBinary")]
     pub event_data: Json,
     #[sea_orm(column_type = "Text")]
     pub raw_log: String,

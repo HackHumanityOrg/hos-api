@@ -19,7 +19,9 @@ pub struct Model {
     pub public_key: String,
     #[sea_orm(column_type = "Text")]
     pub signature: String,
+    #[sea_orm(column_type = "JsonBinary")]
     pub actions: Json,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub raw_data: Option<Json>,
 }
 

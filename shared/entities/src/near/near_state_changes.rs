@@ -10,6 +10,7 @@ pub struct Model {
     pub id: i64,
     pub block_height: i64,
     pub shard_id: i64,
+    #[sea_orm(column_type = "JsonBinary")]
     pub state_changes: Json,
 }
 

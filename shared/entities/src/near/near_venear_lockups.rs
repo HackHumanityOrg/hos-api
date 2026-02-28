@@ -18,6 +18,7 @@ pub struct Model {
     pub is_active: bool,
     pub deleted_at_height: Option<i64>,
     pub deleted_at_timestamp: Option<i64>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub metadata: Option<Json>,
 }
 

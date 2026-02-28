@@ -14,6 +14,7 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub account_balance: String,
     pub event_type: String,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub payload: Option<Json>,
     pub block_height: i64,
     pub block_timestamp: i64,

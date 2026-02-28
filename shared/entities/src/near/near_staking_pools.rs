@@ -13,6 +13,7 @@ pub struct Model {
     pub first_seen_height: i64,
     pub last_activity_height: i64,
     pub is_active: bool,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub metadata: Option<Json>,
 }
 

@@ -16,7 +16,9 @@ pub struct Model {
     pub total_stake: String,
     #[sea_orm(column_type = "Text")]
     pub total_validator_reward: String,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub validators_info: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub chunk_producers_settlement: Option<Json>,
     pub epoch_duration_blocks: Option<i64>,
 }

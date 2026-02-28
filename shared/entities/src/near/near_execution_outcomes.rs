@@ -10,7 +10,9 @@ pub struct Model {
     pub id: String,
     pub block_height: i64,
     pub receipt_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
     pub outcome: Json,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub raw_data: Option<Json>,
 }
 

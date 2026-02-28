@@ -13,6 +13,7 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub token_id: String,
     pub standard: String,
+    #[sea_orm(column_type = "JsonBinary")]
     pub metadata: Json,
     pub last_updated_block: Option<i64>,
 }

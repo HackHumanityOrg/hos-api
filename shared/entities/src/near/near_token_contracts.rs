@@ -8,9 +8,13 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub contract_id: String,
+    #[sea_orm(column_type = "JsonBinary")]
     pub standards_detected: Json,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub ft_metadata: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub nft_metadata: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub mt_metadata: Option<Json>,
     pub first_seen_block: i64,
     pub last_activity_block: i64,

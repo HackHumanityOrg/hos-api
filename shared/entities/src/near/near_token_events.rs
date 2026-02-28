@@ -15,6 +15,7 @@ pub struct Model {
     pub standard: String,
     pub version: String,
     pub event_type: String,
+    #[sea_orm(column_type = "JsonBinary")]
     pub event_data: Json,
     #[sea_orm(column_type = "Text")]
     pub affected_accounts: String,

@@ -13,7 +13,9 @@ pub struct Model {
     pub predecessor_id: String,
     #[sea_orm(column_type = "Text")]
     pub receiver_id: String,
+    #[sea_orm(column_type = "JsonBinary")]
     pub receipt: Json,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub raw_data: Option<Json>,
 }
 

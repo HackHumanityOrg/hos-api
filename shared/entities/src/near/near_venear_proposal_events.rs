@@ -18,7 +18,9 @@ pub struct Model {
     pub snapshot_root: Option<String>,
     #[sea_orm(column_type = "Text", nullable)]
     pub snapshot_total_venear: Option<String>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub metadata: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub payload: Option<Json>,
     pub block_height: i64,
     pub block_timestamp: i64,
