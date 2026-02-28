@@ -42,7 +42,7 @@ start_height = 0
 concurrency = 1
 # Limit NEAR Lake prefetch to avoid unbounded upstream buffering and memory growth
 # Keep this small (1–2) unless you’ve verified DB can keep up
-preload_pool_size = 8
+preload_pool_size = 16
 
 # Module configurations
 
