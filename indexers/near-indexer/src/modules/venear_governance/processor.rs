@@ -559,36 +559,73 @@ impl VenearGovernanceModule {
                     state.account_balances.insert(account_id, total_balance);
                 }
             }
-            ("venear", "create_proposal")
-            | ("venear", "proposal_approve")
-            | ("venear", "proposal_reject") => {
+            ("venear", "create_proposal") => {
                 let Some(proposal_id_raw) = json_u64(data, "proposal_id") else {
                     return Ok(());
                 };
-
                 let proposal_id = i64::try_from(proposal_id_raw).map_err(|_| {
                     anyhow!(
                         "proposal_id out of i64 range for event {event_type}: {proposal_id_raw}"
                     )
                 })?;
-
                 let proposer_id = json_string(data, "proposer_id");
-                let account_id = json_string(data, "account_id");
                 let voting_start_time_sec =
                     json_u64(data, "voting_start_time_sec").map(|v| v as i64);
-
+                let metadata = Some(json!({
+                    "title": data.get("title"),
+                    "description": data.get("description"),
+                    "link": data.get("link"),
+                    "voting_options": data.get("voting_options"),
+                }));
                 self.upsert_proposal_event(
                     db,
                     proposal_id,
                     event_type,
-                    account_id,
+                    None,           // account_id: create_proposal has no account_id field
                     proposer_id,
-                    None,
+                    None,           // reviewer_id
                     voting_start_time_sec,
                     None,
                     None,
                     None,
+                    metadata,       // populated from event data
+                    Some(data.clone()),
+                    block_height,
+                    block_timestamp,
+                    shard_id,
+                    receipt_id,
+                    execution_outcome_id,
+                    predecessor_id,
+                    contract_id,
+                    log_index,
+                    data_index,
+                )
+                .await?;
+            }
+            ("venear", "proposal_approve") | ("venear", "proposal_reject") => {
+                let Some(proposal_id_raw) = json_u64(data, "proposal_id") else {
+                    return Ok(());
+                };
+                let proposal_id = i64::try_from(proposal_id_raw).map_err(|_| {
+                    anyhow!(
+                        "proposal_id out of i64 range for event {event_type}: {proposal_id_raw}"
+                    )
+                })?;
+                let account_id = json_string(data, "account_id");
+                let voting_start_time_sec =
+                    json_u64(data, "voting_start_time_sec").map(|v| v as i64);
+                self.upsert_proposal_event(
+                    db,
+                    proposal_id,
+                    event_type,
+                    account_id.clone(), // account_id: reviewer (preserve existing behavior)
+                    None,               // proposer_id: not in approve/reject events
+                    account_id,         // reviewer_id: same as account_id (was None)
+                    voting_start_time_sec,
                     None,
+                    None,
+                    None,
+                    None,               // metadata: not in approve/reject events
                     Some(data.clone()),
                     block_height,
                     block_timestamp,
@@ -704,6 +741,13 @@ impl VenearGovernanceModule {
                 .await?;
 
                 state.account_balances.insert(owner_id, total_balance);
+            }
+            ("venear", "lockup_lock_near") => {
+                // lockup_lock_near is emitted by the lockup contract itself
+                // (account_id = env::current_account_id() = the lockup account).
+                // The venear contract emits lockup_update for the same operation
+                // (account_id = owner account), handled above and stored in
+                // near_venear_account_balances. Skipping normalization here.
             }
             _ => {}
         }
@@ -1833,6 +1877,163 @@ mod tests {
         )
         .await?;
         assert_eq!(parse_error, None);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn lockup_lock_near_event_produces_no_normalized_rows() -> Result<()> {
+        init_test_tracing();
+        let db = TestDatabase::new().await;
+        let conn = db.db();
+        let module = VenearGovernanceModule::new(&build_test_config());
+        module.initialize(conn.as_ref()).await?;
+        let mut state = module.build_process_state();
+
+        // Simulate a lockup account emitting lockup_lock_near
+        state
+            .known_lockups
+            .insert("abc123.venear.dao".to_string());
+        let log = r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"lockup_lock_near","data":[{"account_id":"abc123.venear.dao","lockup_version":1,"lockup_update_nonce":"5","locked_near_balance":"1000000000000000000000000"}]}"#;
+
+        module
+            .process_logs(
+                &[log.to_string()],
+                "abc123.venear.dao",
+                "alice.near",
+                "rcpt-lockup-lock",
+                "exec-lockup-lock",
+                0,
+                200,
+                2000,
+                true,
+                conn.as_ref(),
+                &mut state,
+            )
+            .await?;
+
+        // Raw event stored
+        let raw_count = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-lockup-lock'",
+        )
+        .await?;
+        assert_eq!(raw_count, 1);
+
+        // No parse_error on the raw event (explicit skip, not an error)
+        let parse_error = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT parse_error AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-lockup-lock' LIMIT 1",
+        )
+        .await?;
+        assert_eq!(parse_error, None);
+
+        // Nothing written to account_balances
+        let balance_count = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_account_balances",
+        )
+        .await?;
+        assert_eq!(balance_count, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_proposal_event_stores_metadata() -> Result<()> {
+        init_test_tracing();
+        let db = TestDatabase::new().await;
+        let conn = db.db();
+        let module = VenearGovernanceModule::new(&build_test_config());
+        module.initialize(conn.as_ref()).await?;
+        let mut state = module.build_process_state();
+
+        let log = r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"create_proposal","data":[{"proposer_id":"alice.near","proposal_id":0,"title":"My Proposal","description":"A great idea","link":"https://example.com","voting_options":["For","Against","Abstain"]}]}"#;
+
+        module
+            .process_logs(
+                &[log.to_string()],
+                "vote.dao",
+                "alice.near",
+                "rcpt-create-proposal",
+                "exec-create-proposal",
+                0,
+                300,
+                3000,
+                true,
+                conn.as_ref(),
+                &mut state,
+            )
+            .await?;
+
+        let metadata = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT metadata::text AS value FROM near.near_venear_proposal_events WHERE execution_outcome_id = 'exec-create-proposal' LIMIT 1",
+        )
+        .await?;
+        assert!(
+            metadata.is_some(),
+            "metadata must not be null for create_proposal"
+        );
+
+        let title = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT metadata->>'title' AS value FROM near.near_venear_proposal_events WHERE execution_outcome_id = 'exec-create-proposal' LIMIT 1",
+        )
+        .await?;
+        assert_eq!(title.as_deref(), Some("My Proposal"));
+
+        let proposer_id = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT proposer_id AS value FROM near.near_venear_proposal_events WHERE execution_outcome_id = 'exec-create-proposal' LIMIT 1",
+        )
+        .await?;
+        assert_eq!(proposer_id.as_deref(), Some("alice.near"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn proposal_approve_event_sets_reviewer_id() -> Result<()> {
+        init_test_tracing();
+        let db = TestDatabase::new().await;
+        let conn = db.db();
+        let module = VenearGovernanceModule::new(&build_test_config());
+        module.initialize(conn.as_ref()).await?;
+        let mut state = module.build_process_state();
+
+        let log = r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"proposal_approve","data":[{"account_id":"reviewer.near","proposal_id":0,"voting_start_time_sec":1700000000}]}"#;
+
+        module
+            .process_logs(
+                &[log.to_string()],
+                "vote.dao",
+                "reviewer.near",
+                "rcpt-approve",
+                "exec-approve",
+                0,
+                400,
+                4000,
+                true,
+                conn.as_ref(),
+                &mut state,
+            )
+            .await?;
+
+        let reviewer_id = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT reviewer_id AS value FROM near.near_venear_proposal_events WHERE execution_outcome_id = 'exec-approve' LIMIT 1",
+        )
+        .await?;
+        assert_eq!(reviewer_id.as_deref(), Some("reviewer.near"));
+
+        // account_id is also preserved
+        let account_id = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT account_id AS value FROM near.near_venear_proposal_events WHERE execution_outcome_id = 'exec-approve' LIMIT 1",
+        )
+        .await?;
+        assert_eq!(account_id.as_deref(), Some("reviewer.near"));
 
         Ok(())
     }
