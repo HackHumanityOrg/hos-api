@@ -96,6 +96,7 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
 
     const INITIAL_FULL_DELAY_SECS: u64 = 5;
     const INITIAL_RECENT_DELAY_SECS: u64 = 5;
+    const INITIAL_DIRECTORY_DELAY_SECS: u64 = 10;
 
     info!("Starting Discourse multi-instance indexing loop");
 
@@ -152,6 +153,7 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
         );
         let full_running = Arc::new(AtomicBool::new(false));
         let recent_running = Arc::new(AtomicBool::new(false));
+        let directory_running = Arc::new(AtomicBool::new(false));
         let full_completed_once = Arc::new(AtomicBool::new(false));
 
         {
@@ -289,6 +291,59 @@ async fn run_indexing_loop(config: &AppConfig, db: Arc<sea_orm::DatabaseConnecti
                     }
 
                     full_flag.store(false, Ordering::Release);
+                }
+            }));
+        }
+
+        {
+            let db_directory = db.clone();
+            let client_directory = client.clone();
+            let instance_directory = instance_key.clone();
+            let directory_flag = directory_running.clone();
+            handles.push(tokio::spawn(async move {
+                let start = Instant::now() + Duration::from_secs(INITIAL_DIRECTORY_DELAY_SECS);
+                let mut interval = interval_at(start, Duration::from_secs(full_every));
+                interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+                loop {
+                    interval.tick().await;
+
+                    if directory_flag
+                        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                        .is_err()
+                    {
+                        info!(instance = %instance_directory, "Directory users sync already running, skipping this cycle");
+                        continue;
+                    }
+
+                    let cycle_start = Instant::now();
+                    let result = services::sync_directory_full(
+                        db_directory.clone(),
+                        client_directory.as_ref(),
+                        &instance_directory,
+                    )
+                    .await;
+
+                    match result {
+                        Ok(_) => {
+                            info!(instance = %instance_directory, duration = ?cycle_start.elapsed(), "Directory users sync completed successfully");
+                            if telemetry_enabled {
+                                telemetry::increment_counter(
+                                    "indexer.batches.processed",
+                                    &[
+                                        KeyValue::new("indexer", "discourse-indexer"),
+                                        KeyValue::new("kind", "directory"),
+                                        KeyValue::new("instance", instance_directory.clone()),
+                                    ],
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            error!(instance = %instance_directory, duration = ?cycle_start.elapsed(), error = ?e, "Directory users sync completed with errors");
+                        }
+                    }
+
+                    directory_flag.store(false, Ordering::Release);
                 }
             }));
         }

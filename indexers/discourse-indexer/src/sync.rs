@@ -61,6 +61,15 @@ pub async fn sync_full(
         max_pages_per_run,
     };
     services_helpers::sync_topics(db.clone(), client, instance, options).await?;
+    sync_directory_full(db, client, instance).await
+}
+
+#[tracing::instrument(skip(db, client))]
+pub async fn sync_directory_full(
+    db: Arc<DatabaseConnection>,
+    client: &discourse_api::DiscourseClient,
+    instance: &str,
+) -> Result<()> {
     services_helpers::sync_directory_users(db.as_ref(), client, instance, false, u32::MAX, u32::MAX)
         .await
 }

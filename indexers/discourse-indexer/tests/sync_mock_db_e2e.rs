@@ -202,6 +202,69 @@ async fn sync_full_includes_directory_users_flow() -> Result<()> {
 }
 
 #[tokio::test]
+async fn sync_directory_full_runs_independently_of_topic_sync() -> Result<()> {
+    init_test_tracing();
+
+    let mut server = Server::new_async().await;
+    let directory_page_0 = server
+        .mock(
+            "GET",
+            "/directory_items.json?period=all&order=username&page=0&asc=true",
+        )
+        .with_status(200)
+        .with_body(directory_payload(vec![directory_item(300, "directory_only_user")]).to_string())
+        .expect(1)
+        .create_async()
+        .await;
+    let directory_page_1 = server
+        .mock(
+            "GET",
+            "/directory_items.json?period=all&order=username&page=1&asc=true",
+        )
+        .with_status(200)
+        .with_body(directory_payload(vec![]).to_string())
+        .expect(1)
+        .create_async()
+        .await;
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+
+    instances::repo::register_instance(conn.as_ref(), INSTANCE_KEY, &server.url()).await?;
+
+    let client = DiscourseClient::new(server.url());
+
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        sync::sync_directory_full(conn.clone(), &client, INSTANCE_KEY),
+    )
+    .await
+    .expect("sync_directory_full timeout")?;
+
+    assert_eq!(count_users(conn.as_ref(), INSTANCE_KEY).await?, 1);
+
+    let user = DiscourseUsers::find()
+        .filter(discourse_users::Column::Instance.eq(INSTANCE_KEY))
+        .filter(discourse_users::Column::ExternalId.eq(300))
+        .one(conn.as_ref())
+        .await?
+        .expect("directory user should be inserted");
+
+    assert_eq!(user.likes_received, Some(0));
+    assert_eq!(user.likes_given, Some(0));
+    assert_eq!(user.topics_entered, Some(0));
+    assert_eq!(user.topic_count, Some(0));
+    assert_eq!(user.post_count, Some(0));
+    assert_eq!(user.posts_read, Some(0));
+    assert_eq!(user.days_visited, Some(0));
+
+    directory_page_0.assert_async().await;
+    directory_page_1.assert_async().await;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn sync_recent_fetches_likes_and_revisions_when_available() -> Result<()> {
     init_test_tracing();
 
