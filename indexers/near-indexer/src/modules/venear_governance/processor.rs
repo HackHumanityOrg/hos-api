@@ -1469,8 +1469,13 @@ impl IndexerModule for VenearGovernanceModule {
         cursor::get_module_cursor(db, MODULE_NAME).await
     }
 
-    async fn update_cursor(&self, db: &DatabaseConnection, height: i64) -> Result<()> {
-        cursor::upsert_module_cursor(db, MODULE_NAME, height).await
+    async fn update_cursor(
+        &self,
+        db: &DatabaseConnection,
+        height: i64,
+        prev_height: Option<i64>,
+    ) -> Result<()> {
+        cursor::upsert_module_cursor(db, MODULE_NAME, height, prev_height).await
     }
 }
 

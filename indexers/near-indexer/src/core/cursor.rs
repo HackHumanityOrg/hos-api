@@ -13,9 +13,67 @@ static CURSORS: OnceLock<RwLock<HashMap<String, i64>>> = OnceLock::new();
 /// Global rate limiter for DB writes
 static LAST_WRITES: OnceLock<RwLock<HashMap<String, Instant>>> = OnceLock::new();
 
-/// Heights processed ahead of the contiguous cursor per module.
-/// We only advance persisted cursor when all intermediate heights are complete.
-static PENDING_HEIGHTS: OnceLock<RwLock<HashMap<String, BTreeSet<i64>>>> = OnceLock::new();
+/// Processed blocks that are waiting for their parent link per module.
+#[derive(Default)]
+struct PendingHeights {
+    /// `height -> prev_height`
+    by_height: HashMap<i64, i64>,
+    /// `prev_height -> {child heights}`
+    children_by_prev: HashMap<i64, BTreeSet<i64>>,
+}
+
+impl PendingHeights {
+    fn insert(&mut self, height: i64, prev_height: i64) {
+        if let Some(previous_prev_height) = self.by_height.insert(height, prev_height) {
+            let should_drop_prev_entry =
+                if let Some(children) = self.children_by_prev.get_mut(&previous_prev_height) {
+                    children.remove(&height);
+                    children.is_empty()
+                } else {
+                    false
+                };
+
+            if should_drop_prev_entry {
+                self.children_by_prev.remove(&previous_prev_height);
+            }
+        }
+
+        self.children_by_prev
+            .entry(prev_height)
+            .or_default()
+            .insert(height);
+    }
+
+    fn pop_next_after(&mut self, prev_height: i64) -> Option<i64> {
+        let next_height = self
+            .children_by_prev
+            .get(&prev_height)
+            .and_then(|children| children.iter().next().copied());
+
+        let next_height = next_height?;
+
+        let should_drop_prev_entry =
+            if let Some(children) = self.children_by_prev.get_mut(&prev_height) {
+                children.remove(&next_height);
+                children.is_empty()
+            } else {
+                false
+            };
+
+        if should_drop_prev_entry {
+            self.children_by_prev.remove(&prev_height);
+        }
+
+        self.by_height.remove(&next_height);
+        Some(next_height)
+    }
+}
+
+/// Processed blocks pending cursor advancement per module.
+/// Cursor advances only when a processed block has `prev_height` that links to
+/// the current module cursor. This handles out-of-order processing and chains
+/// with missing numeric heights.
+static PENDING_HEIGHTS: OnceLock<RwLock<HashMap<String, PendingHeights>>> = OnceLock::new();
 
 fn get_cursors() -> &'static RwLock<HashMap<String, i64>> {
     CURSORS.get_or_init(|| RwLock::new(HashMap::new()))
@@ -25,15 +83,16 @@ fn get_last_writes() -> &'static RwLock<HashMap<String, Instant>> {
     LAST_WRITES.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-fn get_pending_heights() -> &'static RwLock<HashMap<String, BTreeSet<i64>>> {
+fn get_pending_heights() -> &'static RwLock<HashMap<String, PendingHeights>> {
     PENDING_HEIGHTS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-fn advance_contiguous_cursor(
+fn advance_chain_cursor(
     cursor_map: &mut HashMap<String, i64>,
-    pending_map: &mut HashMap<String, BTreeSet<i64>>,
+    pending_map: &mut HashMap<String, PendingHeights>,
     module_name: &str,
     height: i64,
+    prev_height: Option<i64>,
 ) -> Option<i64> {
     let current = cursor_map.get(module_name).copied().unwrap_or(-1);
 
@@ -41,15 +100,18 @@ fn advance_contiguous_cursor(
         return None;
     }
 
-    let pending = pending_map.entry(module_name.to_string()).or_default();
-    pending.insert(height);
+    // Some providers omit prev_height for genesis-style records.
+    // Fall back to `height - 1` so cursor logic keeps moving.
+    let prev_height = prev_height.unwrap_or_else(|| height.saturating_sub(1));
 
-    let mut next = current.saturating_add(1);
-    while pending.remove(&next) {
-        next = next.saturating_add(1);
+    let pending = pending_map.entry(module_name.to_string()).or_default();
+    pending.insert(height, prev_height);
+
+    let mut new_current = current;
+    while let Some(next_height) = pending.pop_next_after(new_current) {
+        new_current = next_height;
     }
 
-    let new_current = next.saturating_sub(1);
     if new_current > current {
         cursor_map.insert(module_name.to_string(), new_current);
         Some(new_current)
@@ -60,7 +122,7 @@ fn advance_contiguous_cursor(
 
 /// Seed an in-memory cursor for modules without persisted cursor.
 /// This is used to support configured non-zero start heights while preserving
-/// contiguous cursor advancement under out-of-order processing.
+/// chain-linked cursor advancement under out-of-order processing.
 pub fn seed_module_cursor(module_name: &str, height: i64) {
     let cursors = get_cursors();
     let mut cursor_map = cursors.write().unwrap();
@@ -77,7 +139,7 @@ pub fn seed_module_cursor(module_name: &str, height: i64) {
 pub async fn initialize_cursor_storage(db: &DatabaseConnection) -> Result<()> {
     info!("Initializing cursor storage from database");
 
-    // Reset pending non-contiguous state for fresh startup.
+    // Reset pending chain-link state for fresh startup.
     get_pending_heights().write().unwrap().clear();
 
     // Load all cursors from database
@@ -145,7 +207,12 @@ pub async fn choose_module_start_height(
 }
 
 /// Update the cursor for a specific module (rate limited to max once per second per cursor)
-pub async fn upsert_module_cursor<C>(db: &C, module_name: &str, height: i64) -> Result<()>
+pub async fn upsert_module_cursor<C>(
+    db: &C,
+    module_name: &str,
+    height: i64,
+    prev_height: Option<i64>,
+) -> Result<()>
 where
     C: ConnectionTrait,
 {
@@ -153,18 +220,25 @@ where
     let last_writes = get_last_writes();
     let pending_heights = get_pending_heights();
 
-    // Advance in-memory cursor only when contiguous heights are complete.
+    // Advance in-memory cursor only when parent-linked blocks are complete.
     let committed_height = {
         let mut cursor_map = cursors.write().unwrap();
         let mut pending_map = pending_heights.write().unwrap();
-        advance_contiguous_cursor(&mut cursor_map, &mut pending_map, module_name, height)
+        advance_chain_cursor(
+            &mut cursor_map,
+            &mut pending_map,
+            module_name,
+            height,
+            prev_height,
+        )
     };
 
     let Some(committed_height) = committed_height else {
         debug!(
             module = module_name,
             processed_height = height,
-            "Processed height did not advance contiguous cursor"
+            processed_prev_height = prev_height,
+            "Processed block did not advance chain-linked cursor"
         );
         return Ok(());
     };
@@ -172,8 +246,9 @@ where
     debug!(
         module = module_name,
         processed_height = height,
+        processed_prev_height = prev_height,
         committed_height = committed_height,
-        "Advanced contiguous cursor in memory cache"
+        "Advanced chain-linked cursor in memory cache"
     );
 
     // Check if we should write to DB (rate limited)
@@ -271,41 +346,66 @@ mod tests {
     use sea_orm::{DbBackend, QueryTrait};
 
     #[test]
-    fn advance_contiguous_cursor_waits_for_gaps() {
+    fn advance_chain_cursor_waits_for_parent_link() {
         let mut cursors = HashMap::new();
         let mut pending = HashMap::new();
         cursors.insert("tokens".to_string(), 99);
 
         // Processed ahead of gap: should not advance yet
         assert_eq!(
-            advance_contiguous_cursor(&mut cursors, &mut pending, "tokens", 101),
+            advance_chain_cursor(&mut cursors, &mut pending, "tokens", 101, Some(100)),
             None
         );
         assert_eq!(cursors.get("tokens"), Some(&99));
 
-        // Gap filled: should jump to contiguous max (101)
+        // Parent now available: should advance to 101
         assert_eq!(
-            advance_contiguous_cursor(&mut cursors, &mut pending, "tokens", 100),
+            advance_chain_cursor(&mut cursors, &mut pending, "tokens", 100, Some(99)),
             Some(101)
         );
         assert_eq!(cursors.get("tokens"), Some(&101));
     }
 
     #[test]
-    fn advance_contiguous_cursor_supports_seeded_starts() {
+    fn advance_chain_cursor_handles_missing_numeric_heights() {
         let mut cursors = HashMap::new();
         let mut pending = HashMap::new();
-        cursors.insert("staking_pools".to_string(), 499);
+        cursors.insert("venear_governance".to_string(), 167_688_827);
 
         assert_eq!(
-            advance_contiguous_cursor(&mut cursors, &mut pending, "staking_pools", 501),
-            None
+            advance_chain_cursor(
+                &mut cursors,
+                &mut pending,
+                "venear_governance",
+                167_688_829,
+                Some(167_688_827)
+            ),
+            Some(167_688_829)
         );
         assert_eq!(
-            advance_contiguous_cursor(&mut cursors, &mut pending, "staking_pools", 500),
-            Some(501)
+            advance_chain_cursor(
+                &mut cursors,
+                &mut pending,
+                "venear_governance",
+                167_688_830,
+                Some(167_688_829)
+            ),
+            Some(167_688_830)
         );
-        assert_eq!(cursors.get("staking_pools"), Some(&501));
+        assert_eq!(cursors.get("venear_governance"), Some(&167_688_830));
+    }
+
+    #[test]
+    fn advance_chain_cursor_infers_prev_height_when_missing() {
+        let mut cursors = HashMap::new();
+        let mut pending = HashMap::new();
+        cursors.insert("raw".to_string(), -1);
+
+        assert_eq!(
+            advance_chain_cursor(&mut cursors, &mut pending, "raw", 0, None),
+            Some(0)
+        );
+        assert_eq!(cursors.get("raw"), Some(&0));
     }
 
     #[test]

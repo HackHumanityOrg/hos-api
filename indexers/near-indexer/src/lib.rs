@@ -32,7 +32,12 @@ pub trait IndexerModule: Send + Sync {
     async fn get_cursor(&self, db: &DatabaseConnection) -> Result<Option<i64>>;
 
     /// Update the cursor for this module after successful processing
-    async fn update_cursor(&self, db: &DatabaseConnection, height: i64) -> Result<()>;
+    async fn update_cursor(
+        &self,
+        db: &DatabaseConnection,
+        height: i64,
+        prev_height: Option<i64>,
+    ) -> Result<()>;
 
     /// Initialize any module-specific setup (tables, indices, etc.)
     async fn initialize(&self, _db: &DatabaseConnection) -> Result<()> {

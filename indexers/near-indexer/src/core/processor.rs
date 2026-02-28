@@ -23,6 +23,7 @@ async fn process_block_independent(
     stream_id: &str,
 ) -> Result<()> {
     let height = msg.block.header.height as i64;
+    let prev_height = msg.block.header.prev_height.map(|value| value as i64);
     let start_time = Instant::now();
 
     debug!(
@@ -71,7 +72,7 @@ async fn process_block_independent(
             return Err(e);
         }
 
-        if let Err(e) = module.update_cursor(db.as_ref(), height).await {
+        if let Err(e) = module.update_cursor(db.as_ref(), height, prev_height).await {
             error!(
                 stream_id = stream_id,
                 module = module.name(),
