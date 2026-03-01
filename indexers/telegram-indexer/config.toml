@@ -1,0 +1,41 @@
+# Telegram Indexer Configuration
+# Database URL comes from DATABASE_URL environment variable
+
+[database]
+max_connections = 40
+min_connections = 5
+connection_timeout = 15
+acquire_timeout = 5
+idle_timeout = 120
+max_lifetime = 300
+
+[logging]
+level = "info"
+format = "json"
+
+[telemetry]
+enabled = true
+service_version = "0.1.0"
+environment = "development"
+enable_traces = true
+enable_logs = false
+traces_sample_rate = 1.0
+event_sample_rate = 1.0
+shutdown_timeout_sec = 2
+send_default_pii = true
+
+[telemetry.tags]
+"service.namespace" = "data-commons"
+"service.component" = "telegram-indexer"
+"deployment.region" = "local"
+"indexer.type" = "primary"
+
+[telegram]
+# Use APP_TELEGRAM__API_ID / APP_TELEGRAM__API_HASH or TELEGRAM_API_ID / TELEGRAM_API_HASH.
+session_file = "telegram_session.bin"
+channels = []
+sync_batch_size = 100
+max_concurrent_channels = 5
+max_retry_attempts = 3
+retry_base_delay_seconds = 60
+allow_interactive_login = false

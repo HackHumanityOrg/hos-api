@@ -64,7 +64,9 @@ cargo generate-entities      # Regenerate entities if schema changed
 ```bash
 # Run specific service
 cargo run-api                # Test API changes
-cargo run-indexer-1          # Test indexer changes
+cargo run-indexer-1          # Test discourse indexer changes
+cargo run-indexer-2          # Test NEAR indexer changes
+cargo run-indexer-3          # Test Telegram indexer changes
 
 # Or run in development mode with auto-reload (if configured)
 cargo watch -x "run -p api"
@@ -85,7 +87,8 @@ data-commons/
 │   └── Cargo.toml
 ├── indexers/               # Data processing services
 │   ├── discourse-indexer/  # Discourse data processor
-│   └── near-indexer/       # NEAR blockchain processor
+│   ├── near-indexer/       # NEAR blockchain processor
+│   └── telegram-indexer/   # Telegram channel listener
 ├── shared/                 # Shared libraries
 │   ├── common/             # Common utilities
 │   │   ├── src/

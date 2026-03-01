@@ -6,6 +6,8 @@ mod m20260227_000003_discourse_revision_json_columns;
 mod m20260227_000004_discourse_fk_constraints;
 mod m20260227_000005_near_venear_governance_schema;
 mod m20260228_000006_json_to_jsonb;
+mod m20260301_000007_telegram_schema;
+mod m20260301_000008_drop_telegram_import_logs;
 
 pub struct Migrator;
 
@@ -19,6 +21,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260227_000004_discourse_fk_constraints::Migration),
             Box::new(m20260227_000005_near_venear_governance_schema::Migration),
             Box::new(m20260228_000006_json_to_jsonb::Migration),
+            Box::new(m20260301_000007_telegram_schema::Migration),
+            Box::new(m20260301_000008_drop_telegram_import_logs::Migration),
         ]
     }
 }

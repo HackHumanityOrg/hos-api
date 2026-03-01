@@ -246,10 +246,11 @@ After applying migrations, regenerate SeaORM entities from the database:
 cargo generate-entities
 ```
 
-This command introspects both PostgreSQL schemas and updates:
+This command introspects PostgreSQL schemas and updates:
 
 - `shared/entities/src/discourse`
 - `shared/entities/src/near`
+- `shared/entities/src/telegram`
 
 The generator reads `DATABASE_URL` and runs `sea-orm-cli generate entity` under the hood.
 

@@ -1,0 +1,24 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "indexers/telegram-indexer/Dockerfile"
+watchPatterns = [
+  "indexers/telegram-indexer/**",
+  "shared/**",
+  "migration/**",
+  "Cargo.toml",
+  "Cargo.lock",
+  ".dockerignore"
+]
+
+[deploy]
+startCommand = "/telegram-indexer"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+numReplicas = 1
+
+[deploy.multiRegionConfig."us-east4-eqdc4a"]
+numReplicas = 1
+
+[deploy.limitOverride.containers]
+cpu = 4
+memoryBytes = 4000000000

@@ -2,8 +2,10 @@
 
 pub mod discourse;
 pub mod near;
+pub mod telegram;
 
 pub mod prelude {
     pub use super::discourse::prelude::*;
     pub use super::near::prelude::*;
+    pub use super::telegram::prelude::*;
 }

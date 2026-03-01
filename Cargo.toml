@@ -6,6 +6,7 @@ members = [
     "shared/test-support",
     "indexers/discourse-indexer",
     "indexers/near-indexer",
+    "indexers/telegram-indexer",
     "api",
     "migration",
 ]

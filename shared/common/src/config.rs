@@ -263,6 +263,71 @@ impl ToLog for DiscourseConfig {
     }
 }
 
+/// Configuration for Telegram indexing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelegramConfig {
+    #[serde(default)]
+    pub api_id: Option<i32>,
+    #[serde(default)]
+    pub api_hash: Option<String>,
+    #[serde(default = "default_telegram_session_file")]
+    pub session_file: String,
+    #[serde(default)]
+    pub session_data: Option<String>,
+    #[serde(default)]
+    pub channels: Vec<String>,
+    #[serde(default = "default_telegram_sync_batch_size")]
+    pub sync_batch_size: usize,
+    #[serde(default = "default_telegram_max_concurrent_channels")]
+    pub max_concurrent_channels: usize,
+    #[serde(default = "default_telegram_max_retry_attempts")]
+    pub max_retry_attempts: usize,
+    #[serde(default = "default_telegram_retry_base_delay_seconds")]
+    pub retry_base_delay_seconds: u64,
+    #[serde(default)]
+    pub max_messages_to_sync: Option<usize>,
+    #[serde(default)]
+    pub allow_interactive_login: bool,
+}
+
+fn default_telegram_session_file() -> String {
+    "telegram_session.bin".to_string()
+}
+
+fn default_telegram_sync_batch_size() -> usize {
+    100
+}
+
+fn default_telegram_max_concurrent_channels() -> usize {
+    5
+}
+
+fn default_telegram_max_retry_attempts() -> usize {
+    3
+}
+
+fn default_telegram_retry_base_delay_seconds() -> u64 {
+    60
+}
+
+impl ToLog for TelegramConfig {
+    fn to_log(&self) -> JsonValue {
+        json!({
+            "api_id_set": self.api_id.is_some(),
+            "api_hash_set": self.api_hash.as_ref().map(|v| !v.is_empty()).unwrap_or(false),
+            "session_file": self.session_file,
+            "session_data_set": self.session_data.as_ref().map(|v| !v.is_empty()).unwrap_or(false),
+            "channels_count": self.channels.len(),
+            "sync_batch_size": self.sync_batch_size,
+            "max_concurrent_channels": self.max_concurrent_channels,
+            "max_retry_attempts": self.max_retry_attempts,
+            "retry_base_delay_seconds": self.retry_base_delay_seconds,
+            "max_messages_to_sync": self.max_messages_to_sync,
+            "allow_interactive_login": self.allow_interactive_login,
+        })
+    }
+}
+
 /// Indexer-specific configuration (no server needed)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexerConfig {
@@ -270,6 +335,8 @@ pub struct IndexerConfig {
     pub logging: LoggingConfig,
     pub telemetry: TelemetryConfig,
     pub discourse: Option<DiscourseConfig>,
+    #[serde(default)]
+    pub telegram: Option<TelegramConfig>,
     /// NEAR Lake / chain streaming configuration for NEAR indexers
     #[serde(default)]
     pub near: Option<NearLakeConfig>,
@@ -282,6 +349,7 @@ impl ToLog for IndexerConfig {
             "logging": self.logging.to_log(),
             "telemetry": self.telemetry.to_log(),
             "discourse": self.discourse.as_ref().map(|d| d.to_log()),
+            "telegram": self.telegram.as_ref().map(|t| t.to_log()),
             "near": self.near.as_ref().map(|n| n.to_log()),
         })
     }
@@ -668,6 +736,17 @@ impl AppConfig {
             AppConfig::Indexer(config) => {
                 let config: &IndexerConfig = config;
                 config.discourse.as_ref()
+            }
+        }
+    }
+
+    /// Get Telegram indexing configuration if present (indexer only)
+    pub fn telegram(&self) -> Option<&TelegramConfig> {
+        match self {
+            AppConfig::Api(_) => None,
+            AppConfig::Indexer(config) => {
+                let config: &IndexerConfig = config;
+                config.telegram.as_ref()
             }
         }
     }

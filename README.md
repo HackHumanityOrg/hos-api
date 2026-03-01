@@ -13,7 +13,7 @@ A high-performance Rust monorepo for data indexing and API services built with m
 ```
 data-commons/
 ├── api/                    # REST API server with Swagger UI
-├── indexers/              # Data processing services (indexer-1, indexer-2, indexer-3)
+├── indexers/              # Data processing services (discourse, near, telegram)
 ├── shared/                # Shared libraries (common, db-core, entities)
 ├── migration/             # Database migrations
 └── .cargo/               # Cargo aliases and configuration
@@ -51,7 +51,9 @@ cargo generate-entities       # Generate entities from schema
 # Common commands
 cargo check-all && cargo test-all    # Verify everything works
 cargo run-api                        # Start API server
-cargo run-indexer-1                  # Start indexer services
+cargo run-indexer-1                  # Start discourse indexer
+cargo run-indexer-2                  # Start NEAR indexer
+cargo run-indexer-3                  # Start Telegram indexer
 ```
 
 **Development guide**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
@@ -64,6 +66,7 @@ This repository is deployed as a monorepo with one Railway service per component
 - `api` service uses `/api/railway.toml`
 - `discourse-indexer` service uses `/indexers/discourse-indexer/railway.toml`
 - `near-indexer` service uses `/indexers/near-indexer/railway.toml`
+- `telegram-indexer` service uses `/indexers/telegram-indexer/railway.toml`
 
 Each service should be linked to the same GitHub repository (`HackHumanityOrg/data-commons`) on `main` with autodeploy enabled. Watch patterns are defined in each service config file to avoid cross-service rebuilds.
 
