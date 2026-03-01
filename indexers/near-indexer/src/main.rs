@@ -171,6 +171,7 @@ async fn run_stream_worker(
     chain: String,
     stream_provider: NearStreamProvider,
     fastnear_api_key: Option<String>,
+    fastnear_num_threads: Option<u64>,
     configured_start_height: u64,
     module_start_heights: Arc<HashMap<String, u64>>,
     configured_concurrency: usize,
@@ -239,6 +240,7 @@ async fn run_stream_worker(
                 near_indexer::core::lake_stream::create_fastnear_stream(
                     lake_config,
                     fastnear_api_key.clone(),
+                    fastnear_num_threads,
                 )
             }
         };
@@ -397,9 +399,10 @@ async fn run(config: AppConfig) -> Result<()> {
         chain,
         configured_provider,
         configured_fastnear_api_key,
+        configured_fastnear_num_threads,
         configured_start_height,
-        configured_concurrency,
-        configured_preload_pool_size,
+        raw_concurrency,
+        raw_preload_pool_size,
     ) = match &config {
         AppConfig::Indexer(idx) => {
             let idx = idx.as_ref();
@@ -409,6 +412,7 @@ async fn run(config: AppConfig) -> Result<()> {
                     .unwrap_or_else(|| "mainnet".to_string()),
                 n.map(|c| c.provider).unwrap_or_default(),
                 n.and_then(|c| c.fastnear_api_key.clone()),
+                n.and_then(|c| c.fastnear_num_threads),
                 n.map(|c| c.start_height).unwrap_or(0),
                 n.and_then(|c| c.concurrency).unwrap_or(6), // Default to 6 for parallel processing (conservative with large connection pool)
                 // Default small preload to avoid upstream buffering
@@ -419,11 +423,42 @@ async fn run(config: AppConfig) -> Result<()> {
             "mainnet".to_string(),
             NearStreamProvider::Lake,
             None,
+            None,
             0,
             6,
             1,
         ),
     };
+
+    if !matches!(chain.as_str(), "mainnet" | "testnet") {
+        return Err(anyhow::anyhow!(
+            "Unsupported NEAR chain '{}'. Expected 'mainnet' or 'testnet'",
+            chain
+        ));
+    }
+
+    let configured_concurrency = if raw_concurrency == 0 {
+        warn!(
+            configured_concurrency = raw_concurrency,
+            adjusted_concurrency = 1,
+            "Invalid concurrency configured, adjusting to minimum 1"
+        );
+        1
+    } else {
+        raw_concurrency
+    };
+
+    let configured_preload_pool_size = if raw_preload_pool_size == 0 {
+        warn!(
+            configured_preload_pool_size = raw_preload_pool_size,
+            adjusted_preload_pool_size = 1,
+            "Invalid preload pool size configured, adjusting to minimum 1"
+        );
+        1
+    } else {
+        raw_preload_pool_size
+    };
+
     let module_start_heights = Arc::new(configured_module_start_heights(&config));
 
     let stream_assignments = plan_stream_assignments(registry.as_ref());
@@ -444,6 +479,7 @@ async fn run(config: AppConfig) -> Result<()> {
         chain = %chain,
         provider = configured_provider.as_str(),
         fastnear_api_key_set = configured_fastnear_api_key.is_some(),
+        fastnear_num_threads = configured_fastnear_num_threads,
         stream_count = stream_count,
         stream_plan = ?stream_plan,
         configured_concurrency = configured_concurrency,
@@ -464,6 +500,7 @@ async fn run(config: AppConfig) -> Result<()> {
                 chain.clone(),
                 configured_provider,
                 configured_fastnear_api_key.clone(),
+                configured_fastnear_num_threads,
                 configured_start_height,
                 module_start_heights.clone(),
                 configured_concurrency,

@@ -311,6 +311,10 @@ pub struct NearLakeConfig {
     /// Not required for public neardata endpoints.
     #[serde(default)]
     pub fastnear_api_key: Option<String>,
+    /// Optional number of fetch threads for FastNEAR provider.
+    /// If not set, the indexer applies a conservative default.
+    #[serde(default)]
+    pub fastnear_num_threads: Option<u64>,
     /// Module-specific configurations
     #[serde(default)]
     pub modules: Option<NearModulesConfig>,
@@ -487,6 +491,7 @@ impl ToLog for NearLakeConfig {
             "concurrency": self.concurrency,
             "preload_pool_size": self.preload_pool_size,
             "fastnear_api_key_set": self.fastnear_api_key.is_some(),
+            "fastnear_num_threads": self.fastnear_num_threads,
             "modules": self.modules.as_ref().map(|m| m.to_log()),
         })
     }
@@ -1125,6 +1130,7 @@ mod tests {
 
         let near_cfg = NearLakeConfig::default();
         assert_eq!(near_cfg.provider, NearStreamProvider::Lake);
+        assert_eq!(near_cfg.fastnear_num_threads, None);
 
         let raw = RawModuleConfig::default();
         let accounts = AccountsModuleConfig::default();

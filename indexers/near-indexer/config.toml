@@ -37,7 +37,7 @@ send_default_pii = true
 provider = "fastnear"
 # Chain to index: "mainnet", "testnet", or "disabled"
 chain = "mainnet"
-# Starting block height (0 for genesis, or specific height)
+# Starting block height (0 for genesis on Lake; FastNEAR auto-adjusts to first available block)
 start_height = 0
 # Concurrency for parallel block processing (number of blocks to process simultaneously)
 # Keep at 1 for deterministic cumulative veNEAR balances
@@ -45,6 +45,9 @@ concurrency = 1
 # Limit NEAR Lake prefetch to avoid unbounded upstream buffering and memory growth
 # Keep this small (1–2) unless you’ve verified DB can keep up
 preload_pool_size = 16
+# FastNEAR fetch thread count (separate from block processing concurrency)
+# Lower value reduces aggressive parallel fetch/retry pressure during backfill
+fastnear_num_threads = 4
 # Optional FastNEAR token (prefer env override APP_NEAR__FASTNEAR_API_KEY)
 # fastnear_api_key = ""
 

@@ -104,6 +104,7 @@ fn build_live_test_config(start_height: u64) -> AppConfig {
             concurrency: Some(1),
             preload_pool_size: Some(1),
             fastnear_api_key: None,
+            fastnear_num_threads: None,
             modules: Some(NearModulesConfig {
                 raw: None,
                 accounts: None,

@@ -188,6 +188,7 @@ async fn main() -> Result<()> {
             preload_pool_size: 20,
         },
         api_key,
+        None,
     )?;
 
     let mut stream = ReceiverStream::new(stream);
