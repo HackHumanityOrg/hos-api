@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use common::config::{AppConfig, NearModuleStreamMode, ToLog};
+use common::config::{AppConfig, NearModuleStreamMode, NearStreamProvider, ToLog};
 use common::telemetry::{self, TelemetrySetup};
 use db_core::connection::from_config as db_from_config;
 use futures::future::try_join_all;
@@ -169,6 +169,8 @@ async fn run_stream_worker(
     registry: Arc<ModuleRegistry>,
     db: Arc<sea_orm::DatabaseConnection>,
     chain: String,
+    stream_provider: NearStreamProvider,
+    fastnear_api_key: Option<String>,
     configured_start_height: u64,
     module_start_heights: Arc<HashMap<String, u64>>,
     configured_concurrency: usize,
@@ -214,6 +216,7 @@ async fn run_stream_worker(
         info!(
             stream_id = %assignment.stream_id,
             assigned_modules = ?assignment.module_names,
+            stream_provider = stream_provider.as_str(),
             stream_start_height = stream_start_height,
             resume_source = %if any_module_has_cursor { "cursor" } else { "config" },
             configured_concurrency = configured_concurrency,
@@ -228,22 +231,34 @@ async fn run_stream_worker(
             preload_pool_size: configured_preload_pool_size,
         };
 
-        let (streamer_handle, stream) =
-            match near_indexer::core::lake_stream::create_lake_stream(lake_config) {
-                Ok(stream_parts) => stream_parts,
-                Err(err) => {
-                    error!(
-                        stream_id = %assignment.stream_id,
-                        error = %err,
-                        backoff_ms = restart_backoff.as_millis(),
-                        "Failed to create stream, retrying worker"
-                    );
+        let stream_parts = match stream_provider {
+            NearStreamProvider::Lake => {
+                near_indexer::core::lake_stream::create_lake_stream(lake_config)
+            }
+            NearStreamProvider::Fastnear => {
+                near_indexer::core::lake_stream::create_fastnear_stream(
+                    lake_config,
+                    fastnear_api_key.clone(),
+                )
+            }
+        };
 
-                    tokio::time::sleep(restart_backoff).await;
-                    restart_backoff = (restart_backoff.saturating_mul(2)).min(max_restart_backoff);
-                    continue;
-                }
-            };
+        let (streamer_handle, stream) = match stream_parts {
+            Ok(stream_parts) => stream_parts,
+            Err(err) => {
+                error!(
+                    stream_id = %assignment.stream_id,
+                    stream_provider = stream_provider.as_str(),
+                    error = %err,
+                    backoff_ms = restart_backoff.as_millis(),
+                    "Failed to create stream, retrying worker"
+                );
+
+                tokio::time::sleep(restart_backoff).await;
+                restart_backoff = (restart_backoff.saturating_mul(2)).min(max_restart_backoff);
+                continue;
+            }
+        };
 
         let mut streamer_handle = streamer_handle;
         restart_backoff = Duration::from_secs(1);
@@ -288,17 +303,20 @@ async fn run_stream_worker(
                 match streamer_result {
                     Ok(Ok(())) => warn!(
                         stream_id = %assignment.stream_id,
-                        "Lake streamer exited unexpectedly, restarting worker"
+                        stream_provider = stream_provider.as_str(),
+                        "Streamer exited unexpectedly, restarting worker"
                     ),
                     Ok(Err(err)) => error!(
                         stream_id = %assignment.stream_id,
+                        stream_provider = stream_provider.as_str(),
                         error = %err,
-                        "Lake streamer failed, restarting worker"
+                        "Streamer failed, restarting worker"
                     ),
                     Err(join_err) => error!(
                         stream_id = %assignment.stream_id,
+                        stream_provider = stream_provider.as_str(),
                         error = %join_err,
-                        "Lake streamer panicked, restarting worker"
+                        "Streamer panicked, restarting worker"
                     ),
                 }
             }
@@ -375,22 +393,37 @@ async fn run(config: AppConfig) -> Result<()> {
         "Modules initialized and ready"
     );
 
-    let (chain, configured_start_height, configured_concurrency, configured_preload_pool_size) =
-        match &config {
-            AppConfig::Indexer(idx) => {
-                let idx = idx.as_ref();
-                let n = idx.near.as_ref();
-                (
-                    n.map(|c| c.chain.clone())
-                        .unwrap_or_else(|| "mainnet".to_string()),
-                    n.map(|c| c.start_height).unwrap_or(0),
-                    n.and_then(|c| c.concurrency).unwrap_or(6), // Default to 6 for parallel processing (conservative with large connection pool)
-                    // Default small preload to avoid upstream buffering
-                    n.and_then(|c| c.preload_pool_size).unwrap_or(1),
-                )
-            }
-            _ => ("mainnet".to_string(), 0, 6, 1),
-        };
+    let (
+        chain,
+        configured_provider,
+        configured_fastnear_api_key,
+        configured_start_height,
+        configured_concurrency,
+        configured_preload_pool_size,
+    ) = match &config {
+        AppConfig::Indexer(idx) => {
+            let idx = idx.as_ref();
+            let n = idx.near.as_ref();
+            (
+                n.map(|c| c.chain.clone())
+                    .unwrap_or_else(|| "mainnet".to_string()),
+                n.map(|c| c.provider).unwrap_or_default(),
+                n.and_then(|c| c.fastnear_api_key.clone()),
+                n.map(|c| c.start_height).unwrap_or(0),
+                n.and_then(|c| c.concurrency).unwrap_or(6), // Default to 6 for parallel processing (conservative with large connection pool)
+                // Default small preload to avoid upstream buffering
+                n.and_then(|c| c.preload_pool_size).unwrap_or(1),
+            )
+        }
+        _ => (
+            "mainnet".to_string(),
+            NearStreamProvider::Lake,
+            None,
+            0,
+            6,
+            1,
+        ),
+    };
     let module_start_heights = Arc::new(configured_module_start_heights(&config));
 
     let stream_assignments = plan_stream_assignments(registry.as_ref());
@@ -409,6 +442,8 @@ async fn run(config: AppConfig) -> Result<()> {
     let startup_elapsed = startup_time.elapsed();
     info!(
         chain = %chain,
+        provider = configured_provider.as_str(),
+        fastnear_api_key_set = configured_fastnear_api_key.is_some(),
         stream_count = stream_count,
         stream_plan = ?stream_plan,
         configured_concurrency = configured_concurrency,
@@ -427,6 +462,8 @@ async fn run(config: AppConfig) -> Result<()> {
                 registry.clone(),
                 db.clone(),
                 chain.clone(),
+                configured_provider,
+                configured_fastnear_api_key.clone(),
                 configured_start_height,
                 module_start_heights.clone(),
                 configured_concurrency,

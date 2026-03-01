@@ -5,7 +5,7 @@ mod support;
 use anyhow::{Context, Result};
 use common::config::{
     AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig, NearModuleStreamMode,
-    NearModulesConfig, TelemetryConfig, VenearGovernanceModuleConfig,
+    NearModulesConfig, NearStreamProvider, TelemetryConfig, VenearGovernanceModuleConfig,
 };
 use near_indexer::core::lake_stream::{create_lake_stream, LakeStreamConfig};
 use near_indexer::modules::venear_governance::VenearGovernanceModule;
@@ -62,7 +62,11 @@ async fn venear_governance_live_lake_ingests_into_postgres() -> Result<()> {
 
         module.process_block(&message, conn.as_ref()).await?;
         module
-            .update_cursor(conn.as_ref(), message.block.header.height as i64)
+            .update_cursor(
+                conn.as_ref(),
+                message.block.header.height as i64,
+                message.block.header.prev_height.map(|value| value as i64),
+            )
             .await?;
 
         processed += 1;
@@ -94,10 +98,12 @@ fn build_live_test_config(start_height: u64) -> AppConfig {
         telemetry: TelemetryConfig::default(),
         discourse: None,
         near: Some(NearLakeConfig {
+            provider: NearStreamProvider::Lake,
             chain: "mainnet".to_string(),
             start_height,
             concurrency: Some(1),
             preload_pool_size: Some(1),
+            fastnear_api_key: None,
             modules: Some(NearModulesConfig {
                 raw: None,
                 accounts: None,

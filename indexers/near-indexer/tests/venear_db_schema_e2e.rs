@@ -3,7 +3,7 @@ mod support;
 use anyhow::Result;
 use common::config::{
     AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig, NearModuleStreamMode,
-    NearModulesConfig, TelemetryConfig, VenearGovernanceModuleConfig,
+    NearModulesConfig, NearStreamProvider, TelemetryConfig, VenearGovernanceModuleConfig,
 };
 use near_indexer::modules::venear_governance::VenearGovernanceModule;
 use near_indexer::IndexerModule;
@@ -191,10 +191,12 @@ fn build_test_config() -> AppConfig {
         telemetry: TelemetryConfig::default(),
         discourse: None,
         near: Some(NearLakeConfig {
+            provider: NearStreamProvider::Lake,
             chain: "mainnet".to_string(),
             start_height: 0,
             concurrency: Some(1),
             preload_pool_size: Some(1),
+            fastnear_api_key: None,
             modules: Some(NearModulesConfig {
                 raw: None,
                 accounts: None,

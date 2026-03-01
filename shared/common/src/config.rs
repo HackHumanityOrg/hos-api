@@ -290,6 +290,9 @@ impl ToLog for IndexerConfig {
 /// NEAR Lake / chain streaming configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NearLakeConfig {
+    /// Stream data provider: "lake" (AWS S3) or "fastnear" (HTTP API)
+    #[serde(default)]
+    pub provider: NearStreamProvider,
     /// Chain to index: "mainnet" or "testnet"
     #[serde(default = "default_chain")]
     pub chain: String,
@@ -304,9 +307,33 @@ pub struct NearLakeConfig {
     /// If not set, the indexer will default to a conservative small value.
     #[serde(default)]
     pub preload_pool_size: Option<usize>,
+    /// Optional FastNEAR Bearer token for paid/private access.
+    /// Not required for public neardata endpoints.
+    #[serde(default)]
+    pub fastnear_api_key: Option<String>,
     /// Module-specific configurations
     #[serde(default)]
     pub modules: Option<NearModulesConfig>,
+}
+
+/// Stream provider for NEAR indexers.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum NearStreamProvider {
+    /// S3-backed NEAR Lake stream.
+    #[default]
+    Lake,
+    /// FastNEAR HTTP-backed stream.
+    Fastnear,
+}
+
+impl NearStreamProvider {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Lake => "lake",
+            Self::Fastnear => "fastnear",
+        }
+    }
 }
 
 /// Stream assignment mode for NEAR modules.
@@ -454,10 +481,12 @@ fn default_lockup_account_suffix() -> String {
 impl ToLog for NearLakeConfig {
     fn to_log(&self) -> JsonValue {
         json!({
+            "provider": self.provider.as_str(),
             "chain": self.chain,
             "start_height": self.start_height,
             "concurrency": self.concurrency,
             "preload_pool_size": self.preload_pool_size,
+            "fastnear_api_key_set": self.fastnear_api_key.is_some(),
             "modules": self.modules.as_ref().map(|m| m.to_log()),
         })
     }
@@ -1093,6 +1122,10 @@ mod tests {
             NearModuleStreamMode::default(),
             NearModuleStreamMode::Shared
         );
+
+        let near_cfg = NearLakeConfig::default();
+        assert_eq!(near_cfg.provider, NearStreamProvider::Lake);
+
         let raw = RawModuleConfig::default();
         let accounts = AccountsModuleConfig::default();
         let tokens = TokensModuleConfig::default();
@@ -1110,6 +1143,16 @@ mod tests {
         assert_eq!(tokens.start_height, None);
         assert_eq!(staking_pools.start_height, None);
         assert_eq!(venear.start_height, None);
+    }
+
+    #[test]
+    fn near_stream_provider_deserializes_fastnear() {
+        let cfg: NearLakeConfig = serde_json::from_value(serde_json::json!({
+            "provider": "fastnear"
+        }))
+        .expect("provider should deserialize");
+
+        assert_eq!(cfg.provider, NearStreamProvider::Fastnear);
     }
 
     #[test]

@@ -1529,7 +1529,8 @@ mod tests {
     use anyhow::Result;
     use common::config::{
         AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig,
-        NearModuleStreamMode, NearModulesConfig, TelemetryConfig, VenearGovernanceModuleConfig,
+        NearModuleStreamMode, NearModulesConfig, NearStreamProvider, TelemetryConfig,
+        VenearGovernanceModuleConfig,
     };
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     use test_support::{init_test_tracing, TestDatabase};
@@ -1546,10 +1547,12 @@ mod tests {
             telemetry: TelemetryConfig::default(),
             discourse: None,
             near: Some(NearLakeConfig {
+                provider: NearStreamProvider::Lake,
                 chain: "mainnet".to_string(),
                 start_height: 0,
                 concurrency: Some(1),
                 preload_pool_size: Some(1),
+                fastnear_api_key: None,
                 modules: Some(NearModulesConfig {
                     raw: None,
                     accounts: None,

@@ -33,6 +33,8 @@ send_default_pii = true
 "indexer.type" = "primary"
 
 [near]
+# Stream provider: "lake" (AWS S3) or "fastnear" (HTTP API)
+provider = "fastnear"
 # Chain to index: "mainnet", "testnet", or "disabled"
 chain = "mainnet"
 # Starting block height (0 for genesis, or specific height)
@@ -43,6 +45,8 @@ concurrency = 1
 # Limit NEAR Lake prefetch to avoid unbounded upstream buffering and memory growth
 # Keep this small (1–2) unless you’ve verified DB can keep up
 preload_pool_size = 16
+# Optional FastNEAR token (prefer env override APP_NEAR__FASTNEAR_API_KEY)
+# fastnear_api_key = ""
 
 # Module configurations
 
