@@ -8,6 +8,7 @@ mod m20260227_000005_near_venear_governance_schema;
 mod m20260228_000006_json_to_jsonb;
 mod m20260301_000007_telegram_schema;
 mod m20260301_000008_drop_telegram_import_logs;
+mod m20260302_000009_identity_schema;
 
 pub struct Migrator;
 
@@ -23,6 +24,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260228_000006_json_to_jsonb::Migration),
             Box::new(m20260301_000007_telegram_schema::Migration),
             Box::new(m20260301_000008_drop_telegram_import_logs::Migration),
+            Box::new(m20260302_000009_identity_schema::Migration),
         ]
     }
 }

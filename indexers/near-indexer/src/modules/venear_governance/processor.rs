@@ -9,6 +9,7 @@ use near_lake_framework::near_indexer_primitives::{
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::{json, Value as JsonValue};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tracing::{info, instrument, warn};
@@ -21,6 +22,7 @@ use crate::modules::venear_governance::types::{
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "venear_governance";
+const IDENTITY_NEAR_PLATFORM: &str = "near";
 
 #[derive(Default)]
 struct ProcessState {
@@ -46,12 +48,14 @@ struct ActionContext {
 pub struct VenearGovernanceModule {
     enabled: bool,
     stream_mode: NearModuleStreamMode,
+    near_chain_scope: String,
     venear_contract_id: String,
     voting_contract_id: String,
     lockup_account_suffix: String,
     configured_known_lockups: HashSet<String>,
     known_lockups: Arc<RwLock<HashSet<String>>>,
     lockup_owners: Arc<RwLock<HashMap<String, String>>>,
+    identity_accounts_enabled: AtomicBool,
 }
 
 impl VenearGovernanceModule {
@@ -86,6 +90,7 @@ impl VenearGovernanceModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
         let mut enabled = false;
         let mut stream_mode = NearModuleStreamMode::Shared;
+        let mut near_chain_scope = "mainnet".to_string();
         let mut venear_contract_id = "venear.dao".to_string();
         let mut voting_contract_id = "vote.dao".to_string();
         let mut lockup_account_suffix = ".venear.dao".to_string();
@@ -94,6 +99,10 @@ impl VenearGovernanceModule {
         if let common::config::AppConfig::Indexer(idx) = config {
             let idx = idx.as_ref();
             if let Some(near) = idx.near.as_ref() {
+                near_chain_scope = near.chain.trim().to_ascii_lowercase();
+                if near_chain_scope.is_empty() {
+                    near_chain_scope = "mainnet".to_string();
+                }
                 let near_enabled = near.chain != "disabled";
                 if near_enabled {
                     if let Some(module_cfg) = near
@@ -116,12 +125,14 @@ impl VenearGovernanceModule {
         Self {
             enabled,
             stream_mode,
+            near_chain_scope,
             venear_contract_id,
             voting_contract_id,
             lockup_account_suffix,
             configured_known_lockups,
             known_lockups: Arc::new(RwLock::new(HashSet::new())),
             lockup_owners: Arc::new(RwLock::new(HashMap::new())),
+            identity_accounts_enabled: AtomicBool::new(false),
         }
     }
 
@@ -185,6 +196,92 @@ impl VenearGovernanceModule {
             let mut lockup_owners = self.lockup_owners.write().unwrap();
             *lockup_owners = state.lockup_owners.clone();
         }
+    }
+
+    fn normalize_identity_account_id(account_id: &str) -> Option<String> {
+        let normalized = account_id.trim().to_ascii_lowercase();
+        if normalized.is_empty() {
+            None
+        } else {
+            Some(normalized)
+        }
+    }
+
+    async fn initialize_identity_accounts_support(&self, db: &impl ConnectionTrait) -> Result<()> {
+        let row = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'identity'
+                      AND table_name = 'accounts'
+                ) AS exists",
+                vec![],
+            ))
+            .await
+            .context("failed checking identity.accounts availability")?
+            .ok_or_else(|| anyhow!("identity.accounts existence check returned no rows"))?;
+
+        let exists: bool = row.try_get("", "exists")?;
+        self.identity_accounts_enabled
+            .store(exists, Ordering::Relaxed);
+
+        if exists {
+            info!(
+                module = MODULE_NAME,
+                near_chain_scope = self.near_chain_scope,
+                "identity account sync enabled"
+            );
+        } else {
+            warn!(
+                module = MODULE_NAME,
+                "identity.accounts table missing; skipping identity account sync"
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn upsert_identity_accounts<'a, I>(
+        &self,
+        db: &impl ConnectionTrait,
+        account_ids: I,
+    ) -> Result<()>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        if !self.identity_accounts_enabled.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        let mut unique_accounts: HashSet<String> = HashSet::new();
+        for account_id in account_ids {
+            if let Some(normalized) = Self::normalize_identity_account_id(account_id) {
+                unique_accounts.insert(normalized);
+            }
+        }
+
+        for account_id in unique_accounts {
+            let account_id_for_error = account_id.clone();
+            db.execute(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO identity.accounts (platform_id, scope, external_id)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT (platform_id, scope, external_id) DO NOTHING",
+                vec![
+                    IDENTITY_NEAR_PLATFORM.into(),
+                    self.near_chain_scope.clone().into(),
+                    account_id.into(),
+                ],
+            ))
+            .await
+            .with_context(|| {
+                format!("failed upserting identity account '{account_id_for_error}'")
+            })?;
+        }
+
+        Ok(())
     }
 
     fn is_target_contract(&self, contract_id: &str, state: &ProcessState) -> bool {
@@ -1117,6 +1214,9 @@ impl VenearGovernanceModule {
         ))
         .await?;
 
+        self.upsert_identity_accounts(db, [predecessor_account_id, contract_id])
+            .await?;
+
         Ok(())
     }
 
@@ -1170,6 +1270,10 @@ impl VenearGovernanceModule {
             ],
         ))
         .await?;
+
+        self.upsert_identity_accounts(db, [lockup_account_id, owner_account_id])
+            .await?;
+
         Ok(())
     }
 
@@ -1236,6 +1340,9 @@ impl VenearGovernanceModule {
         ))
         .await?;
 
+        self.upsert_identity_accounts(db, [account_id, predecessor_account_id, contract_id])
+            .await?;
+
         Ok(())
     }
 
@@ -1264,6 +1371,17 @@ impl VenearGovernanceModule {
         log_index: i32,
         data_index: i32,
     ) -> Result<()> {
+        let mut identity_accounts = vec![predecessor_account_id, contract_id];
+        if let Some(account_id) = account_id.as_deref() {
+            identity_accounts.push(account_id);
+        }
+        if let Some(proposer_id) = proposer_id.as_deref() {
+            identity_accounts.push(proposer_id);
+        }
+        if let Some(reviewer_id) = reviewer_id.as_deref() {
+            identity_accounts.push(reviewer_id);
+        }
+
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO near.near_venear_proposal_events (proposal_id, event_type, account_id, proposer_id, reviewer_id, voting_start_time_sec, snapshot_block_height, snapshot_root, snapshot_total_venear, metadata, payload, block_height, block_timestamp, shard_id, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index)
@@ -1289,9 +1407,9 @@ impl VenearGovernanceModule {
             vec![
                 proposal_id.into(),
                 event_type.into(),
-                account_id.into(),
-                proposer_id.into(),
-                reviewer_id.into(),
+                account_id.clone().into(),
+                proposer_id.clone().into(),
+                reviewer_id.clone().into(),
                 voting_start_time_sec.into(),
                 snapshot_block_height.into(),
                 snapshot_root.into(),
@@ -1310,6 +1428,8 @@ impl VenearGovernanceModule {
             ],
         ))
         .await?;
+
+        self.upsert_identity_accounts(db, identity_accounts).await?;
 
         Ok(())
     }
@@ -1369,6 +1489,9 @@ impl VenearGovernanceModule {
             ],
         ))
         .await?;
+
+        self.upsert_identity_accounts(db, [account_id, predecessor_account_id, contract_id])
+            .await?;
 
         Ok(())
     }
@@ -1441,6 +1564,20 @@ impl VenearGovernanceModule {
         ))
         .await?;
 
+        let mut identity_accounts = vec![
+            lockup_account_id,
+            predecessor_account_id,
+            receiver_account_id,
+        ];
+        if let Some(owner_account_id) = owner_account_id {
+            identity_accounts.push(owner_account_id);
+        }
+        if let Some(staking_pool_account_id) = staking_pool_account_id {
+            identity_accounts.push(staking_pool_account_id);
+        }
+
+        self.upsert_identity_accounts(db, identity_accounts).await?;
+
         Ok(())
     }
 }
@@ -1463,6 +1600,10 @@ impl IndexerModule for VenearGovernanceModule {
         if !self.enabled {
             return Ok(());
         }
+
+        self.initialize_identity_accounts_support(db)
+            .await
+            .context("failed initializing identity account sync")?;
 
         self.load_known_lockups(db)
             .await
@@ -1546,6 +1687,7 @@ mod tests {
             logging: LoggingConfig::default(),
             telemetry: TelemetryConfig::default(),
             discourse: None,
+            telegram: None,
             near: Some(NearLakeConfig {
                 provider: NearStreamProvider::Lake,
                 chain: "mainnet".to_string(),
@@ -2036,6 +2178,76 @@ mod tests {
         )
         .await?;
         assert_eq!(account_id.as_deref(), Some("reviewer.near"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn add_vote_event_upserts_identity_accounts() -> Result<()> {
+        init_test_tracing();
+
+        let db = TestDatabase::new().await;
+        let conn = db.db();
+        let module = VenearGovernanceModule::new(&build_test_config());
+        module.initialize(conn.as_ref()).await?;
+        let mut state = module.build_process_state();
+
+        let log = r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"add_vote","data":[{"account_id":"alice.near","proposal_id":1,"vote":2,"account_balance":"10"}]}"#;
+
+        module
+            .process_logs(
+                &[log.to_string()],
+                "venear.dao",
+                "caller.near",
+                "rcpt-identity-upsert",
+                "exec-identity-upsert",
+                0,
+                500,
+                5000,
+                true,
+                conn.as_ref(),
+                &mut state,
+            )
+            .await?;
+
+        let caller_exists = scalar_bool(
+            conn.as_ref(),
+            "SELECT EXISTS (
+                SELECT 1
+                FROM identity.accounts
+                WHERE platform_id = 'near'
+                  AND scope = 'mainnet'
+                  AND external_id = 'caller.near'
+            ) AS value",
+        )
+        .await?;
+        assert!(caller_exists);
+
+        let voter_exists = scalar_bool(
+            conn.as_ref(),
+            "SELECT EXISTS (
+                SELECT 1
+                FROM identity.accounts
+                WHERE platform_id = 'near'
+                  AND scope = 'mainnet'
+                  AND external_id = 'alice.near'
+            ) AS value",
+        )
+        .await?;
+        assert!(voter_exists);
+
+        let contract_exists = scalar_bool(
+            conn.as_ref(),
+            "SELECT EXISTS (
+                SELECT 1
+                FROM identity.accounts
+                WHERE platform_id = 'near'
+                  AND scope = 'mainnet'
+                  AND external_id = 'venear.dao'
+            ) AS value",
+        )
+        .await?;
+        assert!(contract_exists);
 
         Ok(())
     }

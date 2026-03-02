@@ -11,9 +11,9 @@ path = "src/lib.rs"
 [dependencies]
 async-std = { workspace = true }
 sea-orm-migration = { workspace = true }
+sea-orm = { workspace = true }
 
 [dev-dependencies]
-sea-orm = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 tokio = { workspace = true }

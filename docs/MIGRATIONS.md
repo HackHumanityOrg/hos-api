@@ -36,6 +36,13 @@ cargo migrate-generate create_users_table
 
 # Regenerate entities from the live DB schemas
 cargo generate-entities
+
+# Backfill identity account registry from existing source tables
+cargo migrate-up
+cargo backfill-identity-accounts
+
+# Optional: override NEAR scope used during backfill (default: mainnet)
+IDENTITY_NEAR_CHAIN=testnet cargo backfill-identity-accounts
 ```
 
 ## Creating New Migrations
@@ -251,6 +258,7 @@ This command introspects PostgreSQL schemas and updates:
 - `shared/entities/src/discourse`
 - `shared/entities/src/near`
 - `shared/entities/src/telegram`
+- `shared/entities/src/identity`
 
 The generator reads `DATABASE_URL` and runs `sea-orm-cli generate entity` under the hood.
 

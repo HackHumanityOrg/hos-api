@@ -25,6 +25,7 @@ fn run() -> Result<(), String> {
     )?;
     generate_schema_entities(&normalized_url, "near", "shared/entities/src/near")?;
     generate_schema_entities(&normalized_url, "telegram", "shared/entities/src/telegram")?;
+    generate_schema_entities(&normalized_url, "identity", "shared/entities/src/identity")?;
 
     Ok(())
 }

@@ -216,6 +216,7 @@ fn build_test_config() -> AppConfig {
         logging: LoggingConfig::default(),
         telemetry: TelemetryConfig::default(),
         discourse: None,
+        telegram: None,
         near: Some(NearLakeConfig {
             provider: NearStreamProvider::Lake,
             chain: "mainnet".to_string(),
