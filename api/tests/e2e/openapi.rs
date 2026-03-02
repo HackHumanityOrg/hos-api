@@ -129,6 +129,41 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         "telegram messages description should explain pagination semantics"
     );
 
+    let topics_parameters = paths
+        .get("/api/v1/discourse/instances/{instance}/topics")
+        .and_then(|path| path.get("get"))
+        .and_then(|op| op.get("parameters"))
+        .and_then(|params| params.as_array())
+        .expect("topics parameters");
+    let topics_limit = topics_parameters
+        .iter()
+        .find(|param| param.get("name").and_then(|v| v.as_str()) == Some("limit"))
+        .expect("topics limit parameter");
+    assert_eq!(
+        topics_limit
+            .get("schema")
+            .and_then(|schema| schema.get("default"))
+            .and_then(|v| v.as_i64()),
+        Some(20),
+        "limit should be the only prefilled query value"
+    );
+    let topics_query = topics_parameters
+        .iter()
+        .find(|param| param.get("name").and_then(|v| v.as_str()) == Some("q"))
+        .expect("topics q parameter");
+    assert!(
+        topics_query.get("example").is_none(),
+        "search query should not be prefilled"
+    );
+    let topics_cursor = topics_parameters
+        .iter()
+        .find(|param| param.get("name").and_then(|v| v.as_str()) == Some("cursor"))
+        .expect("topics cursor parameter");
+    assert!(
+        topics_cursor.get("example").is_none(),
+        "cursor should not be prefilled"
+    );
+
     let schemas = value
         .get("components")
         .and_then(|components| components.get("schemas"))

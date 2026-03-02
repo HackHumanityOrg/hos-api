@@ -165,6 +165,39 @@ mod tests {
             "topics endpoint should explain sorting semantics"
         );
 
+        let topics_parameters = topics_get
+            .get("parameters")
+            .and_then(|v| v.as_array())
+            .expect("topics parameters");
+        let topics_limit = topics_parameters
+            .iter()
+            .find(|param| param.get("name").and_then(|v| v.as_str()) == Some("limit"))
+            .expect("topics limit parameter");
+        assert_eq!(
+            topics_limit
+                .get("schema")
+                .and_then(|schema| schema.get("default"))
+                .and_then(|v| v.as_i64()),
+            Some(20),
+            "limit should be the only prefilled query value"
+        );
+        let topics_query = topics_parameters
+            .iter()
+            .find(|param| param.get("name").and_then(|v| v.as_str()) == Some("q"))
+            .expect("topics q parameter");
+        assert!(
+            topics_query.get("example").is_none(),
+            "search query should not be prefilled"
+        );
+        let topics_cursor = topics_parameters
+            .iter()
+            .find(|param| param.get("name").and_then(|v| v.as_str()) == Some("cursor"))
+            .expect("topics cursor parameter");
+        assert!(
+            topics_cursor.get("example").is_none(),
+            "cursor should not be prefilled"
+        );
+
         let identity_persons_get = paths
             .get("/api/v1/identity/persons")
             .and_then(|p| p.get("get"))

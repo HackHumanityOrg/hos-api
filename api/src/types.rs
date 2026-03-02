@@ -306,10 +306,9 @@ pub struct SyncLagResponse {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct CursorPaginationQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJrZXkiOiJmb3J1bS5uZWFyIn0")]
     pub cursor: Option<String>,
 }
 
@@ -317,16 +316,13 @@ pub struct CursorPaginationQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct CategoriesQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJleHRlcm5hbF9pZCI6MTIzfQ")]
     pub cursor: Option<String>,
     /// Filter by upstream Discourse parent category id.
-    #[param(example = 1)]
     pub parent_category_id: Option<i32>,
     /// Case-insensitive substring match on category name or slug.
-    #[param(example = "governance")]
     pub q: Option<String>,
 }
 
@@ -334,16 +330,13 @@ pub struct CategoriesQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TopicsQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJidW1wZWRfYXRfZXBvY2giOjE3MzU2ODY0MDAsImV4dGVybmFsX2lkIjo5OX0")]
     pub cursor: Option<String>,
     /// Case-insensitive substring match on topic title or slug.
-    #[param(example = "funding")]
     pub q: Option<String>,
     /// Filter by upstream Discourse category id.
-    #[param(example = 6)]
     pub category_id: Option<i32>,
     /// Filter to pinned topics only (or unpinned when false).
     pub pinned: Option<bool>,
@@ -354,10 +347,8 @@ pub struct TopicsQuery {
     /// Filter to visible topics only (or hidden when false).
     pub visible: Option<bool>,
     /// ISO-8601 datetime lower bound for bumped_at.
-    #[param(example = "2026-01-01T00:00:00Z")]
     pub bumped_after: Option<String>,
     /// ISO-8601 datetime upper bound for bumped_at.
-    #[param(example = "2026-01-31T23:59:59Z")]
     pub bumped_before: Option<String>,
 }
 
@@ -365,16 +356,13 @@ pub struct TopicsQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TopicPostsQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJwb3N0X251bWJlciI6MiwgImV4dGVybmFsX2lkIjo0Mn0")]
     pub cursor: Option<String>,
     /// Filter to posts authored by this username.
-    #[param(example = "alice")]
     pub username: Option<String>,
     /// Case-insensitive substring match on raw post body.
-    #[param(example = "staking")]
     pub q: Option<String>,
 }
 
@@ -382,16 +370,13 @@ pub struct TopicPostsQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct UsersQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJleHRlcm5hbF9pZCI6MjAwfQ")]
     pub cursor: Option<String>,
     /// Case-insensitive substring match on username or display name.
-    #[param(example = "near")]
     pub q: Option<String>,
     /// Filter by Discourse trust level.
-    #[param(example = 2)]
     pub trust_level: Option<i32>,
 }
 
@@ -399,10 +384,9 @@ pub struct UsersQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct UserPostsQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJjcmVhdGVkX2F0X2Vwb2NoIjoxNzM1Njg2NDAwLCJleHRlcm5hbF9pZCI6NDJ9")]
     pub cursor: Option<String>,
 }
 
@@ -634,13 +618,11 @@ pub struct VenearLockupActionDto {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearLockupsQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJrZXkiOiJsb2NrdXAuZXhhbXBsZS5uZWFyIn0")]
     pub cursor: Option<String>,
     /// Filter by owner account id.
-    #[param(example = "alice.near")]
     pub owner_account_id: Option<String>,
     /// Filter by active lockup lifecycle state.
     pub is_active: Option<bool>,
@@ -650,13 +632,11 @@ pub struct VenearLockupsQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearLockupActionsQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJibG9ja19oZWlnaHQiOjE2Nzg4ODAwMCwiaWQiOjEwMn0")]
     pub cursor: Option<String>,
     /// Filter by lockup action method name.
-    #[param(example = "on_withdraw_unvested")]
     pub method_name: Option<String>,
     /// Filter by execution success status.
     pub success: Option<bool>,
@@ -791,19 +771,15 @@ pub struct TelegramServiceActionDto {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramChannelsQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJ0ZWxlZ3JhbV9pZCI6LTEwMDEyMzQ1Njc4OX0")]
     pub cursor: Option<String>,
     /// Case-insensitive substring match on channel name or username.
-    #[param(example = "near")]
     pub q: Option<String>,
     /// Filter by Telegram channel type (`channel`, `group`, `user`).
-    #[param(example = "channel")]
     pub channel_type: Option<String>,
     /// Case-insensitive substring match on channel username.
-    #[param(example = "gov")]
     pub username: Option<String>,
 }
 
@@ -811,13 +787,11 @@ pub struct TelegramChannelsQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramUsersQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJ0ZWxlZ3JhbV9pZCI6MTIzNDU2Nzg5fQ")]
     pub cursor: Option<String>,
     /// Case-insensitive substring match on username or display name.
-    #[param(example = "alice")]
     pub q: Option<String>,
 }
 
@@ -825,27 +799,21 @@ pub struct TelegramUsersQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramMessagesQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJkYXRlX2Vwb2NoIjoxNzYwMDAwMDAwLCJ0ZWxlZ3JhbV9tZXNzYWdlX2lkIjoxMjN9")]
     pub cursor: Option<String>,
     /// Case-insensitive substring match on message text.
-    #[param(example = "governance")]
     pub q: Option<String>,
     /// Filter to messages authored by this Telegram user id.
-    #[param(example = 100001)]
     pub from_user_telegram_id: Option<i64>,
     /// Filter by Telegram message type (`message`, `media`, `service`, `unknown`).
-    #[param(example = "message")]
     pub message_type: Option<String>,
     /// Filter by whether the message has media.
     pub has_media: Option<bool>,
     /// RFC 3339 lower bound for message date.
-    #[param(example = "2026-01-01T00:00:00Z")]
     pub date_after: Option<String>,
     /// RFC 3339 upper bound for message date.
-    #[param(example = "2026-01-31T23:59:59Z")]
     pub date_before: Option<String>,
 }
 
@@ -853,16 +821,13 @@ pub struct TelegramMessagesQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramReactionsQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJkYXRlX2Vwb2NoIjoxNzYwMDAwMDAwLCJpZCI6MTAwfQ")]
     pub cursor: Option<String>,
     /// Filter by reaction emoji.
-    #[param(example = "thumbs_up")]
     pub emoji: Option<String>,
     /// Filter by Telegram user id of the reacting user.
-    #[param(example = 100001)]
     pub user_telegram_id: Option<i64>,
 }
 
@@ -870,16 +835,13 @@ pub struct TelegramReactionsQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramServiceActionsQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJkYXRlX2Vwb2NoIjoxNzYwMDAwMDAwLCJpZCI6MTAwfQ")]
     pub cursor: Option<String>,
     /// Filter by service action type.
-    #[param(example = "message_pinned")]
     pub action: Option<String>,
     /// Filter by Telegram actor user id.
-    #[param(example = 100001)]
     pub actor_telegram_id: Option<i64>,
 }
 
@@ -887,27 +849,21 @@ pub struct TelegramServiceActionsQuery {
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramUserMessagesQuery {
     /// Number of results to return. Defaults to 20. Max 100.
-    #[param(minimum = 1, maximum = 100, example = 20)]
+    #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
-    #[param(example = "eyJkYXRlX2Vwb2NoIjoxNzYwMDAwMDAwLCJpZCI6MTAwfQ")]
     pub cursor: Option<String>,
     /// Optional channel filter by Telegram channel id.
-    #[param(example = -1001234567890_i64)]
     pub channel_telegram_id: Option<i64>,
     /// Case-insensitive substring match on message text.
-    #[param(example = "proposal")]
     pub q: Option<String>,
     /// Filter by Telegram message type (`message`, `media`, `service`, `unknown`).
-    #[param(example = "media")]
     pub message_type: Option<String>,
     /// Filter by whether the message has media.
     pub has_media: Option<bool>,
     /// RFC 3339 lower bound for message date.
-    #[param(example = "2026-01-01T00:00:00Z")]
     pub date_after: Option<String>,
     /// RFC 3339 upper bound for message date.
-    #[param(example = "2026-01-31T23:59:59Z")]
     pub date_before: Option<String>,
 }
 
