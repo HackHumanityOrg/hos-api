@@ -17,7 +17,7 @@
 //!   TARGET_EVENT_TYPES   - Comma-separated fixture keys to capture
 //!                          (default: full set in DEFAULT_TARGET_EVENT_TYPES)
 //!   OPTIONAL_EVENT_TYPES - Comma-separated subset allowed to be missing
-//!                          (default: proposal_reject)
+//!                          (default: proposal_reject,remove_vote)
 //!   OVERWRITE_EXISTING   - true/false (default: false)
 //!   MAX_SCAN_BLOCKS      - Maximum blocks to scan (default: 500_000)
 //!   FIXTURES_DIR         - Output dir (default: tests/fixtures/venear_governance)
@@ -46,9 +46,13 @@ const DEFAULT_TARGET_EVENT_TYPES: &[&str] = &[
     "ft_burn",
     "on_lockup_update",
     "lockup_action",
+    "delegate_all",
+    "undelegate",
+    "delegate_all_failed",
+    "undelegate_failed",
 ];
 
-const DEFAULT_OPTIONAL_EVENT_TYPES: &[&str] = &["proposal_reject"];
+const DEFAULT_OPTIONAL_EVENT_TYPES: &[&str] = &["proposal_reject", "remove_vote"];
 
 const EVENT_JSON_PREFIX: &str = "EVENT_JSON:";
 const LOCKUP_SUFFIX: &str = ".venear.dao";
@@ -324,6 +328,19 @@ fn classify_block_with_targets(
                     already_found,
                     target_event_set,
                 );
+
+                if is_venear_contract(receiver) {
+                    let success = is_status_success(
+                        &tx_with_outcome.outcome.execution_outcome.outcome.status,
+                    );
+                    check_delegation_actions(
+                        &tx_with_outcome.transaction.actions,
+                        success,
+                        &mut new_types,
+                        already_found,
+                        target_event_set,
+                    );
+                }
             }
         }
 
@@ -349,6 +366,17 @@ fn classify_block_with_targets(
                 check_callback_receipts(receipt, &mut new_types, already_found, target_event_set);
             }
 
+            if is_venear_contract(receiver) {
+                let success = is_status_success(&outcome.outcome.status);
+                check_delegation_receipt_actions(
+                    receipt,
+                    success,
+                    &mut new_types,
+                    already_found,
+                    target_event_set,
+                );
+            }
+
             // Any function call to a .venear.dao lockup account is a lockup_action.
             if receiver.ends_with(LOCKUP_SUFFIX)
                 && !already_found.contains("lockup_action")
@@ -363,6 +391,71 @@ fn classify_block_with_targets(
     new_types.sort();
     new_types.dedup();
     new_types
+}
+
+fn is_status_success(status: &impl serde::Serialize) -> bool {
+    let Ok(value) = serde_json::to_value(status) else {
+        return false;
+    };
+
+    let Some(map) = value.as_object() else {
+        return false;
+    };
+
+    map.contains_key("SuccessValue") || map.contains_key("SuccessReceiptId")
+}
+
+fn push_key_if_target(
+    key: &str,
+    new_types: &mut Vec<String>,
+    already_found: &HashSet<String>,
+    target_event_set: &HashSet<String>,
+) {
+    if !already_found.contains(key) && target_event_set.contains(key) {
+        new_types.push(key.to_string());
+    }
+}
+
+fn check_delegation_actions(
+    actions: &[near_lake_framework::near_indexer_primitives::views::ActionView],
+    success: bool,
+    new_types: &mut Vec<String>,
+    already_found: &HashSet<String>,
+    target_event_set: &HashSet<String>,
+) {
+    use near_lake_framework::near_indexer_primitives::views::ActionView;
+
+    for action in actions {
+        let ActionView::FunctionCall { method_name, .. } = action else {
+            continue;
+        };
+
+        let key = match (method_name.as_str(), success) {
+            ("delegate_all", true) => Some("delegate_all"),
+            ("delegate_all", false) => Some("delegate_all_failed"),
+            ("undelegate", true) => Some("undelegate"),
+            ("undelegate", false) => Some("undelegate_failed"),
+            _ => None,
+        };
+
+        if let Some(key) = key {
+            push_key_if_target(key, new_types, already_found, target_event_set);
+        }
+    }
+}
+
+fn check_delegation_receipt_actions(
+    receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
+    success: bool,
+    new_types: &mut Vec<String>,
+    already_found: &HashSet<String>,
+    target_event_set: &HashSet<String>,
+) {
+    use near_lake_framework::near_indexer_primitives::views::ReceiptEnumView;
+
+    if let ReceiptEnumView::Action { actions, .. } = &receipt.receipt {
+        check_delegation_actions(actions, success, new_types, already_found, target_event_set);
+    }
 }
 
 fn check_logs_for_events(

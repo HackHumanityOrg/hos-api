@@ -1,6 +1,7 @@
 use api::types::{
-    VenearAccountBalancesListResponse, VenearLockupActionsListResponse, VenearLockupsListResponse,
-    VenearProposalEventsListResponse, VenearProposalsListResponse, VenearVotesListResponse,
+    VenearAccountBalancesListResponse, VenearDelegationEventsListResponse,
+    VenearLockupActionsListResponse, VenearLockupsListResponse, VenearProposalEventsListResponse,
+    VenearProposalsListResponse, VenearVotesListResponse,
 };
 use axum::{
     body::Body,
@@ -59,6 +60,19 @@ async fn venear_endpoints_return_seeded_data() {
     assert_eq!(balances.data.len(), 2);
     assert_eq!(balances.data[0].event_type, "ft_burn");
     assert_eq!(balances.data[0].total_balance, "8");
+
+    let delegations: VenearDelegationEventsListResponse = get_json(
+        &router,
+        "/api/v1/venear/accounts/lane.near/delegations?event_type=delegate_all",
+    )
+    .await;
+    assert_eq!(delegations.data.len(), 1);
+    assert_eq!(delegations.data[0].delegator_account_id, "lane.near");
+    assert_eq!(
+        delegations.data[0].delegatee_account_id.as_deref(),
+        Some("jane.near")
+    );
+    assert!(delegations.data[0].success);
 
     let lockups: VenearLockupsListResponse =
         get_json(&router, "/api/v1/venear/lockups?owner_account_id=lane.near").await;
@@ -202,6 +216,37 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
                 80, 1759990000000000000,
                 100, 1760000000000000000,
                 false, 100, 1760000000000000000, NULL
+            )
+        "#,
+    )
+    .await?;
+
+    execute_sql(
+        db,
+        r#"
+        INSERT INTO near.near_venear_delegation_events (
+            delegator_account_id, delegatee_account_id, event_type,
+            action_source, action_index,
+            args_json, args_base64, attached_deposit,
+            transaction_hash, receipt_id, execution_outcome_id,
+            success, block_height, block_timestamp, shard_id,
+            contract_id, metadata
+        ) VALUES
+            (
+                'lane.near', 'jane.near', 'delegate_all',
+                'receipt', 0,
+                '{"receiver_id":"jane.near"}'::jsonb, 'eyJyZWNlaXZlcl9pZCI6ImphbmUubmVhciJ9', '1',
+                'tx-deleg-1', 'rcpt-deleg-1', 'exec-deleg-1',
+                true, 143, 1760000530000000000, 0,
+                'venear.dao', '{"source":"fixture"}'::jsonb
+            ),
+            (
+                'jane.near', NULL, 'undelegate',
+                'receipt', 1,
+                '{}'::jsonb, 'e30=', '1',
+                'tx-deleg-2', 'rcpt-deleg-2', 'exec-deleg-2',
+                false, 144, 1760000540000000000, 0,
+                'venear.dao', '{"source":"fixture"}'::jsonb
             )
         "#,
     )

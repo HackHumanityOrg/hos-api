@@ -932,6 +932,44 @@ impl VenearGovernanceModule {
                 .await?;
             }
 
+            if context.receiver_id == self.venear_contract_id
+                && matches!(method_name.as_str(), "delegate_all" | "undelegate")
+            {
+                let delegatee_account_id = if method_name == "delegate_all" {
+                    args_json
+                        .as_ref()
+                        .and_then(|args| json_string(args, "receiver_id"))
+                } else {
+                    None
+                };
+
+                self.upsert_delegation_event(
+                    db,
+                    &context.predecessor_id,
+                    delegatee_account_id.as_deref(),
+                    method_name,
+                    if context.transaction_hash.is_some() {
+                        "transaction"
+                    } else {
+                        "receipt"
+                    },
+                    action_index as i32,
+                    args_json.clone(),
+                    args_base64.clone(),
+                    deposit.to_string(),
+                    context.transaction_hash.as_deref(),
+                    &context.receipt_id,
+                    &context.execution_outcome_id,
+                    context.success,
+                    context.block_height,
+                    context.block_timestamp,
+                    context.shard_id,
+                    &context.receiver_id,
+                    Self::decode_success_value_json(context.success_value_base64.as_deref()),
+                )
+                .await?;
+            }
+
             if !state.known_lockups.contains(&context.receiver_id)
                 && !context.receiver_id.ends_with(&self.lockup_account_suffix)
             {
@@ -1372,8 +1410,11 @@ impl VenearGovernanceModule {
         ))
         .await?;
 
-        self.upsert_identity_governance_accounts(db, [account_id, predecessor_account_id, contract_id])
-            .await?;
+        self.upsert_identity_governance_accounts(
+            db,
+            [account_id, predecessor_account_id, contract_id],
+        )
+        .await?;
 
         Ok(())
     }
@@ -1523,8 +1564,11 @@ impl VenearGovernanceModule {
         ))
         .await?;
 
-        self.upsert_identity_governance_accounts(db, [account_id, predecessor_account_id, contract_id])
-            .await?;
+        self.upsert_identity_governance_accounts(
+            db,
+            [account_id, predecessor_account_id, contract_id],
+        )
+        .await?;
 
         Ok(())
     }
@@ -1606,6 +1650,79 @@ impl VenearGovernanceModule {
         }
         if let Some(staking_pool_account_id) = staking_pool_account_id {
             identity_accounts.push(staking_pool_account_id);
+        }
+
+        self.upsert_identity_governance_accounts(db, identity_accounts)
+            .await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_delegation_event(
+        &self,
+        db: &impl ConnectionTrait,
+        delegator_account_id: &str,
+        delegatee_account_id: Option<&str>,
+        event_type: &str,
+        action_source: &str,
+        action_index: i32,
+        args_json: Option<JsonValue>,
+        args_base64: String,
+        attached_deposit: String,
+        transaction_hash: Option<&str>,
+        receipt_id: &str,
+        execution_outcome_id: &str,
+        success: bool,
+        block_height: i64,
+        block_timestamp: i64,
+        shard_id: i32,
+        contract_id: &str,
+        metadata: Option<JsonValue>,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_venear_delegation_events (delegator_account_id, delegatee_account_id, event_type, action_source, action_index, args_json, args_base64, attached_deposit, transaction_hash, receipt_id, execution_outcome_id, success, block_height, block_timestamp, shard_id, contract_id, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            ON CONFLICT (receipt_id, action_index, event_type, delegator_account_id, contract_id)
+            DO UPDATE SET
+              delegatee_account_id = EXCLUDED.delegatee_account_id,
+              action_source = EXCLUDED.action_source,
+              args_json = EXCLUDED.args_json,
+              args_base64 = EXCLUDED.args_base64,
+              attached_deposit = EXCLUDED.attached_deposit,
+              transaction_hash = EXCLUDED.transaction_hash,
+              execution_outcome_id = EXCLUDED.execution_outcome_id,
+              success = EXCLUDED.success,
+              block_height = EXCLUDED.block_height,
+              block_timestamp = EXCLUDED.block_timestamp,
+              shard_id = EXCLUDED.shard_id,
+              metadata = EXCLUDED.metadata",
+            vec![
+                delegator_account_id.into(),
+                delegatee_account_id.map(ToString::to_string).into(),
+                event_type.into(),
+                action_source.into(),
+                action_index.into(),
+                args_json.into(),
+                args_base64.into(),
+                attached_deposit.into(),
+                transaction_hash.map(ToString::to_string).into(),
+                receipt_id.into(),
+                execution_outcome_id.into(),
+                success.into(),
+                block_height.into(),
+                block_timestamp.into(),
+                shard_id.into(),
+                contract_id.into(),
+                metadata.into(),
+            ],
+        ))
+        .await?;
+
+        let mut identity_accounts = vec![delegator_account_id, contract_id];
+        if let Some(delegatee_account_id) = delegatee_account_id {
+            identity_accounts.push(delegatee_account_id);
         }
 
         self.upsert_identity_governance_accounts(db, identity_accounts)

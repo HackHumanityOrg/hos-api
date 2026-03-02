@@ -11,6 +11,7 @@ mod m20260301_000008_drop_telegram_import_logs;
 mod m20260302_000009_identity_schema;
 mod m20260303_000010_identity_person_name;
 mod m20260303_000011_identity_venear_platforms;
+mod m20260304_000012_near_venear_delegation_events;
 
 pub struct Migrator;
 
@@ -29,6 +30,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260302_000009_identity_schema::Migration),
             Box::new(m20260303_000010_identity_person_name::Migration),
             Box::new(m20260303_000011_identity_venear_platforms::Migration),
+            Box::new(m20260304_000012_near_venear_delegation_events::Migration),
         ]
     }
 }

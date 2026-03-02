@@ -198,6 +198,7 @@ Notes:
 | GET | `/api/v1/venear/proposals/{proposal_id}/events` | List events for a proposal |
 | GET | `/api/v1/venear/proposals/{proposal_id}/votes` | List votes for a proposal |
 | GET | `/api/v1/venear/accounts/{account_id}/balances` | List account balance history |
+| GET | `/api/v1/venear/accounts/{account_id}/delegations` | List delegation actions for an account |
 | GET | `/api/v1/venear/lockups` | List lockups |
 | GET | `/api/v1/venear/lockups/{lockup_account_id}/actions` | List lockup actions |
 

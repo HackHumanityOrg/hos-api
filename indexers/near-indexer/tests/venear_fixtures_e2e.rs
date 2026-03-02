@@ -1148,6 +1148,153 @@ async fn test_lockup_action() -> Result<()> {
     Ok(())
 }
 
+/// Delegation actions on venear.dao (delegate_all / undelegate) are indexed
+/// into near_venear_delegation_events.
+#[tokio::test]
+async fn test_delegation_actions_success() -> Result<()> {
+    init_test_tracing();
+
+    let Some(delegate_all) = try_load_fixture("delegate_all") else {
+        eprintln!("SKIP test_delegation_actions_success: delegate_all fixture not found");
+        return Ok(());
+    };
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_test_config());
+    module.initialize(conn.as_ref()).await?;
+
+    module.process_block(&delegate_all, conn.as_ref()).await?;
+
+    let delegate_all_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_delegation_events
+         WHERE event_type = 'delegate_all' AND success = true",
+    )
+    .await?;
+    assert!(
+        delegate_all_count >= 1,
+        "expected >= 1 successful delegate_all row, got {delegate_all_count}"
+    );
+
+    let delegatee_present = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_delegation_events
+         WHERE event_type = 'delegate_all' AND delegatee_account_id IS NOT NULL",
+    )
+    .await?;
+    assert!(
+        delegatee_present >= 1,
+        "expected delegate_all row to have delegatee_account_id, got {delegatee_present}"
+    );
+
+    if let Some(undelegate) = try_load_fixture("undelegate") {
+        module.process_block(&undelegate, conn.as_ref()).await?;
+
+        let undelegate_count = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_delegation_events
+             WHERE event_type = 'undelegate' AND success = true",
+        )
+        .await?;
+        assert!(
+            undelegate_count >= 1,
+            "expected >= 1 successful undelegate row, got {undelegate_count}"
+        );
+
+        let undelegate_without_delegatee = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_delegation_events
+             WHERE event_type = 'undelegate' AND delegatee_account_id IS NULL",
+        )
+        .await?;
+        assert!(
+            undelegate_without_delegatee >= 1,
+            "expected undelegate row with null delegatee_account_id, got {undelegate_without_delegatee}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Failed delegation actions are retained with success=false.
+#[tokio::test]
+async fn test_delegation_actions_failures() -> Result<()> {
+    init_test_tracing();
+
+    let delegate_all_failed = try_load_fixture("delegate_all_failed");
+    let undelegate_failed = try_load_fixture("undelegate_failed");
+
+    if delegate_all_failed.is_none() && undelegate_failed.is_none() {
+        eprintln!(
+            "SKIP test_delegation_actions_failures: delegate_all_failed and undelegate_failed fixtures not found"
+        );
+        return Ok(());
+    }
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_test_config());
+    module.initialize(conn.as_ref()).await?;
+
+    if let Some(fixture) = delegate_all_failed {
+        module.process_block(&fixture, conn.as_ref()).await?;
+    }
+    if let Some(fixture) = undelegate_failed {
+        module.process_block(&fixture, conn.as_ref()).await?;
+    }
+
+    let failed_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_delegation_events
+         WHERE success = false",
+    )
+    .await?;
+    assert!(
+        failed_count >= 1,
+        "expected >= 1 failed delegation row, got {failed_count}"
+    );
+
+    Ok(())
+}
+
+/// Idempotency: re-processing the same delegation fixture does not duplicate rows.
+#[tokio::test]
+async fn test_delegation_idempotency() -> Result<()> {
+    init_test_tracing();
+
+    let Some(fixture) = try_load_fixture("delegate_all") else {
+        eprintln!("SKIP test_delegation_idempotency: delegate_all fixture not found");
+        return Ok(());
+    };
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_test_config());
+    module.initialize(conn.as_ref()).await?;
+
+    module.process_block(&fixture, conn.as_ref()).await?;
+    let count_first = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_delegation_events",
+    )
+    .await?;
+
+    module.process_block(&fixture, conn.as_ref()).await?;
+    let count_second = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_delegation_events",
+    )
+    .await?;
+
+    assert_eq!(
+        count_first, count_second,
+        "re-processing delegation fixture must not create duplicate rows"
+    );
+
+    Ok(())
+}
+
 /// Idempotency: processing the same fixture twice does not create duplicate rows.
 #[tokio::test]
 async fn test_ft_mint_idempotency() -> Result<()> {
@@ -1250,6 +1397,10 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
         "ft_burn",
         "on_lockup_update",
         "lockup_action",
+        "delegate_all",
+        "undelegate",
+        "delegate_all_failed",
+        "undelegate_failed",
     ];
 
     let fixtures: Vec<(&str, StreamerMessage)> = all_names
@@ -1277,7 +1428,8 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
             .unwrap_or_else(|e| panic!("process_block failed for fixture '{name}': {e}"));
     }
 
-    // near_venear_events_raw: at least one row per distinct block
+    // near_venear_events_raw: at least one row per distinct block for event-bearing fixtures.
+    // Action-only fixtures may not contain EVENT_JSON logs in the same block.
     let raw_count = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw",
@@ -1289,10 +1441,26 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
         .map(|(_, f)| f.block.header.height)
         .collect();
 
+    let action_only_fixtures: std::collections::HashSet<&str> = [
+        "lockup_action",
+        "delegate_all",
+        "undelegate",
+        "delegate_all_failed",
+        "undelegate_failed",
+    ]
+    .into_iter()
+    .collect();
+
+    let expected_raw_blocks: std::collections::HashSet<u64> = fixtures
+        .iter()
+        .filter(|(name, _)| !action_only_fixtures.contains(*name))
+        .map(|(_, f)| f.block.header.height)
+        .collect();
+
     assert!(
-        raw_count >= distinct_blocks.len() as i64,
-        "expected at least {} raw event rows (one per distinct fixture block), got {}",
-        distinct_blocks.len(),
+        raw_count >= expected_raw_blocks.len() as i64,
+        "expected at least {} raw event rows (one per event-bearing fixture block), got {}",
+        expected_raw_blocks.len(),
         raw_count
     );
 
@@ -1365,6 +1533,22 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
         assert!(
             action_count >= 1,
             "expected >= 1 row in near_venear_lockup_actions after loading lockup_action fixture, got {action_count}"
+        );
+    }
+
+    if loaded_names.contains("delegate_all")
+        || loaded_names.contains("undelegate")
+        || loaded_names.contains("delegate_all_failed")
+        || loaded_names.contains("undelegate_failed")
+    {
+        let delegation_count = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_delegation_events",
+        )
+        .await?;
+        assert!(
+            delegation_count >= 1,
+            "expected >= 1 row in near_venear_delegation_events after loading delegation fixtures, got {delegation_count}"
         );
     }
 

@@ -436,6 +436,121 @@ pub async fn list_account_balances(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/venear/accounts/{account_id}/delegations",
+    summary = "List veNEAR delegation actions for an account",
+    description = "Returns delegation action rows where the account appears as delegator or delegatee, ordered by block height and row id descending.",
+    params(
+        ("account_id" = String, Path, description = "NEAR account id"),
+        VenearDelegationEventsQuery
+    ),
+    tag = "venear",
+    operation_id = "listVenearAccountDelegations",
+    responses(
+        (status = 200, description = "veNEAR delegation rows for account", body = VenearDelegationEventsListResponse),
+        (status = 400, description = "Invalid request", body = crate::errors::ApiError),
+        (status = 404, description = "Account not found", body = crate::errors::ApiError),
+        (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
+    )
+)]
+pub async fn list_account_delegations(
+    State(app_state): State<AppState>,
+    Path(account_id): Path<String>,
+    Query(query): Query<VenearDelegationEventsQuery>,
+) -> Result<Json<VenearDelegationEventsListResponse>, ApiErrorResponse> {
+    let db = require_db(&app_state)?;
+    ensure_delegation_account_exists(db.as_ref(), &account_id).await?;
+    let limit = resolve_limit(query.limit);
+
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(decode_cursor::<HeightIdCursor>)
+        .transpose()?;
+
+    let event_type = query
+        .event_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "
+            SELECT
+                id,
+                delegator_account_id,
+                delegatee_account_id,
+                event_type,
+                action_source,
+                action_index,
+                args_json,
+                args_base64,
+                attached_deposit,
+                transaction_hash,
+                receipt_id,
+                execution_outcome_id,
+                success,
+                block_height,
+                block_timestamp,
+                shard_id,
+                contract_id,
+                metadata,
+                created_at
+            FROM near.near_venear_delegation_events
+            WHERE (delegator_account_id = $1 OR delegatee_account_id = $1)
+              AND ($2::text IS NULL OR event_type = $2)
+              AND ($3::boolean IS NULL OR success = $3::boolean)
+              AND (
+                $4::bigint IS NULL
+                OR block_height < $4::bigint
+                OR (block_height = $4::bigint AND id < $5::bigint)
+              )
+            ORDER BY block_height DESC, id DESC
+            LIMIT $6
+            ",
+            vec![
+                account_id.into(),
+                event_type.into(),
+                query.success.into(),
+                cursor.as_ref().map(|value| value.block_height).into(),
+                cursor.as_ref().map(|value| value.id).into(),
+                i64::try_from(limit + 1).unwrap_or(101).into(),
+            ],
+        ))
+        .await
+        .map_err(ApiErrorResponse::from)?;
+
+    let mut data = rows
+        .iter()
+        .map(to_delegation_event_dto)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let has_more = data.len() > limit as usize;
+    if has_more {
+        data.pop();
+    }
+
+    let next_cursor = data
+        .last()
+        .map(|row| {
+            encode_cursor(&HeightIdCursor {
+                block_height: row.block_height,
+                id: row.id,
+            })
+        })
+        .transpose()?;
+
+    Ok(Json(VenearDelegationEventsListResponse {
+        data,
+        next_cursor,
+        has_more,
+    }))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/venear/lockups",
     summary = "List discovered lockup accounts",
     description = "Returns discovered veNEAR lockup accounts with lifecycle metadata. Supports owner and active-state filters and cursor pagination by lockup account id.",
@@ -949,6 +1064,61 @@ fn to_lockup_action_dto(row: &QueryResult) -> Result<VenearLockupActionDto, ApiE
     })
 }
 
+#[allow(clippy::result_large_err)]
+fn to_delegation_event_dto(
+    row: &QueryResult,
+) -> Result<VenearDelegationEventDto, ApiErrorResponse> {
+    let id = decode_row_col::<i64>(row, "id", "delegation event")?;
+    let delegator_account_id =
+        decode_row_col::<String>(row, "delegator_account_id", "delegation event")?;
+    let delegatee_account_id =
+        decode_row_col::<Option<String>>(row, "delegatee_account_id", "delegation event")?;
+    let event_type = decode_row_col::<String>(row, "event_type", "delegation event")?;
+    let action_source = decode_row_col::<String>(row, "action_source", "delegation event")?;
+    let action_index = decode_row_col::<i32>(row, "action_index", "delegation event")?;
+    let args_json =
+        decode_row_col::<Option<serde_json::Value>>(row, "args_json", "delegation event")?;
+    let args_base64 = decode_row_col::<String>(row, "args_base64", "delegation event")?;
+    let attached_deposit = decode_row_col::<String>(row, "attached_deposit", "delegation event")?;
+    let transaction_hash =
+        decode_row_col::<Option<String>>(row, "transaction_hash", "delegation event")?;
+    let receipt_id = decode_row_col::<String>(row, "receipt_id", "delegation event")?;
+    let execution_outcome_id =
+        decode_row_col::<String>(row, "execution_outcome_id", "delegation event")?;
+    let success = decode_row_col::<bool>(row, "success", "delegation event")?;
+    let block_height = decode_row_col::<i64>(row, "block_height", "delegation event")?;
+    let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "delegation event")?;
+    let shard_id = decode_row_col::<i32>(row, "shard_id", "delegation event")?;
+    let contract_id = decode_row_col::<String>(row, "contract_id", "delegation event")?;
+    let metadata =
+        decode_row_col::<Option<serde_json::Value>>(row, "metadata", "delegation event")?;
+    let created_at = decode_row_col::<NaiveDateTime>(row, "created_at", "delegation event")?;
+
+    Ok(VenearDelegationEventDto {
+        id,
+        delegator_account_id,
+        delegatee_account_id,
+        event_type,
+        action_source,
+        action_index,
+        args_json,
+        args_base64,
+        attached_deposit,
+        transaction_hash,
+        receipt_id,
+        execution_outcome_id,
+        success,
+        block_height,
+        block_timestamp_ns,
+        block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
+        shard_id,
+        contract_id,
+        metadata,
+        created_at: naive_to_rfc3339(created_at),
+        created_at_epoch: naive_to_epoch(created_at),
+    })
+}
+
 fn resolve_limit(limit: Option<u64>) -> u64 {
     limit.unwrap_or(20).clamp(1, 100)
 }
@@ -986,6 +1156,26 @@ async fn ensure_account_balance_exists(
     let count = scalar_i64_with_values(
         db,
         "SELECT COUNT(*)::bigint AS value FROM near.near_venear_account_balances WHERE account_id = $1",
+        vec![account_id.into()],
+    )
+    .await?;
+
+    if count > 0 {
+        Ok(())
+    } else {
+        Err(ApiErrorResponse::not_found("Account not found"))
+    }
+}
+
+async fn ensure_delegation_account_exists(
+    db: &DatabaseConnection,
+    account_id: &str,
+) -> Result<(), ApiErrorResponse> {
+    let count = scalar_i64_with_values(
+        db,
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_venear_delegation_events
+         WHERE delegator_account_id = $1 OR delegatee_account_id = $1",
         vec![account_id.into()],
     )
     .await?;

@@ -28,12 +28,13 @@ async fn venear_schema_tables_exist_and_module_initializes() -> Result<()> {
             'near_venear_account_balances',
             'near_venear_proposal_events',
             'near_venear_votes',
-            'near_venear_lockup_actions'
+            'near_venear_lockup_actions',
+            'near_venear_delegation_events'
         )",
     )
     .await?;
 
-    assert_eq!(table_count, 6);
+    assert_eq!(table_count, 7);
 
     Ok(())
 }
@@ -175,6 +176,81 @@ async fn venear_proposal_events_allow_intent_and_callback_finalization() -> Resu
     )
     .await?;
     assert_eq!(events_for_proposal, 2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn venear_delegation_events_upsert_on_identity_conflict() -> Result<()> {
+    init_test_tracing();
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+
+    execute_sql(
+        conn.as_ref(),
+        "INSERT INTO near.near_venear_delegation_events (
+            delegator_account_id, delegatee_account_id, event_type,
+            action_source, action_index,
+            args_json, args_base64, attached_deposit,
+            transaction_hash, receipt_id, execution_outcome_id, success,
+            block_height, block_timestamp, shard_id,
+            contract_id, metadata
+        ) VALUES (
+            'alice.near', 'bob.near', 'delegate_all',
+            'receipt', 0,
+            '{\"receiver_id\":\"bob.near\"}'::jsonb, 'e30=', '1',
+            'tx-delegate-1', 'rcpt-delegate-1', 'exec-delegate-1', true,
+            300, 3000, 0,
+            'venear.dao', '{\"source\":\"first\"}'::jsonb
+        )",
+    )
+    .await?;
+
+    execute_sql(
+        conn.as_ref(),
+        "INSERT INTO near.near_venear_delegation_events (
+            delegator_account_id, delegatee_account_id, event_type,
+            action_source, action_index,
+            args_json, args_base64, attached_deposit,
+            transaction_hash, receipt_id, execution_outcome_id, success,
+            block_height, block_timestamp, shard_id,
+            contract_id, metadata
+        ) VALUES (
+            'alice.near', NULL, 'delegate_all',
+            'receipt', 0,
+            '{}'::jsonb, 'e30=', '1',
+            'tx-delegate-1b', 'rcpt-delegate-1', 'exec-delegate-1b', false,
+            301, 3001, 1,
+            'venear.dao', '{\"source\":\"updated\"}'::jsonb
+        )
+        ON CONFLICT (receipt_id, action_index, event_type, delegator_account_id, contract_id)
+        DO UPDATE SET
+            delegatee_account_id = EXCLUDED.delegatee_account_id,
+            execution_outcome_id = EXCLUDED.execution_outcome_id,
+            success = EXCLUDED.success,
+            block_height = EXCLUDED.block_height,
+            metadata = EXCLUDED.metadata",
+    )
+    .await?;
+
+    let dedup_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_venear_delegation_events
+         WHERE receipt_id = 'rcpt-delegate-1'",
+    )
+    .await?;
+    assert_eq!(dedup_count, 1);
+
+    let success = scalar_i64(
+        conn.as_ref(),
+        "SELECT CASE WHEN success THEN 1 ELSE 0 END::bigint AS value
+         FROM near.near_venear_delegation_events
+         WHERE receipt_id = 'rcpt-delegate-1'",
+    )
+    .await?;
+    assert_eq!(success, 0);
 
     Ok(())
 }

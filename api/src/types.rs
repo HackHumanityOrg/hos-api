@@ -456,6 +456,17 @@ pub struct VenearLockupActionsListResponse {
     pub has_more: bool,
 }
 
+/// Paginated response of delegation action rows.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearDelegationEventsListResponse {
+    /// Page of delegation rows.
+    pub data: Vec<VenearDelegationEventDto>,
+    /// Opaque cursor for the next page.
+    pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
+    pub has_more: bool,
+}
+
 /// Latest-state projection for a veNEAR proposal.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearProposalDto {
@@ -614,6 +625,32 @@ pub struct VenearLockupActionDto {
     pub created_at_epoch: i64,
 }
 
+/// Indexed delegation action row tied to a governance account.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearDelegationEventDto {
+    pub id: i64,
+    pub delegator_account_id: String,
+    pub delegatee_account_id: Option<String>,
+    pub event_type: String,
+    pub action_source: String,
+    pub action_index: i32,
+    pub args_json: Option<serde_json::Value>,
+    pub args_base64: String,
+    pub attached_deposit: String,
+    pub transaction_hash: Option<String>,
+    pub receipt_id: String,
+    pub execution_outcome_id: String,
+    pub success: bool,
+    pub block_height: i64,
+    pub block_timestamp_ns: i64,
+    pub block_timestamp: String,
+    pub shard_id: i32,
+    pub contract_id: String,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: String,
+    pub created_at_epoch: i64,
+}
+
 /// Query options for listing discovered veNEAR lockup accounts.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearLockupsQuery {
@@ -638,6 +675,20 @@ pub struct VenearLockupActionsQuery {
     pub cursor: Option<String>,
     /// Filter by lockup action method name.
     pub method_name: Option<String>,
+    /// Filter by execution success status.
+    pub success: Option<bool>,
+}
+
+/// Query options for listing delegation actions linked to one account.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearDelegationEventsQuery {
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, default = 20)]
+    pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    pub cursor: Option<String>,
+    /// Filter by delegation event type (`delegate_all`, `undelegate`).
+    pub event_type: Option<String>,
     /// Filter by execution success status.
     pub success: Option<bool>,
 }

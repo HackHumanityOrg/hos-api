@@ -28,6 +28,7 @@ pub mod near_token_metadata;
 pub mod near_token_transfers;
 pub mod near_transactions;
 pub mod near_venear_account_balances;
+pub mod near_venear_delegation_events;
 pub mod near_venear_events_raw;
 pub mod near_venear_lockup_actions;
 pub mod near_venear_lockups;

@@ -18,6 +18,10 @@ pub fn venear_routes() -> Router<AppState> {
             "/venear/accounts/{account_id}/balances",
             get(venear::list_account_balances),
         )
+        .route(
+            "/venear/accounts/{account_id}/delegations",
+            get(venear::list_account_delegations),
+        )
         .route("/venear/lockups", get(venear::list_lockups))
         .route(
             "/venear/lockups/{lockup_account_id}/actions",
