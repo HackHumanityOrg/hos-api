@@ -8,7 +8,7 @@ use utoipa::OpenApi;
     info(
         title = "Data Commons API",
         version = "0.1.0",
-        description = "Read-only REST API for indexed Discourse and veNEAR governance data.\n\nConventions:\n- Cursor pagination uses opaque base64url cursors.\n- List endpoints return `data`, `next_cursor`, and `has_more`.\n- Errors follow RFC 9457 Problem Details as `application/problem+json`.",
+        description = "Read-only REST API for indexed Discourse, Telegram, and veNEAR governance data.\n\nConventions:\n- Cursor pagination uses opaque base64url cursors.\n- List endpoints return `data`, `next_cursor`, and `has_more`.\n- Errors follow RFC 9457 Problem Details as `application/problem+json`.",
         contact(
             name = "Data Commons Team",
             url = "https://github.com/HackHumanityOrg/data-commons"
@@ -32,6 +32,15 @@ use utoipa::OpenApi;
         handlers::discourse::get_user,
         handlers::discourse::list_user_posts,
         handlers::discourse::get_sync_lag,
+        handlers::telegram::list_channels,
+        handlers::telegram::get_channel,
+        handlers::telegram::list_channel_messages,
+        handlers::telegram::get_channel_message,
+        handlers::telegram::list_message_reactions,
+        handlers::telegram::list_message_service_actions,
+        handlers::telegram::list_users,
+        handlers::telegram::get_user,
+        handlers::telegram::list_user_messages,
         handlers::venear::list_proposals,
         handlers::venear::list_proposal_events,
         handlers::venear::list_proposal_votes,
@@ -61,6 +70,16 @@ use utoipa::OpenApi;
         types::SyncLagSummary,
         types::SyncLagCheck,
         types::SyncLagResponse,
+        types::TelegramChannelsListResponse,
+        types::TelegramUsersListResponse,
+        types::TelegramMessagesListResponse,
+        types::TelegramReactionsListResponse,
+        types::TelegramServiceActionsListResponse,
+        types::TelegramChannelDto,
+        types::TelegramUserDto,
+        types::TelegramMessageDto,
+        types::TelegramReactionDto,
+        types::TelegramServiceActionDto,
         types::VenearProposalsListResponse,
         types::VenearProposalEventsListResponse,
         types::VenearVotesListResponse,
@@ -78,6 +97,7 @@ use utoipa::OpenApi;
         (name = "health", description = "Service and dependency health diagnostics"),
         (name = "discourse", description = "Read endpoints over indexed Discourse entities (instances, categories, topics, posts, likes, users)"),
         (name = "discourse-ops", description = "Operational diagnostics for data integrity and coverage checks"),
+        (name = "telegram", description = "Read endpoints over indexed Telegram entities (channels, users, messages, reactions, service actions)"),
         (name = "venear", description = "Read endpoints over indexed veNEAR governance entities (proposals, votes, balances, lockups, actions)")
     )
 )]
@@ -150,6 +170,20 @@ mod tests {
                 .expect("lockups description")
                 .contains("lifecycle metadata"),
             "lockups endpoint should explain dataset semantics"
+        );
+
+        let telegram_messages_get = paths
+            .get("/api/v1/telegram/channels/{channel_telegram_id}/messages")
+            .and_then(|p| p.get("get"))
+            .and_then(|op| op.as_object())
+            .expect("telegram messages get operation");
+        assert!(
+            telegram_messages_get
+                .get("description")
+                .and_then(|v| v.as_str())
+                .expect("telegram messages description")
+                .contains("cursor pagination"),
+            "telegram messages endpoint should explain pagination semantics"
         );
 
         let schemas = value

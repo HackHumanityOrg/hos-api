@@ -661,3 +661,252 @@ pub struct VenearLockupActionsQuery {
     /// Filter by execution success status.
     pub success: Option<bool>,
 }
+
+/// Paginated response of indexed Telegram channels.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TelegramChannelsListResponse {
+    /// Page of channel rows.
+    pub data: Vec<TelegramChannelDto>,
+    /// Opaque cursor for the next page.
+    pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
+    pub has_more: bool,
+}
+
+/// Paginated response of indexed Telegram users.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TelegramUsersListResponse {
+    /// Page of Telegram user rows.
+    pub data: Vec<TelegramUserDto>,
+    /// Opaque cursor for the next page.
+    pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
+    pub has_more: bool,
+}
+
+/// Paginated response of indexed Telegram messages.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TelegramMessagesListResponse {
+    /// Page of Telegram message rows.
+    pub data: Vec<TelegramMessageDto>,
+    /// Opaque cursor for the next page.
+    pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
+    pub has_more: bool,
+}
+
+/// Paginated response of indexed Telegram reactions.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TelegramReactionsListResponse {
+    /// Page of Telegram reaction rows.
+    pub data: Vec<TelegramReactionDto>,
+    /// Opaque cursor for the next page.
+    pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
+    pub has_more: bool,
+}
+
+/// Paginated response of indexed Telegram service actions.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TelegramServiceActionsListResponse {
+    /// Page of Telegram service-action rows.
+    pub data: Vec<TelegramServiceActionDto>,
+    /// Opaque cursor for the next page.
+    pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
+    pub has_more: bool,
+}
+
+/// Indexed Telegram channel metadata.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TelegramChannelDto {
+    pub telegram_id: i64,
+    pub name: String,
+    pub username: Option<String>,
+    pub channel_type: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Indexed Telegram user metadata.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TelegramUserDto {
+    pub telegram_id: i64,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Indexed Telegram message row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TelegramMessageDto {
+    pub channel_telegram_id: i64,
+    pub telegram_message_id: i64,
+    pub message_type: String,
+    pub from_user_telegram_id: Option<i64>,
+    pub from_username: Option<String>,
+    pub from_display_name: Option<String>,
+    pub reply_to_telegram_message_id: Option<i64>,
+    pub date: String,
+    pub edited_date: Option<String>,
+    pub text: Option<String>,
+    pub text_entities: Option<serde_json::Value>,
+    pub has_media: bool,
+    pub media_type: Option<String>,
+    pub media_path: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Indexed Telegram message reaction row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TelegramReactionDto {
+    pub id: i64,
+    pub channel_telegram_id: i64,
+    pub telegram_message_id: i64,
+    pub user_telegram_id: Option<i64>,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
+    pub emoji: String,
+    pub date: String,
+    pub created_at: String,
+}
+
+/// Indexed Telegram service-action row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TelegramServiceActionDto {
+    pub id: i64,
+    pub channel_telegram_id: i64,
+    pub telegram_message_id: i64,
+    pub action: String,
+    pub actor_telegram_id: Option<i64>,
+    pub actor_username: Option<String>,
+    pub actor_display_name: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: String,
+}
+
+/// Query options for listing indexed Telegram channels.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TelegramChannelsQuery {
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
+    pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJ0ZWxlZ3JhbV9pZCI6LTEwMDEyMzQ1Njc4OX0")]
+    pub cursor: Option<String>,
+    /// Case-insensitive substring match on channel name or username.
+    #[param(example = "near")]
+    pub q: Option<String>,
+    /// Filter by Telegram channel type (`channel`, `group`, `user`).
+    #[param(example = "channel")]
+    pub channel_type: Option<String>,
+    /// Case-insensitive substring match on channel username.
+    #[param(example = "gov")]
+    pub username: Option<String>,
+}
+
+/// Query options for listing indexed Telegram users.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TelegramUsersQuery {
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
+    pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJ0ZWxlZ3JhbV9pZCI6MTIzNDU2Nzg5fQ")]
+    pub cursor: Option<String>,
+    /// Case-insensitive substring match on username or display name.
+    #[param(example = "alice")]
+    pub q: Option<String>,
+}
+
+/// Query options for listing indexed Telegram messages in one channel.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TelegramMessagesQuery {
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
+    pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJkYXRlX2Vwb2NoIjoxNzYwMDAwMDAwLCJ0ZWxlZ3JhbV9tZXNzYWdlX2lkIjoxMjN9")]
+    pub cursor: Option<String>,
+    /// Case-insensitive substring match on message text.
+    #[param(example = "governance")]
+    pub q: Option<String>,
+    /// Filter to messages authored by this Telegram user id.
+    #[param(example = 100001)]
+    pub from_user_telegram_id: Option<i64>,
+    /// Filter by Telegram message type (`message`, `media`, `service`, `unknown`).
+    #[param(example = "message")]
+    pub message_type: Option<String>,
+    /// Filter by whether the message has media.
+    pub has_media: Option<bool>,
+    /// RFC 3339 lower bound for message date.
+    #[param(example = "2026-01-01T00:00:00Z")]
+    pub date_after: Option<String>,
+    /// RFC 3339 upper bound for message date.
+    #[param(example = "2026-01-31T23:59:59Z")]
+    pub date_before: Option<String>,
+}
+
+/// Query options for listing indexed Telegram reactions for one message.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TelegramReactionsQuery {
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
+    pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJkYXRlX2Vwb2NoIjoxNzYwMDAwMDAwLCJpZCI6MTAwfQ")]
+    pub cursor: Option<String>,
+    /// Filter by reaction emoji.
+    #[param(example = "thumbs_up")]
+    pub emoji: Option<String>,
+    /// Filter by Telegram user id of the reacting user.
+    #[param(example = 100001)]
+    pub user_telegram_id: Option<i64>,
+}
+
+/// Query options for listing indexed Telegram service actions for one message.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TelegramServiceActionsQuery {
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
+    pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJkYXRlX2Vwb2NoIjoxNzYwMDAwMDAwLCJpZCI6MTAwfQ")]
+    pub cursor: Option<String>,
+    /// Filter by service action type.
+    #[param(example = "message_pinned")]
+    pub action: Option<String>,
+    /// Filter by Telegram actor user id.
+    #[param(example = 100001)]
+    pub actor_telegram_id: Option<i64>,
+}
+
+/// Query options for listing indexed Telegram messages authored by one user.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TelegramUserMessagesQuery {
+    /// Number of results to return. Defaults to 20. Max 100.
+    #[param(minimum = 1, maximum = 100, example = 20)]
+    pub limit: Option<u64>,
+    /// Opaque cursor returned from previous page.
+    #[param(example = "eyJkYXRlX2Vwb2NoIjoxNzYwMDAwMDAwLCJpZCI6MTAwfQ")]
+    pub cursor: Option<String>,
+    /// Optional channel filter by Telegram channel id.
+    #[param(example = -1001234567890_i64)]
+    pub channel_telegram_id: Option<i64>,
+    /// Case-insensitive substring match on message text.
+    #[param(example = "proposal")]
+    pub q: Option<String>,
+    /// Filter by Telegram message type (`message`, `media`, `service`, `unknown`).
+    #[param(example = "media")]
+    pub message_type: Option<String>,
+    /// Filter by whether the message has media.
+    pub has_media: Option<bool>,
+    /// RFC 3339 lower bound for message date.
+    #[param(example = "2026-01-01T00:00:00Z")]
+    pub date_after: Option<String>,
+    /// RFC 3339 upper bound for message date.
+    #[param(example = "2026-01-31T23:59:59Z")]
+    pub date_before: Option<String>,
+}

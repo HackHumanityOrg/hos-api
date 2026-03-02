@@ -38,6 +38,18 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         "venear proposals path present"
     );
     assert!(
+        paths.contains_key("/api/v1/telegram/channels"),
+        "telegram channels path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/telegram/channels/{channel_telegram_id}/messages/{telegram_message_id}/reactions"),
+        "telegram reactions path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/telegram/users/{user_telegram_id}/messages"),
+        "telegram user messages path present"
+    );
+    assert!(
         paths.contains_key("/api/v1/venear/proposals/{proposal_id}/events"),
         "venear proposal events path present"
     );
@@ -95,6 +107,20 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         "lockups description should explain dataset semantics"
     );
 
+    let telegram_messages_operation = paths
+        .get("/api/v1/telegram/channels/{channel_telegram_id}/messages")
+        .and_then(|path| path.get("get"))
+        .and_then(|op| op.as_object())
+        .expect("telegram messages get operation");
+    assert!(
+        telegram_messages_operation
+            .get("description")
+            .and_then(|v| v.as_str())
+            .expect("telegram messages description")
+            .contains("cursor pagination"),
+        "telegram messages description should explain pagination semantics"
+    );
+
     let schemas = value
         .get("components")
         .and_then(|components| components.get("schemas"))
@@ -105,6 +131,10 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(schemas.contains_key("ApiError"));
     assert!(schemas.contains_key("DiscourseTopicDto"));
     assert!(schemas.contains_key("SyncLagResponse"));
+    assert!(schemas.contains_key("TelegramChannelDto"));
+    assert!(schemas.contains_key("TelegramMessageDto"));
+    assert!(schemas.contains_key("TelegramReactionDto"));
+    assert!(schemas.contains_key("TelegramServiceActionDto"));
     assert!(schemas.contains_key("VenearProposalDto"));
     assert!(schemas.contains_key("VenearVoteDto"));
     assert!(schemas.contains_key("VenearLockupActionDto"));
