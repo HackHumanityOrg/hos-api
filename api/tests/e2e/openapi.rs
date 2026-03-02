@@ -30,6 +30,14 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         "discourse instances path present"
     );
     assert!(
+        paths.contains_key("/api/v1/identity/persons"),
+        "identity persons path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/identity/persons/{person_id}/accounts"),
+        "identity person accounts path present"
+    );
+    assert!(
         paths.contains_key("/api/v1/discourse/instances/{instance}/sync-lag"),
         "sync lag path present"
     );
@@ -129,6 +137,10 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(schemas.contains_key("HealthResponse"));
     assert!(schemas.contains_key("DatabaseHealth"));
     assert!(schemas.contains_key("ApiError"));
+    assert!(schemas.contains_key("IdentityPersonsListResponse"));
+    assert!(schemas.contains_key("IdentityPersonDto"));
+    assert!(schemas.contains_key("IdentityAccountDto"));
+    assert!(schemas.contains_key("IdentityPersonAccountsResponse"));
     assert!(schemas.contains_key("DiscourseTopicDto"));
     assert!(schemas.contains_key("SyncLagResponse"));
     assert!(schemas.contains_key("TelegramChannelDto"));

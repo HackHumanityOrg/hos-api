@@ -8,7 +8,7 @@ use utoipa::OpenApi;
     info(
         title = "Data Commons API",
         version = "0.1.0",
-        description = "Read-only REST API for indexed Discourse, Telegram, and veNEAR governance data.\n\nConventions:\n- Cursor pagination uses opaque base64url cursors.\n- List endpoints return `data`, `next_cursor`, and `has_more`.\n- Errors follow RFC 9457 Problem Details as `application/problem+json`.",
+        description = "Read-only REST API for indexed identity, Discourse, Telegram, and veNEAR governance data.\n\nConventions:\n- Cursor pagination uses opaque base64url cursors.\n- List endpoints return `data`, `next_cursor`, and `has_more`.\n- Errors follow RFC 9457 Problem Details as `application/problem+json`.",
         contact(
             name = "Data Commons Team",
             url = "https://github.com/HackHumanityOrg/data-commons"
@@ -18,6 +18,8 @@ use utoipa::OpenApi;
     servers((url = "/", description = "Current deployment base URL")),
     paths(
         handlers::health::health_check,
+        handlers::identity::list_persons,
+        handlers::identity::list_person_accounts,
         handlers::discourse::list_instances,
         handlers::discourse::get_instance,
         handlers::discourse::list_categories,
@@ -70,6 +72,10 @@ use utoipa::OpenApi;
         types::SyncLagSummary,
         types::SyncLagCheck,
         types::SyncLagResponse,
+        types::IdentityPersonsListResponse,
+        types::IdentityPersonDto,
+        types::IdentityAccountDto,
+        types::IdentityPersonAccountsResponse,
         types::TelegramChannelsListResponse,
         types::TelegramUsersListResponse,
         types::TelegramMessagesListResponse,
@@ -95,6 +101,7 @@ use utoipa::OpenApi;
     )),
     tags(
         (name = "health", description = "Service and dependency health diagnostics"),
+        (name = "identity", description = "Read endpoints over linked identity entities (persons and linked platform accounts)"),
         (name = "discourse", description = "Read endpoints over indexed Discourse entities (instances, categories, topics, posts, likes, users)"),
         (name = "discourse-ops", description = "Operational diagnostics for data integrity and coverage checks"),
         (name = "telegram", description = "Read endpoints over indexed Telegram entities (channels, users, messages, reactions, service actions)"),
@@ -158,6 +165,20 @@ mod tests {
             "topics endpoint should explain sorting semantics"
         );
 
+        let identity_persons_get = paths
+            .get("/api/v1/identity/persons")
+            .and_then(|p| p.get("get"))
+            .and_then(|op| op.as_object())
+            .expect("identity persons get operation");
+        assert!(
+            identity_persons_get
+                .get("description")
+                .and_then(|v| v.as_str())
+                .expect("identity persons description")
+                .contains("cursor pagination"),
+            "identity persons endpoint should explain pagination semantics"
+        );
+
         let lockups_get = paths
             .get("/api/v1/venear/lockups")
             .and_then(|p| p.get("get"))
@@ -203,6 +224,23 @@ mod tests {
                 .expect("CursorPageMeta description")
                 .contains("Cursor pagination metadata"),
             "pagination metadata schema should be documented"
+        );
+
+        assert!(
+            schemas.contains_key("IdentityPersonsListResponse"),
+            "identity persons response schema should be present"
+        );
+        assert!(
+            schemas.contains_key("IdentityPersonDto"),
+            "identity person schema should be present"
+        );
+        assert!(
+            schemas.contains_key("IdentityAccountDto"),
+            "identity account schema should be present"
+        );
+        assert!(
+            schemas.contains_key("IdentityPersonAccountsResponse"),
+            "identity person accounts schema should be present"
         );
     }
 }

@@ -910,3 +910,47 @@ pub struct TelegramUserMessagesQuery {
     #[param(example = "2026-01-31T23:59:59Z")]
     pub date_before: Option<String>,
 }
+
+/// Paginated response of identity persons.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct IdentityPersonsListResponse {
+    /// Page of identity person rows.
+    pub data: Vec<IdentityPersonDto>,
+    /// Opaque cursor for the next page.
+    pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
+    pub has_more: bool,
+}
+
+/// Identity person row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct IdentityPersonDto {
+    /// Stable identity person id.
+    pub id: i64,
+    /// Creation time in RFC 3339.
+    pub created_at: String,
+    /// Last update time in RFC 3339.
+    pub updated_at: String,
+}
+
+/// Identity account linked to a person.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct IdentityAccountDto {
+    /// Registered platform id (e.g. `near`, `discourse`, `telegram`).
+    pub platform_id: String,
+    /// Platform scope (e.g. chain or instance key).
+    pub scope: String,
+    /// Stable external account identifier inside platform scope.
+    pub external_id: String,
+    /// Current known aliases for this account.
+    pub current_aliases: Vec<String>,
+}
+
+/// Response containing all accounts linked to one person.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct IdentityPersonAccountsResponse {
+    /// Identity person id used for lookup.
+    pub person_id: i64,
+    /// Accounts linked to this person (empty when no links exist yet).
+    pub accounts: Vec<IdentityAccountDto>,
+}

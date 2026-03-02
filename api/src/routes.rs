@@ -5,6 +5,7 @@ use axum::Router;
 
 pub mod discourse;
 pub mod health;
+pub mod identity;
 pub mod telegram;
 pub mod venear;
 
@@ -12,6 +13,7 @@ pub mod venear;
 pub fn create_routes() -> Router<AppState> {
     Router::new()
         .merge(discourse::discourse_routes())
+        .merge(identity::identity_routes())
         .merge(telegram::telegram_routes())
         .merge(venear::venear_routes())
 }
