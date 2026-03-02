@@ -22,20 +22,46 @@ FROM telegram.telegram_users u
 ON CONFLICT (platform_id, scope, external_id) DO NOTHING
 "#;
 
-const BACKFILL_NEAR_ACCOUNTS_PRIMARY_SQL: &str = r#"
+const ENSURE_IDENTITY_PLATFORMS_SQL: &str = r#"
+INSERT INTO identity.platforms (id, label)
+VALUES
+    ('discourse', 'Discourse'),
+    ('near', 'NEAR'),
+    ('telegram', 'Telegram'),
+    ('venear_governance', 'veNEAR Governance'),
+    ('venear_lockup', 'veNEAR Lockup')
+ON CONFLICT (id) DO UPDATE
+SET label = EXCLUDED.label
+"#;
+
+const BACKFILL_VENEAR_GOVERNANCE_ACCOUNTS_PRIMARY_SQL: &str = r#"
 INSERT INTO identity.accounts (platform_id, scope, external_id)
 SELECT
-    'near',
+    'venear_governance',
     $1,
     lower(a.account_id)
 FROM near.near_accounts a
 WHERE a.account_id IS NOT NULL
   AND btrim(a.account_id) <> ''
+  AND lower(a.account_id) NOT LIKE '%.venear.dao'
 ON CONFLICT (platform_id, scope, external_id) DO NOTHING
 "#;
 
-const BACKFILL_NEAR_ACCOUNTS_FALLBACK_SQL: &str = r#"
-WITH fallback_accounts(account_id) AS (
+const BACKFILL_VENEAR_LOCKUP_ACCOUNTS_PRIMARY_SQL: &str = r#"
+INSERT INTO identity.accounts (platform_id, scope, external_id)
+SELECT
+    'venear_lockup',
+    $1,
+    lower(a.account_id)
+FROM near.near_accounts a
+WHERE a.account_id IS NOT NULL
+  AND btrim(a.account_id) <> ''
+  AND lower(a.account_id) LIKE '%.venear.dao'
+ON CONFLICT (platform_id, scope, external_id) DO NOTHING
+"#;
+
+const BACKFILL_VENEAR_GOVERNANCE_ACCOUNTS_FALLBACK_SQL: &str = r#"
+WITH governance_accounts(account_id) AS (
     SELECT lower(v.account_id) FROM near.near_venear_account_balances v
     UNION
     SELECT lower(v.predecessor_account_id) FROM near.near_venear_account_balances v
@@ -58,11 +84,7 @@ WITH fallback_accounts(account_id) AS (
     UNION
     SELECT lower(v.contract_id) FROM near.near_venear_proposal_events v
     UNION
-    SELECT lower(v.lockup_account_id) FROM near.near_venear_lockups v
-    UNION
     SELECT lower(v.owner_account_id) FROM near.near_venear_lockups v
-    UNION
-    SELECT lower(v.lockup_account_id) FROM near.near_venear_lockup_actions v
     UNION
     SELECT lower(v.owner_account_id) FROM near.near_venear_lockup_actions v
     UNION
@@ -78,10 +100,28 @@ WITH fallback_accounts(account_id) AS (
 )
 INSERT INTO identity.accounts (platform_id, scope, external_id)
 SELECT
-    'near',
+    'venear_governance',
     $1,
     account_id
-FROM fallback_accounts
+FROM governance_accounts
+WHERE account_id IS NOT NULL
+  AND btrim(account_id) <> ''
+  AND account_id NOT LIKE '%.venear.dao'
+ON CONFLICT (platform_id, scope, external_id) DO NOTHING
+"#;
+
+const BACKFILL_VENEAR_LOCKUP_ACCOUNTS_FALLBACK_SQL: &str = r#"
+WITH lockup_accounts(account_id) AS (
+    SELECT lower(v.lockup_account_id) FROM near.near_venear_lockups v
+    UNION
+    SELECT lower(v.lockup_account_id) FROM near.near_venear_lockup_actions v
+)
+INSERT INTO identity.accounts (platform_id, scope, external_id)
+SELECT
+    'venear_lockup',
+    $1,
+    account_id
+FROM lockup_accounts
 WHERE account_id IS NOT NULL
   AND btrim(account_id) <> ''
 ON CONFLICT (platform_id, scope, external_id) DO NOTHING
@@ -198,6 +238,13 @@ async fn run() -> Result<(), String> {
 
     execute_sql(
         &db,
+        "ensure identity platforms",
+        ENSURE_IDENTITY_PLATFORMS_SQL,
+    )
+    .await?;
+
+    execute_sql(
+        &db,
         "backfill discourse accounts",
         BACKFILL_DISCOURSE_ACCOUNTS_SQL,
     )
@@ -210,15 +257,29 @@ async fn run() -> Result<(), String> {
     .await?;
     execute_sql_with_chain(
         &db,
-        "backfill near accounts (near_accounts)",
-        BACKFILL_NEAR_ACCOUNTS_PRIMARY_SQL,
+        "backfill venear governance accounts (near_accounts)",
+        BACKFILL_VENEAR_GOVERNANCE_ACCOUNTS_PRIMARY_SQL,
         &near_chain_scope,
     )
     .await?;
     execute_sql_with_chain(
         &db,
-        "backfill near accounts (veNEAR fallback)",
-        BACKFILL_NEAR_ACCOUNTS_FALLBACK_SQL,
+        "backfill venear lockup accounts (near_accounts)",
+        BACKFILL_VENEAR_LOCKUP_ACCOUNTS_PRIMARY_SQL,
+        &near_chain_scope,
+    )
+    .await?;
+    execute_sql_with_chain(
+        &db,
+        "backfill venear governance accounts (fallback)",
+        BACKFILL_VENEAR_GOVERNANCE_ACCOUNTS_FALLBACK_SQL,
+        &near_chain_scope,
+    )
+    .await?;
+    execute_sql_with_chain(
+        &db,
+        "backfill venear lockup accounts (fallback)",
+        BACKFILL_VENEAR_LOCKUP_ACCOUNTS_FALLBACK_SQL,
         &near_chain_scope,
     )
     .await?;

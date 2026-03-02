@@ -275,5 +275,18 @@ mod tests {
             schemas.contains_key("IdentityPersonAccountsResponse"),
             "identity person accounts schema should be present"
         );
+
+        let identity_person_schema = schemas
+            .get("IdentityPersonDto")
+            .and_then(|s| s.as_object())
+            .expect("IdentityPersonDto schema");
+        let identity_person_properties = identity_person_schema
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .expect("IdentityPersonDto properties");
+        assert!(
+            identity_person_properties.contains_key("name"),
+            "identity person schema should expose name"
+        );
     }
 }

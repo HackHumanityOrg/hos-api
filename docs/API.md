@@ -55,13 +55,23 @@ api/
 ├── src/
 │   ├── main.rs              # Application entry point
 │   ├── lib.rs               # Library exports
+│   ├── state.rs             # AppState (wraps Arc<DatabaseConnection>)
+│   ├── errors.rs            # ApiError / ApiErrorResponse (RFC 9457)
+│   ├── types.rs             # Shared request/response models
+│   ├── docs.rs              # OpenAPI struct (ApiDoc via Utoipa)
+│   ├── routes.rs            # Top-level router wiring
 │   ├── handlers/            # Request handlers
-│   │   └── health/          # Health check endpoints
-│   ├── routes/              # Route definitions
-│   │   └── health/          # Health route module
-│   ├── types.rs             # Request/Response models
-│   ├── state.rs             # Application state management
-│   └── errors.rs            # Error handling
+│   │   ├── discourse/       # Discourse forum handlers
+│   │   ├── telegram/        # Telegram channel handlers
+│   │   ├── identity/        # Identity / person handlers
+│   │   ├── venear/          # veNEAR governance handlers
+│   │   └── health/          # Health check handler
+│   └── routes/              # Route definitions
+│       ├── discourse/       # Discourse route module
+│       ├── telegram/        # Telegram route module
+│       ├── identity/        # Identity route module
+│       ├── venear/          # veNEAR route module
+│       └── health/          # Health route module
 └── Cargo.toml
 ```
 
@@ -89,23 +99,35 @@ let app = Router::new()
 struct ApiDoc;
 ```
 
-**State Management**: Shared application state including optional database connection
+**State Management**: Shared application state wrapping an optional `Arc<DatabaseConnection>`
 ```rust
-async fn handler(State(app_state): State<AppState>) -> Result<Json<Response>, ApiError> {
-    // Use app state (including optional database connection)
-    if let Some(db) = &app_state.db {
-        // Use database connection
-    }
+// api/src/state.rs
+pub struct AppState {
+    pub db: Option<Arc<DatabaseConnection>>,
+}
+
+// In a handler — use require_db to extract db or return 503
+async fn handler(State(state): State<AppState>) -> Result<Json<Response>, ApiErrorResponse> {
+    let db = state.db.clone().ok_or_else(|| {
+        ApiErrorResponse::service_unavailable("Database connection unavailable")
+    })?;
+    // db: Arc<DatabaseConnection>
+    let rows = SomeEntity::find().all(db.as_ref()).await.map_err(ApiErrorResponse::from)?;
+    Ok(Json(rows))
 }
 ```
 
 ## Current Endpoints
 
-### Health Check
+All data endpoints are nested under `/api/v1`. The health endpoint lives at the root.
 
-**GET /health**
+### Health
 
-Returns basic health status of the API server.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Server and database health status |
+
+The `/health` endpoint always includes database connectivity information, so there is no separate database health endpoint.
 
 ```bash
 curl http://localhost:3000/health
@@ -124,211 +146,169 @@ Response:
 }
 ```
 
-The `/health` endpoint always includes database connectivity information, so there's no separate database health endpoint.
+### Discourse
 
-Response (database disconnected):
-```json
-{
-  "status": "degraded",
-  "timestamp": "2024-08-31T12:00:00Z",
-  "version": "0.1.0",
-  "database": {
-    "connected": false,
-    "response_time_ms": 50,
-    "error": "Database connection error: Connection failed"
-  }
-}
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/discourse/instances` | List all indexed Discourse instances |
+| GET | `/api/v1/discourse/instances/{instance}` | Get a specific instance |
+| GET | `/api/v1/discourse/instances/{instance}/categories` | List categories |
+| GET | `/api/v1/discourse/instances/{instance}/categories/{category_id}` | Get a category |
+| GET | `/api/v1/discourse/instances/{instance}/topics` | List topics |
+| GET | `/api/v1/discourse/instances/{instance}/topics/{topic_id}` | Get a topic |
+| GET | `/api/v1/discourse/instances/{instance}/topics/{topic_id}/posts` | List posts in a topic |
+| GET | `/api/v1/discourse/instances/{instance}/posts/{post_id}` | Get a post |
+| GET | `/api/v1/discourse/instances/{instance}/posts/{post_id}/likes` | List post likes |
+| GET | `/api/v1/discourse/instances/{instance}/posts/{post_id}/revisions` | List post revisions |
+| GET | `/api/v1/discourse/instances/{instance}/users` | List users |
+| GET | `/api/v1/discourse/instances/{instance}/users/{user_id}` | Get a user |
+| GET | `/api/v1/discourse/instances/{instance}/users/{user_id}/posts` | List posts by a user |
+| GET | `/api/v1/discourse/instances/{instance}/sync-lag` | Get indexer sync lag for instance |
+
+### Telegram
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/telegram/channels` | List all indexed channels |
+| GET | `/api/v1/telegram/channels/{channel_id}` | Get a channel |
+| GET | `/api/v1/telegram/channels/{channel_id}/messages` | List messages |
+| GET | `/api/v1/telegram/channels/{channel_id}/messages/{id}` | Get a message |
+| GET | `/api/v1/telegram/channels/{channel_id}/messages/{id}/reactions` | List message reactions |
+| GET | `/api/v1/telegram/channels/{channel_id}/messages/{id}/service-actions` | List service actions |
+| GET | `/api/v1/telegram/users` | List users |
+| GET | `/api/v1/telegram/users/{user_id}` | Get a user |
+| GET | `/api/v1/telegram/users/{user_id}/messages` | List messages by user |
+
+### Identity
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/identity/persons` | List persons |
+| GET | `/api/v1/identity/persons/{person_id}/accounts` | List accounts for a person |
+
+Notes:
+- `GET /api/v1/identity/persons` returns a best-effort `name` for each person.
+- Identity account `platform_id` values currently include `discourse`, `telegram`, `venear_governance`, and `venear_lockup`.
+
+### veNEAR Governance
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/venear/proposals` | List governance proposals |
+| GET | `/api/v1/venear/proposals/{proposal_id}/events` | List events for a proposal |
+| GET | `/api/v1/venear/proposals/{proposal_id}/votes` | List votes for a proposal |
+| GET | `/api/v1/venear/accounts/{account_id}/balances` | List account balance history |
+| GET | `/api/v1/venear/lockups` | List lockups |
+| GET | `/api/v1/venear/lockups/{lockup_account_id}/actions` | List lockup actions |
 
 ## Adding New Endpoints
 
 ### 1. Create Handler Function
 
-Create handler with Utoipa documentation:
+Create a handler in the appropriate domain module under `api/src/handlers/`. Handlers receive `State<AppState>` and call `require_db` to extract the database connection:
 
 ```rust
-// api/src/handlers/users.rs
+// api/src/handlers/discourse/instances.rs
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     Json,
 };
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use utoipa::{IntoParams, ToSchema};
-use entities::{users, prelude::*};
-use common::errors::DatabaseError;
+use entities::discourse_instances;
+use crate::{errors::ApiErrorResponse, state::AppState};
 
 #[derive(Serialize, ToSchema)]
-pub struct UserResponse {
-    pub id: i32,
-    pub email: String,
-    pub name: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
+pub struct InstanceResponse {
+    pub key: String,
+    pub base_url: String,
 }
 
 #[derive(Deserialize, IntoParams)]
-pub struct UserQuery {
+pub struct ListQuery {
     pub limit: Option<u64>,
     pub offset: Option<u64>,
 }
 
-#[derive(Deserialize, ToSchema)]
-pub struct CreateUserRequest {
-    pub email: String,
-    pub name: String,
+fn require_db(state: &AppState) -> Result<Arc<DatabaseConnection>, ApiErrorResponse> {
+    state.db.clone().ok_or_else(|| {
+        ApiErrorResponse::service_unavailable("Database connection unavailable")
+    })
 }
 
 #[utoipa::path(
     get,
-    path = "/api/users",
-    params(UserQuery),
+    path = "/api/v1/discourse/instances",
+    params(ListQuery),
     responses(
-        (status = 200, description = "List users successfully", body = [UserResponse]),
-        (status = 500, description = "Internal server error")
+        (status = 200, description = "List instances", body = [InstanceResponse]),
+        (status = 503, description = "Database unavailable"),
     )
 )]
-pub async fn list_users(
-    State(db): State<DatabaseConnection>,
-    Query(params): Query<UserQuery>,
-) -> Result<Json<Vec<UserResponse>>, StatusCode> {
-    let mut query = Users::find();
-    
+pub async fn list_instances(
+    State(state): State<AppState>,
+    Query(params): Query<ListQuery>,
+) -> Result<Json<Vec<InstanceResponse>>, ApiErrorResponse> {
+    let db = require_db(&state)?;
+
+    let mut query = DiscourseInstances::find();
     if let Some(limit) = params.limit {
         query = query.limit(limit);
     }
-    
     if let Some(offset) = params.offset {
         query = query.offset(offset);
     }
-    
-    let users = query
-        .all(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
-    let response: Vec<UserResponse> = users
-        .into_iter()
-        .map(|user| UserResponse {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            created_at: user.created_at,
-        })
-        .collect();
-        
-    Ok(Json(response))
-}
 
-#[utoipa::path(
-    get,
-    path = "/api/users/{id}",
-    params(
-        ("id" = i32, Path, description = "User ID")
-    ),
-    responses(
-        (status = 200, description = "User found", body = UserResponse),
-        (status = 404, description = "User not found"),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn get_user(
-    State(db): State<DatabaseConnection>,
-    Path(id): Path<i32>,
-) -> Result<Json<UserResponse>, StatusCode> {
-    let user = Users::find_by_id(id)
-        .one(&db)
+    let rows = query
+        .all(db.as_ref())
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-        
-    Ok(Json(UserResponse {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        created_at: user.created_at,
-    }))
-}
+        .map_err(ApiErrorResponse::from)?;
 
-#[utoipa::path(
-    post,
-    path = "/api/users",
-    request_body = CreateUserRequest,
-    responses(
-        (status = 201, description = "User created", body = UserResponse),
-        (status = 400, description = "Invalid request"),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn create_user(
-    State(db): State<DatabaseConnection>,
-    Json(payload): Json<CreateUserRequest>,
-) -> Result<(StatusCode, Json<UserResponse>), StatusCode> {
-    let new_user = users::ActiveModel {
-        email: Set(payload.email),
-        name: Set(payload.name),
-        created_at: Set(chrono::Utc::now().naive_utc()),
-        ..Default::default()
-    };
-    
-    let user = new_user
-        .insert(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
-    Ok((
-        StatusCode::CREATED,
-        Json(UserResponse {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            created_at: user.created_at,
-        }),
-    ))
+    Ok(Json(rows.into_iter().map(|r| InstanceResponse {
+        key: r.key,
+        base_url: r.base_url,
+    }).collect()))
 }
 ```
 
 ### 2. Update Router
 
-Add routes to main application:
+Add the handler to the appropriate route module in `api/src/routes/`:
 
 ```rust
-// api/src/main.rs
-mod handlers {
-    pub mod health;
-    pub mod users;  // Add this
-}
+// api/src/routes/discourse/mod.rs
+use crate::{handlers::discourse, state::AppState};
+use axum::{routing::get, Router};
 
-let app = Router::new()
-    .route("/health", get(handlers::health::health_check))
-    .route("/health/db", get(handlers::health::database_health_check))
-    .route("/api/users", get(handlers::users::list_users))
-    .route("/api/users", post(handlers::users::create_user))
-    .route("/api/users/:id", get(handlers::users::get_user))
-    .with_state(db);
+pub fn discourse_routes() -> Router<AppState> {
+    Router::new()
+        .route("/discourse/instances", get(discourse::list_instances))
+        // ... existing routes ...
+}
 ```
 
 ### 3. Update OpenAPI Documentation
+
+Add the new path and any new schema types to `api/src/docs.rs`:
 
 ```rust
 #[derive(OpenApi)]
 #[openapi(
     paths(
         handlers::health::health_check,
-        handlers::health::database_health_check,
-        handlers::users::list_users,    // Add new paths
-        handlers::users::get_user,
-        handlers::users::create_user,
+        handlers::discourse::list_instances,    // Add new path here
     ),
     components(
         schemas(
-            handlers::health::HealthResponse,
-            handlers::users::UserResponse,     // Add new schemas
-            handlers::users::CreateUserRequest,
+            types::HealthResponse,
+            errors::ApiError,
+            // Add new response/request types here
         )
     )
 )]
-struct ApiDoc;
+pub struct ApiDoc;
 ```
 
 ## Error Handling
@@ -338,92 +318,52 @@ struct ApiDoc;
 The API uses standard HTTP status codes:
 
 - **200 OK** - Successful GET requests
-- **201 Created** - Successful POST requests  
 - **400 Bad Request** - Invalid request data
+- **401 Unauthorized** - Authentication required
+- **403 Forbidden** - Insufficient permissions
 - **404 Not Found** - Resource not found
+- **422 Unprocessable Entity** - Validation error
 - **500 Internal Server Error** - Server errors
+- **503 Service Unavailable** - Database unavailable
 
 ### Error Response Format
 
+Errors follow [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457) and are returned with `Content-Type: application/problem+json`:
+
 ```json
 {
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Invalid email format",
-    "details": {
-      "field": "email",
-      "value": "invalid-email"
-    }
-  }
+  "type": "about:blank",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Instance 'gov.near.org' does not exist",
+  "code": "NOT_FOUND"
 }
 ```
 
-### Creating Custom Error Types
+Fields `detail`, `instance`, and `code` are omitted when absent.
+
+### Using `ApiErrorResponse` in Handlers
+
+All handlers return `Result<Json<T>, ApiErrorResponse>`. The `ApiErrorResponse` type provides convenience constructors:
 
 ```rust
-use axum::{
-    response::{IntoResponse, Response},
-    http::StatusCode,
-    Json,
-};
-use serde::Serialize;
+use crate::errors::ApiErrorResponse;
 
-#[derive(Serialize)]
-pub struct ErrorResponse {
-    pub error: ErrorDetail,
-}
+// Common constructors (status code + machine-readable code set automatically)
+ApiErrorResponse::not_found("Instance not found")           // 404 NOT_FOUND
+ApiErrorResponse::bad_request("Missing required field")     // 400 BAD_REQUEST
+ApiErrorResponse::service_unavailable("DB unavailable")     // 503 SERVICE_UNAVAILABLE
+ApiErrorResponse::internal_server_error("Unexpected error") // 500 INTERNAL_ERROR
+ApiErrorResponse::unauthorized("Token required")            // 401 UNAUTHORIZED
+ApiErrorResponse::forbidden("Insufficient permissions")     // 403 FORBIDDEN
+ApiErrorResponse::unprocessable_entity("Validation failed") // 422 VALIDATION_ERROR
 
-#[derive(Serialize)]
-pub struct ErrorDetail {
-    pub code: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
-}
+// Add human-readable detail with builder chaining
+ApiErrorResponse::not_found("Instance not found")
+    .with_detail(format!("No instance with key '{key}'"))
 
-pub enum AppError {
-    ValidationError(String),
-    NotFound(String),
-    DatabaseError(String),
-    InternalError(String),
-}
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        let (status, code, message) = match self {
-            AppError::ValidationError(msg) => (
-                StatusCode::BAD_REQUEST,
-                "VALIDATION_ERROR",
-                msg,
-            ),
-            AppError::NotFound(msg) => (
-                StatusCode::NOT_FOUND,
-                "NOT_FOUND",
-                msg,
-            ),
-            AppError::DatabaseError(msg) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "DATABASE_ERROR",
-                msg,
-            ),
-            AppError::InternalError(msg) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "INTERNAL_ERROR",
-                msg,
-            ),
-        };
-
-        let error_response = ErrorResponse {
-            error: ErrorDetail {
-                code: code.to_string(),
-                message,
-                details: None,
-            },
-        };
-
-        (status, Json(error_response)).into_response()
-    }
-}
+// Convert from sea_orm::DbErr directly
+.map_err(ApiErrorResponse::from)?
 ```
 
 ## Request/Response Patterns
@@ -512,68 +452,53 @@ pub async fn create_user(
 
 ### Using SeaORM Entities
 
+Handlers receive `State<AppState>` and call `require_db` (or inline the `ok_or_else` check) to obtain `Arc<DatabaseConnection>`. Pass `db.as_ref()` to SeaORM queries:
+
 ```rust
-use entities::{users, posts, prelude::*};
+use entities::{discourse_users, prelude::*};
 use sea_orm::*;
+use crate::{errors::ApiErrorResponse, state::AppState};
 
-pub async fn get_user_with_posts(
-    State(db): State<DatabaseConnection>,
-    Path(user_id): Path<i32>,
-) -> Result<Json<UserWithPostsResponse>, AppError> {
-    // Find user with related posts
-    let user = Users::find_by_id(user_id)
-        .find_with_related(Posts)
-        .all(&db)
+pub async fn get_user(
+    State(state): State<AppState>,
+    Path(user_id): Path<i64>,
+) -> Result<Json<UserResponse>, ApiErrorResponse> {
+    let db = state.db.clone().ok_or_else(|| {
+        ApiErrorResponse::service_unavailable("Database unavailable")
+    })?;
+
+    let user = DiscourseUsers::find_by_id(user_id)
+        .one(db.as_ref())
         .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .into_iter()
-        .next()
-        .ok_or(AppError::NotFound("User not found".to_string()))?;
+        .map_err(ApiErrorResponse::from)?
+        .ok_or_else(|| ApiErrorResponse::not_found("User not found"))?;
 
-    // Transform to response format
-    let (user, posts) = user;
-    let response = UserWithPostsResponse {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        posts: posts.into_iter().map(|p| PostResponse {
-            id: p.id,
-            title: p.title,
-            content: p.content,
-            created_at: p.created_at,
-        }).collect(),
-    };
-
-    Ok(Json(response))
+    Ok(Json(UserResponse { id: user.id, name: user.name }))
 }
 ```
 
 ### Transactions
 
 ```rust
-pub async fn transfer_user_data(
-    State(db): State<DatabaseConnection>,
-    Json(payload): Json<TransferRequest>,
-) -> Result<Json<TransferResponse>, AppError> {
-    let txn = db.begin().await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+pub async fn update_with_transaction(
+    State(state): State<AppState>,
+    Json(payload): Json<UpdateRequest>,
+) -> Result<Json<UpdateResponse>, ApiErrorResponse> {
+    let db = state.db.clone().ok_or_else(|| {
+        ApiErrorResponse::service_unavailable("Database unavailable")
+    })?;
 
-    // Multiple database operations
-    let user = users::ActiveModel {
-        id: Set(payload.user_id),
-        status: Set("transferred".to_string()),
-        ..Default::default()
-    };
-    
-    user.update(&txn).await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    let txn = db.begin().await.map_err(ApiErrorResponse::from)?;
 
-    // More operations...
+    // Multiple database operations against &txn
+    some_entity::ActiveModel { /* ... */ }
+        .update(&txn)
+        .await
+        .map_err(ApiErrorResponse::from)?;
 
-    txn.commit().await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+    txn.commit().await.map_err(ApiErrorResponse::from)?;
 
-    Ok(Json(TransferResponse { success: true }))
+    Ok(Json(UpdateResponse { success: true }))
 }
 ```
 
@@ -583,29 +508,23 @@ pub async fn transfer_user_data(
 
 ```rust
 use axum::{
+    extract::Request,
     middleware::Next,
-    http::{Request, Response},
-    response::IntoResponse,
+    response::Response,
 };
 use std::time::Instant;
 
-pub async fn timing_middleware<B>(
-    request: Request<B>,
-    next: Next<B>,
-) -> impl IntoResponse {
+// axum 0.8: Next is not generic — no <B> type parameter
+pub async fn timing_middleware(request: Request, next: Next) -> Response {
     let start = Instant::now();
-    
     let response = next.run(request).await;
-    
-    let elapsed = start.elapsed();
-    tracing::info!("Request took {:?}", elapsed);
-    
+    tracing::info!("Request took {:?}", start.elapsed());
     response
 }
 
 // Add to router
 let app = Router::new()
-    .route("/api/users", get(list_users))
+    .route("/api/v1/discourse/instances", get(list_instances))
     .layer(axum::middleware::from_fn(timing_middleware));
 ```
 
@@ -718,18 +637,7 @@ idle_timeout = 600
 
 ### Response Caching
 
-```rust
-use axum::response::Response;
-use tower_http::cache::{CacheLayer, CacheLayerBuilder};
-
-let app = Router::new()
-    .route("/api/users", get(list_users))
-    .layer(
-        CacheLayerBuilder::new()
-            .max_age(Duration::from_secs(300)) // 5 minutes
-            .build()
-    );
-```
+The project does not implement in-process response caching. HTTP-level caching (e.g., `Cache-Control` headers for Railway's edge or a Cloudflare proxy) should be handled at the reverse-proxy layer rather than inside the Axum application.
 
 ### Pagination
 

@@ -403,17 +403,17 @@ The `TestDatabase` struct manages PostgreSQL containers via testcontainers-rs:
 
 ```rust
 pub struct TestDatabase {
-    pub connection: DatabaseConnection,
+    pub connection: Arc<DatabaseConnection>,
     // Keep container alive for test duration
-    pub _container: testcontainers::ContainerAsync<testcontainers_modules::mysql::Mysql>,
+    pub _container: ContainerAsync<Postgres>,
 }
 
 impl TestDatabase {
     pub async fn new() -> Self {
         // Creates PostgreSQL container, runs migrations, returns connection
     }
-    
-    pub fn db(&self) -> DatabaseConnection {
+
+    pub fn db(&self) -> Arc<DatabaseConnection> {
         self.connection.clone()
     }
 }
@@ -535,7 +535,7 @@ cargo generate-entities
 **Compilation Errors:**
 ```bash
 # Clean build artifacts
-cargo clean-all
+cargo clean
 cargo check-all
 ```
 
@@ -568,7 +568,7 @@ cargo migrate-status
 1. **Check logs**: Enable debug logging with `RUST_LOG=debug`
 2. **Verify configuration**: Check your `.env` and `config.toml` files
 3. **Check database**: Ensure migrations are applied and database is accessible
-4. **Clean rebuild**: Use `cargo clean-all && cargo check-all`
+4. **Clean rebuild**: Use `cargo clean && cargo check-all`
 
 ---
 

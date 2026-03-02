@@ -10,10 +10,18 @@ Use `cargo check-all` to compile every crate before opening a PR. Run `cargo tes
 Target Rust 2021 idioms with 4-space indentation, `snake_case` for modules/functions, and `CamelCase` types. Libraries favor `thiserror` for typed errors; binaries use `anyhow` for rich context. Always format with `cargo fmt` and consider `cargo clippy -- -D warnings` before pushing.
 
 ## Testing Guidelines
-Tests mirror module layout (e.g., `api/tests/handlers/`). Prefer deterministic handler tests for business logic and route tests for HTTP behavior. Frameworks in use include `rstest`, `axum-test`, and `testcontainers` for MySQL-backed scenarios. Run targeted suites during development, then confirm with `cargo test-all` prior to merge.
+Tests mirror module layout (e.g., `api/tests/handlers/`). Prefer deterministic handler tests for business logic and route tests for HTTP behavior. Frameworks in use include `rstest`, `axum-test`, and `testcontainers` for PostgreSQL-backed scenarios. Run targeted suites during development, then confirm with `cargo test-all` prior to merge.
 
 ## Commit & Pull Request Guidelines
 Write concise, imperative commit subjects (≈50 characters) similar to "fix Railway caching" or "observability". Pull requests should summarize the change, link relevant issues, note testing performed, and call out config or migration impacts; include Swagger screenshots when UI behavior changes.
 
 ## Security & Configuration Tips
 Never commit secrets. Copy `.env.example` to `.env` locally and configure runtime with environment variables such as `DATABASE_URL` and `RUST_LOG`. Override Figment settings by exporting keys like `APP_SERVER__HOST` or `APP_LOGGING__LEVEL` for service-specific tuning.
+
+## Documentation Maintenance
+Keep the files in `docs/` in sync with the codebase. Update them as part of the same PR that introduces the change:
+- Adding, removing, or renaming API endpoints → update the "Current Endpoints" section in `docs/API.md`
+- Adding or removing cargo aliases → update the command references in `docs/DEVELOPMENT.md` and the "Build, Test, and Development Commands" section above
+- Changing migration workflow or SeaORM patterns → update `docs/MIGRATIONS.md`
+- Changing shared types, error handling, or `AppState` structure → update the matching examples in `docs/API.md`
+- Adding a new database schema → add its entity output directory to the `generate-entities` section in `docs/MIGRATIONS.md`

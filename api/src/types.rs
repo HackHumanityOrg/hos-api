@@ -883,6 +883,8 @@ pub struct IdentityPersonsListResponse {
 pub struct IdentityPersonDto {
     /// Stable identity person id.
     pub id: i64,
+    /// Best-effort human-readable identity name.
+    pub name: Option<String>,
     /// Creation time in RFC 3339.
     pub created_at: String,
     /// Last update time in RFC 3339.

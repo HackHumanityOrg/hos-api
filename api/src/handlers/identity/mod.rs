@@ -11,9 +11,7 @@ use entities::{
     identity::{account_aliases, accounts, person_accounts, persons},
     prelude::*,
 };
-use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 
@@ -165,6 +163,7 @@ pub async fn list_person_accounts(
 fn to_person_dto(row: persons::Model) -> IdentityPersonDto {
     IdentityPersonDto {
         id: row.id,
+        name: row.name,
         created_at: to_rfc3339(row.created_at),
         updated_at: to_rfc3339(row.updated_at),
     }

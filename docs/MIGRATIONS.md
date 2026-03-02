@@ -28,7 +28,7 @@ cargo migrate-down
 # Reset database (rollback all migrations)
 cargo migrate-reset
 
-# Fresh start (reset + migrate up)
+# Drop all tables from DB, then re-apply all migrations from scratch
 cargo migrate-fresh
 
 # Generate a new migration file
@@ -118,8 +118,8 @@ Add your migration to `migration/src/lib.rs`:
 ```rust
 pub use sea_orm_migration::prelude::*;
 
-mod m20220101_000001_create_table;
-mod m20240831_120000_create_users_table; // Add this line
+mod m20251001_000001_discourse_schema;
+mod m20260302_000009_identity_schema; // Add your new migration here
 
 pub struct Migrator;
 
@@ -127,8 +127,8 @@ pub struct Migrator;
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         vec![
-            Box::new(m20220101_000001_create_table::Migration),
-            Box::new(m20240831_120000_create_users_table::Migration), // Add this line
+            Box::new(m20251001_000001_discourse_schema::Migration),
+            Box::new(m20260302_000009_identity_schema::Migration), // Add your new migration here
         ]
     }
 }
@@ -426,11 +426,15 @@ sea-orm-cli migrate up -d ./custom/migration/path
 
 ### Conditional Migrations
 
+`SchemaManager` provides inspection methods to guard idempotent migrations:
+
+- `manager.has_table("table_name").await?` → `Result<bool, DbErr>`
+- `manager.has_column("table_name", "column_name").await?` → `Result<bool, DbErr>`
+- `manager.has_index("table_name", "index_name").await?` → `Result<bool, DbErr>`
+
 ```rust
 async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-    let db = manager.get_connection();
-    
-    // Check if column already exists
+    // Check if column already exists before adding it
     if !manager.has_column("users", "email").await? {
         manager
             .alter_table(
@@ -441,22 +445,39 @@ async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
             )
             .await?;
     }
-    
+
+    // Check if index already exists before creating it
+    if !manager.has_index("users", "idx-users-email").await? {
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx-users-email")
+                    .table(Users::Table)
+                    .col(Users::Email)
+                    .to_owned(),
+            )
+            .await?;
+    }
+
     Ok(())
 }
 ```
 
 ### Using Transactions
 
-Migrations automatically run in transactions, but you can create subtransactions:
+Each migration's `up()` and `down()` method is automatically wrapped in a database transaction by the SeaORM migration framework. If an error is returned, the entire migration is rolled back.
+
+If you need a savepoint within a migration (to isolate a subset of operations that may fail), you can use `begin()` on the connection — in PostgreSQL this creates a nested savepoint, not a new top-level transaction:
 
 ```rust
 async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-    let txn = manager.get_connection().begin().await?;
-    
-    // Multiple operations here
-    
+    let conn = manager.get_connection();
+
+    // Creates a savepoint (nested transaction) within the migration's outer transaction
+    let txn = conn.begin().await?;
+    // Operations that should be isolated
     txn.commit().await?;
+
     Ok(())
 }
 ```

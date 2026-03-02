@@ -22,7 +22,8 @@ use crate::modules::venear_governance::types::{
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "venear_governance";
-const IDENTITY_NEAR_PLATFORM: &str = "near";
+const IDENTITY_VENEAR_GOVERNANCE_PLATFORM: &str = "venear_governance";
+const IDENTITY_VENEAR_LOCKUP_PLATFORM: &str = "venear_lockup";
 
 #[derive(Default)]
 struct ProcessState {
@@ -243,9 +244,10 @@ impl VenearGovernanceModule {
         Ok(())
     }
 
-    async fn upsert_identity_accounts<'a, I>(
+    async fn upsert_identity_accounts_for_platform<'a, I>(
         &self,
         db: &impl ConnectionTrait,
+        platform_id: &str,
         account_ids: I,
     ) -> Result<()>
     where
@@ -270,7 +272,7 @@ impl VenearGovernanceModule {
                  VALUES ($1, $2, $3)
                  ON CONFLICT (platform_id, scope, external_id) DO NOTHING",
                 vec![
-                    IDENTITY_NEAR_PLATFORM.into(),
+                    platform_id.to_string().into(),
                     self.near_chain_scope.clone().into(),
                     account_id.into(),
                 ],
@@ -282,6 +284,34 @@ impl VenearGovernanceModule {
         }
 
         Ok(())
+    }
+
+    async fn upsert_identity_governance_accounts<'a, I>(
+        &self,
+        db: &impl ConnectionTrait,
+        account_ids: I,
+    ) -> Result<()>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        self.upsert_identity_accounts_for_platform(
+            db,
+            IDENTITY_VENEAR_GOVERNANCE_PLATFORM,
+            account_ids,
+        )
+        .await
+    }
+
+    async fn upsert_identity_lockup_accounts<'a, I>(
+        &self,
+        db: &impl ConnectionTrait,
+        account_ids: I,
+    ) -> Result<()>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        self.upsert_identity_accounts_for_platform(db, IDENTITY_VENEAR_LOCKUP_PLATFORM, account_ids)
+            .await
     }
 
     fn is_target_contract(&self, contract_id: &str, state: &ProcessState) -> bool {
@@ -1214,7 +1244,7 @@ impl VenearGovernanceModule {
         ))
         .await?;
 
-        self.upsert_identity_accounts(db, [predecessor_account_id, contract_id])
+        self.upsert_identity_governance_accounts(db, [predecessor_account_id, contract_id])
             .await?;
 
         Ok(())
@@ -1271,7 +1301,9 @@ impl VenearGovernanceModule {
         ))
         .await?;
 
-        self.upsert_identity_accounts(db, [lockup_account_id, owner_account_id])
+        self.upsert_identity_lockup_accounts(db, [lockup_account_id])
+            .await?;
+        self.upsert_identity_governance_accounts(db, [owner_account_id])
             .await?;
 
         Ok(())
@@ -1340,7 +1372,7 @@ impl VenearGovernanceModule {
         ))
         .await?;
 
-        self.upsert_identity_accounts(db, [account_id, predecessor_account_id, contract_id])
+        self.upsert_identity_governance_accounts(db, [account_id, predecessor_account_id, contract_id])
             .await?;
 
         Ok(())
@@ -1429,7 +1461,8 @@ impl VenearGovernanceModule {
         ))
         .await?;
 
-        self.upsert_identity_accounts(db, identity_accounts).await?;
+        self.upsert_identity_governance_accounts(db, identity_accounts)
+            .await?;
 
         Ok(())
     }
@@ -1490,7 +1523,7 @@ impl VenearGovernanceModule {
         ))
         .await?;
 
-        self.upsert_identity_accounts(db, [account_id, predecessor_account_id, contract_id])
+        self.upsert_identity_governance_accounts(db, [account_id, predecessor_account_id, contract_id])
             .await?;
 
         Ok(())
@@ -1564,11 +1597,10 @@ impl VenearGovernanceModule {
         ))
         .await?;
 
-        let mut identity_accounts = vec![
-            lockup_account_id,
-            predecessor_account_id,
-            receiver_account_id,
-        ];
+        self.upsert_identity_lockup_accounts(db, [lockup_account_id])
+            .await?;
+
+        let mut identity_accounts = vec![predecessor_account_id, receiver_account_id];
         if let Some(owner_account_id) = owner_account_id {
             identity_accounts.push(owner_account_id);
         }
@@ -1576,7 +1608,8 @@ impl VenearGovernanceModule {
             identity_accounts.push(staking_pool_account_id);
         }
 
-        self.upsert_identity_accounts(db, identity_accounts).await?;
+        self.upsert_identity_governance_accounts(db, identity_accounts)
+            .await?;
 
         Ok(())
     }
@@ -1965,6 +1998,32 @@ mod tests {
         .await?;
         assert_eq!(deleted_at_timestamp, None);
 
+        let lockup_identity_exists = scalar_bool(
+            conn.as_ref(),
+            "SELECT EXISTS (
+                SELECT 1
+                FROM identity.accounts
+                WHERE platform_id = 'venear_lockup'
+                  AND scope = 'mainnet'
+                  AND external_id = 'reactivate.venear.dao'
+            ) AS value",
+        )
+        .await?;
+        assert!(lockup_identity_exists);
+
+        let owner_identity_exists = scalar_bool(
+            conn.as_ref(),
+            "SELECT EXISTS (
+                SELECT 1
+                FROM identity.accounts
+                WHERE platform_id = 'venear_governance'
+                  AND scope = 'mainnet'
+                  AND external_id = 'alice.near'
+            ) AS value",
+        )
+        .await?;
+        assert!(owner_identity_exists);
+
         Ok(())
     }
 
@@ -2215,7 +2274,7 @@ mod tests {
             "SELECT EXISTS (
                 SELECT 1
                 FROM identity.accounts
-                WHERE platform_id = 'near'
+                WHERE platform_id = 'venear_governance'
                   AND scope = 'mainnet'
                   AND external_id = 'caller.near'
             ) AS value",
@@ -2228,7 +2287,7 @@ mod tests {
             "SELECT EXISTS (
                 SELECT 1
                 FROM identity.accounts
-                WHERE platform_id = 'near'
+                WHERE platform_id = 'venear_governance'
                   AND scope = 'mainnet'
                   AND external_id = 'alice.near'
             ) AS value",
@@ -2241,7 +2300,7 @@ mod tests {
             "SELECT EXISTS (
                 SELECT 1
                 FROM identity.accounts
-                WHERE platform_id = 'near'
+                WHERE platform_id = 'venear_governance'
                   AND scope = 'mainnet'
                   AND external_id = 'venear.dao'
             ) AS value",

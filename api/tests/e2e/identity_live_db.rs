@@ -25,6 +25,7 @@ async fn identity_endpoints_return_seeded_data() {
     assert_eq!(persons_page_1.data.len(), 1);
     assert!(persons_page_1.has_more);
     assert_eq!(persons_page_1.data[0].id, 1);
+    assert_eq!(persons_page_1.data[0].name.as_deref(), Some("alice"));
     let cursor = persons_page_1.next_cursor.clone().expect("next cursor");
 
     let persons_page_2: IdentityPersonsListResponse =
@@ -32,7 +33,9 @@ async fn identity_endpoints_return_seeded_data() {
     assert_eq!(persons_page_2.data.len(), 2);
     assert!(!persons_page_2.has_more);
     assert_eq!(persons_page_2.data[0].id, 2);
+    assert_eq!(persons_page_2.data[0].name.as_deref(), Some("bob"));
     assert_eq!(persons_page_2.data[1].id, 3);
+    assert_eq!(persons_page_2.data[1].name.as_deref(), Some("carol"));
 
     let accounts: IdentityPersonAccountsResponse =
         get_json(&router, "/api/v1/identity/persons/1/accounts").await;
@@ -71,11 +74,11 @@ async fn seed_identity_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
     execute_sql(
         db,
         r#"
-        INSERT INTO identity.persons (id, created_at, updated_at)
+        INSERT INTO identity.persons (id, name, created_at, updated_at)
         VALUES
-            (1, NOW(), NOW()),
-            (2, NOW(), NOW()),
-            (3, NOW(), NOW())
+            (1, 'alice', NOW(), NOW()),
+            (2, 'bob', NOW(), NOW()),
+            (3, 'carol', NOW(), NOW())
         "#,
     )
     .await?;
