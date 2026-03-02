@@ -185,7 +185,7 @@ async fn main() -> Result<()> {
             chain: "mainnet".to_string(),
             start_height,
             concurrency: 1,
-            preload_pool_size: 20,
+            preload_pool_size: 1,
         },
         api_key,
         None,

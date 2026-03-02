@@ -64,7 +64,7 @@ async fn collect_heights(
             chain: chain.to_string(),
             start_height,
             concurrency: 1,
-            preload_pool_size: 4,
+            preload_pool_size: 1,
         },
         api_key,
         None,
