@@ -129,7 +129,7 @@ async fn likes_adapter_deduplicates_and_honors_total_rows() -> Result<()> {
 #[tokio::test]
 async fn posts_adapter_uses_one_based_pagination() -> Result<()> {
     let fetcher = FixtureFetcher::new(&[(
-        "/t/69776.json?page=1&include_raw=true",
+        "/t/69776.json?include_raw=true",
         "meta/topic_69776_posts_page_0.json",
     )])?;
 

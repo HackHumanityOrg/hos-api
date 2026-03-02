@@ -75,7 +75,7 @@ async fn upsert_post_likes_validates_columns_and_users() -> Result<()> {
     topics::repo::upsert_topics_bulk(conn.as_ref(), INSTANCE_KEY, &topics).await?;
 
     let posts_fetcher = FixtureFetcher::new(&[(
-        "/t/69776.json?page=1&include_raw=true",
+        "/t/69776.json?include_raw=true",
         "meta/topic_69776_posts_page_0.json",
     )])?;
     let posts = posts::adapter::fetch_posts_page(&posts_fetcher, TOPIC_ID, 0)
