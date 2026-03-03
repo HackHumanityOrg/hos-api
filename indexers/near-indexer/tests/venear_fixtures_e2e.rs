@@ -1573,12 +1573,15 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
         "on_lockup_deployed_failed",
         "lockup_action",
         "begin_unlock_near",
+        "begin_unlock_near_horbarr_after_delegate",
         "end_unlock_near",
         "lock_pending_near",
         "delegate_all",
+        "delegate_all_horbarr_to_sabrinanear",
         "undelegate",
         "delegate_all_failed",
         "undelegate_failed",
+        "on_lockup_update_delegatee_burn_horbarr",
         "admin_set_lockup_contract",
         "admin_set_lockup_code_deployers",
         "admin_prepare_lockup_code",
@@ -1790,6 +1793,686 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
         assert!(
             unlock_event_count >= 1,
             "expected >= 1 lockup_event row for unlock lifecycle methods, got {unlock_event_count}"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Value-level fixture assertions for all known paths.
+    // ---------------------------------------------------------------------
+
+    if loaded_names.contains("lockup_deployed") {
+        let deployed_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_events
+             WHERE event_type = 'lockup_deployed'
+               AND receipt_id = 'uQFKagNeyRnjen2jt5XzWcGsee1qFuFsTWDGAdwbDzg'
+               AND lockup_account_id = '0887fe221cafb6810909c83393e23585c439fe99.venear.dao'
+               AND owner_account_id = 'jchos.near'
+               AND lockup_version = 1
+               AND predecessor_account_id = 'venear.dao'
+               AND contract_id = 'venear.dao'
+               AND success = true",
+        )
+        .await?;
+        assert_eq!(deployed_exact, 1, "lockup_deployed fixture values mismatch");
+
+        let deployed_callback_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_events
+             WHERE event_type = 'lockup_deployed_callback'
+               AND receipt_id = 'uQFKagNeyRnjen2jt5XzWcGsee1qFuFsTWDGAdwbDzg'
+               AND lockup_account_id = '0887fe221cafb6810909c83393e23585c439fe99.venear.dao'
+               AND owner_account_id = 'jchos.near'
+               AND lockup_version = 1
+               AND predecessor_account_id = 'venear.dao'
+               AND contract_id = 'venear.dao'
+               AND action_source = 'receipt'
+               AND success = true",
+        )
+        .await?;
+        assert_eq!(
+            deployed_callback_exact, 1,
+            "lockup_deployed callback values mismatch"
+        );
+
+        let raw_event_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_events_raw
+             WHERE record_kind = 'event_json'
+               AND execution_outcome_id = 'uQFKagNeyRnjen2jt5XzWcGsee1qFuFsTWDGAdwbDzg'
+               AND standard = 'venear'
+               AND event_type = 'lockup_deployed'
+               AND predecessor_account_id = 'venear.dao'
+               AND contract_id = 'venear.dao'
+               AND success = true
+               AND event_data->>'account_id' = 'jchos.near'",
+        )
+        .await?;
+        assert_eq!(raw_event_exact, 1, "raw lockup_deployed row mismatch");
+    }
+
+    if loaded_names.contains("lockup_update") {
+        let update_balance_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_account_balances
+             WHERE receipt_id = '6C1GEUFnG3kno1NiGK4yHKeCPbgXeZk6YT1w2gJEB2E3'
+               AND event_type = 'lockup_update'
+               AND account_id = 'jchos.near'
+               AND total_balance = '0'
+               AND locked_near_balance = '2000016409706328300000001'
+               AND lockup_update_nonce = 167957455000001
+               AND lockup_version = 1",
+        )
+        .await?;
+        assert_eq!(update_balance_exact, 1, "lockup_update balance mismatch");
+
+        let update_callback_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_events
+             WHERE receipt_id = '6C1GEUFnG3kno1NiGK4yHKeCPbgXeZk6YT1w2gJEB2E3'
+               AND event_type = 'lockup_update_callback'
+               AND lockup_account_id = '0887fe221cafb6810909c83393e23585c439fe99.venear.dao'
+               AND owner_account_id = 'jchos.near'
+               AND lockup_version = 1
+               AND lockup_update_nonce IS NULL
+               AND locked_near_balance IS NULL
+               AND action_source = 'receipt'
+               AND predecessor_account_id = '0887fe221cafb6810909c83393e23585c439fe99.venear.dao'
+               AND contract_id = 'venear.dao'
+               AND success = true
+               AND payload->>'version' = '1'
+               AND payload->'update'->'V1'->>'lockup_update_nonce' = '167957455000001'
+               AND payload->'update'->'V1'->>'locked_near_balance' = '2000016409706328300000001'",
+        )
+        .await?;
+        assert_eq!(update_callback_exact, 1, "lockup_update callback mismatch");
+    }
+
+    if loaded_names.contains("lockup_delete") {
+        let delete_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_events
+             WHERE receipt_id = '3sJLfbrj6pLaTQqiSSoPoNpjxKJsoAdWu6qyNgNPf26w'
+               AND event_type = 'lockup_delete'
+               AND lockup_account_id = '7a4642f807c6eded491bbd5678db6a07e43b95e8.venear.dao'
+               AND owner_account_id = 'chikatia.tg'
+               AND lockup_version = 1
+               AND lockup_update_nonce = 169668284000004
+               AND predecessor_account_id = 'chikatia.tg'
+               AND contract_id = '7a4642f807c6eded491bbd5678db6a07e43b95e8.venear.dao'",
+        )
+        .await?;
+        assert_eq!(delete_exact, 1, "lockup_delete fixture values mismatch");
+    }
+
+    if loaded_names.contains("lockup_lock_near") {
+        let lockup_lock_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_events
+             WHERE receipt_id = 'YQrweDswg8hJKnkR8wB2TtQ2dv8XSWezn7C4aHa5tGy'
+               AND event_type = 'lockup_lock_near'
+               AND lockup_account_id = '0887fe221cafb6810909c83393e23585c439fe99.venear.dao'
+               AND owner_account_id = 'jchos.near'
+               AND lockup_version = 1
+               AND lockup_update_nonce = 167957455000005
+               AND locked_near_balance = '100000000000000000000'",
+        )
+        .await?;
+        assert_eq!(
+            lockup_lock_exact, 1,
+            "lockup_lock_near fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("create_proposal") {
+        let create_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_proposal_events
+             WHERE receipt_id = 'urM2AvHkXnvWFk4GoxFQ4ifH2nb4VHtkErgQ6PtrgFF'
+               AND event_type = 'create_proposal'
+               AND proposal_id = 0
+               AND proposer_id = 'jchos.near'
+               AND metadata->>'title' = 'Test'
+               AND metadata->>'description' = 'Test'
+               AND metadata->>'link' = 'https://gov.near.org/proposal'",
+        )
+        .await?;
+        assert_eq!(create_exact, 1, "create_proposal fixture values mismatch");
+    }
+
+    if loaded_names.contains("proposal_approve") {
+        let approve_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_proposal_events
+             WHERE receipt_id = '94SuRmTkV7J6LsycGNwFyrLz34d2t5ephwb5tK2Ppqxr'
+               AND event_type = 'proposal_approve'
+               AND proposal_id = 2
+               AND account_id = 'lane.near'
+               AND reviewer_id = 'lane.near'",
+        )
+        .await?;
+        assert_eq!(approve_exact, 1, "proposal_approve fixture values mismatch");
+    }
+
+    if loaded_names.contains("on_get_snapshot") {
+        let finalized_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_proposal_events
+             WHERE receipt_id = '9m6gwp2xhA3dHqTTo6wX4ZSefb9Nj8d7CPV5g9RPSF97'
+               AND event_type = 'proposal_approve_finalized'
+               AND proposal_id = 2
+               AND reviewer_id = 'lane.near'
+               AND snapshot_block_height = 168368385
+               AND snapshot_root = '6XLjZFf5MgZxXEkcHVjrT5FDDM1Q3k9zpdLZrrsjDW1Y'
+               AND snapshot_total_venear = '33557888548819293211318846044'
+               AND metadata->>'status' = 'Voting'",
+        )
+        .await?;
+        assert_eq!(
+            finalized_exact, 1,
+            "on_get_snapshot fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("add_vote") {
+        let vote_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_votes
+             WHERE receipt_id = '3QMkZ9sWqHaRkCT93kbqpMQPf49jwym6EAqYL2LxJ7pa'
+               AND event_type = 'add_vote'
+               AND proposal_id = 2
+               AND account_id = 'lane.near'
+               AND vote = 0
+               AND account_balance = '32279877702596545200000002'",
+        )
+        .await?;
+        assert_eq!(vote_exact, 1, "add_vote fixture values mismatch");
+
+        let voting_power_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_account_voting_power_events
+             WHERE receipt_id = '3QMkZ9sWqHaRkCT93kbqpMQPf49jwym6EAqYL2LxJ7pa'
+               AND event_type = 'add_vote'
+               AND proposal_id = 2
+               AND account_id = 'lane.near'
+               AND voting_power = '32279877702596545200000002'",
+        )
+        .await?;
+        assert_eq!(
+            voting_power_exact, 1,
+            "add_vote voting_power fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("ft_mint") {
+        let mint_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_account_balances
+             WHERE receipt_id = 'ESiHP4QSHA6Rr3xsjKT8j7Qq8JYgnk92X9GmKyqm4HNr'
+               AND event_type = 'ft_mint'
+               AND account_id = 'jchos.near'
+               AND delta_amount = '100000000000000000000000'",
+        )
+        .await?;
+        assert_eq!(mint_exact, 1, "ft_mint fixture values mismatch");
+    }
+
+    if loaded_names.contains("ft_burn") {
+        let burn_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_account_balances
+             WHERE receipt_id = 'E9eZJN418Qnhc1zKUfHmL9X6SkkjLTePXXyXAyhZR62W'
+               AND event_type = 'ft_burn'
+               AND account_id = 'jchos.near'
+               AND delta_amount = '-2100016428726328300000001'",
+        )
+        .await?;
+        assert_eq!(burn_exact, 1, "ft_burn fixture values mismatch");
+
+        let mint_side_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_account_balances
+             WHERE receipt_id = 'E9eZJN418Qnhc1zKUfHmL9X6SkkjLTePXXyXAyhZR62W'
+               AND event_type = 'ft_mint'
+               AND account_id = 'athis.near'
+               AND delta_amount = '2106360231141328300000001'",
+        )
+        .await?;
+        assert_eq!(
+            mint_side_exact, 1,
+            "ft_burn fixture minted-side values mismatch"
+        );
+    }
+
+    if loaded_names.contains("lockup_action") {
+        let lockup_action_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_actions
+             WHERE receipt_id = '293NB2ES5jYn8RPP8RTUKQeDc8mqZrr1d8EcGojpT3vL'
+               AND lockup_account_id = '0887fe221cafb6810909c83393e23585c439fe99.venear.dao'
+               AND owner_account_id = 'jchos.near'
+               AND predecessor_account_id = 'venear.dao'
+               AND receiver_account_id = '0887fe221cafb6810909c83393e23585c439fe99.venear.dao'
+               AND method_name = 'new'
+               AND action_source = 'receipt'
+               AND attached_deposit = '2.00 NEAR'
+               AND success = true
+               AND args_json->>'owner_account_id' = 'jchos.near'
+               AND args_json->>'min_lockup_deposit' = '2000000000000000000000000'",
+        )
+        .await?;
+        assert_eq!(
+            lockup_action_exact, 1,
+            "lockup_action fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("begin_unlock_near") {
+        let begin_unlock_event_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_events
+             WHERE receipt_id = 'ESd1k51dQSGWZbRDXVMkX7S5A3T6ME8WoD1m9V9VeUas'
+               AND event_type = 'begin_unlock_near'
+               AND lockup_account_id = '8a8e68455f59ba24082ecd3007d8b9a33a21a651.venear.dao'
+               AND predecessor_account_id = 'nguyentran14.near'
+               AND contract_id = '8a8e68455f59ba24082ecd3007d8b9a33a21a651.venear.dao'
+               AND success = true",
+        )
+        .await?;
+        assert_eq!(
+            begin_unlock_event_exact, 1,
+            "begin_unlock_near event values mismatch"
+        );
+
+        let begin_unlock_action_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_actions
+             WHERE receipt_id = 'ESd1k51dQSGWZbRDXVMkX7S5A3T6ME8WoD1m9V9VeUas'
+               AND method_name = 'begin_unlock_near'
+               AND lockup_account_id = '8a8e68455f59ba24082ecd3007d8b9a33a21a651.venear.dao'
+               AND predecessor_account_id = 'nguyentran14.near'
+               AND attached_deposit = '<0.001 NEAR'
+               AND args_json->>'amount' = '4426104630583193338115205215'",
+        )
+        .await?;
+        assert_eq!(
+            begin_unlock_action_exact, 1,
+            "begin_unlock_near action values mismatch"
+        );
+    }
+
+    if loaded_names.contains("begin_unlock_near_horbarr_after_delegate") {
+        let begin_unlock_horbarr_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_actions
+             WHERE receipt_id = '2JwtSaiHbYJ2EQdKBZ9HEq9ietJSVMAR4hoeASZFcSsd'
+               AND method_name = 'begin_unlock_near'
+               AND lockup_account_id = 'b155f46a0ec06336370ab6a9b26607779df26b9d.venear.dao'
+               AND predecessor_account_id = 'horbarr.near'
+               AND attached_deposit = '<0.001 NEAR'
+               AND args_json->>'amount' = '5000010933856189300000000'",
+        )
+        .await?;
+        assert_eq!(
+            begin_unlock_horbarr_exact, 1,
+            "begin_unlock_near_horbarr_after_delegate values mismatch"
+        );
+    }
+
+    if loaded_names.contains("end_unlock_near") {
+        let end_unlock_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_actions
+             WHERE receipt_id = '7go48KQnnZaRcAmZsoZiipsnkvwnhQxw7H7dzS7CzRJK'
+               AND method_name = 'end_unlock_near'
+               AND lockup_account_id = 'ae6364414a4e0357b3476ab1fb56e2e61992f030.venear.dao'
+               AND predecessor_account_id = 'full_master_ok.near'
+               AND attached_deposit = '<0.001 NEAR'
+               AND args_json->>'amount' = '5400010747248653000000000'",
+        )
+        .await?;
+        assert_eq!(
+            end_unlock_exact, 1,
+            "end_unlock_near fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("delegate_all") {
+        let delegate_all_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_delegation_events
+             WHERE receipt_id = '2RLxWawCY1LXJSR7dv6knY7CY63BQpzuYy6pW3xKth85'
+               AND event_type = 'delegate_all'
+               AND delegator_account_id = 'horbarr.near'
+               AND delegatee_account_id = 'sabrinanear.near'
+               AND action_source = 'transaction'
+               AND success = true
+               AND attached_deposit = '<0.001 NEAR'
+               AND args_json->>'receiver_id' = 'sabrinanear.near'",
+        )
+        .await?;
+        assert_eq!(
+            delegate_all_exact, 1,
+            "delegate_all fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("delegate_all_horbarr_to_sabrinanear") {
+        let delegate_horbarr_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_delegation_events
+             WHERE receipt_id = 'Dh1MPT5dGvAzfXfnEiw2QSgHxC6sFzo1BUevhuy2fZE7'
+               AND event_type = 'delegate_all'
+               AND delegator_account_id = 'horbarr.near'
+               AND delegatee_account_id = 'sabrinanear.near'
+               AND action_source = 'receipt'
+               AND success = true",
+        )
+        .await?;
+        assert_eq!(
+            delegate_horbarr_exact, 1,
+            "delegate_all_horbarr fixture delegation values mismatch"
+        );
+
+        let delegate_horbarr_burn = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_account_balances
+             WHERE receipt_id = 'Dh1MPT5dGvAzfXfnEiw2QSgHxC6sFzo1BUevhuy2fZE7'
+               AND event_type = 'ft_burn'
+               AND account_id = 'horbarr.near'
+               AND delta_amount = '-5100010940196189300000001'",
+        )
+        .await?;
+        assert_eq!(
+            delegate_horbarr_burn, 1,
+            "delegate_all_horbarr fixture burn values mismatch"
+        );
+    }
+
+    if loaded_names.contains("undelegate") {
+        let undelegate_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_delegation_events
+             WHERE receipt_id = 'J3FGyjWYbVmqAMrmvt5u1mC6a4YcBBCYwGvMmsHH41eU'
+               AND event_type = 'undelegate'
+               AND delegator_account_id = 'thomasvd.near'
+               AND delegatee_account_id IS NULL
+               AND action_source = 'transaction'
+               AND success = true
+               AND attached_deposit = '<0.001 NEAR'",
+        )
+        .await?;
+        assert_eq!(undelegate_exact, 1, "undelegate fixture values mismatch");
+    }
+
+    if loaded_names.contains("delegate_all_failed") {
+        let delegate_all_failed_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_delegation_events
+             WHERE receipt_id = 'DK7EtPBCk8etAXgJ6nAUQNzP8K6hyCSAr5r7r7inTgeW'
+               AND event_type = 'delegate_all'
+               AND delegator_account_id = '1920804333ced7e8357b5b22b69b3ce03aff94c04836ba604019e0c363f2d7b3'
+               AND delegatee_account_id = 'vote.mob.near'
+               AND action_source = 'receipt'
+               AND success = false
+               AND args_json->>'receiver_id' = 'vote.mob.near'",
+        )
+        .await?;
+        assert_eq!(
+            delegate_all_failed_exact, 1,
+            "delegate_all_failed fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("undelegate_failed") {
+        let undelegate_failed_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_delegation_events
+             WHERE receipt_id = '7FwhPWS451YFWHgyAhXjaXKiiRPXdi2Vp4CqMCoW3GiU'
+               AND event_type = 'undelegate'
+               AND delegator_account_id = 'lilopposum556.tg'
+               AND delegatee_account_id IS NULL
+               AND action_source = 'receipt'
+               AND success = false",
+        )
+        .await?;
+        assert_eq!(
+            undelegate_failed_exact, 1,
+            "undelegate_failed fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("on_lockup_deployed") {
+        let deployed_horbarr_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_events
+             WHERE receipt_id = '5kyoC3u2sitcyBKpB7UvGzH9fYY69Lgq5DTQYnDCGkfn'
+               AND event_type = 'lockup_deployed'
+               AND lockup_account_id = 'b155f46a0ec06336370ab6a9b26607779df26b9d.venear.dao'
+               AND owner_account_id = 'horbarr.near'
+               AND lockup_version = 1",
+        )
+        .await?;
+        assert_eq!(
+            deployed_horbarr_exact, 1,
+            "on_lockup_deployed event values mismatch"
+        );
+    }
+
+    if loaded_names.contains("on_lockup_update_delegatee_burn_horbarr") {
+        let callback_horbarr_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_events
+             WHERE receipt_id = 'FPNphxYAxh76SsPdTumDSQJfYbHEe5fWVHE2juvo551Z'
+               AND event_type = 'lockup_update_callback'
+               AND lockup_account_id = 'b155f46a0ec06336370ab6a9b26607779df26b9d.venear.dao'
+               AND owner_account_id = 'horbarr.near'
+               AND lockup_version = 1
+               AND lockup_update_nonce IS NULL
+               AND locked_near_balance IS NULL
+               AND action_source = 'receipt'
+               AND predecessor_account_id = 'b155f46a0ec06336370ab6a9b26607779df26b9d.venear.dao'
+               AND contract_id = 'venear.dao'
+               AND success = true
+               AND payload->>'version' = '1'
+               AND payload->'update'->'V1'->>'lockup_update_nonce' = '187483094000002'
+               AND payload->'update'->'V1'->>'locked_near_balance' = '1'",
+        )
+        .await?;
+        assert_eq!(
+            callback_horbarr_exact, 1,
+            "on_lockup_update_delegatee callback values mismatch"
+        );
+
+        let delegatee_burn_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_account_balances
+             WHERE receipt_id = 'FPNphxYAxh76SsPdTumDSQJfYbHEe5fWVHE2juvo551Z'
+               AND event_type = 'ft_burn'
+               AND account_id = 'sabrinanear.near'
+               AND delta_amount = '-5000016432221189300000000'",
+        )
+        .await?;
+        assert_eq!(
+            delegatee_burn_exact, 1,
+            "on_lockup_update_delegatee burn values mismatch"
+        );
+    }
+
+    if loaded_names.contains("admin_set_lockup_contract") {
+        let admin_set_lockup_contract_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_admin_events
+             WHERE receipt_id = 'C3GaYA41YLM3Fb218aM7vDjn7nVb1BVGQYXJZTY8FDqA'
+               AND contract_id = 'venear.dao'
+               AND method_name = 'set_lockup_contract'
+               AND predecessor_account_id = 'hos-root.sputnik-dao.near'
+               AND attached_deposit = '<0.001 NEAR'
+               AND success = true
+               AND args_json->>'contract_hash' = 'EV4eXNuKVkcYisktcT4sk9XfFFRvcefy51Qs2hQkhnK1'
+               AND args_json->>'min_lockup_deposit' = '2000000000000000000000000'",
+        )
+        .await?;
+        assert_eq!(
+            admin_set_lockup_contract_exact, 1,
+            "admin_set_lockup_contract fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("admin_set_lockup_code_deployers") {
+        let admin_set_lockup_code_deployers_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_admin_events
+             WHERE receipt_id = '5mgLns7fdsQS2PJWTfDXd4MpZ74ZuAk9EovRKWhpv9jN'
+               AND contract_id = 'venear.dao'
+               AND method_name = 'set_lockup_code_deployers'
+               AND predecessor_account_id = 'grishko_loh.near'
+               AND attached_deposit = '0 NEAR'
+               AND success = true
+               AND args_json->>'lockup_code_deployers' = 'grishko_loh.near'",
+        )
+        .await?;
+        assert_eq!(
+            admin_set_lockup_code_deployers_exact, 1,
+            "admin_set_lockup_code_deployers fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("admin_prepare_lockup_code") {
+        let admin_prepare_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_admin_events
+             WHERE receipt_id = '7zXJm5GJsEfoKdnrkXavqRoBmUzLYrVWr35FCQvmhHD6'
+               AND contract_id = 'venear.dao'
+               AND method_name = 'prepare_lockup_code'
+               AND predecessor_account_id = 'root.near'
+               AND attached_deposit = '1.98 NEAR'
+               AND success = true
+               AND args_json IS NULL
+               AND LENGTH(args_base64) > 1000",
+        )
+        .await?;
+        assert_eq!(
+            admin_prepare_exact, 1,
+            "admin_prepare_lockup_code fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("admin_set_guardians") {
+        let admin_set_guardians_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_admin_events
+             WHERE receipt_id = 'BHSb4GwmvaeaRx96hKEnAg9ktXm6CpjCmNGyBiQEKVsB'
+               AND contract_id = 'vote.dao'
+               AND method_name = 'set_guardians'
+               AND predecessor_account_id = 'hos-root.sputnik-dao.near'
+               AND attached_deposit = '<0.001 NEAR'
+               AND success = true
+               AND json_array_length(args_json->'guardians') = 5",
+        )
+        .await?;
+        assert_eq!(
+            admin_set_guardians_exact, 1,
+            "admin_set_guardians fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("admin_set_reviewer_ids") {
+        let admin_set_reviewers_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_admin_events
+             WHERE receipt_id = 'BHSb4GwmvaeaRx96hKEnAg9ktXm6CpjCmNGyBiQEKVsB'
+               AND contract_id = 'vote.dao'
+               AND method_name = 'set_reviewer_ids'
+               AND predecessor_account_id = 'hos-root.sputnik-dao.near'
+               AND attached_deposit = '<0.001 NEAR'
+               AND success = true
+               AND json_array_length(args_json->'reviewer_ids') = 7
+               AND EXISTS (
+                   SELECT 1
+                   FROM json_array_elements_text(args_json->'reviewer_ids') AS reviewer(value)
+                   WHERE reviewer.value = 'gauntletgov.near'
+               )",
+        )
+        .await?;
+        assert_eq!(
+            admin_set_reviewers_exact, 1,
+            "admin_set_reviewer_ids fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("admin_upgrade") {
+        let admin_upgrade_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_admin_events
+             WHERE receipt_id = '2dFPt3dsPescVt8N8eYhcY55WYUtJJNA5j9RsfGYehup'
+               AND contract_id = 'vote.dao'
+               AND method_name = 'upgrade'
+               AND predecessor_account_id = 'hos-root.sputnik-dao.near'
+               AND attached_deposit = '0 NEAR'
+               AND success = true
+               AND args_json IS NULL
+               AND LENGTH(args_base64) > 1000",
+        )
+        .await?;
+        assert_eq!(
+            admin_upgrade_exact, 1,
+            "admin_upgrade fixture values mismatch"
+        );
+    }
+
+    if loaded_names.contains("admin_migrate_state") {
+        let admin_migrate_exact = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_admin_events
+             WHERE receipt_id = 'HCgYD6jbpwr9kVsfbpZ2Mw45rp5xUWdL68ZceuAFUP4a'
+               AND contract_id = 'vote.dao'
+               AND method_name = 'migrate_state'
+               AND predecessor_account_id = 'vote.dao'
+               AND attached_deposit = '0 NEAR'
+               AND success = true
+               AND args_json::text = '{}'",
+        )
+        .await?;
+        assert_eq!(
+            admin_migrate_exact, 1,
+            "admin_migrate_state fixture values mismatch"
         );
     }
 

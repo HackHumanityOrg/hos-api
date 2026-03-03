@@ -75,11 +75,24 @@ async fn scalar_i64(db: &impl ConnectionTrait, sql: &str) -> Result<i64> {
     Ok(row.try_get("", "value")?)
 }
 
+async fn scalar_string(db: &impl ConnectionTrait, sql: &str) -> Result<String> {
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            sql,
+            vec![],
+        ))
+        .await?
+        .expect("expected one row from scalar query");
+    Ok(row.try_get("", "value")?)
+}
+
 #[tokio::test]
 async fn accounts_events_and_balances_are_replay_idempotent() -> Result<()> {
     init_test_tracing();
 
     let fixture = load_fixture("admin_set_guardians");
+    let fixture_height = fixture.block.header.height as i64;
     let db = TestDatabase::new().await;
     let module = AccountsModule::new(&build_test_config());
 
@@ -94,6 +107,88 @@ async fn accounts_events_and_balances_are_replay_idempotent() -> Result<()> {
     )
     .await?;
     assert!(first_seen_count > 0);
+
+    let off_height_balance_rows = scalar_i64(
+        db.connection.as_ref(),
+        &format!(
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_account_balances
+             WHERE block_height <> {fixture_height}"
+        ),
+    )
+    .await?;
+    assert_eq!(
+        off_height_balance_rows, 0,
+        "all near_account_balances rows should come from fixture height"
+    );
+
+    let off_height_event_rows = scalar_i64(
+        db.connection.as_ref(),
+        &format!(
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_account_events
+             WHERE block_height <> {fixture_height}"
+        ),
+    )
+    .await?;
+    assert_eq!(
+        off_height_event_rows, 0,
+        "all near_account_events rows should come from fixture height"
+    );
+
+    let off_height_access_key_rows = scalar_i64(
+        db.connection.as_ref(),
+        &format!(
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_access_keys
+             WHERE last_seen_height <> {fixture_height}"
+        ),
+    )
+    .await?;
+    assert_eq!(
+        off_height_access_key_rows, 0,
+        "all near_access_keys rows should come from fixture height"
+    );
+
+    let vote_account_snapshot = scalar_string(
+        db.connection.as_ref(),
+        &format!(
+            "SELECT account_type || '|' || parent_account_id || '|' || created_at_height::text || '|' || last_seen_height::text AS value
+             FROM near.near_accounts
+             WHERE account_id = 'vote.dao'"
+        ),
+    )
+    .await?;
+    assert_eq!(
+        vote_account_snapshot,
+        format!("named|dao|{fixture_height}|{fixture_height}")
+    );
+
+    let sample_balance_before = scalar_string(
+        db.connection.as_ref(),
+        "SELECT account_id || '|' || block_height::text || '|' || amount || '|' || locked || '|' || code_hash AS value
+         FROM near.near_account_balances
+         ORDER BY account_id ASC
+         LIMIT 1",
+    )
+    .await?;
+    let sample_event_before = scalar_string(
+        db.connection.as_ref(),
+        "SELECT account_id || '|' || event_type || '|' || block_height::text || '|' || shard_id::text || '|' || state_change_index::text AS value
+         FROM near.near_account_events
+         ORDER BY account_id ASC, event_index ASC
+         LIMIT 1",
+    )
+    .await?;
+    let sample_key_before = scalar_string(
+        db.connection.as_ref(),
+        "SELECT account_id || '|' || public_key || '|' || nonce::text || '|' || last_seen_height::text || '|' ||
+                CASE WHEN is_active THEN '1' ELSE '0' END AS value
+         FROM near.near_access_keys
+         ORDER BY account_id ASC, public_key ASC
+         LIMIT 1",
+    )
+    .await?;
 
     let balances_before = scalar_i64(
         db.connection.as_ref(),
@@ -136,6 +231,36 @@ async fn accounts_events_and_balances_are_replay_idempotent() -> Result<()> {
     assert_eq!(events_before, events_after);
     assert_eq!(access_keys_before, access_keys_after);
 
+    let sample_balance_after = scalar_string(
+        db.connection.as_ref(),
+        "SELECT account_id || '|' || block_height::text || '|' || amount || '|' || locked || '|' || code_hash AS value
+         FROM near.near_account_balances
+         ORDER BY account_id ASC
+         LIMIT 1",
+    )
+    .await?;
+    let sample_event_after = scalar_string(
+        db.connection.as_ref(),
+        "SELECT account_id || '|' || event_type || '|' || block_height::text || '|' || shard_id::text || '|' || state_change_index::text AS value
+         FROM near.near_account_events
+         ORDER BY account_id ASC, event_index ASC
+         LIMIT 1",
+    )
+    .await?;
+    let sample_key_after = scalar_string(
+        db.connection.as_ref(),
+        "SELECT account_id || '|' || public_key || '|' || nonce::text || '|' || last_seen_height::text || '|' ||
+                CASE WHEN is_active THEN '1' ELSE '0' END AS value
+         FROM near.near_access_keys
+         ORDER BY account_id ASC, public_key ASC
+         LIMIT 1",
+    )
+    .await?;
+
+    assert_eq!(sample_balance_before, sample_balance_after);
+    assert_eq!(sample_event_before, sample_event_after);
+    assert_eq!(sample_key_before, sample_key_after);
+
     Ok(())
 }
 
@@ -166,6 +291,21 @@ async fn accounts_snapshot_uses_first_seen_height() -> Result<()> {
     let created_at_height: i64 = row.try_get("", "value")?;
 
     assert_eq!(created_at_height, fixture_height);
+
+    let vote_account_fields = scalar_string(
+        db.connection.as_ref(),
+        "SELECT account_type || '|' || parent_account_id || '|' ||
+                CASE WHEN is_contract THEN '1' ELSE '0' END || '|' ||
+                last_seen_height::text AS value
+         FROM near.near_accounts
+         WHERE account_id = 'vote.dao'",
+    )
+    .await?;
+    assert_eq!(
+        vote_account_fields,
+        format!("named|dao|1|{fixture_height}"),
+        "vote.dao snapshot fields should be populated deterministically"
+    );
 
     Ok(())
 }

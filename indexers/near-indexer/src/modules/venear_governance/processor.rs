@@ -2811,6 +2811,33 @@ mod tests {
         .await?;
         assert!(!raw_success);
 
+        let raw_shape = scalar_string(
+            conn.as_ref(),
+            "SELECT record_kind || '|' ||
+                    COALESCE(standard, '') || '|' ||
+                    COALESCE(event_type, '') || '|' ||
+                    predecessor_account_id || '|' ||
+                    contract_id AS value
+             FROM near.near_venear_events_raw
+             WHERE execution_outcome_id = 'exec-failed'
+             LIMIT 1",
+        )
+        .await?;
+        assert_eq!(
+            raw_shape,
+            "event_json|venear|add_vote|alice.near|venear.dao"
+        );
+
+        let raw_event_account = scalar_opt_string(
+            conn.as_ref(),
+            "SELECT event_data->>'account_id' AS value
+             FROM near.near_venear_events_raw
+             WHERE execution_outcome_id = 'exec-failed'
+             LIMIT 1",
+        )
+        .await?;
+        assert_eq!(raw_event_account.as_deref(), Some("alice.near"));
+
         let parse_error = scalar_opt_string(
             conn.as_ref(),
             "SELECT parse_error AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-failed' LIMIT 1",
@@ -2822,7 +2849,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lockup_lock_near_event_produces_no_normalized_rows() -> Result<()> {
+    async fn lockup_lock_near_event_keeps_balance_table_unchanged_and_writes_lockup_values(
+    ) -> Result<()> {
         init_test_tracing();
         let db = TestDatabase::new().await;
         let conn = db.db();
@@ -2865,6 +2893,43 @@ mod tests {
         )
         .await?;
         assert_eq!(parse_error, None);
+
+        let lockup_event_shape = scalar_string(
+            conn.as_ref(),
+            "SELECT lockup_account_id || '|' ||
+                    event_type || '|' ||
+                    COALESCE(locked_near_balance, '') || '|' ||
+                    lockup_version::text || '|' ||
+                    lockup_update_nonce::text || '|' ||
+                    predecessor_account_id || '|' ||
+                    contract_id AS value
+             FROM near.near_venear_lockup_events
+             WHERE execution_outcome_id = 'exec-lockup-lock'
+             LIMIT 1",
+        )
+        .await?;
+        assert_eq!(
+            lockup_event_shape,
+            "abc123.venear.dao|lockup_lock_near|1000000000000000000000000|1|5|alice.near|abc123.venear.dao"
+        );
+
+        let raw_event_shape = scalar_string(
+            conn.as_ref(),
+            "SELECT record_kind || '|' ||
+                    COALESCE(standard, '') || '|' ||
+                    COALESCE(event_type, '') || '|' ||
+                    (event_data->>'account_id') || '|' ||
+                    (event_data->>'lockup_update_nonce') || '|' ||
+                    (event_data->>'locked_near_balance') AS value
+             FROM near.near_venear_events_raw
+             WHERE execution_outcome_id = 'exec-lockup-lock'
+             LIMIT 1",
+        )
+        .await?;
+        assert_eq!(
+            raw_event_shape,
+            "event_json|venear|lockup_lock_near|abc123.venear.dao|5|1000000000000000000000000"
+        );
 
         // Nothing written to account_balances
         let balance_count = scalar_i64(
@@ -3043,6 +3108,33 @@ mod tests {
         .await?;
         assert!(contract_exists);
 
+        let vote_row = scalar_string(
+            conn.as_ref(),
+            "SELECT proposal_id::text || '|' ||
+                    account_id || '|' ||
+                    vote::text || '|' ||
+                    account_balance || '|' ||
+                    event_type AS value
+             FROM near.near_venear_votes
+             WHERE execution_outcome_id = 'exec-identity-upsert'
+             LIMIT 1",
+        )
+        .await?;
+        assert_eq!(vote_row, "1|alice.near|2|10|add_vote");
+
+        let voting_power_row = scalar_string(
+            conn.as_ref(),
+            "SELECT account_id || '|' ||
+                    event_type || '|' ||
+                    proposal_id::text || '|' ||
+                    voting_power AS value
+             FROM near.near_venear_account_voting_power_events
+             WHERE execution_outcome_id = 'exec-identity-upsert'
+             LIMIT 1",
+        )
+        .await?;
+        assert_eq!(voting_power_row, "alice.near|add_vote|1|10");
+
         Ok(())
     }
 
@@ -3094,6 +3186,21 @@ mod tests {
         )
         .await?;
         assert_eq!(stored_log, malformed_log);
+
+        let raw_shape = scalar_string(
+            conn.as_ref(),
+            "SELECT record_kind || '|' ||
+                    COALESCE(standard, '') || '|' ||
+                    COALESCE(event_type, '') || '|' ||
+                    predecessor_account_id || '|' ||
+                    contract_id || '|' ||
+                    success::text AS value
+             FROM near.near_venear_events_raw
+             WHERE execution_outcome_id = 'exec-malformed'
+             LIMIT 1",
+        )
+        .await?;
+        assert_eq!(raw_shape, "event_json|||alice.near|venear.dao|true");
 
         let votes_count = scalar_i64(
             conn.as_ref(),

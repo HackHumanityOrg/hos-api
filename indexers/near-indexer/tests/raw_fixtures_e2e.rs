@@ -19,8 +19,14 @@ use support::{init_test_tracing, TestDatabase};
 struct RawFixtureExpectations {
     chunk_hashes: HashSet<String>,
     transaction_shards: HashMap<String, i64>,
+    transaction_signers: HashMap<String, String>,
+    transaction_receivers: HashMap<String, String>,
+    transaction_nonces: HashMap<String, i64>,
     receipt_shards: HashMap<String, i64>,
+    receipt_predecessors: HashMap<String, String>,
+    receipt_receivers: HashMap<String, String>,
     outcome_shards: HashMap<String, i64>,
+    outcome_receipt_ids: HashMap<String, Option<String>>,
     local_receipt_ids: HashSet<String>,
     state_change_rows: i64,
 }
@@ -95,18 +101,48 @@ fn collect_expectations(msg: &StreamerMessage) -> RawFixtureExpectations {
                     .transaction_shards
                     .entry(tx.hash.to_string())
                     .or_insert(shard_id);
+                expectations
+                    .transaction_signers
+                    .entry(tx.hash.to_string())
+                    .or_insert_with(|| tx.signer_id.to_string());
+                expectations
+                    .transaction_receivers
+                    .entry(tx.hash.to_string())
+                    .or_insert_with(|| tx.receiver_id.to_string());
+                expectations
+                    .transaction_nonces
+                    .entry(tx.hash.to_string())
+                    .or_insert(tx.nonce as i64);
 
                 if let Some(receipt) = &tx_with_outcome.outcome.receipt {
                     expectations
                         .receipt_shards
                         .entry(receipt.receipt_id.to_string())
                         .or_insert(shard_id);
+                    expectations
+                        .receipt_predecessors
+                        .entry(receipt.receipt_id.to_string())
+                        .or_insert_with(|| receipt.predecessor_id.to_string());
+                    expectations
+                        .receipt_receivers
+                        .entry(receipt.receipt_id.to_string())
+                        .or_insert_with(|| receipt.receiver_id.to_string());
                 }
 
                 expectations
                     .outcome_shards
                     .entry(tx_with_outcome.outcome.execution_outcome.id.to_string())
                     .or_insert(shard_id);
+                expectations
+                    .outcome_receipt_ids
+                    .entry(tx_with_outcome.outcome.execution_outcome.id.to_string())
+                    .or_insert_with(|| {
+                        tx_with_outcome
+                            .outcome
+                            .receipt
+                            .as_ref()
+                            .map(|receipt| receipt.receipt_id.to_string())
+                    });
             }
 
             for receipt in &chunk.receipts {
@@ -114,6 +150,14 @@ fn collect_expectations(msg: &StreamerMessage) -> RawFixtureExpectations {
                     .receipt_shards
                     .entry(receipt.receipt_id.to_string())
                     .or_insert(shard_id);
+                expectations
+                    .receipt_predecessors
+                    .entry(receipt.receipt_id.to_string())
+                    .or_insert_with(|| receipt.predecessor_id.to_string());
+                expectations
+                    .receipt_receivers
+                    .entry(receipt.receipt_id.to_string())
+                    .or_insert_with(|| receipt.receiver_id.to_string());
             }
 
             for receipt in &chunk.local_receipts {
@@ -122,6 +166,14 @@ fn collect_expectations(msg: &StreamerMessage) -> RawFixtureExpectations {
                     .receipt_shards
                     .entry(receipt_id.clone())
                     .or_insert(shard_id);
+                expectations
+                    .receipt_predecessors
+                    .entry(receipt_id.clone())
+                    .or_insert_with(|| receipt.predecessor_id.to_string());
+                expectations
+                    .receipt_receivers
+                    .entry(receipt_id.clone())
+                    .or_insert_with(|| receipt.receiver_id.to_string());
                 expectations.local_receipt_ids.insert(receipt_id);
             }
         }
@@ -132,9 +184,21 @@ fn collect_expectations(msg: &StreamerMessage) -> RawFixtureExpectations {
                 .entry(outcome_with_receipt.receipt.receipt_id.to_string())
                 .or_insert(shard_id);
             expectations
+                .receipt_predecessors
+                .entry(outcome_with_receipt.receipt.receipt_id.to_string())
+                .or_insert_with(|| outcome_with_receipt.receipt.predecessor_id.to_string());
+            expectations
+                .receipt_receivers
+                .entry(outcome_with_receipt.receipt.receipt_id.to_string())
+                .or_insert_with(|| outcome_with_receipt.receipt.receiver_id.to_string());
+            expectations
                 .outcome_shards
                 .entry(outcome_with_receipt.execution_outcome.id.to_string())
                 .or_insert(shard_id);
+            expectations
+                .outcome_receipt_ids
+                .entry(outcome_with_receipt.execution_outcome.id.to_string())
+                .or_insert_with(|| Some(outcome_with_receipt.receipt.receipt_id.to_string()));
         }
     }
 
@@ -142,6 +206,18 @@ fn collect_expectations(msg: &StreamerMessage) -> RawFixtureExpectations {
 }
 
 async fn scalar_i64(db: &impl ConnectionTrait, sql: &str, values: Vec<Value>) -> Result<i64> {
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            sql,
+            values,
+        ))
+        .await?
+        .expect("expected one row from scalar query");
+    Ok(row.try_get("", "value")?)
+}
+
+async fn scalar_string(db: &impl ConnectionTrait, sql: &str, values: Vec<Value>) -> Result<String> {
     let row = db
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -269,6 +345,39 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
         )
         .await?;
         assert_eq!(shard_id, *expected_shard_id, "tx hash {tx_hash}");
+
+        let signer_id = scalar_string(
+            db.connection.as_ref(),
+            "SELECT signer_id::text AS value FROM near.near_transactions WHERE hash = $1",
+            vec![tx_hash.clone().into()],
+        )
+        .await?;
+        assert_eq!(
+            signer_id, expectations.transaction_signers[tx_hash],
+            "tx signer mismatch for hash {tx_hash}"
+        );
+
+        let receiver_id = scalar_string(
+            db.connection.as_ref(),
+            "SELECT receiver_id::text AS value FROM near.near_transactions WHERE hash = $1",
+            vec![tx_hash.clone().into()],
+        )
+        .await?;
+        assert_eq!(
+            receiver_id, expectations.transaction_receivers[tx_hash],
+            "tx receiver mismatch for hash {tx_hash}"
+        );
+
+        let nonce = scalar_i64(
+            db.connection.as_ref(),
+            "SELECT nonce::bigint AS value FROM near.near_transactions WHERE hash = $1",
+            vec![tx_hash.clone().into()],
+        )
+        .await?;
+        assert_eq!(
+            nonce, expectations.transaction_nonces[tx_hash],
+            "tx nonce mismatch for hash {tx_hash}"
+        );
     }
 
     for (receipt_id, expected_shard_id) in &expectations.receipt_shards {
@@ -279,6 +388,28 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
         )
         .await?;
         assert_eq!(shard_id, *expected_shard_id, "receipt id {receipt_id}");
+
+        let predecessor_id = scalar_string(
+            db.connection.as_ref(),
+            "SELECT predecessor_id::text AS value FROM near.near_receipts WHERE receipt_id = $1",
+            vec![receipt_id.clone().into()],
+        )
+        .await?;
+        assert_eq!(
+            predecessor_id, expectations.receipt_predecessors[receipt_id],
+            "receipt predecessor mismatch for receipt {receipt_id}"
+        );
+
+        let receiver_id = scalar_string(
+            db.connection.as_ref(),
+            "SELECT receiver_id::text AS value FROM near.near_receipts WHERE receipt_id = $1",
+            vec![receipt_id.clone().into()],
+        )
+        .await?;
+        assert_eq!(
+            receiver_id, expectations.receipt_receivers[receipt_id],
+            "receipt receiver mismatch for receipt {receipt_id}"
+        );
     }
 
     for (outcome_id, expected_shard_id) in &expectations.outcome_shards {
@@ -289,6 +420,20 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
         )
         .await?;
         assert_eq!(shard_id, *expected_shard_id, "outcome id {outcome_id}");
+
+        let receipt_id = scalar_string(
+            db.connection.as_ref(),
+            "SELECT COALESCE(receipt_id, '') AS value FROM near.near_execution_outcomes WHERE id = $1",
+            vec![outcome_id.clone().into()],
+        )
+        .await?;
+        let expected_receipt = expectations.outcome_receipt_ids[outcome_id]
+            .clone()
+            .unwrap_or_default();
+        assert_eq!(
+            receipt_id, expected_receipt,
+            "execution_outcome receipt_id mismatch for outcome {outcome_id}"
+        );
     }
 
     for receipt_id in &expectations.local_receipt_ids {
@@ -312,6 +457,17 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
 
     let fixture = load_fixture("delegate_all");
     let height = fixture.block.header.height as i64;
+    let first_tx_hash = fixture
+        .shards
+        .iter()
+        .find_map(|shard| {
+            shard
+                .chunk
+                .as_ref()
+                .and_then(|chunk| chunk.transactions.first())
+                .map(|item| item.transaction.hash.to_string())
+        })
+        .expect("fixture must include at least one transaction");
 
     let db = TestDatabase::new().await;
     let module = RawModule::new(&build_test_config());
@@ -357,6 +513,14 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
         vec![height.into()],
     )
     .await?;
+    let tx_fingerprint_before = scalar_string(
+        db.connection.as_ref(),
+        "SELECT signer_id::text || '|' || receiver_id::text || '|' || nonce::text || '|' || shard_id::text AS value
+         FROM near.near_transactions
+         WHERE hash = $1",
+        vec![first_tx_hash.clone().into()],
+    )
+    .await?;
 
     module
         .process_block(&fixture, db.connection.as_ref())
@@ -398,6 +562,14 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
         vec![height.into()],
     )
     .await?;
+    let tx_fingerprint_after = scalar_string(
+        db.connection.as_ref(),
+        "SELECT signer_id::text || '|' || receiver_id::text || '|' || nonce::text || '|' || shard_id::text AS value
+         FROM near.near_transactions
+         WHERE hash = $1",
+        vec![first_tx_hash.into()],
+    )
+    .await?;
 
     assert_eq!(blocks_before, blocks_after);
     assert_eq!(chunks_before, chunks_after);
@@ -405,6 +577,7 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
     assert_eq!(receipts_before, receipts_after);
     assert_eq!(outcomes_before, outcomes_after);
     assert_eq!(state_changes_before, state_changes_after);
+    assert_eq!(tx_fingerprint_before, tx_fingerprint_after);
 
     Ok(())
 }
