@@ -34,7 +34,7 @@ send_default_pii = true
 
 [near]
 # Stream provider: "lake" (AWS S3) or "fastnear" (HTTP API)
-provider = "lake"
+provider = "fastnear"
 # Chain to index: "mainnet", "testnet", or "disabled"
 chain = "mainnet"
 # Starting block height (0 for genesis)
