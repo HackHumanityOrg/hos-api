@@ -44,10 +44,10 @@ start_height = 167688027
 concurrency = 1
 # Limit NEAR Lake prefetch to avoid unbounded upstream buffering and memory growth
 # Keep this small (1–2) unless you’ve verified DB can keep up
-preload_pool_size = 1
+preload_pool_size = 8
 # FastNEAR-only fetch thread count (ignored when provider = "lake")
 # Lower value reduces aggressive parallel fetch/retry pressure during backfill
-fastnear_num_threads = 4
+fastnear_num_threads = 8
 # Optional FastNEAR token (prefer env override APP_NEAR__FASTNEAR_API_KEY)
 # fastnear_api_key = ""
 
