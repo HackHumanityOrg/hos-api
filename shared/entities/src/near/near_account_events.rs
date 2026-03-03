@@ -16,6 +16,9 @@ pub struct Model {
     pub receipt_id: Option<String>,
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub metadata: Option<Json>,
+    pub shard_id: i32,
+    pub state_change_index: i32,
+    pub event_index: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

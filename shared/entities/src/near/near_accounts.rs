@@ -15,6 +15,10 @@ pub struct Model {
     pub deleted_at_timestamp: Option<i64>,
     pub parent_account_id: Option<String>,
     pub is_contract: bool,
+    pub last_seen_height: i64,
+    pub last_seen_timestamp: i64,
+    pub global_contract_account_id: Option<String>,
+    pub global_contract_hash: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

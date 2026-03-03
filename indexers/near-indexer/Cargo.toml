@@ -30,6 +30,7 @@ chrono = { workspace = true }
 near-indexer-primitives = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+near-account-id = { workspace = true }
 
 [dev-dependencies]
 db-core = { workspace = true }

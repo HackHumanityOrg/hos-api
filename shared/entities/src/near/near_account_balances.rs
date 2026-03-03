@@ -17,6 +17,8 @@ pub struct Model {
     pub locked: String,
     pub storage_usage: i64,
     pub code_hash: String,
+    pub shard_id: i32,
+    pub state_change_index: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

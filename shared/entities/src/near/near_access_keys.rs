@@ -20,6 +20,7 @@ pub struct Model {
     pub created_at_height: i64,
     pub deleted_at_height: Option<i64>,
     pub is_active: bool,
+    pub last_seen_height: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

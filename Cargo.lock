@@ -3646,6 +3646,7 @@ dependencies = [
  "entities",
  "futures",
  "hex",
+ "near-account-id",
  "near-indexer-primitives",
  "near-lake-framework",
  "reqwest",
