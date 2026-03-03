@@ -8,7 +8,7 @@ use utoipa::OpenApi;
     info(
         title = "Data Commons API",
         version = "0.1.0",
-        description = "Read-only REST API for indexed identity, Discourse, Telegram, and veNEAR governance data.\n\nConventions:\n- Cursor pagination uses opaque base64url cursors.\n- List endpoints return `data`, `next_cursor`, and `has_more`.\n- `next_cursor` is opaque to clients and should be treated as an opaque token.\n- Errors follow RFC 9457 Problem Details as `application/problem+json`.",
+        description = "Read-only REST API for indexed identity, Discourse, Telegram, and veNEAR governance data.\n\nOpenAPI contract notes for AI clients:\n- The API is read-only. Every endpoint is discoverable through generated OpenAPI metadata.\n- List endpoints are consistently paginated with `limit` and `cursor`.\n  - `limit` defaults to 20 and is clamped to a maximum of 100.\n  - `cursor` is an opaque base64url token from a prior response and should be treated as an opaque string.\n  - Omit `cursor` to request the first page in a sequence.\n  - Continue until `next_cursor` is `null` or absent.\n- All paginated responses return `data`, `next_cursor`, and `has_more`.\n- `next_cursor` and pagination order are endpoint-specific; always follow the ordering declared in each endpoint description.\n- Timestamp fields use RFC 3339 / ISO-8601 format with timezone.\n- Error responses follow RFC 9457 Problem Details as `application/problem+json`, including machine-friendly `code` when present.\n- Indexers are asynchronous: newly emitted data may lag or reorder briefly during backfill.\n- `identity` values are stable while indexer-sourced entity references may vary by environment and snapshot time.",
         contact(
             name = "Data Commons Team",
             url = "https://github.com/HackHumanityOrg/data-commons"
@@ -118,6 +118,8 @@ mod tests {
     use super::ApiDoc;
     use utoipa::OpenApi;
 
+    const HTTP_METHODS: [&str; 7] = ["get", "post", "put", "delete", "patch", "head", "options"];
+
     #[test]
     fn openapi_has_descriptive_docs_for_core_endpoints() {
         let doc = ApiDoc::openapi();
@@ -132,7 +134,7 @@ mod tests {
             .and_then(|v| v.as_str())
             .expect("api info description");
         assert!(
-            info_description.contains("Cursor pagination uses opaque base64url cursors"),
+            info_description.contains("List endpoints are consistently paginated"),
             "api info should document pagination convention"
         );
 
@@ -291,5 +293,126 @@ mod tests {
             identity_person_properties.contains_key("name"),
             "identity person schema should expose name"
         );
+    }
+
+    #[test]
+    fn openapi_has_complete_operation_metadata_for_ai_exploration() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("serialize openapi");
+
+        let paths = value
+            .get("paths")
+            .and_then(|v| v.as_object())
+            .expect("paths object");
+        assert!(
+            !paths.is_empty(),
+            "openapi specification must expose at least one path"
+        );
+
+        for (path, path_item) in paths {
+            let path_item = path_item
+                .as_object()
+                .expect("path item should be an object");
+            let path_parameters = path_item
+                .get("parameters")
+                .and_then(|v| v.as_array())
+                .map_or(&[] as &[serde_json::Value], |v| v.as_slice());
+
+            for method in HTTP_METHODS {
+                let operation = match path_item.get(method).and_then(|v| v.as_object()) {
+                    Some(operation) => operation,
+                    None => continue,
+                };
+
+                let summary = operation
+                    .get("summary")
+                    .and_then(|v| v.as_str())
+                    .expect("operation summary");
+                assert!(
+                    !summary.trim().is_empty(),
+                    "operation summary missing for {} {}",
+                    method,
+                    path
+                );
+
+                let description = operation
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .expect("operation description");
+                assert!(
+                    !description.trim().is_empty(),
+                    "operation description missing for {} {}",
+                    method,
+                    path
+                );
+
+                let operation_id = operation.get("operationId").and_then(|v| v.as_str());
+                assert!(
+                    operation_id.is_some_and(|value| !value.trim().is_empty()),
+                    "operationId missing for {} {}",
+                    method,
+                    path
+                );
+
+                let responses = operation
+                    .get("responses")
+                    .and_then(|v| v.as_object())
+                    .expect("operation responses");
+                assert!(
+                    !responses.is_empty(),
+                    "operation responses missing for {} {}",
+                    method,
+                    path
+                );
+                for (status, response) in responses {
+                    if response.get("$ref").is_some() {
+                        continue;
+                    }
+                    let response = response.as_object().unwrap_or_else(|| {
+                        panic!(
+                            "response should be object for {} {} {}",
+                            method, path, status
+                        )
+                    });
+                    let response_description = response
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .expect("response description");
+                    assert!(
+                        !response_description.trim().is_empty(),
+                        "response description missing for {} {} status {}",
+                        method,
+                        path,
+                        status
+                    );
+                }
+
+                let operation_parameters = operation
+                    .get("parameters")
+                    .and_then(|v| v.as_array())
+                    .map_or(&[] as &[serde_json::Value], |v| v.as_slice());
+
+                for parameter in path_parameters.iter().chain(operation_parameters.iter()) {
+                    let parameter = match parameter.as_object() {
+                        Some(parameter) => parameter,
+                        None => continue,
+                    };
+                    if parameter.get("$ref").is_some() {
+                        continue;
+                    }
+
+                    let description = parameter
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    assert!(
+                        !description.trim().is_empty(),
+                        "parameter description missing for {} {}",
+                        method,
+                        path
+                    );
+                }
+            }
+        }
     }
 }

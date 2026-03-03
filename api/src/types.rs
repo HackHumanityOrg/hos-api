@@ -32,9 +32,13 @@ pub struct DatabaseHealth {
 /// Cursor pagination metadata shared by list endpoints.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CursorPageMeta {
-    /// Opaque cursor token for the next page; omitted when no additional page exists.
+    /// Opaque cursor token for the next page.
+    ///
+    /// Clients should pass this value verbatim into the next request's `cursor`.
     pub next_cursor: Option<String>,
-    /// Indicates whether at least one more page exists.
+    /// Indicates whether one or more additional pages remain.
+    ///
+    /// If `true`, clients should continue using `next_cursor`.
     pub has_more: bool,
 }
 
@@ -408,88 +412,127 @@ pub struct SyncLagResponse {
 /// Common cursor pagination query used by multiple list endpoints.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct CursorPaginationQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to the closed interval 1..=100.
+    /// - Larger values are reduced to 100, smaller values to 1.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
+    ///
+    /// Provide this value exactly as returned by the preceding page.
+    /// Omit this field for the first page.
     pub cursor: Option<String>,
 }
 
 /// Query options for listing categories of one Discourse instance.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct CategoriesQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Filter by upstream Discourse parent category id.
+    /// Return only categories whose parent category id matches this value.
+    /// Leave unset to include both root and nested categories.
     pub parent_category_id: Option<i32>,
-    /// Case-insensitive substring match on category name or slug.
+    /// Substring match on category `name` and `slug`.
+    ///
+    /// Empty strings are ignored and treated as if no filter was supplied.
     pub q: Option<String>,
 }
 
 /// Query options for listing topics of one Discourse instance.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TopicsQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Case-insensitive substring match on topic title or slug.
+    /// Substring match on topic `title`, `fancy_title`, and `slug`.
+    ///
+    /// Empty strings are ignored and treated as if no filter was supplied.
     pub q: Option<String>,
     /// Filter by upstream Discourse category id.
     pub category_id: Option<i32>,
-    /// Filter to pinned topics only (or unpinned when false).
+    /// Filter topics by `pinned` state:
+    /// - `true` for pinned only
+    /// - `false` for unpinned only
     pub pinned: Option<bool>,
-    /// Filter to closed topics only (or open when false).
+    /// Filter topics by `closed` state:
+    /// - `true` for closed only
+    /// - `false` for open only
     pub closed: Option<bool>,
-    /// Filter to archived topics only (or non-archived when false).
+    /// Filter topics by `archived` state:
+    /// - `true` for archived only
+    /// - `false` for active only
     pub archived: Option<bool>,
-    /// Filter to visible topics only (or hidden when false).
+    /// Filter topics by `visible` state:
+    /// - `true` for visible only
+    /// - `false` for hidden only
     pub visible: Option<bool>,
-    /// ISO-8601 datetime lower bound for bumped_at.
+    /// Lower bound for `bumped_at` (inclusive), RFC 3339 date-time string.
+    ///
+    /// Example: `2025-11-30T00:00:00Z`.
     pub bumped_after: Option<String>,
-    /// ISO-8601 datetime upper bound for bumped_at.
+    /// Upper bound for `bumped_at` (inclusive), RFC 3339 date-time string.
+    ///
+    /// Example: `2025-11-30T23:59:59Z`.
     pub bumped_before: Option<String>,
 }
 
 /// Query options for listing posts under a single topic.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TopicPostsQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Filter to posts authored by this username.
+    /// Filter to posts with an exact username match.
     pub username: Option<String>,
-    /// Case-insensitive substring match on raw post body.
+    /// Substring match on raw post body.
     pub q: Option<String>,
 }
 
 /// Query options for listing users of one Discourse instance.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct UsersQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Case-insensitive substring match on username or display name.
+    /// Substring match on `username` and `name`.
     pub q: Option<String>,
-    /// Filter by Discourse trust level.
+    /// Exact match for Discourse trust level (integer scale from the upstream service).
     pub trust_level: Option<i32>,
 }
 
 /// Query options for listing posts authored by one user.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct UserPostsQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
 }
 
@@ -922,46 +965,65 @@ pub struct VenearDelegationEventDto {
 /// Query options for listing lockup lifecycle events.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearLockupsQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Filter by lockup account id.
+    /// Exact match on lockup account id.
     pub lockup_account_id: Option<String>,
-    /// Filter by owner account id.
+    /// Exact match on owner account id.
     pub owner_account_id: Option<String>,
-    /// Filter by lockup event type.
+    /// Filter by lockup event type (exact match).
+    ///
+    /// This is a backend-specific event label string.
     pub event_type: Option<String>,
-    /// Filter by execution success status.
+    /// Filter by execution success status:
+    /// - `true` for successful events
+    /// - `false` for failed events
     pub success: Option<bool>,
 }
 
 /// Query options for listing actions linked to one lockup account.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearLockupActionsQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Filter by lockup action method name.
+    /// Exact match on lockup action method name.
     pub method_name: Option<String>,
-    /// Filter by execution success status.
+    /// Filter by execution success status:
+    /// - `true` for successful events
+    /// - `false` for failed events
     pub success: Option<bool>,
 }
 
 /// Query options for listing delegation actions linked to one account.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearDelegationEventsQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Filter by delegation event type (`delegate_all`, `undelegate`).
+    /// Exact-match delegation event type.
+    ///
+    /// Example values include `delegate_all` and `undelegate`.
     pub event_type: Option<String>,
-    /// Filter by execution success status.
+    /// Filter by execution success status:
+    /// - `true` for successful events
+    /// - `false` for failed events
     pub success: Option<bool>,
 }
 
@@ -1138,100 +1200,147 @@ pub struct TelegramServiceActionDto {
 /// Query options for listing indexed Telegram channels.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramChannelsQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Case-insensitive substring match on channel name or username.
+    /// Substring match on channel `name` and `username`.
+    ///
+    /// Empty strings are ignored and treated as if no filter was supplied.
     pub q: Option<String>,
-    /// Filter by Telegram channel type (`channel`, `group`, `user`).
+    /// Exact match on Telegram channel `type`.
+    /// Common values include `channel`, `supergroup`, and `private`.
     pub channel_type: Option<String>,
-    /// Case-insensitive substring match on channel username.
+    /// Substring match on channel `username`.
+    ///
+    /// Empty strings are ignored and treated as if no filter was supplied.
     pub username: Option<String>,
 }
 
 /// Query options for listing indexed Telegram users.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramUsersQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Case-insensitive substring match on username or display name.
+    /// Substring match on `username` and `display_name`.
+    ///
+    /// Empty strings are ignored and treated as if no filter was supplied.
     pub q: Option<String>,
 }
 
 /// Query options for listing indexed Telegram messages in one channel.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramMessagesQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Case-insensitive substring match on message text.
+    /// Substring match on message `text`.
+    ///
+    /// Empty strings are ignored and treated as if no filter was supplied.
     pub q: Option<String>,
-    /// Filter to messages authored by this Telegram user id.
+    /// Exact match on Telegram author user id.
+    ///
+    /// If the user id is unknown in the channel messages index, an empty page is returned.
     pub from_user_telegram_id: Option<i64>,
-    /// Filter by Telegram message type (`message`, `media`, `service`, `unknown`).
+    /// Filter by message type.
+    ///
+    /// Typical values are `message`, `media`, `service`, and `unknown`.
     pub message_type: Option<String>,
-    /// Filter by whether the message has media.
+    /// Filter by whether the message contains media.
     pub has_media: Option<bool>,
-    /// RFC 3339 lower bound for message date.
+    /// Lower bound for `date` (inclusive), RFC 3339 date-time string.
+    ///
+    /// Example: `2025-11-30T00:00:00Z`.
     pub date_after: Option<String>,
-    /// RFC 3339 upper bound for message date.
+    /// Upper bound for `date` (inclusive), RFC 3339 date-time string.
+    ///
+    /// Example: `2025-11-30T23:59:59Z`.
     pub date_before: Option<String>,
 }
 
 /// Query options for listing indexed Telegram reactions for one message.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramReactionsQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Filter by reaction emoji.
+    /// Filter by exact reaction emoji value.
+    ///
+    /// This matches the raw stored emoji glyph or short-code text.
     pub emoji: Option<String>,
-    /// Filter by Telegram user id of the reacting user.
+    /// Exact match on Telegram reacting user id.
     pub user_telegram_id: Option<i64>,
 }
 
 /// Query options for listing indexed Telegram service actions for one message.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramServiceActionsQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Filter by service action type.
+    /// Exact match on service action type.
     pub action: Option<String>,
-    /// Filter by Telegram actor user id.
+    /// Exact match on Telegram actor user id.
     pub actor_telegram_id: Option<i64>,
 }
 
 /// Query options for listing indexed Telegram messages authored by one user.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TelegramUserMessagesQuery {
-    /// Number of results to return. Defaults to 20. Max 100.
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    /// Opaque cursor returned from previous page.
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
-    /// Optional channel filter by Telegram channel id.
+    /// Optional exact channel filter by Telegram channel id.
+    ///
+    /// If the channel does not exist, this endpoint returns an empty result set.
     pub channel_telegram_id: Option<i64>,
-    /// Case-insensitive substring match on message text.
+    /// Substring match on message `text`.
+    ///
+    /// Empty strings are ignored and treated as if no filter was supplied.
     pub q: Option<String>,
-    /// Filter by Telegram message type (`message`, `media`, `service`, `unknown`).
+    /// Filter by message type.
+    ///
+    /// Typical values are `message`, `media`, `service`, and `unknown`.
     pub message_type: Option<String>,
-    /// Filter by whether the message has media.
+    /// Filter by whether the message contains media.
     pub has_media: Option<bool>,
-    /// RFC 3339 lower bound for message date.
+    /// Lower bound for `date` (inclusive), RFC 3339 date-time string.
+    ///
+    /// Example: `2025-11-30T00:00:00Z`.
     pub date_after: Option<String>,
-    /// RFC 3339 upper bound for message date.
+    /// Upper bound for `date` (inclusive), RFC 3339 date-time string.
+    ///
+    /// Example: `2025-11-30T23:59:59Z`.
     pub date_before: Option<String>,
 }
 

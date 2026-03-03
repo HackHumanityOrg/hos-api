@@ -9,22 +9,27 @@ use common::errors::{ConfigError, DatabaseError, ServiceError, ValidationError};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// RFC 9457 Problem Details payload.
+/// RFC 9457 Problem Details payload (`application/problem+json`).
+///
+/// This schema is intended for non-success responses and is suitable for
+/// structured client and AI-agent handling.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ApiError {
-    /// A URI reference that identifies the problem type.
+    /// Stable machine-readable problem identifier.
+    ///
+    /// This is a URI-like string to group error families (for example `https://.../problems/validation-error`).
     pub r#type: String,
-    /// A short, human-readable summary of the problem type.
+    /// Short, human-readable problem summary.
     pub title: String,
-    /// HTTP status code for this occurrence of the problem.
+    /// HTTP status code associated with this occurrence.
     pub status: u16,
-    /// A human-readable explanation specific to this occurrence.
+    /// Human-readable technical explanation for this specific occurrence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
-    /// A URI reference that identifies the specific occurrence.
+    /// Optional URI reference for this specific failure occurrence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
-    /// Optional machine-friendly extension code to help programmatic handling.
+    /// Optional machine-friendly extension code (for example `VALIDATION_ERROR`) for programmatic branching.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
 }
@@ -59,6 +64,9 @@ impl ApiError {
 }
 
 /// API error response wrapper with status code.
+///
+/// Use this type for all handler errors to keep error envelopes consistent across
+/// routes and easy for clients to parse automatically.
 #[derive(Debug)]
 pub struct ApiErrorResponse {
     pub status: StatusCode,
