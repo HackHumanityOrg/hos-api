@@ -31,12 +31,14 @@ async fn venear_schema_tables_exist_and_module_initializes() -> Result<()> {
             'near_venear_votes',
             'near_venear_lockup_actions',
             'near_venear_delegation_events',
-            'near_venear_admin_events'
+            'near_venear_admin_events',
+            'near_venear_governance_actions',
+            'near_venear_unhandled_events'
         )",
     )
     .await?;
 
-    assert_eq!(table_count, 9);
+    assert_eq!(table_count, 11);
 
     Ok(())
 }
@@ -250,6 +252,166 @@ async fn venear_delegation_events_upsert_on_identity_conflict() -> Result<()> {
         "SELECT CASE WHEN success THEN 1 ELSE 0 END::bigint AS value
          FROM near.near_venear_delegation_events
          WHERE receipt_id = 'rcpt-delegate-1'",
+    )
+    .await?;
+    assert_eq!(success, 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn venear_governance_actions_upsert_and_lockup_timestamp_column_work() -> Result<()> {
+    init_test_tracing();
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+
+    execute_sql(
+        conn.as_ref(),
+        "INSERT INTO near.near_venear_governance_actions (
+            action_source, action_index, transaction_hash, receipt_id, execution_outcome_id,
+            block_height, block_timestamp, shard_id,
+            predecessor_account_id, receiver_account_id, contract_id, method_name,
+            args_json, args_base64, attached_deposit, success, success_value_json,
+            action_category, proposal_id, vote_option,
+            delegator_account_id, delegatee_account_id, owner_account_id, metadata
+        ) VALUES (
+            'receipt', 0, 'tx-1', 'rcpt-1', 'exec-1',
+            500, 5000, 0,
+            'alice.near', 'vote.dao', 'vote.dao', 'vote',
+            '{\"proposal_id\":1,\"vote\":0}'::jsonb, 'e30=', '1', true, NULL,
+            'vote', 1, 0,
+            NULL, NULL, NULL, '{\"source\":\"first\"}'::jsonb
+        )",
+    )
+    .await?;
+
+    execute_sql(
+        conn.as_ref(),
+        "INSERT INTO near.near_venear_governance_actions (
+            action_source, action_index, transaction_hash, receipt_id, execution_outcome_id,
+            block_height, block_timestamp, shard_id,
+            predecessor_account_id, receiver_account_id, contract_id, method_name,
+            args_json, args_base64, attached_deposit, success, success_value_json,
+            action_category, proposal_id, vote_option,
+            delegator_account_id, delegatee_account_id, owner_account_id, metadata
+        ) VALUES (
+            'receipt', 0, 'tx-1b', 'rcpt-1', 'exec-1b',
+            501, 5001, 1,
+            'alice.near', 'vote.dao', 'vote.dao', 'vote',
+            '{\"proposal_id\":1,\"vote\":1}'::jsonb, 'e30=', '1', false, '{\"error\":\"x\"}'::jsonb,
+            'vote', 1, 1,
+            NULL, NULL, NULL, '{\"source\":\"updated\"}'::jsonb
+        )
+        ON CONFLICT (receipt_id, action_index, method_name, contract_id)
+        DO UPDATE SET
+            execution_outcome_id = EXCLUDED.execution_outcome_id,
+            success = EXCLUDED.success,
+            vote_option = EXCLUDED.vote_option,
+            metadata = EXCLUDED.metadata",
+    )
+    .await?;
+
+    let actions_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_venear_governance_actions
+         WHERE receipt_id = 'rcpt-1' AND method_name = 'vote'",
+    )
+    .await?;
+    assert_eq!(actions_count, 1);
+
+    let vote_option = scalar_i64(
+        conn.as_ref(),
+        "SELECT vote_option::bigint AS value
+         FROM near.near_venear_governance_actions
+         WHERE receipt_id = 'rcpt-1' AND method_name = 'vote'",
+    )
+    .await?;
+    assert_eq!(vote_option, 1);
+
+    execute_sql(
+        conn.as_ref(),
+        "INSERT INTO near.near_venear_lockup_events (
+            lockup_account_id, owner_account_id, event_type, lockup_version, lockup_update_nonce,
+            lockup_timestamp_ns, locked_near_balance, action_source, transaction_hash,
+            receipt_id, execution_outcome_id, predecessor_account_id, contract_id,
+            success, block_height, block_timestamp, shard_id, log_index, data_index, payload
+        ) VALUES (
+            'abc.venear.dao', 'alice.near', 'lockup_update', 1, 10,
+            1234567890, '1000', 'event_json', NULL,
+            'rcpt-lock', 'exec-lock', 'abc.venear.dao', 'abc.venear.dao',
+            true, 510, 5100, 0, 0, 0, NULL
+        )",
+    )
+    .await?;
+
+    let lockup_timestamp = scalar_i64(
+        conn.as_ref(),
+        "SELECT lockup_timestamp_ns AS value
+         FROM near.near_venear_lockup_events
+         WHERE receipt_id = 'rcpt-lock'",
+    )
+    .await?;
+    assert_eq!(lockup_timestamp, 1234567890);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn venear_unhandled_events_upsert_on_identity_conflict() -> Result<()> {
+    init_test_tracing();
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+
+    execute_sql(
+        conn.as_ref(),
+        "INSERT INTO near.near_venear_unhandled_events (
+            block_height, block_timestamp, shard_id, receipt_id, execution_outcome_id,
+            predecessor_account_id, contract_id, success, standard, event_type,
+            log_index, data_index, event_data, log_text, reason
+        ) VALUES (
+            600, 6000, 0, 'rcpt-u1', 'exec-u1',
+            'alice.near', 'venear.dao', true, 'venear', 'new_event',
+            0, 0, '{\"x\":1}'::jsonb, 'EVENT_JSON:{...}', 'unmapped_event_type'
+        )",
+    )
+    .await?;
+
+    execute_sql(
+        conn.as_ref(),
+        "INSERT INTO near.near_venear_unhandled_events (
+            block_height, block_timestamp, shard_id, receipt_id, execution_outcome_id,
+            predecessor_account_id, contract_id, success, standard, event_type,
+            log_index, data_index, event_data, log_text, reason
+        ) VALUES (
+            601, 6001, 1, 'rcpt-u1b', 'exec-u1',
+            'alice.near', 'venear.dao', false, 'venear', 'new_event',
+            0, 0, '{\"x\":2}'::jsonb, 'EVENT_JSON:{...}', 'unmapped_event_type'
+        )
+        ON CONFLICT (execution_outcome_id, log_index, data_index, contract_id, standard, event_type)
+        DO UPDATE SET
+            success = EXCLUDED.success,
+            block_height = EXCLUDED.block_height,
+            event_data = EXCLUDED.event_data",
+    )
+    .await?;
+
+    let unhandled_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_venear_unhandled_events
+         WHERE execution_outcome_id = 'exec-u1'",
+    )
+    .await?;
+    assert_eq!(unhandled_count, 1);
+
+    let success = scalar_i64(
+        conn.as_ref(),
+        "SELECT CASE WHEN success THEN 1 ELSE 0 END::bigint AS value
+         FROM near.near_venear_unhandled_events
+         WHERE execution_outcome_id = 'exec-u1'",
     )
     .await?;
     assert_eq!(success, 0);

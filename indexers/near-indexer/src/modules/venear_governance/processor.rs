@@ -46,6 +46,14 @@ struct ActionContext {
     success_value_base64: Option<String>,
 }
 
+type GovernanceActionFields = (
+    Option<i64>,
+    Option<i32>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 pub struct VenearGovernanceModule {
     enabled: bool,
     stream_mode: NearModuleStreamMode,
@@ -372,6 +380,154 @@ impl VenearGovernanceModule {
         false
     }
 
+    fn is_normalized_event(
+        &self,
+        standard: Option<&str>,
+        event_type: Option<&str>,
+        contract_id: &str,
+    ) -> bool {
+        match (standard, event_type) {
+            (Some("venear"), Some("lockup_deployed"))
+            | (Some("venear"), Some("lockup_delete"))
+            | (Some("venear"), Some("lockup_update"))
+            | (Some("venear"), Some("create_proposal"))
+            | (Some("venear"), Some("proposal_approve"))
+            | (Some("venear"), Some("proposal_reject"))
+            | (Some("venear"), Some("add_vote"))
+            | (Some("venear"), Some("remove_vote"))
+            | (Some("venear"), Some("lockup_lock_near")) => true,
+            (Some("nep141"), Some("ft_mint")) | (Some("nep141"), Some("ft_burn")) => {
+                contract_id == self.venear_contract_id
+            }
+            _ => false,
+        }
+    }
+
+    fn classify_governance_action(
+        contract_id: &str,
+        method_name: &str,
+        module: &Self,
+    ) -> &'static str {
+        if method_name == "delegate_all" || method_name == "undelegate" {
+            return "delegation";
+        }
+
+        if method_name == "create_proposal"
+            || method_name == "approve_proposal"
+            || method_name == "reject_proposal"
+        {
+            return "proposal";
+        }
+
+        if method_name == "vote" {
+            return "vote";
+        }
+
+        if method_name == "on_get_snapshot"
+            || method_name == "on_lockup_update"
+            || method_name == "on_lockup_deployed"
+        {
+            return "callback";
+        }
+
+        if method_name == "deploy_lockup" {
+            return "lockup";
+        }
+
+        if method_name == "storage_deposit" || method_name == "storage_withdraw" {
+            return "storage";
+        }
+
+        if Self::is_admin_method(contract_id, method_name, module) {
+            return "admin";
+        }
+
+        "other"
+    }
+
+    fn parse_governance_action_fields(
+        method_name: &str,
+        args_json: &Option<JsonValue>,
+        predecessor_id: &str,
+    ) -> GovernanceActionFields {
+        let proposal_id = args_json
+            .as_ref()
+            .and_then(|args| json_u64(args, "proposal_id"))
+            .and_then(|value| i64::try_from(value).ok());
+
+        let vote_option = args_json
+            .as_ref()
+            .and_then(|args| parse_i32_field(args, "vote").ok());
+
+        let delegator_account_id = if method_name == "delegate_all" || method_name == "undelegate" {
+            Some(predecessor_id.to_string())
+        } else {
+            None
+        };
+
+        let delegatee_account_id = if method_name == "delegate_all" {
+            args_json
+                .as_ref()
+                .and_then(|args| json_string(args, "receiver_id"))
+        } else {
+            None
+        };
+
+        let owner_account_id = match method_name {
+            "on_lockup_update" => args_json
+                .as_ref()
+                .and_then(|args| json_string(args, "owner_account_id")),
+            "on_lockup_deployed" => args_json
+                .as_ref()
+                .and_then(|args| json_string(args, "account_id")),
+            "deploy_lockup" => Some(predecessor_id.to_string()),
+            _ => None,
+        };
+
+        (
+            proposal_id,
+            vote_option,
+            delegator_account_id,
+            delegatee_account_id,
+            owner_account_id,
+        )
+    }
+
+    fn extract_create_proposal_args_metadata(args_json: &JsonValue) -> Option<JsonValue> {
+        let source = args_json
+            .get("metadata")
+            .and_then(JsonValue::as_object)
+            .or_else(|| args_json.as_object())?;
+
+        Some(json!({
+            "title": source.get("title").cloned(),
+            "description": source.get("description").cloned(),
+            "link": source.get("link").cloned(),
+            "voting_options": source.get("voting_options").cloned(),
+        }))
+    }
+
+    fn merge_create_proposal_metadata(metadata: &mut JsonValue, fallback: &JsonValue) {
+        let Some(metadata_obj) = metadata.as_object_mut() else {
+            return;
+        };
+        let Some(fallback_obj) = fallback.as_object() else {
+            return;
+        };
+
+        for key in ["title", "description", "link", "voting_options"] {
+            let current = metadata_obj.get(key);
+            if current.is_some() && !current.unwrap().is_null() {
+                continue;
+            }
+            if let Some(fallback_value) = fallback_obj.get(key) {
+                if !fallback_value.is_null() {
+                    metadata_obj.insert(key.to_string(), fallback_value.clone());
+                }
+            }
+        }
+    }
+
     async fn process_shard(
         &self,
         shard: &IndexerShard,
@@ -390,21 +546,6 @@ impl VenearGovernanceModule {
                 let success = is_outcome_success(&status_json);
                 let success_value_base64 = Self::extract_success_value(&status_json);
 
-                self.process_logs(
-                    &outcome.outcome.logs,
-                    tx.receiver_id.as_ref(),
-                    tx.signer_id.as_ref(),
-                    &outcome.id.to_string(),
-                    &outcome.id.to_string(),
-                    shard_id_i32,
-                    block_height,
-                    block_timestamp,
-                    success,
-                    db,
-                    state,
-                )
-                .await?;
-
                 let action_context = ActionContext {
                     predecessor_id: tx.signer_id.to_string(),
                     receiver_id: tx.receiver_id.to_string(),
@@ -420,6 +561,21 @@ impl VenearGovernanceModule {
 
                 self.process_actions(&tx.actions, &action_context, db, state)
                     .await?;
+
+                self.process_logs(
+                    &outcome.outcome.logs,
+                    tx.receiver_id.as_ref(),
+                    tx.signer_id.as_ref(),
+                    &outcome.id.to_string(),
+                    &outcome.id.to_string(),
+                    shard_id_i32,
+                    block_height,
+                    block_timestamp,
+                    success,
+                    db,
+                    state,
+                )
+                .await?;
             }
         }
 
@@ -431,21 +587,6 @@ impl VenearGovernanceModule {
                 serde_json::to_value(&outcome.outcome.status).unwrap_or(JsonValue::Null);
             let success = is_outcome_success(&status_json);
             let success_value_base64 = Self::extract_success_value(&status_json);
-
-            self.process_logs(
-                &outcome.outcome.logs,
-                receipt.receiver_id.as_ref(),
-                receipt.predecessor_id.as_ref(),
-                &receipt.receipt_id.to_string(),
-                &outcome.id.to_string(),
-                shard_id_i32,
-                block_height,
-                block_timestamp,
-                success,
-                db,
-                state,
-            )
-            .await?;
 
             if let Some(actions) = Self::extract_actions_from_receipt(receipt) {
                 let action_context = ActionContext {
@@ -464,6 +605,21 @@ impl VenearGovernanceModule {
                 self.process_actions(&actions, &action_context, db, state)
                     .await?;
             }
+
+            self.process_logs(
+                &outcome.outcome.logs,
+                receipt.receiver_id.as_ref(),
+                receipt.predecessor_id.as_ref(),
+                &receipt.receipt_id.to_string(),
+                &outcome.id.to_string(),
+                shard_id_i32,
+                block_height,
+                block_timestamp,
+                success,
+                db,
+                state,
+            )
+            .await?;
         }
 
         Ok(())
@@ -555,6 +711,9 @@ impl VenearGovernanceModule {
             }
 
             for (data_index, data_item) in parsed.data_items.iter().enumerate() {
+                let standard = parsed.standard.as_deref();
+                let event_type = parsed.event_type.as_deref();
+
                 self.upsert_raw_event(
                     db,
                     block_height,
@@ -566,8 +725,8 @@ impl VenearGovernanceModule {
                     contract_id,
                     log_index as i32,
                     data_index as i32,
-                    parsed.standard.as_deref(),
-                    parsed.event_type.as_deref(),
+                    standard,
+                    event_type,
                     success,
                     None,
                     Some(data_item.clone()),
@@ -576,15 +735,36 @@ impl VenearGovernanceModule {
                 .await?;
 
                 if !success {
+                    if !self.is_normalized_event(standard, event_type, contract_id) {
+                        self.upsert_unhandled_event(
+                            db,
+                            block_height,
+                            block_timestamp,
+                            shard_id,
+                            receipt_id,
+                            execution_outcome_id,
+                            predecessor_id,
+                            contract_id,
+                            standard,
+                            event_type,
+                            log_index as i32,
+                            data_index as i32,
+                            data_item.clone(),
+                            log,
+                            "unmapped_event_type",
+                            success,
+                        )
+                        .await?;
+                    }
                     continue;
                 }
 
-                if let Err(err) = self
+                let normalized = match self
                     .normalize_event(
                         db,
                         state,
-                        parsed.standard.as_deref(),
-                        parsed.event_type.as_deref(),
+                        standard,
+                        event_type,
                         data_item,
                         block_height,
                         block_timestamp,
@@ -598,17 +778,43 @@ impl VenearGovernanceModule {
                     )
                     .await
                 {
-                    warn!(
-                        execution_outcome_id = execution_outcome_id,
-                        log_index = log_index,
-                        data_index = data_index,
-                        standard = ?parsed.standard,
-                        event_type = ?parsed.event_type,
-                        error = %err,
-                        "failed to normalize venear event data item"
-                    );
+                    Ok(normalized) => normalized,
+                    Err(err) => {
+                        warn!(
+                            execution_outcome_id = execution_outcome_id,
+                            log_index = log_index,
+                            data_index = data_index,
+                            standard = ?parsed.standard,
+                            event_type = ?parsed.event_type,
+                            error = %err,
+                            "failed to normalize venear event data item"
+                        );
 
-                    self.upsert_raw_event(
+                        self.upsert_raw_event(
+                            db,
+                            block_height,
+                            block_timestamp,
+                            shard_id,
+                            receipt_id,
+                            execution_outcome_id,
+                            predecessor_id,
+                            contract_id,
+                            log_index as i32,
+                            data_index as i32,
+                            standard,
+                            event_type,
+                            success,
+                            Some(format!("failed to normalize event: {err}")),
+                            Some(data_item.clone()),
+                            log,
+                        )
+                        .await?;
+                        true
+                    }
+                };
+
+                if !normalized {
+                    self.upsert_unhandled_event(
                         db,
                         block_height,
                         block_timestamp,
@@ -617,14 +823,14 @@ impl VenearGovernanceModule {
                         execution_outcome_id,
                         predecessor_id,
                         contract_id,
+                        standard,
+                        event_type,
                         log_index as i32,
                         data_index as i32,
-                        parsed.standard.as_deref(),
-                        parsed.event_type.as_deref(),
-                        success,
-                        Some(format!("failed to normalize event: {err}")),
-                        Some(data_item.clone()),
+                        data_item.clone(),
                         log,
+                        "unmapped_event_type",
+                        success,
                     )
                     .await?;
                 }
@@ -651,12 +857,12 @@ impl VenearGovernanceModule {
         contract_id: &str,
         log_index: i32,
         data_index: i32,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let (Some(standard), Some(event_type)) = (standard, event_type) else {
-            return Ok(());
+            return Ok(false);
         };
 
-        match (standard, event_type) {
+        let handled = match (standard, event_type) {
             ("venear", "lockup_deployed") => {
                 if let Some(owner_account_id) = json_string(data, "account_id") {
                     let lockup_account_id =
@@ -669,6 +875,7 @@ impl VenearGovernanceModule {
                         "lockup_deployed",
                         lockup_version,
                         json_u64(data, "lockup_update_nonce").map(|v| v as i64),
+                        json_u64(data, "timestamp").map(|v| v as i64),
                         json_u128(data, "locked_near_balance").map(|v| v.to_string()),
                         "event_json",
                         None,
@@ -690,6 +897,7 @@ impl VenearGovernanceModule {
                         .lockup_owners
                         .insert(lockup_account_id, owner_account_id.clone());
                 }
+                true
             }
             ("venear", "lockup_delete") => {
                 if let Some(owner_account_id) = json_string(data, "account_id") {
@@ -706,6 +914,7 @@ impl VenearGovernanceModule {
                         "lockup_delete",
                         lockup_version,
                         json_u64(data, "lockup_update_nonce").map(|v| v as i64),
+                        json_u64(data, "timestamp").map(|v| v as i64),
                         json_u128(data, "locked_near_balance").map(|v| v.to_string()),
                         "event_json",
                         None,
@@ -727,6 +936,7 @@ impl VenearGovernanceModule {
                         .lockup_owners
                         .insert(lockup_account_id, owner_account_id.clone());
                 }
+                true
             }
             ("venear", "lockup_update") => {
                 if let Some(account_id) = json_string(data, "account_id") {
@@ -783,6 +993,7 @@ impl VenearGovernanceModule {
                         "lockup_update",
                         lockup_version,
                         lockup_update_nonce,
+                        json_u64(data, "timestamp").map(|v| v as i64),
                         locked_near_balance.map(|v| v.to_string()),
                         "event_json",
                         None,
@@ -806,10 +1017,11 @@ impl VenearGovernanceModule {
                         .insert(lockup_account_id, account_id.clone());
                     state.account_balances.insert(account_id, total_balance);
                 }
+                true
             }
             ("venear", "create_proposal") => {
                 let Some(proposal_id_raw) = json_u64(data, "proposal_id") else {
-                    return Ok(());
+                    return Ok(true);
                 };
                 let proposal_id = i64::try_from(proposal_id_raw).map_err(|_| {
                     anyhow!(
@@ -819,12 +1031,24 @@ impl VenearGovernanceModule {
                 let proposer_id = json_string(data, "proposer_id");
                 let voting_start_time_sec =
                     json_u64(data, "voting_start_time_sec").map(|v| v as i64);
-                let metadata = Some(json!({
+                let mut metadata = json!({
                     "title": data.get("title"),
                     "description": data.get("description"),
                     "link": data.get("link"),
                     "voting_options": data.get("voting_options"),
-                }));
+                });
+
+                if let Some(args_json) = self
+                    .get_method_call_args_json(db, execution_outcome_id, "create_proposal")
+                    .await?
+                {
+                    if let Some(fallback_metadata) =
+                        Self::extract_create_proposal_args_metadata(&args_json)
+                    {
+                        Self::merge_create_proposal_metadata(&mut metadata, &fallback_metadata);
+                    }
+                }
+
                 self.upsert_proposal_event(
                     db,
                     proposal_id,
@@ -836,7 +1060,7 @@ impl VenearGovernanceModule {
                     None,
                     None,
                     None,
-                    metadata, // populated from event data
+                    Some(metadata),
                     Some(data.clone()),
                     block_height,
                     block_timestamp,
@@ -849,10 +1073,11 @@ impl VenearGovernanceModule {
                     data_index,
                 )
                 .await?;
+                true
             }
             ("venear", "proposal_approve") | ("venear", "proposal_reject") => {
                 let Some(proposal_id_raw) = json_u64(data, "proposal_id") else {
-                    return Ok(());
+                    return Ok(true);
                 };
                 let proposal_id = i64::try_from(proposal_id_raw).map_err(|_| {
                     anyhow!(
@@ -886,15 +1111,16 @@ impl VenearGovernanceModule {
                     data_index,
                 )
                 .await?;
+                true
             }
             ("venear", "add_vote") | ("venear", "remove_vote") => {
                 let account_id = match json_string(data, "account_id") {
                     Some(account) => account,
-                    None => return Ok(()),
+                    None => return Ok(true),
                 };
 
                 let Some(proposal_id_raw) = json_u64(data, "proposal_id") else {
-                    return Ok(());
+                    return Ok(true);
                 };
                 let proposal_id = i64::try_from(proposal_id_raw).map_err(|_| {
                     anyhow!(
@@ -949,17 +1175,18 @@ impl VenearGovernanceModule {
                     Some(data.clone()),
                 )
                 .await?;
+                true
             }
             ("nep141", "ft_mint") | ("nep141", "ft_burn")
                 if contract_id == self.venear_contract_id =>
             {
                 let owner_id = match json_string(data, "owner_id") {
                     Some(owner) => owner,
-                    None => return Ok(()),
+                    None => return Ok(true),
                 };
                 let amount = match json_u128(data, "amount") {
                     Some(amount) => amount,
-                    None => return Ok(()),
+                    None => return Ok(true),
                 };
 
                 let existing_total = self
@@ -1009,6 +1236,7 @@ impl VenearGovernanceModule {
                 .await?;
 
                 state.account_balances.insert(owner_id, total_balance);
+                true
             }
             ("venear", "lockup_lock_near") => {
                 let lockup_account_id = json_string(data, "account_id")
@@ -1023,6 +1251,7 @@ impl VenearGovernanceModule {
                     "lockup_lock_near",
                     json_u64(data, "lockup_version").map(|v| v as i64),
                     json_u64(data, "lockup_update_nonce").map(|v| v as i64),
+                    json_u64(data, "timestamp").map(|v| v as i64),
                     json_u128(data, "locked_near_balance").map(|v| v.to_string()),
                     "event_json",
                     None,
@@ -1041,11 +1270,12 @@ impl VenearGovernanceModule {
                 .await?;
 
                 state.known_lockups.insert(lockup_account_id);
+                true
             }
-            _ => {}
-        }
+            _ => false,
+        };
 
-        Ok(())
+        Ok(handled)
     }
 
     async fn process_actions(
@@ -1074,6 +1304,8 @@ impl VenearGovernanceModule {
             } else {
                 "receipt"
             };
+            let success_value_json =
+                Self::decode_success_value_json(context.success_value_base64.as_deref());
 
             if self.is_target_contract(&context.receiver_id, state) {
                 self.upsert_raw_method(
@@ -1107,7 +1339,54 @@ impl VenearGovernanceModule {
                     context.block_height,
                     context.block_timestamp,
                     context.shard_id,
-                    Self::decode_success_value_json(context.success_value_base64.as_deref()),
+                    success_value_json.clone(),
+                )
+                .await?;
+            }
+
+            if context.receiver_id == self.venear_contract_id
+                || context.receiver_id == self.voting_contract_id
+            {
+                let action_category =
+                    Self::classify_governance_action(&context.receiver_id, method_name, self);
+                let (
+                    proposal_id,
+                    vote_option,
+                    delegator_account_id,
+                    delegatee_account_id,
+                    owner_account_id,
+                ) = Self::parse_governance_action_fields(
+                    method_name,
+                    &args_json,
+                    &context.predecessor_id,
+                );
+
+                self.upsert_governance_action(
+                    db,
+                    action_source,
+                    action_index as i32,
+                    method_name,
+                    &context.predecessor_id,
+                    &context.receiver_id,
+                    &context.receiver_id,
+                    args_json.clone(),
+                    args_base64.clone(),
+                    deposit.to_string(),
+                    context.transaction_hash.as_deref(),
+                    &context.receipt_id,
+                    &context.execution_outcome_id,
+                    context.success,
+                    context.block_height,
+                    context.block_timestamp,
+                    context.shard_id,
+                    success_value_json.clone(),
+                    action_category,
+                    proposal_id,
+                    vote_option,
+                    delegator_account_id.as_deref(),
+                    delegatee_account_id.as_deref(),
+                    owner_account_id.as_deref(),
+                    None,
                 )
                 .await?;
             }
@@ -1182,7 +1461,7 @@ impl VenearGovernanceModule {
                     context.block_timestamp,
                     context.shard_id,
                     &context.receiver_id,
-                    Self::decode_success_value_json(context.success_value_base64.as_deref()),
+                    success_value_json.clone(),
                 )
                 .await?;
             }
@@ -1208,6 +1487,7 @@ impl VenearGovernanceModule {
                     &context.receiver_id,
                     owner_account_id.as_deref(),
                     method_name,
+                    None,
                     None,
                     None,
                     None,
@@ -1287,6 +1567,16 @@ impl VenearGovernanceModule {
         }
 
         let lockup_version = json_u64(args_json, "version").map(|v| v as i64);
+        let callback_update = args_json.get("update").and_then(|update| update.get("V1"));
+        let lockup_update_nonce = callback_update
+            .and_then(|update| json_u64(update, "lockup_update_nonce"))
+            .map(|v| v as i64);
+        let lockup_timestamp_ns = callback_update
+            .and_then(|update| json_u64(update, "timestamp"))
+            .map(|v| v as i64);
+        let locked_near_balance = callback_update
+            .and_then(|update| json_u128(update, "locked_near_balance"))
+            .map(|v| v.to_string());
 
         self.insert_lockup_event(
             db,
@@ -1294,8 +1584,9 @@ impl VenearGovernanceModule {
             Some(&owner_account_id),
             "lockup_update_callback",
             lockup_version,
-            json_u64(args_json, "lockup_update_nonce").map(|v| v as i64),
-            json_u128(args_json, "locked_near_balance").map(|v| v.to_string()),
+            lockup_update_nonce,
+            lockup_timestamp_ns,
+            locked_near_balance,
             action_source,
             context.transaction_hash.as_deref(),
             &context.receipt_id,
@@ -1348,6 +1639,7 @@ impl VenearGovernanceModule {
             Some(&owner_account_id),
             "lockup_deployed_callback",
             lockup_version,
+            json_u64(args_json, "lockup_update_nonce").map(|v| v as i64),
             None,
             None,
             action_source,
@@ -1479,6 +1771,34 @@ impl VenearGovernanceModule {
         }
     }
 
+    async fn get_method_call_args_json(
+        &self,
+        db: &impl ConnectionTrait,
+        execution_outcome_id: &str,
+        method_name: &str,
+    ) -> Result<Option<JsonValue>> {
+        let row = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT args_json
+                 FROM near.near_venear_events_raw
+                 WHERE record_kind = 'method_call'
+                   AND execution_outcome_id = $1
+                   AND method_name = $2
+                 ORDER BY action_index ASC
+                 LIMIT 1",
+                vec![execution_outcome_id.into(), method_name.into()],
+            ))
+            .await?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let args_json: Option<JsonValue> = row.try_get("", "args_json")?;
+        Ok(args_json)
+    }
+
     async fn get_existing_balance_total_for_identity(
         &self,
         db: &impl ConnectionTrait,
@@ -1591,6 +1911,67 @@ impl VenearGovernanceModule {
                 parse_error.into(),
                 event_data.into(),
                 log_text.into(),
+            ],
+        ))
+        .await?;
+
+        self.upsert_identity_governance_accounts(db, [predecessor_account_id, contract_id])
+            .await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_unhandled_event(
+        &self,
+        db: &impl ConnectionTrait,
+        block_height: i64,
+        block_timestamp: i64,
+        shard_id: i32,
+        receipt_id: &str,
+        execution_outcome_id: &str,
+        predecessor_account_id: &str,
+        contract_id: &str,
+        standard: Option<&str>,
+        event_type: Option<&str>,
+        log_index: i32,
+        data_index: i32,
+        event_data: JsonValue,
+        log_text: &str,
+        reason: &str,
+        success: bool,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_venear_unhandled_events (block_height, block_timestamp, shard_id, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, standard, event_type, log_index, data_index, event_data, log_text, reason)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            ON CONFLICT (execution_outcome_id, log_index, data_index, contract_id, standard, event_type)
+            DO UPDATE SET
+              block_height = EXCLUDED.block_height,
+              block_timestamp = EXCLUDED.block_timestamp,
+              shard_id = EXCLUDED.shard_id,
+              receipt_id = EXCLUDED.receipt_id,
+              predecessor_account_id = EXCLUDED.predecessor_account_id,
+              success = EXCLUDED.success,
+              event_data = EXCLUDED.event_data,
+              log_text = EXCLUDED.log_text,
+              reason = EXCLUDED.reason",
+            vec![
+                block_height.into(),
+                block_timestamp.into(),
+                shard_id.into(),
+                receipt_id.into(),
+                execution_outcome_id.into(),
+                predecessor_account_id.into(),
+                contract_id.into(),
+                success.into(),
+                standard.unwrap_or("").to_string().into(),
+                event_type.unwrap_or("").to_string().into(),
+                log_index.into(),
+                data_index.into(),
+                event_data.into(),
+                log_text.into(),
+                reason.into(),
             ],
         ))
         .await?;
@@ -1723,6 +2104,7 @@ impl VenearGovernanceModule {
         event_type: &str,
         lockup_version: Option<i64>,
         lockup_update_nonce: Option<i64>,
+        lockup_timestamp_ns: Option<i64>,
         locked_near_balance: Option<String>,
         action_source: &str,
         transaction_hash: Option<&str>,
@@ -1740,13 +2122,14 @@ impl VenearGovernanceModule {
     ) -> Result<()> {
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_lockup_events (lockup_account_id, owner_account_id, event_type, lockup_version, lockup_update_nonce, locked_near_balance, action_source, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, block_height, block_timestamp, shard_id, log_index, data_index, payload)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+            "INSERT INTO near.near_venear_lockup_events (lockup_account_id, owner_account_id, event_type, lockup_version, lockup_update_nonce, lockup_timestamp_ns, locked_near_balance, action_source, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, block_height, block_timestamp, shard_id, log_index, data_index, payload)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             ON CONFLICT (execution_outcome_id, event_type, lockup_account_id, log_index, data_index)
             DO UPDATE SET
               owner_account_id = EXCLUDED.owner_account_id,
               lockup_version = EXCLUDED.lockup_version,
               lockup_update_nonce = EXCLUDED.lockup_update_nonce,
+              lockup_timestamp_ns = EXCLUDED.lockup_timestamp_ns,
               locked_near_balance = EXCLUDED.locked_near_balance,
               action_source = EXCLUDED.action_source,
               transaction_hash = EXCLUDED.transaction_hash,
@@ -1763,6 +2146,7 @@ impl VenearGovernanceModule {
                 event_type.into(),
                 lockup_version.into(),
                 lockup_update_nonce.into(),
+                lockup_timestamp_ns.into(),
                 locked_near_balance.into(),
                 action_source.into(),
                 transaction_hash.map(ToString::to_string).into(),
@@ -1854,6 +2238,106 @@ impl VenearGovernanceModule {
         .await?;
 
         self.upsert_identity_governance_accounts(db, [predecessor_account_id, contract_id])
+            .await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_governance_action(
+        &self,
+        db: &impl ConnectionTrait,
+        action_source: &str,
+        action_index: i32,
+        method_name: &str,
+        predecessor_account_id: &str,
+        receiver_account_id: &str,
+        contract_id: &str,
+        args_json: Option<JsonValue>,
+        args_base64: String,
+        attached_deposit: String,
+        transaction_hash: Option<&str>,
+        receipt_id: &str,
+        execution_outcome_id: &str,
+        success: bool,
+        block_height: i64,
+        block_timestamp: i64,
+        shard_id: i32,
+        success_value_json: Option<JsonValue>,
+        action_category: &str,
+        proposal_id: Option<i64>,
+        vote_option: Option<i32>,
+        delegator_account_id: Option<&str>,
+        delegatee_account_id: Option<&str>,
+        owner_account_id: Option<&str>,
+        metadata: Option<JsonValue>,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_venear_governance_actions (action_source, action_index, transaction_hash, receipt_id, execution_outcome_id, block_height, block_timestamp, shard_id, predecessor_account_id, receiver_account_id, contract_id, method_name, args_json, args_base64, attached_deposit, success, success_value_json, action_category, proposal_id, vote_option, delegator_account_id, delegatee_account_id, owner_account_id, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+            ON CONFLICT (receipt_id, action_index, method_name, contract_id)
+            DO UPDATE SET
+              action_source = EXCLUDED.action_source,
+              transaction_hash = EXCLUDED.transaction_hash,
+              execution_outcome_id = EXCLUDED.execution_outcome_id,
+              block_height = EXCLUDED.block_height,
+              block_timestamp = EXCLUDED.block_timestamp,
+              shard_id = EXCLUDED.shard_id,
+              predecessor_account_id = EXCLUDED.predecessor_account_id,
+              receiver_account_id = EXCLUDED.receiver_account_id,
+              args_json = EXCLUDED.args_json,
+              args_base64 = EXCLUDED.args_base64,
+              attached_deposit = EXCLUDED.attached_deposit,
+              success = EXCLUDED.success,
+              success_value_json = EXCLUDED.success_value_json,
+              action_category = EXCLUDED.action_category,
+              proposal_id = EXCLUDED.proposal_id,
+              vote_option = EXCLUDED.vote_option,
+              delegator_account_id = EXCLUDED.delegator_account_id,
+              delegatee_account_id = EXCLUDED.delegatee_account_id,
+              owner_account_id = EXCLUDED.owner_account_id,
+              metadata = EXCLUDED.metadata",
+            vec![
+                action_source.into(),
+                action_index.into(),
+                transaction_hash.map(ToString::to_string).into(),
+                receipt_id.into(),
+                execution_outcome_id.into(),
+                block_height.into(),
+                block_timestamp.into(),
+                shard_id.into(),
+                predecessor_account_id.into(),
+                receiver_account_id.into(),
+                contract_id.into(),
+                method_name.into(),
+                args_json.into(),
+                args_base64.into(),
+                attached_deposit.into(),
+                success.into(),
+                success_value_json.into(),
+                action_category.into(),
+                proposal_id.into(),
+                vote_option.into(),
+                delegator_account_id.map(ToString::to_string).into(),
+                delegatee_account_id.map(ToString::to_string).into(),
+                owner_account_id.map(ToString::to_string).into(),
+                metadata.into(),
+            ],
+        ))
+        .await?;
+
+        let mut identity_accounts = vec![predecessor_account_id, receiver_account_id, contract_id];
+        if let Some(delegator_account_id) = delegator_account_id {
+            identity_accounts.push(delegator_account_id);
+        }
+        if let Some(delegatee_account_id) = delegatee_account_id {
+            identity_accounts.push(delegatee_account_id);
+        }
+        if let Some(owner_account_id) = owner_account_id {
+            identity_accounts.push(owner_account_id);
+        }
+        self.upsert_identity_governance_accounts(db, identity_accounts)
             .await?;
 
         Ok(())
@@ -2671,6 +3155,7 @@ mod tests {
                 "lockup_delete",
                 Some(1),
                 Some(10),
+                None,
                 Some("100".to_string()),
                 "event_json",
                 None,
@@ -2696,6 +3181,7 @@ mod tests {
                 "lockup_deployed",
                 Some(1),
                 Some(11),
+                None,
                 Some("120".to_string()),
                 "event_json",
                 None,

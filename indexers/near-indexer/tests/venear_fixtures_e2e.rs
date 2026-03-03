@@ -1779,6 +1779,16 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
         );
     }
 
+    let governance_actions_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_governance_actions",
+    )
+    .await?;
+    assert!(
+        governance_actions_count >= 1,
+        "expected >= 1 row in near.near_venear_governance_actions after loading fixtures, got {governance_actions_count}"
+    );
+
     // near_venear_lockup_events: populated by unlock lifecycle methods
     if loaded_names.contains("begin_unlock_near")
         || loaded_names.contains("end_unlock_near")
@@ -1879,13 +1889,15 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
                AND lockup_account_id = '0887fe221cafb6810909c83393e23585c439fe99.venear.dao'
                AND owner_account_id = 'jchos.near'
                AND lockup_version = 1
-               AND lockup_update_nonce IS NULL
-               AND locked_near_balance IS NULL
+               AND lockup_update_nonce = 167957455000001
+               AND lockup_timestamp_ns = 1760265747341533955
+               AND locked_near_balance = '2000016409706328300000001'
                AND action_source = 'receipt'
                AND predecessor_account_id = '0887fe221cafb6810909c83393e23585c439fe99.venear.dao'
                AND contract_id = 'venear.dao'
                AND success = true
                AND payload->>'version' = '1'
+               AND payload->'update'->'V1'->>'timestamp' = '1760265747341533955'
                AND payload->'update'->'V1'->>'lockup_update_nonce' = '167957455000001'
                AND payload->'update'->'V1'->>'locked_near_balance' = '2000016409706328300000001'",
         )
@@ -2296,13 +2308,15 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
                AND lockup_account_id = 'b155f46a0ec06336370ab6a9b26607779df26b9d.venear.dao'
                AND owner_account_id = 'horbarr.near'
                AND lockup_version = 1
-               AND lockup_update_nonce IS NULL
-               AND locked_near_balance IS NULL
+               AND lockup_update_nonce = 187483094000002
+               AND lockup_timestamp_ns = 1772267859866788336
+               AND locked_near_balance = '1'
                AND action_source = 'receipt'
                AND predecessor_account_id = 'b155f46a0ec06336370ab6a9b26607779df26b9d.venear.dao'
                AND contract_id = 'venear.dao'
                AND success = true
                AND payload->>'version' = '1'
+               AND payload->'update'->'V1'->>'timestamp' = '1772267859866788336'
                AND payload->'update'->'V1'->>'lockup_update_nonce' = '187483094000002'
                AND payload->'update'->'V1'->>'locked_near_balance' = '1'",
         )

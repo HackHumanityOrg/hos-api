@@ -13,6 +13,7 @@ pub struct Model {
     pub event_type: String,
     pub lockup_version: Option<i64>,
     pub lockup_update_nonce: Option<i64>,
+    pub lockup_timestamp_ns: Option<i64>,
     #[sea_orm(column_type = "Text", nullable)]
     pub locked_near_balance: Option<String>,
     pub action_source: String,

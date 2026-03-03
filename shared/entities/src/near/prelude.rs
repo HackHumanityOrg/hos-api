@@ -30,7 +30,9 @@ pub use super::near_venear_account_voting_power_events::Entity as NearVenearAcco
 pub use super::near_venear_admin_events::Entity as NearVenearAdminEvents;
 pub use super::near_venear_delegation_events::Entity as NearVenearDelegationEvents;
 pub use super::near_venear_events_raw::Entity as NearVenearEventsRaw;
+pub use super::near_venear_governance_actions::Entity as NearVenearGovernanceActions;
 pub use super::near_venear_lockup_actions::Entity as NearVenearLockupActions;
 pub use super::near_venear_lockup_events::Entity as NearVenearLockupEvents;
 pub use super::near_venear_proposal_events::Entity as NearVenearProposalEvents;
+pub use super::near_venear_unhandled_events::Entity as NearVenearUnhandledEvents;
 pub use super::near_venear_votes::Entity as NearVenearVotes;

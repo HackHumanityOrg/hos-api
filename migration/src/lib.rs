@@ -15,6 +15,7 @@ mod m20260303_000015_near_raw_schema_improvements;
 mod m20260304_000012_near_venear_delegation_events;
 mod m20260305_000013_near_venear_timeseries_schema;
 mod m20260306_000014_near_accounts_timeseries_hardening;
+mod m20260307_000016_near_venear_coverage_expansion;
 
 pub struct Migrator;
 
@@ -37,6 +38,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260305_000013_near_venear_timeseries_schema::Migration),
             Box::new(m20260306_000014_near_accounts_timeseries_hardening::Migration),
             Box::new(m20260303_000015_near_raw_schema_improvements::Migration),
+            Box::new(m20260307_000016_near_venear_coverage_expansion::Migration),
         ]
     }
 }
