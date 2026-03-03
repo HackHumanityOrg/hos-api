@@ -141,7 +141,9 @@ impl VenearGovernanceModule {
         let rows = db
             .query_all(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT lockup_account_id, owner_account_id, is_active FROM near.near_venear_lockups",
+                "SELECT lockup_account_id, owner_account_id, event_type
+                 FROM near.near_venear_lockup_events
+                 ORDER BY block_height ASC, id ASC",
                 vec![],
             ))
             .await
@@ -159,13 +161,21 @@ impl VenearGovernanceModule {
 
         for row in rows {
             let lockup_account_id: String = row.try_get("", "lockup_account_id")?;
-            let owner_account_id: String = row.try_get("", "owner_account_id")?;
-            let is_active: bool = row.try_get("", "is_active")?;
+            let owner_account_id: Option<String> = row.try_get("", "owner_account_id")?;
+            let event_type: String = row.try_get("", "event_type")?;
 
-            if is_active {
+            if event_type == "lockup_deployed"
+                || event_type == "lockup_update"
+                || event_type == "lockup_update_callback"
+                || event_type == "lockup_lock_near"
+                || event_type == "lockup_delete"
+            {
                 known_lockups.insert(lockup_account_id.clone());
             }
-            lockup_owners.insert(lockup_account_id, owner_account_id);
+
+            if let Some(owner_account_id) = owner_account_id {
+                lockup_owners.insert(lockup_account_id, owner_account_id);
+            }
         }
 
         Ok(())
@@ -321,6 +331,47 @@ impl VenearGovernanceModule {
             || contract_id.ends_with(&self.lockup_account_suffix)
     }
 
+    fn is_admin_method(contract_id: &str, method_name: &str, module: &Self) -> bool {
+        if contract_id == module.venear_contract_id {
+            return matches!(
+                method_name,
+                "set_lockup_contract"
+                    | "set_local_deposit"
+                    | "set_staking_pool_whitelist_account_id"
+                    | "propose_new_owner_account_id"
+                    | "accept_ownership"
+                    | "set_unlock_duration_sec"
+                    | "set_lockup_code_deployers"
+                    | "set_guardians"
+                    | "pause"
+                    | "unpause"
+                    | "upgrade"
+                    | "migrate_state"
+                    | "prepare_lockup_code"
+            );
+        }
+
+        if contract_id == module.voting_contract_id {
+            return matches!(
+                method_name,
+                "set_venear_account_id"
+                    | "set_reviewer_ids"
+                    | "set_voting_duration"
+                    | "set_base_proposal_fee"
+                    | "set_max_number_of_voting_options"
+                    | "propose_new_owner_account_id"
+                    | "accept_ownership"
+                    | "set_guardians"
+                    | "pause"
+                    | "unpause"
+                    | "upgrade"
+                    | "migrate_state"
+            );
+        }
+
+        false
+    }
+
     async fn process_shard(
         &self,
         shard: &IndexerShard,
@@ -439,6 +490,20 @@ impl VenearGovernanceModule {
 
         for (log_index, log) in logs.iter().enumerate() {
             if !log.starts_with(crate::modules::venear_governance::types::EVENT_JSON_PREFIX) {
+                self.upsert_raw_plain_log(
+                    db,
+                    block_height,
+                    block_timestamp,
+                    shard_id,
+                    receipt_id,
+                    execution_outcome_id,
+                    predecessor_id,
+                    contract_id,
+                    log_index as i32,
+                    success,
+                    log,
+                )
+                .await?;
                 continue;
             }
 
@@ -597,16 +662,27 @@ impl VenearGovernanceModule {
                     let lockup_account_id =
                         derive_lockup_account_id(&owner_account_id, &self.lockup_account_suffix);
                     let lockup_version = json_u64(data, "lockup_version").map(|v| v as i64);
-                    self.upsert_lockup(
+                    self.insert_lockup_event(
                         db,
                         &lockup_account_id,
-                        &owner_account_id,
+                        Some(&owner_account_id),
+                        "lockup_deployed",
                         lockup_version,
-                        "lockup_deployed_event",
+                        json_u64(data, "lockup_update_nonce").map(|v| v as i64),
+                        json_u128(data, "locked_near_balance").map(|v| v.to_string()),
+                        "event_json",
+                        None,
+                        receipt_id,
+                        execution_outcome_id,
+                        predecessor_id,
+                        contract_id,
+                        true,
                         block_height,
                         block_timestamp,
-                        true,
-                        None,
+                        shard_id,
+                        log_index,
+                        data_index,
+                        Some(data.clone()),
                     )
                     .await?;
                     state.known_lockups.insert(lockup_account_id.clone());
@@ -617,22 +693,36 @@ impl VenearGovernanceModule {
             }
             ("venear", "lockup_delete") => {
                 if let Some(owner_account_id) = json_string(data, "account_id") {
-                    let lockup_account_id =
-                        derive_lockup_account_id(&owner_account_id, &self.lockup_account_suffix);
+                    let lockup_account_id = if contract_id.ends_with(&self.lockup_account_suffix) {
+                        contract_id.to_string()
+                    } else {
+                        derive_lockup_account_id(&owner_account_id, &self.lockup_account_suffix)
+                    };
                     let lockup_version = json_u64(data, "lockup_version").map(|v| v as i64);
-                    self.upsert_lockup(
+                    self.insert_lockup_event(
                         db,
                         &lockup_account_id,
-                        &owner_account_id,
+                        Some(&owner_account_id),
+                        "lockup_delete",
                         lockup_version,
-                        "lockup_delete_event",
+                        json_u64(data, "lockup_update_nonce").map(|v| v as i64),
+                        json_u128(data, "locked_near_balance").map(|v| v.to_string()),
+                        "event_json",
+                        None,
+                        receipt_id,
+                        execution_outcome_id,
+                        predecessor_id,
+                        contract_id,
+                        true,
                         block_height,
                         block_timestamp,
-                        false,
-                        Some(block_height),
+                        shard_id,
+                        log_index,
+                        data_index,
+                        Some(data.clone()),
                     )
                     .await?;
-                    state.known_lockups.remove(&lockup_account_id);
+                    state.known_lockups.insert(lockup_account_id.clone());
                     state
                         .lockup_owners
                         .insert(lockup_account_id, owner_account_id.clone());
@@ -683,6 +773,37 @@ impl VenearGovernanceModule {
                         Some(data.clone()),
                     )
                     .await?;
+
+                    let lockup_account_id =
+                        derive_lockup_account_id(&account_id, &self.lockup_account_suffix);
+                    self.insert_lockup_event(
+                        db,
+                        &lockup_account_id,
+                        Some(&account_id),
+                        "lockup_update",
+                        lockup_version,
+                        lockup_update_nonce,
+                        locked_near_balance.map(|v| v.to_string()),
+                        "event_json",
+                        None,
+                        receipt_id,
+                        execution_outcome_id,
+                        predecessor_id,
+                        contract_id,
+                        true,
+                        block_height,
+                        block_timestamp,
+                        shard_id,
+                        log_index,
+                        data_index,
+                        Some(data.clone()),
+                    )
+                    .await?;
+
+                    state.known_lockups.insert(lockup_account_id.clone());
+                    state
+                        .lockup_owners
+                        .insert(lockup_account_id, account_id.clone());
                     state.account_balances.insert(account_id, total_balance);
                 }
             }
@@ -808,6 +929,26 @@ impl VenearGovernanceModule {
                     data_index,
                 )
                 .await?;
+
+                self.upsert_account_voting_power_event(
+                    db,
+                    &account_id,
+                    event_type,
+                    Some(proposal_id),
+                    &account_balance,
+                    None,
+                    block_height,
+                    block_timestamp,
+                    shard_id,
+                    receipt_id,
+                    execution_outcome_id,
+                    predecessor_id,
+                    contract_id,
+                    log_index,
+                    data_index,
+                    Some(data.clone()),
+                )
+                .await?;
             }
             ("nep141", "ft_mint") | ("nep141", "ft_burn")
                 if contract_id == self.venear_contract_id =>
@@ -870,11 +1011,36 @@ impl VenearGovernanceModule {
                 state.account_balances.insert(owner_id, total_balance);
             }
             ("venear", "lockup_lock_near") => {
-                // lockup_lock_near is emitted by the lockup contract itself
-                // (account_id = env::current_account_id() = the lockup account).
-                // The venear contract emits lockup_update for the same operation
-                // (account_id = owner account), handled above and stored in
-                // near_venear_account_balances. Skipping normalization here.
+                let lockup_account_id = json_string(data, "account_id")
+                    .filter(|value| value.ends_with(&self.lockup_account_suffix))
+                    .unwrap_or_else(|| contract_id.to_string());
+
+                let owner_account_id = state.lockup_owners.get(&lockup_account_id).cloned();
+                self.insert_lockup_event(
+                    db,
+                    &lockup_account_id,
+                    owner_account_id.as_deref(),
+                    "lockup_lock_near",
+                    json_u64(data, "lockup_version").map(|v| v as i64),
+                    json_u64(data, "lockup_update_nonce").map(|v| v as i64),
+                    json_u128(data, "locked_near_balance").map(|v| v.to_string()),
+                    "event_json",
+                    None,
+                    receipt_id,
+                    execution_outcome_id,
+                    predecessor_id,
+                    contract_id,
+                    true,
+                    block_height,
+                    block_timestamp,
+                    shard_id,
+                    log_index,
+                    data_index,
+                    Some(data.clone()),
+                )
+                .await?;
+
+                state.known_lockups.insert(lockup_account_id);
             }
             _ => {}
         }
@@ -903,6 +1069,48 @@ impl VenearGovernanceModule {
             let args_bytes: &[u8] = args.as_ref();
             let args_json = parse_args_json(args_bytes);
             let args_base64 = base64::prelude::BASE64_STANDARD.encode(args_bytes);
+            let action_source = if context.transaction_hash.is_some() {
+                "transaction"
+            } else {
+                "receipt"
+            };
+
+            if self.is_target_contract(&context.receiver_id, state) {
+                self.upsert_raw_method(
+                    db,
+                    action_source,
+                    action_index as i32,
+                    method_name,
+                    args_json.clone(),
+                    args_base64.clone(),
+                    deposit.to_string(),
+                    context,
+                )
+                .await?;
+            }
+
+            if Self::is_admin_method(&context.receiver_id, method_name, self) {
+                self.upsert_admin_event(
+                    db,
+                    &context.receiver_id,
+                    method_name,
+                    action_source,
+                    action_index as i32,
+                    &context.predecessor_id,
+                    args_json.clone(),
+                    args_base64.clone(),
+                    deposit.to_string(),
+                    context.transaction_hash.as_deref(),
+                    &context.receipt_id,
+                    &context.execution_outcome_id,
+                    context.success,
+                    context.block_height,
+                    context.block_timestamp,
+                    context.shard_id,
+                    Self::decode_success_value_json(context.success_value_base64.as_deref()),
+                )
+                .await?;
+            }
 
             if context.receiver_id == self.venear_contract_id
                 && method_name == "on_lockup_update"
@@ -911,10 +1119,10 @@ impl VenearGovernanceModule {
                 self.discover_lockup_from_on_lockup_update(
                     db,
                     state,
-                    &context.predecessor_id,
+                    context,
+                    action_source,
+                    action_index as i32,
                     &args_json,
-                    context.block_height,
-                    context.block_timestamp,
                 )
                 .await?;
             }
@@ -926,6 +1134,20 @@ impl VenearGovernanceModule {
                 self.insert_proposal_approval_finalized_event(
                     db,
                     context,
+                    action_index as i32,
+                    &args_json,
+                )
+                .await?;
+            }
+
+            if context.receiver_id == self.venear_contract_id
+                && method_name == "on_lockup_deployed"
+            {
+                self.discover_lockup_from_on_lockup_deployed(
+                    db,
+                    state,
+                    context,
+                    action_source,
                     action_index as i32,
                     &args_json,
                 )
@@ -948,11 +1170,7 @@ impl VenearGovernanceModule {
                     &context.predecessor_id,
                     delegatee_account_id.as_deref(),
                     method_name,
-                    if context.transaction_hash.is_some() {
-                        "transaction"
-                    } else {
-                        "receipt"
-                    },
+                    action_source,
                     action_index as i32,
                     args_json.clone(),
                     args_base64.clone(),
@@ -982,6 +1200,35 @@ impl VenearGovernanceModule {
 
             let owner_account_id = state.lockup_owners.get(&context.receiver_id).cloned();
 
+            if matches!(
+                method_name.as_str(),
+                "begin_unlock_near" | "end_unlock_near" | "lock_pending_near"
+            ) {
+                self.insert_lockup_event(
+                    db,
+                    &context.receiver_id,
+                    owner_account_id.as_deref(),
+                    method_name,
+                    None,
+                    None,
+                    None,
+                    action_source,
+                    context.transaction_hash.as_deref(),
+                    &context.receipt_id,
+                    &context.execution_outcome_id,
+                    &context.predecessor_id,
+                    &context.receiver_id,
+                    context.success,
+                    context.block_height,
+                    context.block_timestamp,
+                    context.shard_id,
+                    -1,
+                    action_index as i32,
+                    args_json.clone(),
+                )
+                .await?;
+            }
+
             self.upsert_lockup_action(
                 db,
                 &context.receiver_id,
@@ -989,11 +1236,7 @@ impl VenearGovernanceModule {
                 &context.predecessor_id,
                 &context.receiver_id,
                 method_name,
-                if context.transaction_hash.is_some() {
-                    "transaction"
-                } else {
-                    "receipt"
-                },
+                action_source,
                 action_index as i32,
                 args_json.clone(),
                 args_base64,
@@ -1018,10 +1261,10 @@ impl VenearGovernanceModule {
         &self,
         db: &impl ConnectionTrait,
         state: &mut ProcessState,
-        predecessor_id: &str,
+        context: &ActionContext,
+        action_source: &str,
+        action_index: i32,
         args_json: &Option<JsonValue>,
-        block_height: i64,
-        block_timestamp: i64,
     ) -> Result<()> {
         let Some(args_json) = args_json else {
             return Ok(());
@@ -1034,9 +1277,9 @@ impl VenearGovernanceModule {
         let expected_lockup =
             derive_lockup_account_id(&owner_account_id, &self.lockup_account_suffix);
 
-        if predecessor_id != expected_lockup {
+        if context.predecessor_id != expected_lockup {
             warn!(
-                predecessor_id = predecessor_id,
+                predecessor_id = context.predecessor_id,
                 expected_lockup = expected_lockup,
                 owner_account_id = owner_account_id,
                 "on_lockup_update predecessor does not match derived lockup id"
@@ -1046,16 +1289,27 @@ impl VenearGovernanceModule {
 
         let lockup_version = json_u64(args_json, "version").map(|v| v as i64);
 
-        self.upsert_lockup(
+        self.insert_lockup_event(
             db,
             &expected_lockup,
-            &owner_account_id,
+            Some(&owner_account_id),
+            "lockup_update_callback",
             lockup_version,
-            "on_lockup_update",
-            block_height,
-            block_timestamp,
-            true,
-            None,
+            json_u64(args_json, "lockup_update_nonce").map(|v| v as i64),
+            json_u128(args_json, "locked_near_balance").map(|v| v.to_string()),
+            action_source,
+            context.transaction_hash.as_deref(),
+            &context.receipt_id,
+            &context.execution_outcome_id,
+            &context.predecessor_id,
+            &context.receiver_id,
+            context.success,
+            context.block_height,
+            context.block_timestamp,
+            context.shard_id,
+            -1,
+            action_index,
+            Some(args_json.clone()),
         )
         .await?;
 
@@ -1063,6 +1317,66 @@ impl VenearGovernanceModule {
         state
             .lockup_owners
             .insert(expected_lockup, owner_account_id.clone());
+
+        Ok(())
+    }
+
+    async fn discover_lockup_from_on_lockup_deployed(
+        &self,
+        db: &impl ConnectionTrait,
+        state: &mut ProcessState,
+        context: &ActionContext,
+        action_source: &str,
+        action_index: i32,
+        args_json: &Option<JsonValue>,
+    ) -> Result<()> {
+        let Some(args_json) = args_json else {
+            return Ok(());
+        };
+
+        let Some(owner_account_id) = json_string(args_json, "account_id") else {
+            return Ok(());
+        };
+
+        let lockup_account_id =
+            derive_lockup_account_id(&owner_account_id, &self.lockup_account_suffix);
+
+        let lockup_version = json_u64(args_json, "version").map(|v| v as i64);
+
+        self.insert_lockup_event(
+            db,
+            &lockup_account_id,
+            Some(&owner_account_id),
+            "lockup_deployed_callback",
+            lockup_version,
+            None,
+            None,
+            action_source,
+            context.transaction_hash.as_deref(),
+            &context.receipt_id,
+            &context.execution_outcome_id,
+            &context.predecessor_id,
+            &context.receiver_id,
+            context.success,
+            context.block_height,
+            context.block_timestamp,
+            context.shard_id,
+            -1,
+            action_index,
+            Some(args_json.clone()),
+        )
+        .await?;
+
+        // Track the lockup as known only when deployment succeeded.
+        // On success, the lockup_deployed event also fires and registers it via
+        // normalize_event; we add it here too so that the callback is processed
+        // in the same pass even if normalize_event hasn't run yet.
+        if context.success {
+            state.known_lockups.insert(lockup_account_id.clone());
+            state
+                .lockup_owners
+                .insert(lockup_account_id, owner_account_id);
+        }
 
         Ok(())
     }
@@ -1246,9 +1560,9 @@ impl VenearGovernanceModule {
     ) -> Result<()> {
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_events_raw (block_height, block_timestamp, shard_id, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index, standard, event_type, success, parse_error, event_data, log_text)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-            ON CONFLICT (execution_outcome_id, log_index, data_index)
+            "INSERT INTO near.near_venear_events_raw (record_kind, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, standard, event_type, log_index, data_index, method_name, action_source, action_index, args_json, args_base64, attached_deposit, success_value_json, parse_error, event_data, log_text)
+            VALUES ('event_json', $1, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10, $11, $12, '', '', -1, NULL, NULL, NULL, NULL, $13, $14, $15)
+            ON CONFLICT (execution_outcome_id, record_kind, log_index, data_index, action_source, action_index, method_name)
             DO UPDATE SET
               block_height = EXCLUDED.block_height,
               block_timestamp = EXCLUDED.block_timestamp,
@@ -1270,11 +1584,11 @@ impl VenearGovernanceModule {
                 execution_outcome_id.into(),
                 predecessor_account_id.into(),
                 contract_id.into(),
-                log_index.into(),
-                data_index.into(),
+                success.into(),
                 standard.map(ToString::to_string).into(),
                 event_type.map(ToString::to_string).into(),
-                success.into(),
+                log_index.into(),
+                data_index.into(),
                 parse_error.into(),
                 event_data.into(),
                 log_text.into(),
@@ -1289,59 +1603,258 @@ impl VenearGovernanceModule {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn upsert_lockup(
+    async fn upsert_raw_plain_log(
         &self,
         db: &impl ConnectionTrait,
-        lockup_account_id: &str,
-        owner_account_id: &str,
-        lockup_version: Option<i64>,
-        discovery_source: &str,
         block_height: i64,
         block_timestamp: i64,
-        is_active: bool,
-        deleted_at_height: Option<i64>,
+        shard_id: i32,
+        receipt_id: &str,
+        execution_outcome_id: &str,
+        predecessor_account_id: &str,
+        contract_id: &str,
+        log_index: i32,
+        success: bool,
+        log_text: &str,
     ) -> Result<()> {
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_lockups (lockup_account_id, owner_account_id, lockup_version, discovery_source, discovered_at_height, discovered_at_timestamp, last_seen_height, last_seen_timestamp, is_active, deleted_at_height, deleted_at_timestamp, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $5, $6, $7, $8, $9, $10)
-            ON CONFLICT (lockup_account_id)
+            "INSERT INTO near.near_venear_events_raw (record_kind, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, standard, event_type, log_index, data_index, method_name, action_source, action_index, args_json, args_base64, attached_deposit, success_value_json, parse_error, event_data, log_text)
+            VALUES ('plain_log', $1, $2, $3, NULL, $4, $5, $6, $7, $8, NULL, NULL, $9, -1, '', '', -1, NULL, NULL, NULL, NULL, NULL, NULL, $10)
+            ON CONFLICT (execution_outcome_id, record_kind, log_index, data_index, action_source, action_index, method_name)
             DO UPDATE SET
-              owner_account_id = EXCLUDED.owner_account_id,
-              lockup_version = COALESCE(EXCLUDED.lockup_version, near.near_venear_lockups.lockup_version),
-              discovery_source = EXCLUDED.discovery_source,
-              discovered_at_height = LEAST(near.near_venear_lockups.discovered_at_height, EXCLUDED.discovered_at_height),
-              discovered_at_timestamp = LEAST(near.near_venear_lockups.discovered_at_timestamp, EXCLUDED.discovered_at_timestamp),
-              last_seen_height = GREATEST(near.near_venear_lockups.last_seen_height, EXCLUDED.last_seen_height),
-              last_seen_timestamp = GREATEST(near.near_venear_lockups.last_seen_timestamp, EXCLUDED.last_seen_timestamp),
-              is_active = EXCLUDED.is_active,
-              deleted_at_height = CASE
-                WHEN EXCLUDED.is_active THEN NULL
-                ELSE COALESCE(EXCLUDED.deleted_at_height, near.near_venear_lockups.deleted_at_height)
-              END,
-              deleted_at_timestamp = CASE
-                WHEN EXCLUDED.is_active THEN NULL
-                ELSE COALESCE(EXCLUDED.deleted_at_timestamp, near.near_venear_lockups.deleted_at_timestamp)
-              END,
-              metadata = COALESCE(EXCLUDED.metadata, near.near_venear_lockups.metadata)",
+              block_height = EXCLUDED.block_height,
+              block_timestamp = EXCLUDED.block_timestamp,
+              shard_id = EXCLUDED.shard_id,
+              receipt_id = EXCLUDED.receipt_id,
+              predecessor_account_id = EXCLUDED.predecessor_account_id,
+              contract_id = EXCLUDED.contract_id,
+              success = EXCLUDED.success,
+              log_text = EXCLUDED.log_text",
             vec![
-                lockup_account_id.into(),
-                owner_account_id.into(),
-                lockup_version.into(),
-                discovery_source.into(),
                 block_height.into(),
                 block_timestamp.into(),
-                is_active.into(),
-                deleted_at_height.into(),
-                deleted_at_height.map(|_| block_timestamp).into(),
-                Option::<JsonValue>::None.into(),
+                shard_id.into(),
+                receipt_id.into(),
+                execution_outcome_id.into(),
+                predecessor_account_id.into(),
+                contract_id.into(),
+                success.into(),
+                log_index.into(),
+                log_text.into(),
+            ],
+        ))
+        .await?;
+
+        self.upsert_identity_governance_accounts(db, [predecessor_account_id, contract_id])
+            .await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_raw_method(
+        &self,
+        db: &impl ConnectionTrait,
+        action_source: &str,
+        action_index: i32,
+        method_name: &str,
+        args_json: Option<JsonValue>,
+        args_base64: String,
+        attached_deposit: String,
+        context: &ActionContext,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_venear_events_raw (record_kind, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, standard, event_type, log_index, data_index, method_name, action_source, action_index, args_json, args_base64, attached_deposit, success_value_json, parse_error, event_data, log_text)
+            VALUES ('method_call', $1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, -1, -1, $10, $11, $12, $13, $14, $15, $16, NULL, NULL, '')
+            ON CONFLICT (execution_outcome_id, record_kind, log_index, data_index, action_source, action_index, method_name)
+            DO UPDATE SET
+              block_height = EXCLUDED.block_height,
+              block_timestamp = EXCLUDED.block_timestamp,
+              shard_id = EXCLUDED.shard_id,
+              transaction_hash = EXCLUDED.transaction_hash,
+              receipt_id = EXCLUDED.receipt_id,
+              predecessor_account_id = EXCLUDED.predecessor_account_id,
+              contract_id = EXCLUDED.contract_id,
+              success = EXCLUDED.success,
+              args_json = EXCLUDED.args_json,
+              args_base64 = EXCLUDED.args_base64,
+              attached_deposit = EXCLUDED.attached_deposit,
+              success_value_json = EXCLUDED.success_value_json",
+            vec![
+                context.block_height.into(),
+                context.block_timestamp.into(),
+                context.shard_id.into(),
+                context.transaction_hash.clone().into(),
+                context.receipt_id.clone().into(),
+                context.execution_outcome_id.clone().into(),
+                context.predecessor_id.clone().into(),
+                context.receiver_id.clone().into(),
+                context.success.into(),
+                method_name.into(),
+                action_source.into(),
+                action_index.into(),
+                args_json.into(),
+                args_base64.into(),
+                attached_deposit.into(),
+                Self::decode_success_value_json(context.success_value_base64.as_deref()).into(),
+            ],
+        ))
+        .await?;
+
+        self.upsert_identity_governance_accounts(
+            db,
+            [
+                context.predecessor_id.as_str(),
+                context.receiver_id.as_str(),
+            ],
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn insert_lockup_event(
+        &self,
+        db: &impl ConnectionTrait,
+        lockup_account_id: &str,
+        owner_account_id: Option<&str>,
+        event_type: &str,
+        lockup_version: Option<i64>,
+        lockup_update_nonce: Option<i64>,
+        locked_near_balance: Option<String>,
+        action_source: &str,
+        transaction_hash: Option<&str>,
+        receipt_id: &str,
+        execution_outcome_id: &str,
+        predecessor_account_id: &str,
+        contract_id: &str,
+        success: bool,
+        block_height: i64,
+        block_timestamp: i64,
+        shard_id: i32,
+        log_index: i32,
+        data_index: i32,
+        payload: Option<JsonValue>,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_venear_lockup_events (lockup_account_id, owner_account_id, event_type, lockup_version, lockup_update_nonce, locked_near_balance, action_source, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, block_height, block_timestamp, shard_id, log_index, data_index, payload)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+            ON CONFLICT (execution_outcome_id, event_type, lockup_account_id, log_index, data_index)
+            DO UPDATE SET
+              owner_account_id = EXCLUDED.owner_account_id,
+              lockup_version = EXCLUDED.lockup_version,
+              lockup_update_nonce = EXCLUDED.lockup_update_nonce,
+              locked_near_balance = EXCLUDED.locked_near_balance,
+              action_source = EXCLUDED.action_source,
+              transaction_hash = EXCLUDED.transaction_hash,
+              predecessor_account_id = EXCLUDED.predecessor_account_id,
+              contract_id = EXCLUDED.contract_id,
+              success = EXCLUDED.success,
+              block_height = EXCLUDED.block_height,
+              block_timestamp = EXCLUDED.block_timestamp,
+              shard_id = EXCLUDED.shard_id,
+              payload = EXCLUDED.payload",
+            vec![
+                lockup_account_id.into(),
+                owner_account_id.map(ToString::to_string).into(),
+                event_type.into(),
+                lockup_version.into(),
+                lockup_update_nonce.into(),
+                locked_near_balance.into(),
+                action_source.into(),
+                transaction_hash.map(ToString::to_string).into(),
+                receipt_id.into(),
+                execution_outcome_id.into(),
+                predecessor_account_id.into(),
+                contract_id.into(),
+                success.into(),
+                block_height.into(),
+                block_timestamp.into(),
+                shard_id.into(),
+                log_index.into(),
+                data_index.into(),
+                payload.into(),
             ],
         ))
         .await?;
 
         self.upsert_identity_lockup_accounts(db, [lockup_account_id])
             .await?;
-        self.upsert_identity_governance_accounts(db, [owner_account_id])
+        let mut governance_accounts = vec![predecessor_account_id, contract_id];
+        if let Some(owner_account_id) = owner_account_id {
+            governance_accounts.push(owner_account_id);
+        }
+        self.upsert_identity_governance_accounts(db, governance_accounts)
+            .await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_admin_event(
+        &self,
+        db: &impl ConnectionTrait,
+        contract_id: &str,
+        method_name: &str,
+        action_source: &str,
+        action_index: i32,
+        predecessor_account_id: &str,
+        args_json: Option<JsonValue>,
+        args_base64: String,
+        attached_deposit: String,
+        transaction_hash: Option<&str>,
+        receipt_id: &str,
+        execution_outcome_id: &str,
+        success: bool,
+        block_height: i64,
+        block_timestamp: i64,
+        shard_id: i32,
+        metadata: Option<JsonValue>,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_venear_admin_events (contract_id, method_name, action_source, action_index, predecessor_account_id, args_json, args_base64, attached_deposit, transaction_hash, receipt_id, execution_outcome_id, success, block_height, block_timestamp, shard_id, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            ON CONFLICT (receipt_id, action_index, method_name, contract_id)
+            DO UPDATE SET
+              action_source = EXCLUDED.action_source,
+              predecessor_account_id = EXCLUDED.predecessor_account_id,
+              args_json = EXCLUDED.args_json,
+              args_base64 = EXCLUDED.args_base64,
+              attached_deposit = EXCLUDED.attached_deposit,
+              transaction_hash = EXCLUDED.transaction_hash,
+              execution_outcome_id = EXCLUDED.execution_outcome_id,
+              success = EXCLUDED.success,
+              block_height = EXCLUDED.block_height,
+              block_timestamp = EXCLUDED.block_timestamp,
+              shard_id = EXCLUDED.shard_id,
+              metadata = EXCLUDED.metadata",
+            vec![
+                contract_id.into(),
+                method_name.into(),
+                action_source.into(),
+                action_index.into(),
+                predecessor_account_id.into(),
+                args_json.into(),
+                args_base64.into(),
+                attached_deposit.into(),
+                transaction_hash.map(ToString::to_string).into(),
+                receipt_id.into(),
+                execution_outcome_id.into(),
+                success.into(),
+                block_height.into(),
+                block_timestamp.into(),
+                shard_id.into(),
+                metadata.into(),
+            ],
+        ))
+        .await?;
+
+        self.upsert_identity_governance_accounts(db, [predecessor_account_id, contract_id])
             .await?;
 
         Ok(())
@@ -1391,11 +1904,96 @@ impl VenearGovernanceModule {
             vec![
                 account_id.into(),
                 event_type.into(),
-                delta_amount.into(),
+                delta_amount.clone().into(),
                 total_balance.to_string().into(),
                 locked_near_balance.map(|v| v.to_string()).into(),
                 lockup_update_nonce.into(),
                 lockup_version.into(),
+                block_height.into(),
+                block_timestamp.into(),
+                shard_id.into(),
+                receipt_id.into(),
+                execution_outcome_id.into(),
+                predecessor_account_id.into(),
+                contract_id.into(),
+                log_index.into(),
+                data_index.into(),
+                payload.clone().into(),
+            ],
+        ))
+        .await?;
+
+        self.upsert_account_voting_power_event(
+            db,
+            account_id,
+            event_type,
+            None,
+            &total_balance.to_string(),
+            delta_amount.clone(),
+            block_height,
+            block_timestamp,
+            shard_id,
+            receipt_id,
+            execution_outcome_id,
+            predecessor_account_id,
+            contract_id,
+            log_index,
+            data_index,
+            payload.clone(),
+        )
+        .await?;
+
+        self.upsert_identity_governance_accounts(
+            db,
+            [account_id, predecessor_account_id, contract_id],
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_account_voting_power_event(
+        &self,
+        db: &impl ConnectionTrait,
+        account_id: &str,
+        event_type: &str,
+        proposal_id: Option<i64>,
+        voting_power: &str,
+        delta_voting_power: Option<String>,
+        block_height: i64,
+        block_timestamp: i64,
+        shard_id: i32,
+        receipt_id: &str,
+        execution_outcome_id: &str,
+        predecessor_account_id: &str,
+        contract_id: &str,
+        log_index: i32,
+        data_index: i32,
+        payload: Option<JsonValue>,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_venear_account_voting_power_events (account_id, event_type, proposal_id, voting_power, delta_voting_power, block_height, block_timestamp, shard_id, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index, payload)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            ON CONFLICT (execution_outcome_id, log_index, data_index, account_id, event_type)
+            DO UPDATE SET
+              proposal_id = EXCLUDED.proposal_id,
+              voting_power = EXCLUDED.voting_power,
+              delta_voting_power = EXCLUDED.delta_voting_power,
+              block_height = EXCLUDED.block_height,
+              block_timestamp = EXCLUDED.block_timestamp,
+              shard_id = EXCLUDED.shard_id,
+              receipt_id = EXCLUDED.receipt_id,
+              predecessor_account_id = EXCLUDED.predecessor_account_id,
+              contract_id = EXCLUDED.contract_id,
+              payload = EXCLUDED.payload",
+            vec![
+                account_id.into(),
+                event_type.into(),
+                proposal_id.into(),
+                voting_power.into(),
+                delta_voting_power.into(),
                 block_height.into(),
                 block_timestamp.into(),
                 shard_id.into(),
@@ -2058,7 +2656,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lockup_reactivation_clears_delete_markers() -> Result<()> {
+    async fn lockup_event_stream_records_delete_and_reactivation() -> Result<()> {
         init_test_tracing();
 
         let db = TestDatabase::new().await;
@@ -2067,53 +2665,74 @@ mod tests {
         module.initialize(conn.as_ref()).await?;
 
         module
-            .upsert_lockup(
+            .insert_lockup_event(
                 conn.as_ref(),
                 "reactivate.venear.dao",
-                "alice.near",
+                Some("alice.near"),
+                "lockup_delete",
                 Some(1),
-                "lockup_delete_event",
+                Some(10),
+                Some("100".to_string()),
+                "event_json",
+                None,
+                "rcpt-delete",
+                "exec-delete",
+                "alice.near",
+                "reactivate.venear.dao",
+                true,
                 100,
                 1000,
-                false,
-                Some(100),
-            )
-            .await?;
-
-        module
-            .upsert_lockup(
-                conn.as_ref(),
-                "reactivate.venear.dao",
-                "alice.near",
-                Some(1),
-                "lockup_deployed_event",
-                101,
-                1001,
-                true,
+                0,
+                0,
+                0,
                 None,
             )
             .await?;
 
-        let is_active = scalar_bool(
-            conn.as_ref(),
-            "SELECT is_active AS value FROM near.near_venear_lockups WHERE lockup_account_id = 'reactivate.venear.dao' LIMIT 1",
-        )
-        .await?;
-        assert!(is_active);
+        module
+            .insert_lockup_event(
+                conn.as_ref(),
+                "reactivate.venear.dao",
+                Some("alice.near"),
+                "lockup_deployed",
+                Some(1),
+                Some(11),
+                Some("120".to_string()),
+                "event_json",
+                None,
+                "rcpt-deploy",
+                "exec-deploy",
+                "alice.near",
+                "reactivate.venear.dao",
+                true,
+                101,
+                1001,
+                0,
+                1,
+                0,
+                None,
+            )
+            .await?;
 
-        let deleted_at_height = scalar_opt_string(
+        let event_count = scalar_i64(
             conn.as_ref(),
-            "SELECT deleted_at_height::text AS value FROM near.near_venear_lockups WHERE lockup_account_id = 'reactivate.venear.dao' LIMIT 1",
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_venear_lockup_events
+             WHERE lockup_account_id = 'reactivate.venear.dao'",
         )
         .await?;
-        assert_eq!(deleted_at_height, None);
+        assert_eq!(event_count, 2);
 
-        let deleted_at_timestamp = scalar_opt_string(
+        let latest_event_type = scalar_string(
             conn.as_ref(),
-            "SELECT deleted_at_timestamp::text AS value FROM near.near_venear_lockups WHERE lockup_account_id = 'reactivate.venear.dao' LIMIT 1",
+            "SELECT event_type AS value
+             FROM near.near_venear_lockup_events
+             WHERE lockup_account_id = 'reactivate.venear.dao'
+             ORDER BY block_height DESC, id DESC
+             LIMIT 1",
         )
         .await?;
-        assert_eq!(deleted_at_timestamp, None);
+        assert_eq!(latest_event_type, "lockup_deployed");
 
         let lockup_identity_exists = scalar_bool(
             conn.as_ref(),

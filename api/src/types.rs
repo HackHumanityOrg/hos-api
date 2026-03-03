@@ -577,24 +577,32 @@ pub struct VenearAccountBalanceDto {
     pub created_at_epoch: i64,
 }
 
-/// Discovered veNEAR lockup account lifecycle row.
+/// Timeseries lockup lifecycle event row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearLockupDto {
+    pub id: i64,
     pub lockup_account_id: String,
-    pub owner_account_id: String,
+    pub owner_account_id: Option<String>,
+    pub event_type: String,
     pub lockup_version: Option<i64>,
-    pub discovery_source: String,
-    pub discovered_at_height: i64,
-    pub discovered_at_timestamp_ns: i64,
-    pub discovered_at_timestamp: String,
-    pub last_seen_height: i64,
-    pub last_seen_timestamp_ns: i64,
-    pub last_seen_timestamp: String,
-    pub is_active: bool,
-    pub deleted_at_height: Option<i64>,
-    pub deleted_at_timestamp_ns: Option<i64>,
-    pub deleted_at_timestamp: Option<String>,
-    pub metadata: Option<serde_json::Value>,
+    pub lockup_update_nonce: Option<i64>,
+    pub locked_near_balance: Option<String>,
+    pub action_source: String,
+    pub transaction_hash: Option<String>,
+    pub receipt_id: String,
+    pub execution_outcome_id: String,
+    pub predecessor_account_id: String,
+    pub contract_id: String,
+    pub success: bool,
+    pub block_height: i64,
+    pub block_timestamp_ns: i64,
+    pub block_timestamp: String,
+    pub shard_id: i32,
+    pub log_index: i32,
+    pub data_index: i32,
+    pub payload: Option<serde_json::Value>,
+    pub created_at: String,
+    pub created_at_epoch: i64,
 }
 
 /// Indexed action row tied to a lockup account.
@@ -651,7 +659,7 @@ pub struct VenearDelegationEventDto {
     pub created_at_epoch: i64,
 }
 
-/// Query options for listing discovered veNEAR lockup accounts.
+/// Query options for listing lockup lifecycle events.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearLockupsQuery {
     /// Number of results to return. Defaults to 20. Max 100.
@@ -659,10 +667,14 @@ pub struct VenearLockupsQuery {
     pub limit: Option<u64>,
     /// Opaque cursor returned from previous page.
     pub cursor: Option<String>,
+    /// Filter by lockup account id.
+    pub lockup_account_id: Option<String>,
     /// Filter by owner account id.
     pub owner_account_id: Option<String>,
-    /// Filter by active lockup lifecycle state.
-    pub is_active: Option<bool>,
+    /// Filter by lockup event type.
+    pub event_type: Option<String>,
+    /// Filter by execution success status.
+    pub success: Option<bool>,
 }
 
 /// Query options for listing actions linked to one lockup account.

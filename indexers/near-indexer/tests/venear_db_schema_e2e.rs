@@ -24,17 +24,19 @@ async fn venear_schema_tables_exist_and_module_initializes() -> Result<()> {
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value FROM information_schema.tables WHERE table_schema = 'near' AND table_name IN (
             'near_venear_events_raw',
-            'near_venear_lockups',
+            'near_venear_lockup_events',
             'near_venear_account_balances',
+            'near_venear_account_voting_power_events',
             'near_venear_proposal_events',
             'near_venear_votes',
             'near_venear_lockup_actions',
-            'near_venear_delegation_events'
+            'near_venear_delegation_events',
+            'near_venear_admin_events'
         )",
     )
     .await?;
 
-    assert_eq!(table_count, 7);
+    assert_eq!(table_count, 9);
 
     Ok(())
 }

@@ -6,9 +6,9 @@
 //! and asserts correct DB state across ALL relevant tables.
 //!
 //! Fixtures are generated once by `examples/fetch_venear_fixtures.rs` and then
-//! committed to the repository. Most tests require real fixtures; for event
-//! types that are rare or currently unavailable in committed fixtures, tests
-//! use a minimal synthetic fixture derived from a related real block.
+//! committed to the repository. Tests are intentionally real-fixture-first;
+//! if a rare fixture is currently unavailable on-chain, the corresponding test
+//! is skipped with a clear message instead of synthesizing fake chain data.
 
 mod support;
 
@@ -21,7 +21,6 @@ use near_indexer::modules::venear_governance::VenearGovernanceModule;
 use near_indexer::IndexerModule;
 use near_lake_framework::near_indexer_primitives::StreamerMessage;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-use serde_json::json;
 use std::path::Path;
 use support::{init_test_tracing, TestDatabase};
 
@@ -51,158 +50,6 @@ fn try_load_fixture(name: &str) -> Option<StreamerMessage> {
 
 fn load_fixture(name: &str) -> StreamerMessage {
     try_load_fixture(name).unwrap_or_else(|| panic!("Required fixture not found: {name}.json"))
-}
-
-fn synthetic_proposal_reject_fixture_from_create(
-    create_fixture: &StreamerMessage,
-) -> StreamerMessage {
-    let mut value = serde_json::to_value(create_fixture)
-        .expect("failed to convert create fixture into mutable json");
-
-    let shards = value
-        .get_mut("shards")
-        .and_then(|v| v.as_array_mut())
-        .expect("fixture missing shards array");
-
-    for shard in shards {
-        let Some(receipt_outcomes) = shard
-            .get_mut("receipt_execution_outcomes")
-            .and_then(|v| v.as_array_mut())
-        else {
-            continue;
-        };
-
-        for receipt_outcome in receipt_outcomes {
-            let Some(logs) = receipt_outcome
-                .get_mut("execution_outcome")
-                .and_then(|v| v.get_mut("outcome"))
-                .and_then(|v| v.get_mut("logs"))
-                .and_then(|v| v.as_array_mut())
-            else {
-                continue;
-            };
-
-            for log in logs {
-                let Some(log_text) = log.as_str() else {
-                    continue;
-                };
-                if !log_text.starts_with("EVENT_JSON:") {
-                    continue;
-                }
-
-                let Ok(mut payload) = serde_json::from_str::<serde_json::Value>(&log_text[11..])
-                else {
-                    continue;
-                };
-
-                if payload.get("standard").and_then(|v| v.as_str()) != Some("venear")
-                    || payload.get("event").and_then(|v| v.as_str()) != Some("create_proposal")
-                {
-                    continue;
-                }
-
-                let Some(first_data) = payload
-                    .get("data")
-                    .and_then(|v| v.as_array())
-                    .and_then(|items| items.first())
-                else {
-                    continue;
-                };
-
-                let proposal_id = first_data
-                    .get("proposal_id")
-                    .cloned()
-                    .unwrap_or_else(|| json!(0));
-                let account_id = first_data
-                    .get("proposer_id")
-                    .cloned()
-                    .unwrap_or_else(|| json!("unknown.near"));
-
-                payload["event"] = json!("proposal_reject");
-                payload["data"] = json!([{
-                    "account_id": account_id,
-                    "proposal_id": proposal_id,
-                    "voting_start_time_sec": null
-                }]);
-
-                *log = json!(format!(
-                    "EVENT_JSON:{}",
-                    serde_json::to_string(&payload)
-                        .expect("failed to serialize synthetic reject payload")
-                ));
-
-                return serde_json::from_value(value)
-                    .expect("failed to deserialize synthetic proposal_reject fixture");
-            }
-        }
-    }
-
-    panic!("Failed to synthesize proposal_reject fixture from create_proposal fixture")
-}
-
-fn synthetic_lockup_delete_fixture_from_deployed(
-    deployed_fixture: &StreamerMessage,
-) -> StreamerMessage {
-    let mut value = serde_json::to_value(deployed_fixture)
-        .expect("failed to convert deployed fixture into mutable json");
-
-    let shards = value
-        .get_mut("shards")
-        .and_then(|v| v.as_array_mut())
-        .expect("fixture missing shards array");
-
-    for shard in shards {
-        let Some(receipt_outcomes) = shard
-            .get_mut("receipt_execution_outcomes")
-            .and_then(|v| v.as_array_mut())
-        else {
-            continue;
-        };
-
-        for receipt_outcome in receipt_outcomes {
-            let Some(logs) = receipt_outcome
-                .get_mut("execution_outcome")
-                .and_then(|v| v.get_mut("outcome"))
-                .and_then(|v| v.get_mut("logs"))
-                .and_then(|v| v.as_array_mut())
-            else {
-                continue;
-            };
-
-            for log in logs {
-                let Some(log_text) = log.as_str() else {
-                    continue;
-                };
-                if !log_text.starts_with("EVENT_JSON:") {
-                    continue;
-                }
-
-                let Ok(mut payload) = serde_json::from_str::<serde_json::Value>(&log_text[11..])
-                else {
-                    continue;
-                };
-
-                if payload.get("standard").and_then(|v| v.as_str()) != Some("venear")
-                    || payload.get("event").and_then(|v| v.as_str()) != Some("lockup_deployed")
-                {
-                    continue;
-                }
-
-                payload["event"] = json!("lockup_delete");
-
-                *log = json!(format!(
-                    "EVENT_JSON:{}",
-                    serde_json::to_string(&payload)
-                        .expect("failed to serialize synthetic lockup_delete payload")
-                ));
-
-                return serde_json::from_value(value)
-                    .expect("failed to deserialize synthetic lockup_delete fixture");
-            }
-        }
-    }
-
-    panic!("Failed to synthesize lockup_delete fixture from lockup_deployed fixture")
 }
 
 fn build_test_config() -> AppConfig {
@@ -262,7 +109,7 @@ async fn scalar_i64(db: &impl ConnectionTrait, sql: &str) -> Result<i64> {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// Lockup deployed → active entry in near_venear_lockups; raw event recorded.
+/// Lockup deployed → timeseries row in near_venear_lockup_events; raw event recorded.
 /// Tables NOT affected: near_venear_proposal_events, near_venear_votes.
 #[tokio::test]
 async fn test_lockup_deployed() -> Result<()> {
@@ -277,31 +124,21 @@ async fn test_lockup_deployed() -> Result<()> {
 
     module.process_block(&fixture, conn.as_ref()).await?;
 
-    // near_venear_lockups: active lockup with correct suffix and discovery source
-    let lockup_active = scalar_i64(
+    // near_venear_lockup_events: lockup_deployed row for a .venear.dao account
+    let lockup_deployed = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockups WHERE is_active = true",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE event_type = 'lockup_deployed'",
     )
     .await?;
     assert!(
-        lockup_active >= 1,
-        "expected >= 1 active lockup row after lockup_deployed, got {lockup_active}"
-    );
-
-    let lockup_deployed_source = scalar_i64(
-        conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockups
-         WHERE discovery_source = 'lockup_deployed_event'",
-    )
-    .await?;
-    assert!(
-        lockup_deployed_source >= 1,
-        "expected lockup discovery_source = 'lockup_deployed_event', got {lockup_deployed_source}"
+        lockup_deployed >= 1,
+        "expected >= 1 lockup_deployed lockup event row, got {lockup_deployed}"
     );
 
     let lockup_suffix = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockups
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
          WHERE lockup_account_id LIKE '%.venear.dao'",
     )
     .await?;
@@ -320,6 +157,20 @@ async fn test_lockup_deployed() -> Result<()> {
     assert!(
         raw_deployed >= 1,
         "expected >= 1 raw event row with event_type='lockup_deployed', got {raw_deployed}"
+    );
+
+    // near_venear_lockup_events: lockup_deployed_callback from the on_lockup_deployed receipt.
+    // The lockup_deployed event is always emitted from within the on_lockup_deployed callback,
+    // so any block with a lockup_deployed event must also have the callback receipt.
+    let callback_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE event_type = 'lockup_deployed_callback'",
+    )
+    .await?;
+    assert!(
+        callback_count >= 1,
+        "expected >= 1 lockup_deployed_callback row in near_venear_lockup_events, got {callback_count}"
     );
 
     // near_venear_proposal_events: must be empty (this block has no proposals)
@@ -349,7 +200,7 @@ async fn test_lockup_deployed() -> Result<()> {
 
 /// Lockup update → entry in near_venear_account_balances with lockup fields.
 /// The lockup_update fixture (block 167957476) also contains an on_lockup_update callback,
-/// so near_venear_lockups is also expected to have a row.
+/// so near_venear_lockup_events is also expected to have a row.
 #[tokio::test]
 async fn test_lockup_update() -> Result<()> {
     init_test_tracing();
@@ -397,10 +248,10 @@ async fn test_lockup_update() -> Result<()> {
         "expected lockup_update rows to have lockup_update_nonce set, got {balance_with_nonce}"
     );
 
-    // near_venear_lockups: on_lockup_update callback in the same block upserts a lockup
+    // near_venear_lockup_events: lockup callback/event rows exist in the same block
     let lockup_count = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockups",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events",
     )
     .await?;
     assert!(
@@ -445,14 +296,13 @@ async fn test_lockup_update() -> Result<()> {
     Ok(())
 }
 
-/// Lockup delete → lockup marked inactive in near_venear_lockups.
+/// Lockup delete → lockup_delete row in near_venear_lockup_events.
 #[tokio::test]
 async fn test_lockup_delete() -> Result<()> {
     init_test_tracing();
 
     let deployed = load_fixture("lockup_deployed");
-    let deleted = try_load_fixture("lockup_delete")
-        .unwrap_or_else(|| synthetic_lockup_delete_fixture_from_deployed(&deployed));
+    let deleted = load_fixture("lockup_delete");
 
     let db = TestDatabase::new().await;
     let conn = db.db();
@@ -462,26 +312,16 @@ async fn test_lockup_delete() -> Result<()> {
     module.process_block(&deployed, conn.as_ref()).await?;
     module.process_block(&deleted, conn.as_ref()).await?;
 
-    // near_venear_lockups: at least one inactive lockup with deleted_at_height set
-    let inactive_count = scalar_i64(
+    // near_venear_lockup_events: at least one lockup_delete row
+    let deleted_count = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockups WHERE is_active = false",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE event_type = 'lockup_delete'",
     )
     .await?;
     assert!(
-        inactive_count >= 1,
-        "expected >= 1 inactive lockup row after lockup_delete, got {inactive_count}"
-    );
-
-    let deleted_at_set = scalar_i64(
-        conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockups
-         WHERE is_active = false AND deleted_at_height IS NOT NULL",
-    )
-    .await?;
-    assert!(
-        deleted_at_set >= 1,
-        "expected deleted lockup to have deleted_at_height set, got {deleted_at_set}"
+        deleted_count >= 1,
+        "expected >= 1 lockup_delete event row after lockup_delete, got {deleted_count}"
     );
 
     // near_venear_events_raw: both lockup_deployed and lockup_delete events recorded
@@ -505,6 +345,59 @@ async fn test_lockup_delete() -> Result<()> {
     assert_eq!(
         proposal_count, 0,
         "expected 0 proposal events from lockup_delete test, got {proposal_count}"
+    );
+
+    Ok(())
+}
+
+/// lockup_lock_near event from a lockup contract is captured as a lockup event.
+#[tokio::test]
+async fn test_lockup_lock_near() -> Result<()> {
+    init_test_tracing();
+
+    let Some(fixture) = try_load_fixture("lockup_lock_near") else {
+        eprintln!("SKIP test_lockup_lock_near: lockup_lock_near fixture not found");
+        return Ok(());
+    };
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_test_config());
+    module.initialize(conn.as_ref()).await?;
+
+    module.process_block(&fixture, conn.as_ref()).await?;
+
+    let lockup_event_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE event_type = 'lockup_lock_near'",
+    )
+    .await?;
+    assert!(
+        lockup_event_count >= 1,
+        "expected >= 1 lockup_lock_near row, got {lockup_event_count}"
+    );
+
+    let lockup_with_balance = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE event_type = 'lockup_lock_near' AND locked_near_balance IS NOT NULL",
+    )
+    .await?;
+    assert!(
+        lockup_with_balance >= 1,
+        "expected lockup_lock_near row with locked_near_balance set, got {lockup_with_balance}"
+    );
+
+    let raw_event_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw
+         WHERE event_type = 'lockup_lock_near' AND standard = 'venear'",
+    )
+    .await?;
+    assert!(
+        raw_event_count >= 1,
+        "expected >= 1 raw lockup_lock_near event row, got {raw_event_count}"
     );
 
     Ok(())
@@ -681,9 +574,14 @@ async fn test_proposal_lifecycle() -> Result<()> {
 async fn test_proposal_reject() -> Result<()> {
     init_test_tracing();
 
-    let create = load_fixture("create_proposal");
-    let reject = try_load_fixture("proposal_reject")
-        .unwrap_or_else(|| synthetic_proposal_reject_fixture_from_create(&create));
+    let Some(create) = try_load_fixture("create_proposal") else {
+        eprintln!("SKIP test_proposal_reject: create_proposal fixture not found");
+        return Ok(());
+    };
+    let Some(reject) = try_load_fixture("proposal_reject") else {
+        eprintln!("SKIP test_proposal_reject: proposal_reject fixture not found");
+        return Ok(());
+    };
 
     let db = TestDatabase::new().await;
     let conn = db.db();
@@ -773,6 +671,17 @@ async fn test_voting() -> Result<()> {
     assert!(
         vote_with_fields >= 1,
         "expected add_vote rows to have proposal_id, account_id, and account_balance set, got {vote_with_fields}"
+    );
+
+    let voting_power_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_account_voting_power_events
+         WHERE event_type = 'add_vote'",
+    )
+    .await?;
+    assert!(
+        voting_power_count >= 1,
+        "expected >= 1 account_voting_power add_vote row, got {voting_power_count}"
     );
 
     // near_venear_events_raw: add_vote event recorded with venear standard
@@ -896,6 +805,17 @@ async fn test_ft_mint_and_burn() -> Result<()> {
         "expected >= 1 raw event row with event_type='ft_mint' and standard='nep141', got {raw_mint}"
     );
 
+    let mint_voting_power_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_account_voting_power_events
+         WHERE event_type = 'ft_mint'",
+    )
+    .await?;
+    assert!(
+        mint_voting_power_count >= 1,
+        "expected >= 1 account_voting_power ft_mint row, got {mint_voting_power_count}"
+    );
+
     // near_venear_proposal_events: must be empty (ft_mint block has no proposals)
     let proposal_count = scalar_i64(
         conn.as_ref(),
@@ -968,12 +888,23 @@ async fn test_ft_mint_and_burn() -> Result<()> {
             raw_burn >= 1,
             "expected >= 1 raw event row with event_type='ft_burn', got {raw_burn}"
         );
+
+        let burn_voting_power_count = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_account_voting_power_events
+             WHERE event_type = 'ft_burn'",
+        )
+        .await?;
+        assert!(
+            burn_voting_power_count >= 1,
+            "expected >= 1 account_voting_power ft_burn row, got {burn_voting_power_count}"
+        );
     }
 
     Ok(())
 }
 
-/// on_lockup_update callback → lockup upserted in near_venear_lockups.
+/// on_lockup_update callback → lockup row in near_venear_lockup_events.
 /// The on_lockup_update fixture (block 167957476) also contains a lockup_update event,
 /// so near_venear_account_balances is expected to have rows too.
 #[tokio::test]
@@ -992,10 +923,10 @@ async fn test_on_lockup_update_callback() -> Result<()> {
 
     module.process_block(&fixture, conn.as_ref()).await?;
 
-    // near_venear_lockups: lockup upserted with correct suffix (from callback)
+    // near_venear_lockup_events: lockup callback event row with correct suffix
     let lockup_count = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockups",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events",
     )
     .await?;
     assert!(
@@ -1003,15 +934,15 @@ async fn test_on_lockup_update_callback() -> Result<()> {
         "expected >= 1 lockup row after on_lockup_update callback, got {lockup_count}"
     );
 
-    let lockup_active = scalar_i64(
+    let lockup_with_suffix = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockups
-         WHERE is_active = true AND lockup_account_id LIKE '%.venear.dao'",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE lockup_account_id LIKE '%.venear.dao'",
     )
     .await?;
     assert!(
-        lockup_active >= 1,
-        "expected >= 1 active .venear.dao lockup after on_lockup_update, got {lockup_active}"
+        lockup_with_suffix >= 1,
+        "expected >= 1 .venear.dao lockup event after on_lockup_update, got {lockup_with_suffix}"
     );
 
     // near_venear_account_balances: lockup_update event in same block
@@ -1112,15 +1043,28 @@ async fn test_lockup_action() -> Result<()> {
         "expected lockup_action rows to have lockup_account_id ending in .venear.dao, got {action_with_suffix}"
     );
 
-    // near_venear_lockups: lockup_deployed pre-load created a row
+    // near_venear_events_raw: all function-call actions on target contracts are captured.
+    let raw_method_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw
+         WHERE record_kind = 'method_call'",
+    )
+    .await?;
+    assert!(
+        raw_method_rows >= 1,
+        "expected >= 1 raw method_call row, got {raw_method_rows}"
+    );
+
+    // near_venear_lockup_events: lockup_deployed pre-load created a row
     let lockup_count = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockups WHERE is_active = true",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE event_type = 'lockup_deployed'",
     )
     .await?;
     assert!(
         lockup_count >= 1,
-        "expected >= 1 active lockup row (from lockup_deployed pre-load), got {lockup_count}"
+        "expected >= 1 lockup_deployed row (from lockup_deployed pre-load), got {lockup_count}"
     );
 
     // near_venear_proposal_events: must be empty (no proposals in either block)
@@ -1258,6 +1202,115 @@ async fn test_delegation_actions_failures() -> Result<()> {
     Ok(())
 }
 
+/// Admin methods on venear.dao / vote.dao are captured in near_venear_admin_events
+/// and also mirrored into near_venear_events_raw as method_call rows.
+#[tokio::test]
+async fn test_admin_methods_capture() -> Result<()> {
+    init_test_tracing();
+
+    let fixture_specs = [
+        ("admin_set_lockup_contract", "venear.dao", "set_lockup_contract"),
+        (
+            "admin_set_lockup_code_deployers",
+            "venear.dao",
+            "set_lockup_code_deployers",
+        ),
+        ("admin_prepare_lockup_code", "venear.dao", "prepare_lockup_code"),
+        ("admin_set_guardians", "vote.dao", "set_guardians"),
+        ("admin_set_reviewer_ids", "vote.dao", "set_reviewer_ids"),
+        ("admin_upgrade", "vote.dao", "upgrade"),
+        ("admin_migrate_state", "vote.dao", "migrate_state"),
+    ];
+
+    let available: Vec<(&str, &str, &str, StreamerMessage)> = fixture_specs
+        .iter()
+        .filter_map(|(fixture_name, contract_id, method_name)| {
+            try_load_fixture(fixture_name)
+                .map(|fixture| (*fixture_name, *contract_id, *method_name, fixture))
+        })
+        .collect();
+
+    if available.is_empty() {
+        eprintln!("SKIP test_admin_methods_capture: admin fixtures not found");
+        return Ok(());
+    }
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_test_config());
+    module.initialize(conn.as_ref()).await?;
+
+    for (fixture_name, _, _, fixture) in &available {
+        module
+            .process_block(fixture, conn.as_ref())
+            .await
+            .unwrap_or_else(|e| panic!("process_block failed for fixture '{fixture_name}': {e}"));
+    }
+
+    for (fixture_name, contract_id, method_name, _) in &available {
+        let admin_count = scalar_i64(
+            conn.as_ref(),
+            &format!(
+                "SELECT COUNT(*)::bigint AS value FROM near.near_venear_admin_events\n                 WHERE contract_id = '{}' AND method_name = '{}'",
+                contract_id, method_name
+            ),
+        )
+        .await?;
+        assert!(
+            admin_count >= 1,
+            "expected >= 1 admin event row for fixture {} ({contract_id}.{method_name}), got {admin_count}",
+            fixture_name
+        );
+
+        let raw_method_count = scalar_i64(
+            conn.as_ref(),
+            &format!(
+                "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw\n                 WHERE record_kind = 'method_call' AND contract_id = '{}' AND method_name = '{}'",
+                contract_id, method_name
+            ),
+        )
+        .await?;
+        assert!(
+            raw_method_count >= 1,
+            "expected >= 1 raw method_call row for fixture {} ({contract_id}.{method_name}), got {raw_method_count}",
+            fixture_name
+        );
+    }
+
+    Ok(())
+}
+
+/// Optional coverage for plain non-EVENT_JSON logs on target contracts.
+#[tokio::test]
+async fn test_plain_logs_capture_if_available() -> Result<()> {
+    init_test_tracing();
+
+    let Some(fixture) = try_load_fixture("plain_log") else {
+        eprintln!("SKIP test_plain_logs_capture_if_available: plain_log fixture not found");
+        return Ok(());
+    };
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_test_config());
+    module.initialize(conn.as_ref()).await?;
+
+    module.process_block(&fixture, conn.as_ref()).await?;
+
+    let plain_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw
+         WHERE record_kind = 'plain_log'",
+    )
+    .await?;
+    assert!(
+        plain_count >= 1,
+        "expected >= 1 plain_log row in near_venear_events_raw, got {plain_count}"
+    );
+
+    Ok(())
+}
+
 /// Idempotency: re-processing the same delegation fixture does not duplicate rows.
 #[tokio::test]
 async fn test_delegation_idempotency() -> Result<()> {
@@ -1387,6 +1440,7 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
         "lockup_deployed",
         "lockup_update",
         "lockup_delete",
+        "lockup_lock_near",
         "create_proposal",
         "proposal_approve",
         "proposal_reject",
@@ -1396,11 +1450,24 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
         "ft_mint",
         "ft_burn",
         "on_lockup_update",
+        "on_lockup_deployed",
+        "on_lockup_deployed_failed",
         "lockup_action",
+        "begin_unlock_near",
+        "end_unlock_near",
+        "lock_pending_near",
         "delegate_all",
         "undelegate",
         "delegate_all_failed",
         "undelegate_failed",
+        "admin_set_lockup_contract",
+        "admin_set_lockup_code_deployers",
+        "admin_prepare_lockup_code",
+        "admin_set_guardians",
+        "admin_set_reviewer_ids",
+        "admin_upgrade",
+        "admin_migrate_state",
+        "plain_log",
     ];
 
     let fixtures: Vec<(&str, StreamerMessage)> = all_names
@@ -1443,6 +1510,7 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
 
     let action_only_fixtures: std::collections::HashSet<&str> = [
         "lockup_action",
+        "on_lockup_deployed_failed",
         "delegate_all",
         "undelegate",
         "delegate_all_failed",
@@ -1464,16 +1532,16 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
         raw_count
     );
 
-    // near_venear_lockups: populated by lockup_deployed and/or on_lockup_update
+    // near_venear_lockup_events: populated by lockup_deployed and/or on_lockup_update
     if loaded_names.contains("lockup_deployed") || loaded_names.contains("on_lockup_update") {
         let lockup_count = scalar_i64(
             conn.as_ref(),
-            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockups",
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events",
         )
         .await?;
         assert!(
             lockup_count >= 1,
-            "expected >= 1 row in near_venear_lockups after loading lockup fixtures, got {lockup_count}"
+            "expected >= 1 row in near_venear_lockup_events after loading lockup fixtures, got {lockup_count}"
         );
     }
 
@@ -1490,6 +1558,24 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
         assert!(
             balance_count >= 1,
             "expected >= 1 row in near_venear_account_balances after loading balance fixtures, got {balance_count}"
+        );
+    }
+
+    // near_venear_account_voting_power_events: populated by add_vote/remove_vote and balance events.
+    if loaded_names.contains("add_vote")
+        || loaded_names.contains("remove_vote")
+        || loaded_names.contains("ft_mint")
+        || loaded_names.contains("ft_burn")
+        || loaded_names.contains("lockup_update")
+    {
+        let voting_power_count = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_account_voting_power_events",
+        )
+        .await?;
+        assert!(
+            voting_power_count >= 1,
+            "expected >= 1 row in near_venear_account_voting_power_events after loading voting-power fixtures, got {voting_power_count}"
         );
     }
 
@@ -1552,11 +1638,217 @@ async fn test_all_available_fixtures_process_cleanly() -> Result<()> {
         );
     }
 
+    if loaded_names.contains("admin_set_lockup_contract")
+        || loaded_names.contains("admin_set_lockup_code_deployers")
+        || loaded_names.contains("admin_prepare_lockup_code")
+        || loaded_names.contains("admin_set_guardians")
+        || loaded_names.contains("admin_set_reviewer_ids")
+        || loaded_names.contains("admin_upgrade")
+        || loaded_names.contains("admin_migrate_state")
+    {
+        let admin_count = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_admin_events",
+        )
+        .await?;
+        assert!(
+            admin_count >= 1,
+            "expected >= 1 row in near.near_venear_admin_events after loading admin fixtures, got {admin_count}"
+        );
+    }
+
+    // near_venear_lockup_events: populated by unlock lifecycle methods
+    if loaded_names.contains("begin_unlock_near")
+        || loaded_names.contains("end_unlock_near")
+        || loaded_names.contains("lock_pending_near")
+    {
+        let unlock_event_count = scalar_i64(
+            conn.as_ref(),
+            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+             WHERE event_type IN ('begin_unlock_near', 'end_unlock_near', 'lock_pending_near')",
+        )
+        .await?;
+        assert!(
+            unlock_event_count >= 1,
+            "expected >= 1 lockup_event row for unlock lifecycle methods, got {unlock_event_count}"
+        );
+    }
+
     eprintln!(
         "Processed {} fixtures ({} distinct blocks) → {} raw event rows",
         fixtures.len(),
         distinct_blocks.len(),
         raw_count
+    );
+
+    Ok(())
+}
+
+/// on_lockup_deployed_failed: failed lockup deployment recorded in near_venear_lockup_events.
+/// Uses a dedicated fixture with a failed on_lockup_deployed callback if available.
+#[tokio::test]
+async fn test_lockup_deployed_callback_failed() -> Result<()> {
+    init_test_tracing();
+
+    let Some(fixture) = try_load_fixture("on_lockup_deployed_failed") else {
+        eprintln!("SKIP test_lockup_deployed_callback_failed: on_lockup_deployed_failed fixture not found");
+        return Ok(());
+    };
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_test_config());
+    module.initialize(conn.as_ref()).await?;
+
+    module.process_block(&fixture, conn.as_ref()).await?;
+
+    // A failed deployment creates a lockup_deployed_callback entry but no lockup_deployed event.
+    let callback_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE event_type = 'lockup_deployed_callback'",
+    )
+    .await?;
+    assert!(
+        callback_count >= 1,
+        "expected >= 1 lockup_deployed_callback row even for failed deployments, got {callback_count}"
+    );
+
+    let deployed_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE event_type = 'lockup_deployed'",
+    )
+    .await?;
+    assert_eq!(
+        deployed_count, 0,
+        "expected 0 lockup_deployed rows for a failed deployment block, got {deployed_count}"
+    );
+
+    Ok(())
+}
+
+/// begin_unlock_near → entry in near_venear_lockup_events and near_venear_lockup_actions.
+#[tokio::test]
+async fn test_begin_unlock_near() -> Result<()> {
+    init_test_tracing();
+
+    let Some(fixture) = try_load_fixture("begin_unlock_near") else {
+        eprintln!("SKIP test_begin_unlock_near: begin_unlock_near fixture not found");
+        return Ok(());
+    };
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_test_config());
+    module.initialize(conn.as_ref()).await?;
+
+    module.process_block(&fixture, conn.as_ref()).await?;
+
+    let event_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE event_type = 'begin_unlock_near'",
+    )
+    .await?;
+    assert!(
+        event_count >= 1,
+        "expected >= 1 begin_unlock_near row in near_venear_lockup_events, got {event_count}"
+    );
+
+    let action_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_actions
+         WHERE method_name = 'begin_unlock_near'",
+    )
+    .await?;
+    assert!(
+        action_count >= 1,
+        "expected >= 1 begin_unlock_near row in near_venear_lockup_actions, got {action_count}"
+    );
+
+    Ok(())
+}
+
+/// end_unlock_near → entry in near_venear_lockup_events and near_venear_lockup_actions.
+#[tokio::test]
+async fn test_end_unlock_near() -> Result<()> {
+    init_test_tracing();
+
+    let Some(fixture) = try_load_fixture("end_unlock_near") else {
+        eprintln!("SKIP test_end_unlock_near: end_unlock_near fixture not found");
+        return Ok(());
+    };
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_test_config());
+    module.initialize(conn.as_ref()).await?;
+
+    module.process_block(&fixture, conn.as_ref()).await?;
+
+    let event_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE event_type = 'end_unlock_near'",
+    )
+    .await?;
+    assert!(
+        event_count >= 1,
+        "expected >= 1 end_unlock_near row in near_venear_lockup_events, got {event_count}"
+    );
+
+    let action_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_actions
+         WHERE method_name = 'end_unlock_near'",
+    )
+    .await?;
+    assert!(
+        action_count >= 1,
+        "expected >= 1 end_unlock_near row in near_venear_lockup_actions, got {action_count}"
+    );
+
+    Ok(())
+}
+
+/// lock_pending_near → entry in near_venear_lockup_events and near_venear_lockup_actions.
+#[tokio::test]
+async fn test_lock_pending_near() -> Result<()> {
+    init_test_tracing();
+
+    let Some(fixture) = try_load_fixture("lock_pending_near") else {
+        eprintln!("SKIP test_lock_pending_near: lock_pending_near fixture not found");
+        return Ok(());
+    };
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_test_config());
+    module.initialize(conn.as_ref()).await?;
+
+    module.process_block(&fixture, conn.as_ref()).await?;
+
+    let event_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events
+         WHERE event_type = 'lock_pending_near'",
+    )
+    .await?;
+    assert!(
+        event_count >= 1,
+        "expected >= 1 lock_pending_near row in near_venear_lockup_events, got {event_count}"
+    );
+
+    let action_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_actions
+         WHERE method_name = 'lock_pending_near'",
+    )
+    .await?;
+    assert!(
+        action_count >= 1,
+        "expected >= 1 lock_pending_near row in near_venear_lockup_actions, got {action_count}"
     );
 
     Ok(())

@@ -24,11 +24,6 @@ struct HeightIdCursor {
     id: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct StringCursor {
-    key: String,
-}
-
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals",
@@ -552,13 +547,13 @@ pub async fn list_account_delegations(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/lockups",
-    summary = "List discovered lockup accounts",
-    description = "Returns discovered veNEAR lockup accounts with lifecycle metadata. Supports owner and active-state filters and cursor pagination by lockup account id.",
+    summary = "List lockup lifecycle events",
+    description = "Returns append-only veNEAR lockup lifecycle events with optional lockup-account, owner, event-type, and success filters.",
     params(VenearLockupsQuery),
     tag = "venear",
     operation_id = "listVenearLockups",
     responses(
-        (status = 200, description = "Known veNEAR lockups", body = VenearLockupsListResponse),
+        (status = 200, description = "veNEAR lockup lifecycle event rows", body = VenearLockupsListResponse),
         (status = 400, description = "Invalid request", body = crate::errors::ApiError),
         (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
     )
@@ -570,8 +565,22 @@ pub async fn list_lockups(
     let db = require_db(&app_state)?;
     let limit = resolve_limit(query.limit);
 
+    let lockup_account_id = query
+        .lockup_account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
     let owner_account_id = query
         .owner_account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    let event_type = query
+        .event_type
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -580,7 +589,7 @@ pub async fn list_lockups(
     let lockup_cursor = query
         .cursor
         .as_deref()
-        .map(decode_cursor::<StringCursor>)
+        .map(decode_cursor::<HeightIdCursor>)
         .transpose()?;
 
     let rows = db
@@ -588,29 +597,50 @@ pub async fn list_lockups(
             DatabaseBackend::Postgres,
             "
             SELECT
+                id,
                 lockup_account_id,
                 owner_account_id,
+                event_type,
                 lockup_version,
-                discovery_source,
-                discovered_at_height,
-                discovered_at_timestamp,
-                last_seen_height,
-                last_seen_timestamp,
-                is_active,
-                deleted_at_height,
-                deleted_at_timestamp,
-                metadata
-            FROM near.near_venear_lockups
-            WHERE ($1::text IS NULL OR owner_account_id = $1::text)
-              AND ($2::boolean IS NULL OR is_active = $2::boolean)
-              AND ($3::text IS NULL OR lockup_account_id > $3::text)
-            ORDER BY lockup_account_id ASC
-            LIMIT $4
+                lockup_update_nonce,
+                locked_near_balance,
+                action_source,
+                transaction_hash,
+                receipt_id,
+                execution_outcome_id,
+                predecessor_account_id,
+                contract_id,
+                success,
+                block_height,
+                block_timestamp,
+                shard_id,
+                log_index,
+                data_index,
+                payload,
+                created_at
+            FROM near.near_venear_lockup_events
+            WHERE ($1::text IS NULL OR lockup_account_id = $1::text)
+              AND ($2::text IS NULL OR owner_account_id = $2::text)
+              AND ($3::text IS NULL OR event_type = $3::text)
+              AND ($4::boolean IS NULL OR success = $4::boolean)
+              AND (
+                $5::bigint IS NULL
+                OR block_height < $5::bigint
+                OR (block_height = $5::bigint AND id < $6::bigint)
+              )
+            ORDER BY block_height DESC, id DESC
+            LIMIT $7
             ",
             vec![
+                lockup_account_id.into(),
                 owner_account_id.into(),
-                query.is_active.into(),
-                lockup_cursor.as_ref().map(|value| value.key.clone()).into(),
+                event_type.into(),
+                query.success.into(),
+                lockup_cursor
+                    .as_ref()
+                    .map(|value| value.block_height)
+                    .into(),
+                lockup_cursor.as_ref().map(|value| value.id).into(),
                 i64::try_from(limit + 1).unwrap_or(101).into(),
             ],
         ))
@@ -630,8 +660,9 @@ pub async fn list_lockups(
     let next_cursor = data
         .last()
         .map(|row| {
-            encode_cursor(&StringCursor {
-                key: row.lockup_account_id.clone(),
+            encode_cursor(&HeightIdCursor {
+                block_height: row.block_height,
+                id: row.id,
             })
         })
         .transpose()?;
@@ -973,37 +1004,53 @@ fn to_account_balance_dto(row: &QueryResult) -> Result<VenearAccountBalanceDto, 
 
 #[allow(clippy::result_large_err)]
 fn to_lockup_dto(row: &QueryResult) -> Result<VenearLockupDto, ApiErrorResponse> {
+    let id = decode_row_col::<i64>(row, "id", "lockup event")?;
     let lockup_account_id = decode_row_col::<String>(row, "lockup_account_id", "lockup")?;
-    let owner_account_id = decode_row_col::<String>(row, "owner_account_id", "lockup")?;
+    let owner_account_id = decode_row_col::<Option<String>>(row, "owner_account_id", "lockup")?;
+    let event_type = decode_row_col::<String>(row, "event_type", "lockup")?;
     let lockup_version = decode_row_col::<Option<i64>>(row, "lockup_version", "lockup")?;
-    let discovery_source = decode_row_col::<String>(row, "discovery_source", "lockup")?;
-    let discovered_at_height = decode_row_col::<i64>(row, "discovered_at_height", "lockup")?;
-    let discovered_at_timestamp_ns =
-        decode_row_col::<i64>(row, "discovered_at_timestamp", "lockup")?;
-    let last_seen_height = decode_row_col::<i64>(row, "last_seen_height", "lockup")?;
-    let last_seen_timestamp_ns = decode_row_col::<i64>(row, "last_seen_timestamp", "lockup")?;
-    let is_active = decode_row_col::<bool>(row, "is_active", "lockup")?;
-    let deleted_at_height = decode_row_col::<Option<i64>>(row, "deleted_at_height", "lockup")?;
-    let deleted_at_timestamp_ns =
-        decode_row_col::<Option<i64>>(row, "deleted_at_timestamp", "lockup")?;
-    let metadata = decode_row_col::<Option<serde_json::Value>>(row, "metadata", "lockup")?;
+    let lockup_update_nonce = decode_row_col::<Option<i64>>(row, "lockup_update_nonce", "lockup")?;
+    let locked_near_balance =
+        decode_row_col::<Option<String>>(row, "locked_near_balance", "lockup")?;
+    let action_source = decode_row_col::<String>(row, "action_source", "lockup")?;
+    let transaction_hash = decode_row_col::<Option<String>>(row, "transaction_hash", "lockup")?;
+    let receipt_id = decode_row_col::<String>(row, "receipt_id", "lockup")?;
+    let execution_outcome_id = decode_row_col::<String>(row, "execution_outcome_id", "lockup")?;
+    let predecessor_account_id = decode_row_col::<String>(row, "predecessor_account_id", "lockup")?;
+    let contract_id = decode_row_col::<String>(row, "contract_id", "lockup")?;
+    let success = decode_row_col::<bool>(row, "success", "lockup")?;
+    let block_height = decode_row_col::<i64>(row, "block_height", "lockup")?;
+    let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "lockup")?;
+    let shard_id = decode_row_col::<i32>(row, "shard_id", "lockup")?;
+    let log_index = decode_row_col::<i32>(row, "log_index", "lockup")?;
+    let data_index = decode_row_col::<i32>(row, "data_index", "lockup")?;
+    let payload = decode_row_col::<Option<serde_json::Value>>(row, "payload", "lockup")?;
+    let created_at = decode_row_col::<NaiveDateTime>(row, "created_at", "lockup")?;
 
     Ok(VenearLockupDto {
+        id,
         lockup_account_id,
         owner_account_id,
+        event_type,
         lockup_version,
-        discovery_source,
-        discovered_at_height,
-        discovered_at_timestamp_ns,
-        discovered_at_timestamp: ns_to_rfc3339(discovered_at_timestamp_ns)?,
-        last_seen_height,
-        last_seen_timestamp_ns,
-        last_seen_timestamp: ns_to_rfc3339(last_seen_timestamp_ns)?,
-        is_active,
-        deleted_at_height,
-        deleted_at_timestamp_ns,
-        deleted_at_timestamp: deleted_at_timestamp_ns.map(ns_to_rfc3339).transpose()?,
-        metadata,
+        lockup_update_nonce,
+        locked_near_balance,
+        action_source,
+        transaction_hash,
+        receipt_id,
+        execution_outcome_id,
+        predecessor_account_id,
+        contract_id,
+        success,
+        block_height,
+        block_timestamp_ns,
+        block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
+        shard_id,
+        log_index,
+        data_index,
+        payload,
+        created_at: naive_to_rfc3339(created_at),
+        created_at_epoch: naive_to_epoch(created_at),
     })
 }
 
@@ -1193,7 +1240,7 @@ async fn ensure_lockup_exists(
 ) -> Result<(), ApiErrorResponse> {
     let count = scalar_i64_with_values(
         db,
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockups WHERE lockup_account_id = $1",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events WHERE lockup_account_id = $1",
         vec![lockup_account_id.into()],
     )
     .await?;

@@ -225,7 +225,7 @@ mod tests {
                 .get("description")
                 .and_then(|v| v.as_str())
                 .expect("lockups description")
-                .contains("lifecycle metadata"),
+                .contains("append-only"),
             "lockups endpoint should explain dataset semantics"
         );
 

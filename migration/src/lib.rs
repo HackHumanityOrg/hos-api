@@ -12,6 +12,7 @@ mod m20260302_000009_identity_schema;
 mod m20260303_000010_identity_person_name;
 mod m20260303_000011_identity_venear_platforms;
 mod m20260304_000012_near_venear_delegation_events;
+mod m20260305_000013_near_venear_timeseries_schema;
 
 pub struct Migrator;
 
@@ -31,6 +32,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260303_000010_identity_person_name::Migration),
             Box::new(m20260303_000011_identity_venear_platforms::Migration),
             Box::new(m20260304_000012_near_venear_delegation_events::Migration),
+            Box::new(m20260305_000013_near_venear_timeseries_schema::Migration),
         ]
     }
 }

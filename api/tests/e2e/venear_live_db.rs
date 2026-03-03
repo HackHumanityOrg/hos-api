@@ -199,23 +199,32 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
     execute_sql(
         db,
         r#"
-        INSERT INTO near.near_venear_lockups (
-            lockup_account_id, owner_account_id, lockup_version, discovery_source,
-            discovered_at_height, discovered_at_timestamp,
-            last_seen_height, last_seen_timestamp,
-            is_active, deleted_at_height, deleted_at_timestamp, metadata
+        INSERT INTO near.near_venear_lockup_events (
+            lockup_account_id, owner_account_id, event_type,
+            lockup_version, lockup_update_nonce, locked_near_balance,
+            action_source, transaction_hash,
+            receipt_id, execution_outcome_id,
+            predecessor_account_id, contract_id,
+            success, block_height, block_timestamp, shard_id,
+            log_index, data_index, payload
         ) VALUES
             (
-                'lock1.venear.dao', 'lane.near', 1, 'lockup_deployed_event',
-                90, 1760000000000000000,
-                140, 1760000500000000000,
-                true, NULL, NULL, '{"origin":"fixture"}'::jsonb
+                'lock1.venear.dao', 'lane.near', 'lockup_deployed',
+                1, NULL, NULL,
+                'event_json', 'tx-lockup-1',
+                'rcpt-lockup-1', 'exec-lockup-1',
+                'venear.dao', 'venear.dao',
+                true, 140, 1760000500000000000, 0,
+                0, 0, '{"origin":"fixture"}'::jsonb
             ),
             (
-                'lock2.venear.dao', 'bob.near', 1, 'lockup_delete_event',
-                80, 1759990000000000000,
-                100, 1760000000000000000,
-                false, 100, 1760000000000000000, NULL
+                'lock2.venear.dao', 'bob.near', 'lockup_delete',
+                1, NULL, NULL,
+                'event_json', 'tx-lockup-2',
+                'rcpt-lockup-2', 'exec-lockup-2',
+                'bob.near', 'lock2.venear.dao',
+                true, 100, 1760000000000000000, 0,
+                0, 0, NULL
             )
         "#,
     )

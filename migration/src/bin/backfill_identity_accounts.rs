@@ -84,7 +84,7 @@ WITH governance_accounts(account_id) AS (
     UNION
     SELECT lower(v.contract_id) FROM near.near_venear_proposal_events v
     UNION
-    SELECT lower(v.owner_account_id) FROM near.near_venear_lockups v
+    SELECT lower(v.owner_account_id) FROM near.near_venear_lockup_events v
     UNION
     SELECT lower(v.owner_account_id) FROM near.near_venear_lockup_actions v
     UNION
@@ -97,6 +97,16 @@ WITH governance_accounts(account_id) AS (
     SELECT lower(v.predecessor_account_id) FROM near.near_venear_events_raw v
     UNION
     SELECT lower(v.contract_id) FROM near.near_venear_events_raw v
+    UNION
+    SELECT lower(v.predecessor_account_id) FROM near.near_venear_admin_events v
+    UNION
+    SELECT lower(v.contract_id) FROM near.near_venear_admin_events v
+    UNION
+    SELECT lower(v.account_id) FROM near.near_venear_account_voting_power_events v
+    UNION
+    SELECT lower(v.predecessor_account_id) FROM near.near_venear_account_voting_power_events v
+    UNION
+    SELECT lower(v.contract_id) FROM near.near_venear_account_voting_power_events v
 )
 INSERT INTO identity.accounts (platform_id, scope, external_id)
 SELECT
@@ -112,7 +122,7 @@ ON CONFLICT (platform_id, scope, external_id) DO NOTHING
 
 const BACKFILL_VENEAR_LOCKUP_ACCOUNTS_FALLBACK_SQL: &str = r#"
 WITH lockup_accounts(account_id) AS (
-    SELECT lower(v.lockup_account_id) FROM near.near_venear_lockups v
+    SELECT lower(v.lockup_account_id) FROM near.near_venear_lockup_events v
     UNION
     SELECT lower(v.lockup_account_id) FROM near.near_venear_lockup_actions v
 )

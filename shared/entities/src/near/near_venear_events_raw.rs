@@ -8,18 +8,31 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
+    pub record_kind: String,
     pub block_height: i64,
     pub block_timestamp: i64,
     pub shard_id: i32,
+    pub transaction_hash: Option<String>,
     pub receipt_id: String,
     pub execution_outcome_id: String,
     pub predecessor_account_id: String,
     pub contract_id: String,
-    pub log_index: i32,
-    pub data_index: i32,
+    pub success: bool,
     pub standard: Option<String>,
     pub event_type: Option<String>,
-    pub success: bool,
+    pub log_index: i32,
+    pub data_index: i32,
+    pub method_name: String,
+    pub action_source: String,
+    pub action_index: i32,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub args_json: Option<Json>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub args_base64: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub attached_deposit: Option<String>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub success_value_json: Option<Json>,
     #[sea_orm(column_type = "Text", nullable)]
     pub parse_error: Option<String>,
     #[sea_orm(column_type = "JsonBinary", nullable)]
