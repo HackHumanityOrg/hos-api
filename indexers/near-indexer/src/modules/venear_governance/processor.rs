@@ -1140,8 +1140,7 @@ impl VenearGovernanceModule {
                 .await?;
             }
 
-            if context.receiver_id == self.venear_contract_id
-                && method_name == "on_lockup_deployed"
+            if context.receiver_id == self.venear_contract_id && method_name == "on_lockup_deployed"
             {
                 self.discover_lockup_from_on_lockup_deployed(
                     db,

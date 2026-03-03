@@ -664,7 +664,13 @@ fn check_admin_receipt_actions(
     use near_lake_framework::near_indexer_primitives::views::ReceiptEnumView;
 
     if let ReceiptEnumView::Action { actions, .. } = &receipt.receipt {
-        check_admin_actions(receiver, actions, new_types, already_found, target_event_set);
+        check_admin_actions(
+            receiver,
+            actions,
+            new_types,
+            already_found,
+            target_event_set,
+        );
     }
 }
 
@@ -705,7 +711,10 @@ fn check_plain_logs(
         return;
     }
 
-    if !is_venear_contract(receiver) && !is_voting_contract(receiver) && !receiver.ends_with(LOCKUP_SUFFIX) {
+    if !is_venear_contract(receiver)
+        && !is_voting_contract(receiver)
+        && !receiver.ends_with(LOCKUP_SUFFIX)
+    {
         return;
     }
 
@@ -758,19 +767,17 @@ fn check_callback_receipts(
                     "on_lockup_deployed" => {
                         // Distinguish success vs failure by whether lockup_deployed event fired.
                         // If there is a lockup_deployed EVENT_JSON log in this receipt, it's success.
-                        let has_lockup_deployed_event = outcome
-                            .execution_outcome
-                            .outcome
-                            .logs
-                            .iter()
-                            .any(|log| {
+                        let has_lockup_deployed_event =
+                            outcome.execution_outcome.outcome.logs.iter().any(|log| {
                                 log.starts_with(EVENT_JSON_PREFIX)
                                     && serde_json::from_str::<serde_json::Value>(
                                         &log[EVENT_JSON_PREFIX.len()..],
                                     )
                                     .ok()
                                     .and_then(|v| {
-                                        v.get("event").and_then(|e| e.as_str()).map(|e| e == "lockup_deployed")
+                                        v.get("event")
+                                            .and_then(|e| e.as_str())
+                                            .map(|e| e == "lockup_deployed")
                                     })
                                     .unwrap_or(false)
                             });

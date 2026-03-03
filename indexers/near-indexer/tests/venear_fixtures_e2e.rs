@@ -1209,13 +1209,21 @@ async fn test_admin_methods_capture() -> Result<()> {
     init_test_tracing();
 
     let fixture_specs = [
-        ("admin_set_lockup_contract", "venear.dao", "set_lockup_contract"),
+        (
+            "admin_set_lockup_contract",
+            "venear.dao",
+            "set_lockup_contract",
+        ),
         (
             "admin_set_lockup_code_deployers",
             "venear.dao",
             "set_lockup_code_deployers",
         ),
-        ("admin_prepare_lockup_code", "venear.dao", "prepare_lockup_code"),
+        (
+            "admin_prepare_lockup_code",
+            "venear.dao",
+            "prepare_lockup_code",
+        ),
         ("admin_set_guardians", "vote.dao", "set_guardians"),
         ("admin_set_reviewer_ids", "vote.dao", "set_reviewer_ids"),
         ("admin_upgrade", "vote.dao", "upgrade"),
