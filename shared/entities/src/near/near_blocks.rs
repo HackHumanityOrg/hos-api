@@ -26,6 +26,8 @@ pub struct Model {
     pub chunks_included: i64,
     pub block_ordinal: Option<i64>,
     pub prev_height: Option<i64>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub raw_data: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

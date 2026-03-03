@@ -27,7 +27,6 @@ pub struct Model {
     pub shard_id: i32,
     pub log_index: i32,
     pub data_index: i32,
-    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub payload: Option<Json>,
     pub created_at: DateTime,
 }

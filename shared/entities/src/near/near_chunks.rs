@@ -18,6 +18,8 @@ pub struct Model {
     pub gas_limit: i64,
     #[sea_orm(column_type = "Text")]
     pub validator_reward: String,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub raw_data: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

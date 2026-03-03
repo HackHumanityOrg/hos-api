@@ -4,7 +4,9 @@ use common::config::NearModuleStreamMode;
 use entities::near::*;
 use near_lake_framework::near_indexer_primitives::views::BlockView;
 use near_lake_framework::near_indexer_primitives::{IndexerShard, StreamerMessage};
-use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
+use sea_orm::{
+    sea_query::OnConflict, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait,
+};
 use serde_json;
 use std::time::Instant;
 use tracing::{info, instrument};
@@ -59,6 +61,10 @@ impl RawModule {
         }
     }
 
+    fn serialize_json<T: serde::Serialize>(value: &T, label: &str) -> Result<serde_json::Value> {
+        serde_json::to_value(value).with_context(|| format!("Failed to serialize {label}"))
+    }
+
     async fn store_block(&self, block: &BlockView, db: &impl ConnectionTrait) -> Result<()> {
         let header = &block.header;
 
@@ -79,6 +85,7 @@ impl RawModule {
             chunks_included: Set(header.chunks_included as i64),
             block_ordinal: Set(header.block_ordinal.map(|bo| bo as i64)),
             prev_height: Set(header.prev_height.map(|ph| ph as i64)),
+            raw_data: Set(Some(Self::serialize_json(block, "block raw_data")?)),
         };
 
         near_blocks::Entity::insert(block_record)
@@ -109,6 +116,7 @@ impl RawModule {
                     gas_used: Set(header.gas_used.as_gas() as i64),
                     gas_limit: Set(header.gas_limit.as_gas() as i64),
                     validator_reward: Set(header.validator_reward.to_string()),
+                    raw_data: Set(Some(Self::serialize_json(chunk, "chunk raw_data")?)),
                 };
 
                 near_chunks::Entity::insert(chunk_record)
@@ -137,16 +145,15 @@ impl RawModule {
                     let transaction_record = near_transactions::ActiveModel {
                         hash: Set(tx.hash.to_string()),
                         block_height: Set(block_height),
+                        shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
                         signer_id: Set(tx.signer_id.to_string()),
                         receiver_id: Set(tx.receiver_id.to_string()),
                         nonce: Set(tx.nonce as i64),
                         priority_fee: Set(tx.priority_fee as i64),
                         public_key: Set(tx.public_key.to_string()),
                         signature: Set(tx.signature.to_string()),
-                        actions: Set(serde_json::to_value(&tx.actions)
-                            .ok()
-                            .unwrap_or(serde_json::Value::Null)),
-                        raw_data: Set(serde_json::to_value(tx).ok()),
+                        actions: Set(Self::serialize_json(&tx.actions, "transaction actions")?),
+                        raw_data: Set(Some(Self::serialize_json(tx, "transaction raw_data")?)),
                     };
 
                     near_transactions::Entity::insert(transaction_record)
@@ -176,12 +183,17 @@ impl RawModule {
                         let receipt_record = near_receipts::ActiveModel {
                             receipt_id: Set(receipt.receipt_id.to_string()),
                             block_height: Set(block_height),
+                            shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
                             predecessor_id: Set(receipt.predecessor_id.to_string()),
                             receiver_id: Set(receipt.receiver_id.to_string()),
-                            receipt: Set(serde_json::to_value(&receipt.receipt)
-                                .ok()
-                                .unwrap_or(serde_json::Value::Null)),
-                            raw_data: Set(serde_json::to_value(receipt).ok()),
+                            receipt: Set(Self::serialize_json(
+                                &receipt.receipt,
+                                "transaction outcome receipt body",
+                            )?),
+                            raw_data: Set(Some(Self::serialize_json(
+                                receipt,
+                                "transaction outcome receipt raw_data",
+                            )?)),
                         };
 
                         near_receipts::Entity::insert(receipt_record)
@@ -197,12 +209,17 @@ impl RawModule {
                     let receipt_record = near_receipts::ActiveModel {
                         receipt_id: Set(receipt.receipt_id.to_string()),
                         block_height: Set(block_height),
+                        shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
                         predecessor_id: Set(receipt.predecessor_id.to_string()),
                         receiver_id: Set(receipt.receiver_id.to_string()),
-                        receipt: Set(serde_json::to_value(&receipt.receipt)
-                            .ok()
-                            .unwrap_or(serde_json::Value::Null)),
-                        raw_data: Set(serde_json::to_value(receipt).ok()),
+                        receipt: Set(Self::serialize_json(
+                            &receipt.receipt,
+                            "chunk receipt body",
+                        )?),
+                        raw_data: Set(Some(Self::serialize_json(
+                            receipt,
+                            "chunk receipt raw_data",
+                        )?)),
                     };
 
                     near_receipts::Entity::insert(receipt_record)
@@ -210,6 +227,31 @@ impl RawModule {
                         .exec(db)
                         .await
                         .context("Failed to insert chunk receipt record")?;
+                }
+
+                // Store local receipts (same-shard receipts where signer_id == receiver_id)
+                for receipt in &chunk.local_receipts {
+                    let receipt_record = near_receipts::ActiveModel {
+                        receipt_id: Set(receipt.receipt_id.to_string()),
+                        block_height: Set(block_height),
+                        shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
+                        predecessor_id: Set(receipt.predecessor_id.to_string()),
+                        receiver_id: Set(receipt.receiver_id.to_string()),
+                        receipt: Set(Self::serialize_json(
+                            &receipt.receipt,
+                            "local receipt body",
+                        )?),
+                        raw_data: Set(Some(Self::serialize_json(
+                            receipt,
+                            "local receipt raw_data",
+                        )?)),
+                    };
+
+                    near_receipts::Entity::insert(receipt_record)
+                        .on_conflict_do_nothing()
+                        .exec(db)
+                        .await
+                        .context("Failed to insert local receipt record")?;
                 }
             }
 
@@ -220,12 +262,17 @@ impl RawModule {
                 let receipt_record = near_receipts::ActiveModel {
                     receipt_id: Set(receipt.receipt_id.to_string()),
                     block_height: Set(block_height),
+                    shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
                     predecessor_id: Set(receipt.predecessor_id.to_string()),
                     receiver_id: Set(receipt.receiver_id.to_string()),
-                    receipt: Set(serde_json::to_value(&receipt.receipt)
-                        .ok()
-                        .unwrap_or(serde_json::Value::Null)),
-                    raw_data: Set(serde_json::to_value(receipt).ok()),
+                    receipt: Set(Self::serialize_json(
+                        &receipt.receipt,
+                        "receipt execution outcome receipt body",
+                    )?),
+                    raw_data: Set(Some(Self::serialize_json(
+                        receipt,
+                        "receipt execution outcome receipt raw_data",
+                    )?)),
                 };
 
                 near_receipts::Entity::insert(receipt_record)
@@ -253,15 +300,20 @@ impl RawModule {
                     let execution_outcome_record = near_execution_outcomes::ActiveModel {
                         id: Set(outcome.id.to_string()),
                         block_height: Set(block_height),
+                        shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
                         receipt_id: Set(tx_with_outcome
                             .outcome
                             .receipt
                             .as_ref()
                             .map(|r| r.receipt_id.to_string())),
-                        outcome: Set(serde_json::to_value(&outcome.outcome)
-                            .ok()
-                            .unwrap_or(serde_json::Value::Null)),
-                        raw_data: Set(serde_json::to_value(outcome).ok()),
+                        outcome: Set(Self::serialize_json(
+                            &outcome.outcome,
+                            "transaction execution outcome body",
+                        )?),
+                        raw_data: Set(Some(Self::serialize_json(
+                            outcome,
+                            "transaction execution outcome raw_data",
+                        )?)),
                     };
 
                     near_execution_outcomes::Entity::insert(execution_outcome_record)
@@ -280,11 +332,16 @@ impl RawModule {
                 let execution_outcome_record = near_execution_outcomes::ActiveModel {
                     id: Set(outcome.id.to_string()),
                     block_height: Set(block_height),
+                    shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
                     receipt_id: Set(Some(receipt.receipt_id.to_string())),
-                    outcome: Set(serde_json::to_value(&outcome.outcome)
-                        .ok()
-                        .unwrap_or(serde_json::Value::Null)),
-                    raw_data: Set(serde_json::to_value(outcome).ok()),
+                    outcome: Set(Self::serialize_json(
+                        &outcome.outcome,
+                        "receipt execution outcome body",
+                    )?),
+                    raw_data: Set(Some(Self::serialize_json(
+                        outcome,
+                        "receipt execution outcome raw_data",
+                    )?)),
                 };
 
                 near_execution_outcomes::Entity::insert(execution_outcome_record)
@@ -310,12 +367,22 @@ impl RawModule {
                     id: sea_orm::ActiveValue::NotSet,
                     block_height: Set(block_height),
                     shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
-                    state_changes: Set(serde_json::to_value(&shard.state_changes)
-                        .ok()
-                        .unwrap_or(serde_json::Value::Null)),
+                    state_changes: Set(Self::serialize_json(
+                        &shard.state_changes,
+                        "state changes payload",
+                    )?),
                 };
 
                 near_state_changes::Entity::insert(state_changes_record)
+                    .on_conflict(
+                        OnConflict::columns([
+                            near_state_changes::Column::BlockHeight,
+                            near_state_changes::Column::ShardId,
+                        ])
+                        .do_nothing()
+                        .to_owned(),
+                    )
+                    .do_nothing()
                     .exec(db)
                     .await
                     .context("Failed to insert state changes record")?;

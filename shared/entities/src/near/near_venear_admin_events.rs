@@ -13,7 +13,6 @@ pub struct Model {
     pub action_source: String,
     pub action_index: i32,
     pub predecessor_account_id: String,
-    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub args_json: Option<Json>,
     #[sea_orm(column_type = "Text")]
     pub args_base64: String,
@@ -26,7 +25,6 @@ pub struct Model {
     pub block_height: i64,
     pub block_timestamp: i64,
     pub shard_id: i32,
-    #[sea_orm(column_type = "JsonBinary", nullable)]
     pub metadata: Option<Json>,
     pub created_at: DateTime,
 }

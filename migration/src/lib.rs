@@ -11,6 +11,7 @@ mod m20260301_000008_drop_telegram_import_logs;
 mod m20260302_000009_identity_schema;
 mod m20260303_000010_identity_person_name;
 mod m20260303_000011_identity_venear_platforms;
+mod m20260303_000015_near_raw_schema_improvements;
 mod m20260304_000012_near_venear_delegation_events;
 mod m20260305_000013_near_venear_timeseries_schema;
 mod m20260306_000014_near_accounts_timeseries_hardening;
@@ -35,6 +36,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260304_000012_near_venear_delegation_events::Migration),
             Box::new(m20260305_000013_near_venear_timeseries_schema::Migration),
             Box::new(m20260306_000014_near_accounts_timeseries_hardening::Migration),
+            Box::new(m20260303_000015_near_raw_schema_improvements::Migration),
         ]
     }
 }
