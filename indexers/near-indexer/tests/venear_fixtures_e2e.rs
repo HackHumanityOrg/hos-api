@@ -1161,6 +1161,117 @@ async fn test_delegation_actions_success() -> Result<()> {
     Ok(())
 }
 
+/// Real-chain delegation lifecycle:
+/// A delegates to B, then A reduces lockup balance, and B's voting power is burned.
+#[tokio::test]
+async fn test_delegation_then_lockup_reduction_burns_delegatee_voting_power() -> Result<()> {
+    init_test_tracing();
+
+    let delegate_block = load_fixture("delegate_all_horbarr_to_sabrinanear");
+    let begin_unlock_block = load_fixture("begin_unlock_near_horbarr_after_delegate");
+    let callback_block = load_fixture("on_lockup_update_delegatee_burn_horbarr");
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_test_config());
+    module.initialize(conn.as_ref()).await?;
+
+    module.process_block(&delegate_block, conn.as_ref()).await?;
+    module
+        .process_block(&begin_unlock_block, conn.as_ref())
+        .await?;
+    module.process_block(&callback_block, conn.as_ref()).await?;
+
+    let delegation_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_venear_delegation_events
+         WHERE event_type = 'delegate_all'
+           AND success = true
+           AND delegator_account_id = 'horbarr.near'
+           AND delegatee_account_id = 'sabrinanear.near'",
+    )
+    .await?;
+    assert_eq!(
+        delegation_count, 1,
+        "expected exactly one successful delegate_all(horbarr->sabrinanear), got {delegation_count}"
+    );
+
+    let begin_unlock_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_venear_lockup_events
+         WHERE event_type = 'begin_unlock_near'
+           AND lockup_account_id = 'b155f46a0ec06336370ab6a9b26607779df26b9d.venear.dao'",
+    )
+    .await?;
+    assert!(
+        begin_unlock_count >= 1,
+        "expected begin_unlock_near lockup event for horbarr lockup, got {begin_unlock_count}"
+    );
+
+    let lockup_update_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_venear_account_balances
+         WHERE receipt_id = 'FPNphxYAxh76SsPdTumDSQJfYbHEe5fWVHE2juvo551Z'
+           AND event_type = 'lockup_update'
+           AND account_id = 'horbarr.near'
+           AND locked_near_balance = '1'",
+    )
+    .await?;
+    assert_eq!(
+        lockup_update_count, 1,
+        "expected one lockup_update row for horbarr in callback receipt"
+    );
+
+    let delegatee_burn_balance_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_venear_account_balances
+         WHERE receipt_id = 'FPNphxYAxh76SsPdTumDSQJfYbHEe5fWVHE2juvo551Z'
+           AND event_type = 'ft_burn'
+           AND account_id = 'sabrinanear.near'
+           AND delta_amount = '-5000016432221189300000000'",
+    )
+    .await?;
+    assert_eq!(
+        delegatee_burn_balance_count, 1,
+        "expected one delegatee ft_burn balance row after lockup reduction"
+    );
+
+    let delegatee_burn_voting_power_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_venear_account_voting_power_events
+         WHERE receipt_id = 'FPNphxYAxh76SsPdTumDSQJfYbHEe5fWVHE2juvo551Z'
+           AND event_type = 'ft_burn'
+           AND account_id = 'sabrinanear.near'
+           AND delta_voting_power = '-5000016432221189300000000'",
+    )
+    .await?;
+    assert_eq!(
+        delegatee_burn_voting_power_count, 1,
+        "expected one delegatee ft_burn voting-power row after lockup reduction"
+    );
+
+    let delegator_burn_voting_power_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_venear_account_voting_power_events
+         WHERE receipt_id = 'FPNphxYAxh76SsPdTumDSQJfYbHEe5fWVHE2juvo551Z'
+           AND event_type = 'ft_burn'
+           AND account_id = 'horbarr.near'",
+    )
+    .await?;
+    assert_eq!(
+        delegator_burn_voting_power_count, 0,
+        "expected no ft_burn voting-power row for delegator in callback receipt"
+    );
+
+    Ok(())
+}
+
 /// Failed delegation actions are retained with success=false.
 #[tokio::test]
 async fn test_delegation_actions_failures() -> Result<()> {
