@@ -55,14 +55,14 @@ fastnear_num_threads = 4
 
 # Raw data module - stores all NEAR blockchain data as-is
 [near.modules.raw]
-enabled = true
+enabled = false
 # Stream mode: "shared" (default) or "independent"
 stream_mode = "shared"
 start_height = 167688027
 
 # Accounts module - tracks account lifecycle and metadata
 [near.modules.accounts]
-enabled = true
+enabled = false
 # Stream mode: "shared" (default) or "independent"
 stream_mode = "shared"
 start_height = 167688027
