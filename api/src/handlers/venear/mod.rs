@@ -548,7 +548,7 @@ pub async fn list_account_delegations(
     get,
     path = "/api/v1/venear/lockups",
     summary = "List lockup lifecycle events",
-    description = "Returns append-only veNEAR lockup lifecycle events with optional lockup-account, owner, event-type, and success filters.",
+    description = "Returns append-only veNEAR lockup lifecycle metadata with optional lockup-account, owner, event-type, and success filters.",
     params(VenearLockupsQuery),
     tag = "venear",
     operation_id = "listVenearLockups",

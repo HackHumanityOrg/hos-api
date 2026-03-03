@@ -8,7 +8,7 @@ use utoipa::OpenApi;
     info(
         title = "Data Commons API",
         version = "0.1.0",
-        description = "Read-only REST API for indexed identity, Discourse, Telegram, and veNEAR governance data.\n\nConventions:\n- Cursor pagination uses opaque base64url cursors.\n- List endpoints return `data`, `next_cursor`, and `has_more`.\n- Errors follow RFC 9457 Problem Details as `application/problem+json`.",
+        description = "Read-only REST API for indexed identity, Discourse, Telegram, and veNEAR governance data.\n\nConventions:\n- Cursor pagination uses opaque base64url cursors.\n- List endpoints return `data`, `next_cursor`, and `has_more`.\n- `next_cursor` is opaque to clients and should be treated as an opaque token.\n- Errors follow RFC 9457 Problem Details as `application/problem+json`.",
         contact(
             name = "Data Commons Team",
             url = "https://github.com/HackHumanityOrg/data-commons"
@@ -102,7 +102,7 @@ use utoipa::OpenApi;
         types::VenearLockupDto,
         types::VenearLockupActionDto,
     )),
-    tags(
+        tags(
         (name = "health", description = "Service and dependency health diagnostics"),
         (name = "identity", description = "Read endpoints over linked identity entities (persons and linked platform accounts)"),
         (name = "discourse", description = "Read endpoints over indexed Discourse entities (instances, categories, topics, posts, likes, users)"),

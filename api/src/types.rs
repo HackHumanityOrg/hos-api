@@ -6,25 +6,25 @@ use utoipa::{IntoParams, ToSchema};
 /// Health check response.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct HealthResponse {
-    /// Service status.
+    /// High-level service health status (`healthy`, `degraded`, or similar).
     pub status: String,
-    /// Current timestamp.
+    /// Timestamp of the generated response in RFC 3339 format.
     pub timestamp: String,
-    /// Version information.
+    /// Semantic version of the running API crate.
     pub version: String,
-    /// Database connectivity status.
+    /// Result of the optional database connectivity probe.
     pub database: DatabaseHealth,
 }
 
 /// Database health information.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DatabaseHealth {
-    /// Whether database is accessible.
+    /// Whether the API can currently reach the database.
     pub connected: bool,
-    /// Database response time in milliseconds.
+    /// Database round-trip time in milliseconds, when probe completes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_time_ms: Option<u64>,
-    /// Optional error message if not connected.
+    /// Diagnostic message when database probe fails.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -32,224 +32,327 @@ pub struct DatabaseHealth {
 /// Cursor pagination metadata shared by list endpoints.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CursorPageMeta {
-    /// Opaque cursor to request the next page; `null` when there is no next page.
+    /// Opaque cursor token for the next page; omitted when no additional page exists.
     pub next_cursor: Option<String>,
-    /// Indicates whether additional rows are available after this page.
+    /// Indicates whether at least one more page exists.
     pub has_more: bool,
 }
 
 /// Paginated response of registered Discourse instances.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InstancesListResponse {
-    /// Page of instance rows.
+    /// Returned page of Discourse instance rows.
     pub data: Vec<DiscourseInstanceDto>,
-    /// Opaque cursor for the next page.
+    /// Opaque cursor token for the next result page.
     pub next_cursor: Option<String>,
-    /// Indicates whether another page exists.
+    /// Indicates whether another page exists after this payload.
     pub has_more: bool,
 }
 
 /// Paginated response of Discourse categories.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CategoriesListResponse {
-    /// Page of category rows.
+    /// Returned page of Discourse category rows.
     pub data: Vec<DiscourseCategoryDto>,
-    /// Opaque cursor for the next page.
+    /// Opaque cursor token for the next result page.
     pub next_cursor: Option<String>,
-    /// Indicates whether another page exists.
+    /// Indicates whether another page exists after this payload.
     pub has_more: bool,
 }
 
 /// Paginated response of Discourse topics.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TopicsListResponse {
-    /// Page of topic rows.
+    /// Returned page of Discourse topic rows.
     pub data: Vec<DiscourseTopicDto>,
-    /// Opaque cursor for the next page.
+    /// Opaque cursor token for the next result page.
     pub next_cursor: Option<String>,
-    /// Indicates whether another page exists.
+    /// Indicates whether another page exists after this payload.
     pub has_more: bool,
 }
 
 /// Paginated response of Discourse posts.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PostsListResponse {
-    /// Page of post rows.
+    /// Returned page of Discourse post rows.
     pub data: Vec<DiscoursePostDto>,
-    /// Opaque cursor for the next page.
+    /// Opaque cursor token for the next result page.
     pub next_cursor: Option<String>,
-    /// Indicates whether another page exists.
+    /// Indicates whether another page exists after this payload.
     pub has_more: bool,
 }
 
 /// Paginated response of Discourse users.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UsersListResponse {
-    /// Page of user rows.
+    /// Returned page of Discourse user rows.
     pub data: Vec<DiscourseUserDto>,
-    /// Opaque cursor for the next page.
+    /// Opaque cursor token for the next result page.
     pub next_cursor: Option<String>,
-    /// Indicates whether another page exists.
+    /// Indicates whether another page exists after this payload.
     pub has_more: bool,
 }
 
 /// Paginated response of Discourse post-like events.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PostLikesListResponse {
-    /// Page of like rows.
+    /// Returned page of Discourse post-like rows.
     pub data: Vec<DiscoursePostLikeDto>,
-    /// Opaque cursor for the next page.
+    /// Opaque cursor token for the next result page.
     pub next_cursor: Option<String>,
-    /// Indicates whether another page exists.
+    /// Indicates whether another page exists after this payload.
     pub has_more: bool,
 }
 
 /// Paginated response of Discourse post revisions.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PostRevisionsListResponse {
-    /// Page of revision rows.
+    /// Returned page of Discourse post-revision rows.
     pub data: Vec<DiscoursePostRevisionDto>,
-    /// Opaque cursor for the next page.
+    /// Opaque cursor token for the next result page.
     pub next_cursor: Option<String>,
-    /// Indicates whether another page exists.
+    /// Indicates whether another page exists after this payload.
     pub has_more: bool,
 }
 
 /// Indexed Discourse instance metadata.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscourseInstanceDto {
+    /// Stable upstream instance key (for example, subdomain).
     pub key: String,
+    /// Base URL of the indexed Discourse instance.
     pub base_url: String,
+    /// Whether the instance is enabled in the indexer pipeline.
     pub enabled: bool,
+    /// Timestamp when the instance was first recorded, if available.
     pub created_at: Option<String>,
+    /// Timestamp when the instance was last updated in index metadata.
     pub updated_at: Option<String>,
 }
 
 /// Indexed Discourse category row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscourseCategoryDto {
+    /// Instance key owning this indexed category.
     pub instance: String,
+    /// Upstream category id from Discourse.
     pub external_id: i32,
+    /// Human-readable category name.
     pub name: String,
+    /// UI accent color.
     pub color: String,
+    /// Text accent color.
     pub text_color: String,
+    /// URL slug used by Discourse for the category.
     pub slug: String,
+    /// Number of topics in this category.
     pub topic_count: i32,
+    /// Number of posts in this category.
     pub post_count: i32,
+    /// HTML-formatted category description, when indexed.
     pub description: Option<String>,
+    /// Plain text category description, when available.
     pub description_text: Option<String>,
+    /// Topic count in the last day (or null if unknown).
     pub topics_day: Option<i32>,
+    /// Topic count in the last week (or null if unknown).
     pub topics_week: Option<i32>,
+    /// Topic count in the last month (or null if unknown).
     pub topics_month: Option<i32>,
+    /// Topic count in the last year (or null if unknown).
     pub topics_year: Option<i32>,
+    /// All-time topic count.
     pub topics_all_time: Option<i32>,
+    /// Parent category id when this category is nested.
     pub parent_category_id: Option<i32>,
+    /// Display position order in parent list.
     pub position: Option<i32>,
+    /// Whether category access is restricted.
     pub read_restricted: Option<bool>,
 }
 
 /// Indexed Discourse topic row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscourseTopicDto {
+    /// Instance key owning this topic.
     pub instance: String,
+    /// Upstream topic id.
     pub external_id: i32,
+    /// Public title of the topic.
     pub title: String,
+    /// Fancy title variant from Discourse.
     pub fancy_title: String,
+    /// URL slug for the topic.
     pub slug: String,
+    /// Total post count in the topic.
     pub posts_count: i32,
+    /// Total number of replies.
     pub reply_count: i32,
+    /// Topic creation timestamp in RFC 3339.
     pub created_at: String,
+    /// Timestamp of last post activity in RFC 3339.
     pub last_posted_at: String,
+    /// Timestamp for ranking field `bumped_at` in RFC 3339.
     pub bumped_at: String,
+    /// Whether the topic is pinned.
     pub pinned: bool,
+    /// Whether the topic is globally pinned.
     pub pinned_globally: bool,
+    /// Whether the topic is visible.
     pub visible: bool,
+    /// Whether the topic is closed to new replies.
     pub closed: bool,
+    /// Whether the topic is archived.
     pub archived: bool,
+    /// Number of views.
     pub views: i32,
+    /// Number of likes recorded.
     pub like_count: i32,
+    /// Upstream category id.
     pub category_id: i32,
+    /// Highest post number in this topic.
     pub highest_post_number: i32,
+    /// Discourse topic archetype.
     pub archetype: String,
+    /// Optional image URL attached to topic.
     pub image_url: Option<String>,
 }
 
 /// Indexed Discourse post row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscoursePostDto {
+    /// Instance key owning this post.
     pub instance: String,
+    /// Upstream post id.
     pub external_id: i32,
+    /// Author display name or null for some system posts.
     pub name: Option<String>,
+    /// Author username.
     pub username: String,
+    /// Post creation timestamp in RFC 3339.
     pub created_at: String,
+    /// Sequence number of the post in the topic.
     pub post_number: i32,
+    /// Upstream post type code.
     pub post_type: i32,
+    /// Post last-updated timestamp in RFC 3339.
     pub updated_at: String,
+    /// Reply count under this post.
     pub reply_count: i32,
+    /// Parent post number when this is a reply.
     pub reply_to_post_number: Option<i32>,
+    /// Number of quoted snippets.
     pub quote_count: i32,
+    /// Incoming links to this post.
     pub incoming_link_count: i32,
+    /// Number of raw reads.
     pub reads: i32,
+    /// Number of readers who viewed this post.
     pub readers_count: i32,
+    /// Relevance/quality score.
     pub score: f64,
+    /// Upstream topic id containing this post.
     pub topic_id: i32,
+    /// Upstream topic slug.
     pub topic_slug: String,
+    /// Alternate display username for the post author.
     pub display_username: Option<String>,
+    /// Primary group name when the post is posted on behalf of a group.
     pub primary_group_name: Option<String>,
+    /// Flair text, when set.
     pub flair_name: Option<String>,
+    /// Flair badge URL.
     pub flair_url: Option<String>,
+    /// Flair background color.
     pub flair_bg_color: Option<String>,
+    /// Flair text color.
     pub flair_color: Option<String>,
+    /// Content parser/format revision of the post.
     pub version: i32,
+    /// Upstream author user id.
     pub user_id: i32,
+    /// Whether edit history is available for this post.
     pub can_view_edit_history: bool,
+    /// Whether the post is marked deleted.
     pub deleted: bool,
+    /// Optional markdown/raw source text.
     pub raw: Option<String>,
 }
 
 /// Indexed Discourse user row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscourseUserDto {
+    /// Instance key owning this user index.
     pub instance: String,
+    /// Upstream user id.
     pub external_id: i32,
+    /// Username.
     pub username: String,
+    /// Optional display name.
     pub name: Option<String>,
+    /// Avatar URL template with width/height placeholders.
     pub avatar_template: String,
+    /// Optional title field.
     pub title: Option<String>,
+    /// Number of likes this user received.
     pub likes_received: Option<i64>,
+    /// Number of likes this user gave.
     pub likes_given: Option<i64>,
+    /// Number of topics entered.
     pub topics_entered: Option<i64>,
+    /// Total topics created by user.
     pub topic_count: Option<i64>,
+    /// Total posts created by user.
     pub post_count: Option<i64>,
+    /// Posts read count.
     pub posts_read: Option<i64>,
+    /// Days visited count.
     pub days_visited: Option<i64>,
+    /// Trust level in Discourse.
     pub trust_level: Option<i32>,
 }
 
 /// Indexed Discourse post-like row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscoursePostLikeDto {
+    /// Instance key owning this like event.
     pub instance: String,
+    /// Upstream post id that was liked.
     pub external_post_id: i32,
+    /// Upstream user id of liker.
     pub external_user_id: i32,
+    /// Optional liker username (resolved via users table).
     pub username: Option<String>,
+    /// Like creation timestamp in RFC 3339.
     pub created_at: String,
 }
 
 /// Indexed Discourse post revision row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscoursePostRevisionDto {
+    /// Instance key owning this post revision.
     pub instance: String,
+    /// Upstream post id for which the revision was created.
     pub external_post_id: i32,
+    /// Sequential revision number.
     pub version: i32,
+    /// Revision creation timestamp in RFC 3339.
     pub created_at: String,
+    /// User name (or actor) responsible for revision.
     pub username: String,
+    /// Optional reason supplied by actor for edit.
     pub edit_reason: Option<String>,
+    /// Body content before the revision (optional and may be large).
     pub raw_body_before: Option<String>,
+    /// Body content after the revision.
     pub raw_body_after: Option<String>,
+    /// Title before the revision.
     pub raw_title_before: Option<String>,
+    /// Title after the revision.
     pub raw_title_after: Option<String>,
+    /// Optional raw body diff payload.
     pub body_changes: Option<serde_json::Value>,
+    /// Optional raw title diff payload.
     pub title_changes: Option<serde_json::Value>,
 }
 
@@ -470,192 +573,349 @@ pub struct VenearDelegationEventsListResponse {
 /// Latest-state projection for a veNEAR proposal.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearProposalDto {
+    /// Internal primary key for the latest projection row.
     pub id: i64,
+    /// Upstream proposal identifier.
     pub proposal_id: i64,
+    /// Latest known event type for this proposal stream.
     pub latest_event_type: String,
+    /// Account that initiated the latest proposal action, when present.
     pub account_id: Option<String>,
+    /// Account that proposed the draft, when present.
     pub proposer_id: Option<String>,
+    /// Account assigned as reviewer, when present.
     pub reviewer_id: Option<String>,
+    /// Voting start epoch seconds, when available.
     pub voting_start_time_sec: Option<i64>,
+    /// RFC3339 voting start timestamp derived from `voting_start_time_sec`.
     pub voting_start_time: Option<String>,
+    /// Snapshot block height used for voting state, when available.
     pub snapshot_block_height: Option<i64>,
+    /// Snapshot Merkle root for voting state, when available.
     pub snapshot_root: Option<String>,
+    /// Snapshot total veNEAR at proposal creation, stringified for precision.
     pub snapshot_total_venear: Option<String>,
+    /// Additional proposal metadata payload.
     pub metadata: Option<serde_json::Value>,
+    /// Raw proposal payload if available.
     pub payload: Option<serde_json::Value>,
+    /// Block height for the latest proposal event.
     pub block_height: i64,
+    /// Block timestamp in nanoseconds.
     pub block_timestamp_ns: i64,
+    /// Human-readable UTC RFC3339 block timestamp.
     pub block_timestamp: String,
+    /// Shard identifier where the block was produced.
     pub shard_id: i32,
+    /// Receipt id for the action.
     pub receipt_id: String,
+    /// Execution outcome id for the event log.
     pub execution_outcome_id: String,
+    /// Predecessor account that produced the action.
     pub predecessor_account_id: String,
+    /// Smart contract account id.
     pub contract_id: String,
+    /// Event log index inside the transaction.
     pub log_index: i32,
+    /// Data index inside the event stream.
     pub data_index: i32,
+    /// Timestamp when this row was first indexed.
     pub created_at: String,
+    /// Unix epoch (seconds) equivalent of `created_at`.
     pub created_at_epoch: i64,
 }
 
 /// Event row from the proposal event stream.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearProposalEventDto {
+    /// Internal primary key for the proposal event row.
     pub id: i64,
+    /// Upstream proposal identifier.
     pub proposal_id: i64,
+    /// Event type emitted by the proposal state machine.
     pub event_type: String,
+    /// Account that emitted this event.
     pub account_id: Option<String>,
+    /// Account that proposed the draft, when present.
     pub proposer_id: Option<String>,
+    /// Account that reviewed the proposal, when present.
     pub reviewer_id: Option<String>,
+    /// Voting start epoch seconds, when available.
     pub voting_start_time_sec: Option<i64>,
+    /// RFC3339 voting start timestamp derived from `voting_start_time_sec`.
     pub voting_start_time: Option<String>,
+    /// Snapshot block height used for this event.
     pub snapshot_block_height: Option<i64>,
+    /// Snapshot Merkle root for this event, when available.
     pub snapshot_root: Option<String>,
+    /// Snapshot total veNEAR at snapshot time, stringified for precision.
     pub snapshot_total_venear: Option<String>,
+    /// Optional metadata payload attached to the event.
     pub metadata: Option<serde_json::Value>,
+    /// Optional raw payload attached to the event.
     pub payload: Option<serde_json::Value>,
+    /// Block height where the event was emitted.
     pub block_height: i64,
+    /// Block timestamp in nanoseconds.
     pub block_timestamp_ns: i64,
+    /// Human-readable UTC RFC3339 block timestamp.
     pub block_timestamp: String,
+    /// Shard identifier for the producing block.
     pub shard_id: i32,
+    /// Receipt id for the action.
     pub receipt_id: String,
+    /// Execution outcome id for the event.
     pub execution_outcome_id: String,
+    /// Predecessor account that emitted the event.
     pub predecessor_account_id: String,
+    /// Contract account id.
     pub contract_id: String,
+    /// Log index in the receipt outcome.
     pub log_index: i32,
+    /// Data index in the event vector.
     pub data_index: i32,
+    /// Timestamp when the event row was indexed.
     pub created_at: String,
+    /// Unix epoch (seconds) equivalent of `created_at`.
     pub created_at_epoch: i64,
 }
 
 /// Vote row recorded for a proposal.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearVoteDto {
+    /// Internal primary key for the vote row.
     pub id: i64,
+    /// Proposal id receiving the vote.
     pub proposal_id: i64,
+    /// Account id of the voter.
     pub account_id: String,
+    /// Raw vote value as emitted by governance contract.
     pub vote: i32,
+    /// Voter balance at time of voting.
     pub account_balance: String,
+    /// Event type for this vote row.
     pub event_type: String,
+    /// Optional payload details for vote event.
     pub payload: Option<serde_json::Value>,
+    /// Block height where vote was produced.
     pub block_height: i64,
+    /// Block timestamp in nanoseconds.
     pub block_timestamp_ns: i64,
+    /// Human-readable UTC RFC3339 block timestamp.
     pub block_timestamp: String,
+    /// Shard identifier for the block.
     pub shard_id: i32,
+    /// Receipt id for the vote event.
     pub receipt_id: String,
+    /// Execution outcome id for the vote event.
     pub execution_outcome_id: String,
+    /// Predecessor account emitting the vote event.
     pub predecessor_account_id: String,
+    /// Contract account id.
     pub contract_id: String,
+    /// Log index within the transaction receipt.
     pub log_index: i32,
+    /// Data index within the event list.
     pub data_index: i32,
+    /// Timestamp when the vote row was indexed.
     pub created_at: String,
+    /// Unix epoch (seconds) equivalent of `created_at`.
     pub created_at_epoch: i64,
 }
 
 /// Account balance mutation row for veNEAR governance balances.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearAccountBalanceDto {
+    /// Internal primary key for the balance change row.
     pub id: i64,
+    /// Account id whose balance changed.
     pub account_id: String,
+    /// Event type describing the balance mutation.
     pub event_type: String,
+    /// Optional delta amount for this mutation.
     pub delta_amount: Option<String>,
+    /// Total balance after applying the delta.
     pub total_balance: String,
+    /// Optional locked NEAR balance in this account.
     pub locked_near_balance: Option<String>,
+    /// Lockup update nonce, when present.
     pub lockup_update_nonce: Option<i64>,
+    /// Lockup version number, when present.
     pub lockup_version: Option<i64>,
+    /// Block height for the balance change.
     pub block_height: i64,
+    /// Block timestamp in nanoseconds.
     pub block_timestamp_ns: i64,
+    /// Human-readable UTC RFC3339 block timestamp.
     pub block_timestamp: String,
+    /// Shard id where the event was emitted.
     pub shard_id: i32,
+    /// Receipt id for the balance event.
     pub receipt_id: String,
+    /// Execution outcome id for the balance event.
     pub execution_outcome_id: String,
+    /// Predecessor account involved in the balance event.
     pub predecessor_account_id: String,
+    /// Contract account for the balance event.
     pub contract_id: String,
+    /// Log index for the receipt.
     pub log_index: i32,
+    /// Data index for the event record.
     pub data_index: i32,
+    /// Optional event payload.
     pub payload: Option<serde_json::Value>,
+    /// Timestamp when this row was indexed.
     pub created_at: String,
+    /// Unix epoch (seconds) equivalent of `created_at`.
     pub created_at_epoch: i64,
 }
 
 /// Timeseries lockup lifecycle event row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearLockupDto {
+    /// Internal primary key for the lockup event row.
     pub id: i64,
+    /// Lockup account id this row belongs to.
     pub lockup_account_id: String,
+    /// Owner account associated with this lockup, if known.
     pub owner_account_id: Option<String>,
+    /// Event type for this lockup lifecycle row.
     pub event_type: String,
+    /// Lockup version number, when present.
     pub lockup_version: Option<i64>,
+    /// Lockup update nonce, when present.
     pub lockup_update_nonce: Option<i64>,
+    /// Locked NEAR balance after update, when available.
     pub locked_near_balance: Option<String>,
+    /// Source module or action that wrote this row.
     pub action_source: String,
+    /// Optional transaction hash for convenience.
     pub transaction_hash: Option<String>,
+    /// Receipt id linked to the lockup action.
     pub receipt_id: String,
+    /// Execution outcome id for the lockup action.
     pub execution_outcome_id: String,
+    /// Predecessor account for the action.
     pub predecessor_account_id: String,
+    /// Contract account for lockup actions.
     pub contract_id: String,
+    /// Whether the action succeeded.
     pub success: bool,
+    /// Block height when lockup event was emitted.
     pub block_height: i64,
+    /// Block timestamp in nanoseconds.
     pub block_timestamp_ns: i64,
+    /// Human-readable UTC RFC3339 block timestamp.
     pub block_timestamp: String,
+    /// Shard id where lockup event was indexed.
     pub shard_id: i32,
+    /// Log index for ordering within the receipt.
     pub log_index: i32,
+    /// Data index for ordering within the event payload.
     pub data_index: i32,
+    /// Optional payload details for the event.
     pub payload: Option<serde_json::Value>,
+    /// Timestamp when the row was created.
     pub created_at: String,
+    /// Unix epoch (seconds) equivalent of `created_at`.
     pub created_at_epoch: i64,
 }
 
 /// Indexed action row tied to a lockup account.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearLockupActionDto {
+    /// Internal primary key for the lockup action.
     pub id: i64,
+    /// Lockup account id that this action targets.
     pub lockup_account_id: String,
+    /// Owner account of the lockup, if known.
     pub owner_account_id: Option<String>,
+    /// Predecessor account that emitted the action.
     pub predecessor_account_id: String,
+    /// Receiver account when the action transfers or interacts with funds.
     pub receiver_account_id: String,
+    /// Contract method name for the action.
     pub method_name: String,
+    /// Source system/component that generated this action.
     pub action_source: String,
+    /// Index of action in the transaction execution.
     pub action_index: i32,
+    /// Parsed JSON action arguments when available.
     pub args_json: Option<serde_json::Value>,
+    /// Base64-encoded action arguments.
     pub args_base64: String,
+    /// Attached deposit amount as stringified integer.
     pub attached_deposit: String,
+    /// Optional transaction hash for traceability.
     pub transaction_hash: Option<String>,
+    /// Receipt id that contains this action.
     pub receipt_id: String,
+    /// Execution outcome id.
     pub execution_outcome_id: String,
+    /// Whether the action succeeded.
     pub success: bool,
+    /// Block height at which action was emitted.
     pub block_height: i64,
+    /// Block timestamp in nanoseconds.
     pub block_timestamp_ns: i64,
+    /// Human-readable UTC RFC3339 block timestamp.
     pub block_timestamp: String,
+    /// Shard id where the action was executed.
     pub shard_id: i32,
+    /// Optional staking pool account id for delegation actions.
     pub staking_pool_account_id: Option<String>,
+    /// Optional structured metadata.
     pub metadata: Option<serde_json::Value>,
+    /// Timestamp when this row was indexed.
     pub created_at: String,
+    /// Unix epoch (seconds) equivalent of `created_at`.
     pub created_at_epoch: i64,
 }
 
 /// Indexed delegation action row tied to a governance account.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearDelegationEventDto {
+    /// Internal primary key for the delegation event.
     pub id: i64,
+    /// Account that delegated tokens.
     pub delegator_account_id: String,
+    /// Account delegated to, when present.
     pub delegatee_account_id: Option<String>,
+    /// Delegation event type (for example `delegate_all` or `undelegate`).
     pub event_type: String,
+    /// Source system/component that generated the event.
     pub action_source: String,
+    /// Action index in the transaction execution sequence.
     pub action_index: i32,
+    /// Optional JSON parsed arguments for the event.
     pub args_json: Option<serde_json::Value>,
+    /// Base64-encoded argument payload.
     pub args_base64: String,
+    /// Attached deposit amount as string.
     pub attached_deposit: String,
+    /// Optional transaction hash for inspection.
     pub transaction_hash: Option<String>,
+    /// Receipt id where delegation event occurred.
     pub receipt_id: String,
+    /// Execution outcome id for the event.
     pub execution_outcome_id: String,
+    /// Whether the action succeeded.
     pub success: bool,
+    /// Block height of the delegation event.
     pub block_height: i64,
+    /// Block timestamp in nanoseconds.
     pub block_timestamp_ns: i64,
+    /// Human-readable UTC RFC3339 block timestamp.
     pub block_timestamp: String,
+    /// Shard identifier for the event block.
     pub shard_id: i32,
+    /// Contract account for the delegation.
     pub contract_id: String,
+    /// Optional structured metadata.
     pub metadata: Option<serde_json::Value>,
+    /// Timestamp when this event row was indexed.
     pub created_at: String,
+    /// Unix epoch (seconds) equivalent of `created_at`.
     pub created_at_epoch: i64,
 }
 
@@ -763,70 +1023,115 @@ pub struct TelegramServiceActionsListResponse {
 /// Indexed Telegram channel metadata.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TelegramChannelDto {
+    /// Telegram internal numeric channel identifier.
     pub telegram_id: i64,
+    /// Display name shown for the channel.
     pub name: String,
+    /// Optional public username (`@...`) if configured.
     pub username: Option<String>,
+    /// Telegram channel type (for example `channel`, `supergroup`, `private`).
     pub channel_type: String,
+    /// Creation timestamp in RFC 3339.
     pub created_at: String,
+    /// Last update timestamp in RFC 3339.
     pub updated_at: String,
 }
 
 /// Indexed Telegram user metadata.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TelegramUserDto {
+    /// Telegram internal numeric user identifier.
     pub telegram_id: i64,
+    /// Optional public username (`@...`) for the user.
     pub username: Option<String>,
+    /// Optional display name from Telegram profile.
     pub display_name: Option<String>,
+    /// Creation timestamp in RFC 3339.
     pub created_at: String,
+    /// Last update timestamp in RFC 3339.
     pub updated_at: String,
 }
 
 /// Indexed Telegram message row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TelegramMessageDto {
+    /// Telegram channel id this message belongs to.
     pub channel_telegram_id: i64,
+    /// Telegram message id inside its channel.
     pub telegram_message_id: i64,
+    /// Message type classification.
     pub message_type: String,
+    /// Optional Telegram sender user id.
     pub from_user_telegram_id: Option<i64>,
+    /// Optional sender username.
     pub from_username: Option<String>,
+    /// Optional sender display name.
     pub from_display_name: Option<String>,
+    /// Optional replied-to message id.
     pub reply_to_telegram_message_id: Option<i64>,
+    /// Message timestamp in RFC 3339.
     pub date: String,
+    /// Last edited timestamp in RFC 3339.
     pub edited_date: Option<String>,
+    /// Message plain text body.
     pub text: Option<String>,
+    /// Optional parsed text entities (mentions, links, formatting runs).
     pub text_entities: Option<serde_json::Value>,
+    /// Whether this message includes media content.
     pub has_media: bool,
+    /// Optional media subtype label.
     pub media_type: Option<String>,
+    /// Optional media storage path or reference.
     pub media_path: Option<String>,
+    /// Row creation timestamp in RFC 3339.
     pub created_at: String,
+    /// Row update timestamp in RFC 3339.
     pub updated_at: String,
 }
 
 /// Indexed Telegram message reaction row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TelegramReactionDto {
+    /// Internal primary key for the reaction row.
     pub id: i64,
+    /// Telegram channel id for the reacted message.
     pub channel_telegram_id: i64,
+    /// Telegram message id this reaction applies to.
     pub telegram_message_id: i64,
+    /// Telegram user id that added the reaction.
     pub user_telegram_id: Option<i64>,
+    /// Optional reaction username.
     pub username: Option<String>,
+    /// Optional reaction user display name.
     pub display_name: Option<String>,
+    /// Emoji used as reaction.
     pub emoji: String,
+    /// Reaction timestamp in RFC 3339.
     pub date: String,
+    /// Row creation timestamp in RFC 3339.
     pub created_at: String,
 }
 
 /// Indexed Telegram service-action row.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TelegramServiceActionDto {
+    /// Internal primary key for the service action row.
     pub id: i64,
+    /// Telegram channel id for the source message.
     pub channel_telegram_id: i64,
+    /// Telegram message id that triggered this action.
     pub telegram_message_id: i64,
+    /// Service action type.
     pub action: String,
+    /// Telegram user id of the actor.
     pub actor_telegram_id: Option<i64>,
+    /// Optional actor username.
     pub actor_username: Option<String>,
+    /// Optional actor display name.
     pub actor_display_name: Option<String>,
+    /// Optional service-action metadata.
     pub metadata: Option<serde_json::Value>,
+    /// Row creation timestamp in RFC 3339.
     pub created_at: String,
 }
 

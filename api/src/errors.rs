@@ -24,7 +24,7 @@ pub struct ApiError {
     /// A URI reference that identifies the specific occurrence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
-    /// Optional machine-friendly extension value.
+    /// Optional machine-friendly extension code to help programmatic handling.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
 }
@@ -45,11 +45,13 @@ impl ApiError {
         }
     }
 
+    /// Adds a human-readable technical detail to the problem payload.
     pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
         self.detail = Some(detail.into());
         self
     }
 
+    /// Adds a machine-friendly error code for client-side routing.
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
         self
@@ -64,6 +66,7 @@ pub struct ApiErrorResponse {
 }
 
 impl ApiErrorResponse {
+    /// Creates a response using a consistent RFC 9457 Problem Details payload.
     pub fn new(
         status: StatusCode,
         problem_type: impl Into<String>,
@@ -75,11 +78,13 @@ impl ApiErrorResponse {
         }
     }
 
+    /// Adds technical details to the wrapped problem.
     pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
         self.error = self.error.with_detail(detail);
         self
     }
 
+    /// Adds a machine-readable code to the wrapped problem.
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.error = self.error.with_code(code);
         self

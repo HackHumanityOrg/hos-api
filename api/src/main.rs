@@ -75,7 +75,7 @@ async fn run(config: AppConfig) -> Result<()> {
 
     let app = app.with_state(app_state.clone());
 
-    // Add Swagger UI with disabled try-it-out functionality
+    // Add Swagger UI with docs exploration enabled.
     let app = app.merge(
         SwaggerUi::new("/swagger-ui")
             .url("/api-docs/openapi.json", docs::ApiDoc::openapi())
