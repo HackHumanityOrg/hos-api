@@ -1,30 +1,15 @@
-pub mod accounts;
 pub mod raw;
-pub mod staking_pools;
-pub mod tokens;
 pub mod venear_governance;
 
 use crate::ModuleRegistry;
 
 /// Register all available modules
 pub fn register_all_modules(registry: &mut ModuleRegistry, config: &common::config::AppConfig) {
-    // Register raw data module - stores all NEAR blockchain data as-is
+    // Register full raw data module.
     let raw_module = raw::RawModule::new(config);
     registry.register_module(Box::new(raw_module));
 
-    // Register accounts module - tracks account lifecycle and metadata
-    let accounts_module = accounts::AccountsModule::new(config);
-    registry.register_module(Box::new(accounts_module));
-
-    // Register tokens module - indexes NEP-141, NEP-171, and NEP-245 token events
-    let tokens_module = tokens::TokensModule::new(config);
-    registry.register_module(Box::new(tokens_module));
-
-    // Register staking pools module - indexes validator staking pools and delegator interactions
-    let staking_pools_module = staking_pools::StakingPoolsModule::new(config);
-    registry.register_module(Box::new(staking_pools_module));
-
-    // Register veNEAR governance module - indexes House of Stake governance timeseries
+    // Register HOS-filtered veNEAR governance raw module.
     let venear_governance_module = venear_governance::VenearGovernanceModule::new(config);
     registry.register_module(Box::new(venear_governance_module));
 }

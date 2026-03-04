@@ -1,354 +1,43 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use base64::Engine;
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use common::config::NearModuleStreamMode;
-use near_lake_framework::near_indexer_primitives::{
-    views::{ActionView, ReceiptEnumView, ReceiptView},
-    IndexerShard, StreamerMessage,
+use near_lake_framework::near_indexer_primitives::views::{
+    ActionView, ExecutionStatusView, ReceiptEnumView,
 };
+use near_lake_framework::near_indexer_primitives::StreamerMessage;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::{json, Value as JsonValue};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tracing::{info, instrument, warn};
 
 use crate::core::cursor;
-use crate::modules::venear_governance::types::{
-    apply_balance_delta, derive_lockup_account_id, is_outcome_success, json_string, json_u128,
-    json_u64, parse_args_json, parse_event_log, parse_i32_field,
-};
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "venear_governance";
-const IDENTITY_VENEAR_GOVERNANCE_PLATFORM: &str = "venear_governance";
-const IDENTITY_VENEAR_LOCKUP_PLATFORM: &str = "venear_lockup";
-
-#[derive(Default)]
-struct ProcessState {
-    known_lockups: HashSet<String>,
-    lockup_owners: HashMap<String, String>,
-    account_balances: HashMap<String, u128>,
-}
-
-#[derive(Clone)]
-struct ActionContext {
-    predecessor_id: String,
-    receiver_id: String,
-    transaction_hash: Option<String>,
-    receipt_id: String,
-    execution_outcome_id: String,
-    block_height: i64,
-    block_timestamp: i64,
-    shard_id: i32,
-    success: bool,
-    success_value_base64: Option<String>,
-}
-
-type GovernanceActionFields = (
-    Option<i64>,
-    Option<i32>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
+const HOS_CONTRACT: &str = "dao";
+const VENEAR_CONTRACT_PREFIX: &str = "venear";
+const VOTING_CONTRACT_PREFIX: &str = "vote";
+const VENEAR_CONTRACT_ID: &str = "venear.dao";
+const VOTING_CONTRACT_ID: &str = "vote.dao";
+const DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS: i64 = 100;
 
 pub struct VenearGovernanceModule {
     enabled: bool,
     stream_mode: NearModuleStreamMode,
-    near_chain_scope: String,
-    venear_contract_id: String,
-    voting_contract_id: String,
-    lockup_account_suffix: String,
-    configured_known_lockups: HashSet<String>,
-    known_lockups: Arc<RwLock<HashSet<String>>>,
-    lockup_owners: Arc<RwLock<HashMap<String, String>>>,
-    identity_accounts_enabled: AtomicBool,
+    mview_refresh_interval_blocks: i64,
 }
 
 impl VenearGovernanceModule {
-    fn extract_success_value(status_json: &JsonValue) -> Option<String> {
-        status_json
-            .as_object()
-            .and_then(|map| map.get("SuccessValue"))
-            .and_then(JsonValue::as_str)
-            .map(ToString::to_string)
-    }
-
-    fn decode_success_value_json(success_value_base64: Option<&str>) -> Option<JsonValue> {
-        let encoded = success_value_base64?;
-        let bytes = base64::prelude::BASE64_STANDARD.decode(encoded).ok()?;
-        if bytes.is_empty() {
-            return None;
-        }
-
-        serde_json::from_slice::<JsonValue>(&bytes)
-            .ok()
-            .or_else(|| {
-                let text = String::from_utf8(bytes).ok()?;
-                serde_json::from_str::<JsonValue>(&text).ok()
-            })
-    }
-
-    fn shard_to_i32(shard_id: near_lake_framework::near_indexer_primitives::types::ShardId) -> i32 {
-        let value: u64 = shard_id.into();
-        i32::try_from(value).unwrap_or(i32::MAX)
-    }
-
-    fn collect_shard_receipt_ids(shard: &IndexerShard) -> Vec<String> {
-        let mut receipt_ids = HashSet::new();
-
-        if let Some(chunk) = &shard.chunk {
-            for tx_with_outcome in &chunk.transactions {
-                if let Some(local_receipt) = &tx_with_outcome.outcome.receipt {
-                    receipt_ids.insert(local_receipt.receipt_id.to_string());
-                }
-
-                for receipt_id in &tx_with_outcome
-                    .outcome
-                    .execution_outcome
-                    .outcome
-                    .receipt_ids
-                {
-                    receipt_ids.insert(receipt_id.to_string());
-                }
-            }
-        }
-
-        for receipt_with_outcome in &shard.receipt_execution_outcomes {
-            receipt_ids.insert(receipt_with_outcome.receipt.receipt_id.to_string());
-
-            for receipt_id in &receipt_with_outcome.execution_outcome.outcome.receipt_ids {
-                receipt_ids.insert(receipt_id.to_string());
-            }
-        }
-
-        let mut receipt_ids = receipt_ids.into_iter().collect::<Vec<_>>();
-        receipt_ids.sort();
-        receipt_ids
-    }
-
-    async fn load_receipt_tx_origins(
-        db: &impl ConnectionTrait,
-        receipt_ids: &[String],
-    ) -> Result<HashMap<String, String>> {
-        if receipt_ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let mut origins = HashMap::new();
-
-        for chunk in receipt_ids.chunks(500) {
-            let placeholders = (1..=chunk.len())
-                .map(|idx| format!("${idx}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            let sql = format!(
-                "SELECT receipt_id, transaction_hash
-                 FROM near.near_venear_receipt_tx_origins
-                 WHERE receipt_id IN ({placeholders})"
-            );
-
-            let values = chunk.iter().cloned().map(Into::into).collect::<Vec<_>>();
-
-            let rows = db
-                .query_all(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    sql,
-                    values,
-                ))
-                .await?;
-
-            for row in rows {
-                let receipt_id: String = row.try_get("", "receipt_id")?;
-                let transaction_hash: String = row.try_get("", "transaction_hash")?;
-                origins.insert(receipt_id, transaction_hash);
-            }
-        }
-
-        Ok(origins)
-    }
-
-    async fn upsert_receipt_tx_origin(
-        db: &impl ConnectionTrait,
-        receipt_id: &str,
-        transaction_hash: &str,
-        block_height: i64,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_receipt_tx_origins
-                 (receipt_id, transaction_hash, first_observed_height, last_observed_height)
-             VALUES ($1, $2, $3, $3)
-             ON CONFLICT (receipt_id)
-             DO UPDATE SET
-               transaction_hash = EXCLUDED.transaction_hash,
-               last_observed_height = EXCLUDED.last_observed_height,
-               updated_at = CURRENT_TIMESTAMP",
-            vec![
-                receipt_id.to_string().into(),
-                transaction_hash.to_string().into(),
-                block_height.into(),
-            ],
-        ))
-        .await?;
-
-        Ok(())
-    }
-
-    async fn backfill_transaction_hash_for_receipt(
-        db: &impl ConnectionTrait,
-        receipt_id: &str,
-        transaction_hash: &str,
-    ) -> Result<()> {
-        let statements = [
-            "UPDATE near.near_venear_events_raw
-             SET transaction_hash = $2
-             WHERE receipt_id = $1 AND transaction_hash IS NULL",
-            "UPDATE near.near_venear_admin_events
-             SET transaction_hash = $2
-             WHERE receipt_id = $1 AND transaction_hash IS NULL",
-            "UPDATE near.near_venear_governance_actions
-             SET transaction_hash = $2
-             WHERE receipt_id = $1 AND transaction_hash IS NULL",
-            "UPDATE near.near_venear_lockup_events
-             SET transaction_hash = $2
-             WHERE receipt_id = $1 AND transaction_hash IS NULL",
-            "UPDATE near.near_venear_lockup_actions
-             SET transaction_hash = $2
-             WHERE receipt_id = $1 AND transaction_hash IS NULL",
-            "UPDATE near.near_venear_delegation_events
-             SET transaction_hash = $2
-             WHERE receipt_id = $1 AND transaction_hash IS NULL",
-            "UPDATE near.near_venear_proposal_events
-             SET transaction_hash = $2
-             WHERE receipt_id = $1 AND transaction_hash IS NULL",
-            "UPDATE near.near_venear_votes
-             SET transaction_hash = $2
-             WHERE receipt_id = $1 AND transaction_hash IS NULL",
-            "UPDATE near.near_venear_account_voting_power_events
-             SET transaction_hash = $2
-             WHERE receipt_id = $1 AND transaction_hash IS NULL",
-        ];
-
-        for statement in statements {
-            db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                statement,
-                vec![
-                    receipt_id.to_string().into(),
-                    transaction_hash.to_string().into(),
-                ],
-            ))
-            .await?;
-        }
-
-        Ok(())
-    }
-
-    async fn resolve_and_persist_receipt_tx_origins(
-        &self,
-        shard: &IndexerShard,
-        block_height: i64,
-        db: &impl ConnectionTrait,
-    ) -> Result<HashMap<String, String>> {
-        let receipt_ids = Self::collect_shard_receipt_ids(shard);
-        if receipt_ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let existing_origins = Self::load_receipt_tx_origins(db, &receipt_ids).await?;
-        let mut receipt_tx_map = existing_origins.clone();
-
-        if let Some(chunk) = &shard.chunk {
-            for tx_with_outcome in &chunk.transactions {
-                let tx_hash = tx_with_outcome.transaction.hash.to_string();
-
-                if let Some(local_receipt) = &tx_with_outcome.outcome.receipt {
-                    receipt_tx_map
-                        .entry(local_receipt.receipt_id.to_string())
-                        .or_insert_with(|| tx_hash.clone());
-                }
-
-                for child_receipt_id in &tx_with_outcome
-                    .outcome
-                    .execution_outcome
-                    .outcome
-                    .receipt_ids
-                {
-                    receipt_tx_map
-                        .entry(child_receipt_id.to_string())
-                        .or_insert_with(|| tx_hash.clone());
-                }
-            }
-        }
-
-        let mut changed = true;
-        while changed {
-            changed = false;
-
-            for receipt_with_outcome in &shard.receipt_execution_outcomes {
-                let parent_receipt_id = receipt_with_outcome.receipt.receipt_id.to_string();
-                let Some(parent_tx_hash) = receipt_tx_map.get(&parent_receipt_id).cloned() else {
-                    continue;
-                };
-
-                for child_receipt_id in &receipt_with_outcome.execution_outcome.outcome.receipt_ids
-                {
-                    let child_receipt_id = child_receipt_id.to_string();
-
-                    if let Some(existing_hash) = receipt_tx_map.get(&child_receipt_id) {
-                        if existing_hash != &parent_tx_hash {
-                            warn!(
-                                receipt_id = child_receipt_id,
-                                existing_transaction_hash = existing_hash,
-                                inferred_transaction_hash = parent_tx_hash,
-                                "conflicting receipt tx origins; keeping existing mapping"
-                            );
-                        }
-                        continue;
-                    }
-
-                    receipt_tx_map.insert(child_receipt_id, parent_tx_hash.clone());
-                    changed = true;
-                }
-            }
-        }
-
-        for receipt_id in &receipt_ids {
-            let Some(transaction_hash) = receipt_tx_map.get(receipt_id) else {
-                continue;
-            };
-
-            if existing_origins.get(receipt_id) == Some(transaction_hash) {
-                continue;
-            }
-
-            Self::upsert_receipt_tx_origin(db, receipt_id, transaction_hash, block_height).await?;
-            Self::backfill_transaction_hash_for_receipt(db, receipt_id, transaction_hash).await?;
-        }
-
-        Ok(receipt_tx_map)
-    }
-
     pub fn new(config: &common::config::AppConfig) -> Self {
         let mut enabled = false;
         let mut stream_mode = NearModuleStreamMode::Shared;
-        let mut near_chain_scope = "mainnet".to_string();
-        let mut venear_contract_id = "venear.dao".to_string();
-        let mut voting_contract_id = "vote.dao".to_string();
-        let mut lockup_account_suffix = ".venear.dao".to_string();
-        let mut configured_known_lockups: HashSet<String> = HashSet::new();
+        let mut mview_refresh_interval_blocks = DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS;
 
         if let common::config::AppConfig::Indexer(idx) = config {
             let idx = idx.as_ref();
             if let Some(near) = idx.near.as_ref() {
-                near_chain_scope = near.chain.trim().to_ascii_lowercase();
-                if near_chain_scope.is_empty() {
-                    near_chain_scope = "mainnet".to_string();
-                }
                 let near_enabled = near.chain != "disabled";
                 if near_enabled {
                     if let Some(module_cfg) = near
@@ -358,11 +47,9 @@ impl VenearGovernanceModule {
                     {
                         enabled = module_cfg.enabled;
                         stream_mode = module_cfg.stream_mode;
-                        venear_contract_id = module_cfg.venear_contract_id.clone();
-                        voting_contract_id = module_cfg.voting_contract_id.clone();
-                        lockup_account_suffix = module_cfg.lockup_account_suffix.clone();
-                        configured_known_lockups =
-                            module_cfg.known_lockups.iter().cloned().collect();
+                        mview_refresh_interval_blocks =
+                            i64::try_from(module_cfg.mview_refresh_interval_blocks)
+                                .unwrap_or(i64::MAX);
                     }
                 }
             }
@@ -371,2721 +58,859 @@ impl VenearGovernanceModule {
         Self {
             enabled,
             stream_mode,
-            near_chain_scope,
-            venear_contract_id,
-            voting_contract_id,
-            lockup_account_suffix,
-            configured_known_lockups,
-            known_lockups: Arc::new(RwLock::new(HashSet::new())),
-            lockup_owners: Arc::new(RwLock::new(HashMap::new())),
-            identity_accounts_enabled: AtomicBool::new(false),
+            mview_refresh_interval_blocks,
         }
     }
 
-    async fn load_known_lockups(&self, db: &DatabaseConnection) -> Result<()> {
+    fn parse_args_json(args: &[u8]) -> JsonValue {
+        if args.is_empty() {
+            return JsonValue::Null;
+        }
+
+        serde_json::from_slice::<JsonValue>(args)
+            .or_else(|_| {
+                String::from_utf8(args.to_vec())
+                    .ok()
+                    .and_then(|text| serde_json::from_str::<JsonValue>(&text).ok())
+                    .ok_or_else(|| serde_json::Error::io(std::io::Error::other("invalid json")))
+            })
+            .unwrap_or_else(|_| json!({ "value": "invalid json" }))
+    }
+
+    fn serialize_json<T: serde::Serialize>(value: &T, label: &str) -> Result<JsonValue> {
+        serde_json::to_value(value).with_context(|| format!("failed to serialize {label}"))
+    }
+
+    fn action_kind_from_json(action_json: &JsonValue) -> String {
+        match action_json {
+            JsonValue::Object(map) => map
+                .keys()
+                .next()
+                .cloned()
+                .unwrap_or_else(|| "Unknown".to_string()),
+            JsonValue::String(value) => value.clone(),
+            _ => "Unknown".to_string(),
+        }
+    }
+
+    fn extract_status(status: &ExecutionStatusView) -> (&'static str, Option<JsonValue>) {
+        match status {
+            ExecutionStatusView::Unknown => (
+                "Unknown",
+                Some(json!({
+                    "status_type": "Unknown",
+                })),
+            ),
+            ExecutionStatusView::Failure(failure) => (
+                "Failure",
+                Some(json!({
+                    "error": failure.to_string(),
+                    "status_type": "Failure",
+                })),
+            ),
+            ExecutionStatusView::SuccessReceiptId(receipt_id) => (
+                "SuccessReceiptId",
+                Some(json!({
+                    "receipt_id": receipt_id.to_string(),
+                    "status_type": "SuccessReceiptId",
+                })),
+            ),
+            ExecutionStatusView::SuccessValue(raw_value) => {
+                if raw_value.is_empty() {
+                    return ("SuccessValue", None);
+                }
+
+                let parsed = serde_json::from_slice::<JsonValue>(raw_value)
+                    .or_else(|_| {
+                        String::from_utf8(raw_value.clone())
+                            .ok()
+                            .and_then(|text| serde_json::from_str::<JsonValue>(&text).ok())
+                            .ok_or_else(|| {
+                                serde_json::Error::io(std::io::Error::other("invalid json"))
+                            })
+                    })
+                    .unwrap_or_else(|_| json!({ "value": "invalid json" }));
+
+                ("SuccessValue", Some(parsed))
+            }
+        }
+    }
+
+    fn shard_to_i64(shard_id: near_lake_framework::near_indexer_primitives::types::ShardId) -> i64 {
+        let value: u64 = shard_id.into();
+        i64::try_from(value).unwrap_or(i64::MAX)
+    }
+
+    fn is_hos_contract(&self, account_id: &str) -> bool {
+        let account = account_id.to_ascii_lowercase();
+        if account == HOS_CONTRACT || account == VENEAR_CONTRACT_ID || account == VOTING_CONTRACT_ID
+        {
+            return true;
+        }
+
+        account.starts_with("lockup.")
+            && (account.ends_with(&format!(".{VENEAR_CONTRACT_ID}"))
+                || account.ends_with(&format!(".{VOTING_CONTRACT_ID}")))
+    }
+
+    fn is_hos_related(&self, receiver_id: &str, predecessor_id: &str) -> bool {
+        self.is_hos_contract(receiver_id) || self.is_hos_contract(predecessor_id)
+    }
+
+    async fn upsert_hos_config(&self, db: &DatabaseConnection) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.hos_config (id, hos_contract, venear_contract_prefix, voting_contract_prefix)
+             VALUES (1, $1, $2, $3)
+             ON CONFLICT (id) DO UPDATE SET
+               hos_contract = EXCLUDED.hos_contract,
+               venear_contract_prefix = EXCLUDED.venear_contract_prefix,
+               voting_contract_prefix = EXCLUDED.voting_contract_prefix,
+               updated_at = NOW()",
+            vec![
+                HOS_CONTRACT.to_string().into(),
+                VENEAR_CONTRACT_PREFIX.to_string().into(),
+                VOTING_CONTRACT_PREFIX.to_string().into(),
+            ],
+        ))
+        .await
+        .context("failed to upsert near.hos_config")?;
+
+        Ok(())
+    }
+
+    async fn refresh_hos_materialized_views(&self, db: &DatabaseConnection) {
+        if let Err(err) = db
+            .execute(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT near.refresh_hos_materialized_views()",
+                vec![],
+            ))
+            .await
+        {
+            warn!(error = %err, "failed refreshing HOS materialized views");
+        }
+    }
+
+    fn should_refresh_mviews(&self, block_height: i64) -> bool {
+        self.mview_refresh_interval_blocks > 0
+            && block_height % self.mview_refresh_interval_blocks == 0
+    }
+
+    async fn load_relevant_receipts_for_block(
+        &self,
+        db: &impl ConnectionTrait,
+        receipt_ids: &[String],
+    ) -> Result<HashMap<String, Option<String>>> {
+        let mut seen = HashSet::new();
+        let mut ids = Vec::new();
+        for receipt_id in receipt_ids {
+            if seen.insert(receipt_id.clone()) {
+                ids.push(receipt_id.clone());
+            }
+        }
+
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut placeholders = String::new();
+        for idx in 0..ids.len() {
+            if idx > 0 {
+                placeholders.push_str(", ");
+            }
+            placeholders.push_str(&format!("${}", idx + 1));
+        }
+
+        let sql = format!(
+            "SELECT receipt_id, transaction_hash FROM near.venear_governance_relevant_receipts WHERE receipt_id IN ({placeholders})"
+        );
+        let values = ids.into_iter().map(Into::into).collect::<Vec<_>>();
         let rows = db
             .query_all(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT lockup_account_id, owner_account_id, event_type
-                 FROM near.near_venear_lockup_events
-                 ORDER BY block_height ASC, id ASC",
-                vec![],
+                &sql,
+                values,
             ))
             .await
-            .context("failed loading known lockups")?;
+            .context("failed to load relevant receipt ids")?;
 
-        let mut known_lockups = self.known_lockups.write().unwrap();
-        let mut lockup_owners = self.lockup_owners.write().unwrap();
-
-        known_lockups.clear();
-        lockup_owners.clear();
-
-        for lockup in &self.configured_known_lockups {
-            known_lockups.insert(lockup.clone());
-        }
-
+        let mut result = HashMap::new();
         for row in rows {
-            let lockup_account_id: String = row.try_get("", "lockup_account_id")?;
-            let owner_account_id: Option<String> = row.try_get("", "owner_account_id")?;
-            let event_type: String = row.try_get("", "event_type")?;
-
-            if event_type == "lockup_deployed"
-                || event_type == "lockup_update"
-                || event_type == "lockup_update_callback"
-                || event_type == "lockup_lock_near"
-                || event_type == "lockup_delete"
-            {
-                known_lockups.insert(lockup_account_id.clone());
-            }
-
-            if let Some(owner_account_id) = owner_account_id {
-                lockup_owners.insert(lockup_account_id, owner_account_id);
-            }
+            let receipt_id: String = row
+                .try_get("", "receipt_id")
+                .context("failed to read relevant receipt_id")?;
+            let transaction_hash: Option<String> = row
+                .try_get("", "transaction_hash")
+                .context("failed to read relevant transaction_hash")?;
+            result.insert(receipt_id, transaction_hash);
         }
 
-        Ok(())
+        Ok(result)
     }
 
-    fn build_process_state(&self) -> ProcessState {
-        let mut known_lockups = self.known_lockups.read().unwrap().clone();
-        for lockup in &self.configured_known_lockups {
-            known_lockups.insert(lockup.clone());
-        }
-
-        ProcessState {
-            known_lockups,
-            lockup_owners: self.lockup_owners.read().unwrap().clone(),
-            account_balances: HashMap::new(),
-        }
-    }
-
-    fn merge_process_state(&self, state: &ProcessState) {
-        {
-            let mut known_lockups = self.known_lockups.write().unwrap();
-            *known_lockups = state.known_lockups.clone();
-            for lockup in &self.configured_known_lockups {
-                known_lockups.insert(lockup.clone());
-            }
-        }
-
-        {
-            let mut lockup_owners = self.lockup_owners.write().unwrap();
-            *lockup_owners = state.lockup_owners.clone();
-        }
-    }
-
-    fn normalize_identity_account_id(account_id: &str) -> Option<String> {
-        let normalized = account_id.trim().to_ascii_lowercase();
-        if normalized.is_empty() {
-            None
-        } else {
-            Some(normalized)
-        }
-    }
-
-    async fn initialize_identity_accounts_support(&self, db: &impl ConnectionTrait) -> Result<()> {
-        let row = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT EXISTS (
-                    SELECT 1
-                    FROM information_schema.tables
-                    WHERE table_schema = 'identity'
-                      AND table_name = 'accounts'
-                ) AS exists",
-                vec![],
-            ))
-            .await
-            .context("failed checking identity.accounts availability")?
-            .ok_or_else(|| anyhow!("identity.accounts existence check returned no rows"))?;
-
-        let exists: bool = row.try_get("", "exists")?;
-        self.identity_accounts_enabled
-            .store(exists, Ordering::Relaxed);
-
-        if exists {
-            info!(
-                module = MODULE_NAME,
-                near_chain_scope = self.near_chain_scope,
-                "identity account sync enabled"
-            );
-        } else {
-            warn!(
-                module = MODULE_NAME,
-                "identity.accounts table missing; skipping identity account sync"
-            );
-        }
-
-        Ok(())
-    }
-
-    async fn upsert_identity_accounts_for_platform<'a, I>(
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_relevant_receipt(
         &self,
         db: &impl ConnectionTrait,
-        platform_id: &str,
-        account_ids: I,
-    ) -> Result<()>
-    where
-        I: IntoIterator<Item = &'a str>,
-    {
-        if !self.identity_accounts_enabled.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-
-        let mut unique_accounts: HashSet<String> = HashSet::new();
-        for account_id in account_ids {
-            if let Some(normalized) = Self::normalize_identity_account_id(account_id) {
-                unique_accounts.insert(normalized);
-            }
-        }
-
-        for account_id in unique_accounts {
-            let account_id_for_error = account_id.clone();
-            db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "INSERT INTO identity.accounts (platform_id, scope, external_id)
-                 VALUES ($1, $2, $3)
-                 ON CONFLICT (platform_id, scope, external_id) DO NOTHING",
-                vec![
-                    platform_id.to_string().into(),
-                    self.near_chain_scope.clone().into(),
-                    account_id.into(),
-                ],
-            ))
-            .await
-            .with_context(|| {
-                format!("failed upserting identity account '{account_id_for_error}'")
-            })?;
-        }
-
-        Ok(())
-    }
-
-    async fn upsert_identity_governance_accounts<'a, I>(
-        &self,
-        db: &impl ConnectionTrait,
-        account_ids: I,
-    ) -> Result<()>
-    where
-        I: IntoIterator<Item = &'a str>,
-    {
-        self.upsert_identity_accounts_for_platform(
-            db,
-            IDENTITY_VENEAR_GOVERNANCE_PLATFORM,
-            account_ids,
-        )
-        .await
-    }
-
-    async fn upsert_identity_lockup_accounts<'a, I>(
-        &self,
-        db: &impl ConnectionTrait,
-        account_ids: I,
-    ) -> Result<()>
-    where
-        I: IntoIterator<Item = &'a str>,
-    {
-        self.upsert_identity_accounts_for_platform(db, IDENTITY_VENEAR_LOCKUP_PLATFORM, account_ids)
-            .await
-    }
-
-    fn is_target_contract(&self, contract_id: &str, state: &ProcessState) -> bool {
-        contract_id == self.venear_contract_id
-            || contract_id == self.voting_contract_id
-            || state.known_lockups.contains(contract_id)
-            || contract_id.ends_with(&self.lockup_account_suffix)
-    }
-
-    fn is_admin_method(contract_id: &str, method_name: &str, module: &Self) -> bool {
-        if contract_id == module.venear_contract_id {
-            return matches!(
-                method_name,
-                "set_lockup_contract"
-                    | "set_local_deposit"
-                    | "set_staking_pool_whitelist_account_id"
-                    | "propose_new_owner_account_id"
-                    | "accept_ownership"
-                    | "set_unlock_duration_sec"
-                    | "set_lockup_code_deployers"
-                    | "set_guardians"
-                    | "pause"
-                    | "unpause"
-                    | "upgrade"
-                    | "migrate_state"
-                    | "prepare_lockup_code"
-            );
-        }
-
-        if contract_id == module.voting_contract_id {
-            return matches!(
-                method_name,
-                "set_venear_account_id"
-                    | "set_reviewer_ids"
-                    | "set_voting_duration"
-                    | "set_base_proposal_fee"
-                    | "set_max_number_of_voting_options"
-                    | "propose_new_owner_account_id"
-                    | "accept_ownership"
-                    | "set_guardians"
-                    | "pause"
-                    | "unpause"
-                    | "upgrade"
-                    | "migrate_state"
-            );
-        }
-
-        false
-    }
-
-    fn is_normalized_event(
-        &self,
-        standard: Option<&str>,
-        event_type: Option<&str>,
-        contract_id: &str,
-    ) -> bool {
-        match (standard, event_type) {
-            (Some("venear"), Some("lockup_deployed"))
-            | (Some("venear"), Some("lockup_delete"))
-            | (Some("venear"), Some("lockup_update"))
-            | (Some("venear"), Some("create_proposal"))
-            | (Some("venear"), Some("proposal_approve"))
-            | (Some("venear"), Some("proposal_reject"))
-            | (Some("venear"), Some("add_vote"))
-            | (Some("venear"), Some("remove_vote"))
-            | (Some("venear"), Some("lockup_lock_near")) => true,
-            (Some("nep141"), Some("ft_mint")) | (Some("nep141"), Some("ft_burn")) => {
-                contract_id == self.venear_contract_id
-            }
-            _ => false,
-        }
-    }
-
-    fn classify_governance_action(
-        contract_id: &str,
-        method_name: &str,
-        module: &Self,
-    ) -> &'static str {
-        if method_name == "delegate_all" || method_name == "undelegate" {
-            return "delegation";
-        }
-
-        if method_name == "create_proposal"
-            || method_name == "approve_proposal"
-            || method_name == "reject_proposal"
-        {
-            return "proposal";
-        }
-
-        if method_name == "vote" {
-            return "vote";
-        }
-
-        if method_name == "on_get_snapshot"
-            || method_name == "on_lockup_update"
-            || method_name == "on_lockup_deployed"
-        {
-            return "callback";
-        }
-
-        if method_name == "deploy_lockup" {
-            return "lockup";
-        }
-
-        if method_name == "storage_deposit" || method_name == "storage_withdraw" {
-            return "storage";
-        }
-
-        if Self::is_admin_method(contract_id, method_name, module) {
-            return "admin";
-        }
-
-        "other"
-    }
-
-    fn parse_governance_action_fields(
-        method_name: &str,
-        args_json: &Option<JsonValue>,
-        predecessor_id: &str,
-    ) -> GovernanceActionFields {
-        let proposal_id = args_json
-            .as_ref()
-            .and_then(|args| json_u64(args, "proposal_id"))
-            .and_then(|value| i64::try_from(value).ok());
-
-        let vote_option = args_json
-            .as_ref()
-            .and_then(|args| parse_i32_field(args, "vote").ok());
-
-        let delegator_account_id = if method_name == "delegate_all" || method_name == "undelegate" {
-            Some(predecessor_id.to_string())
-        } else {
-            None
-        };
-
-        let delegatee_account_id = if method_name == "delegate_all" {
-            args_json
-                .as_ref()
-                .and_then(|args| json_string(args, "receiver_id"))
-        } else {
-            None
-        };
-
-        let owner_account_id = match method_name {
-            "on_lockup_update" => args_json
-                .as_ref()
-                .and_then(|args| json_string(args, "owner_account_id")),
-            "on_lockup_deployed" => args_json
-                .as_ref()
-                .and_then(|args| json_string(args, "account_id")),
-            "deploy_lockup" => Some(predecessor_id.to_string()),
-            _ => None,
-        };
-
-        (
-            proposal_id,
-            vote_option,
-            delegator_account_id,
-            delegatee_account_id,
-            owner_account_id,
-        )
-    }
-
-    fn extract_create_proposal_args_metadata(args_json: &JsonValue) -> Option<JsonValue> {
-        let source = args_json
-            .get("metadata")
-            .and_then(JsonValue::as_object)
-            .or_else(|| args_json.as_object())?;
-
-        Some(json!({
-            "title": source.get("title").cloned(),
-            "description": source.get("description").cloned(),
-            "link": source.get("link").cloned(),
-            "voting_options": source.get("voting_options").cloned(),
-        }))
-    }
-
-    fn merge_create_proposal_metadata(metadata: &mut JsonValue, fallback: &JsonValue) {
-        let Some(metadata_obj) = metadata.as_object_mut() else {
-            return;
-        };
-        let Some(fallback_obj) = fallback.as_object() else {
-            return;
-        };
-
-        for key in ["title", "description", "link", "voting_options"] {
-            let current = metadata_obj.get(key);
-            if current.is_some() && !current.unwrap().is_null() {
-                continue;
-            }
-            if let Some(fallback_value) = fallback_obj.get(key) {
-                if !fallback_value.is_null() {
-                    metadata_obj.insert(key.to_string(), fallback_value.clone());
-                }
-            }
-        }
-    }
-
-    async fn process_shard(
-        &self,
-        shard: &IndexerShard,
-        block_height: i64,
-        block_timestamp: i64,
-        db: &impl ConnectionTrait,
-        state: &mut ProcessState,
+        receipt_id: &str,
+        reason: &str,
+        discovered_by_receipt_id: Option<&str>,
+        transaction_hash: Option<&str>,
+        discovered_at_block_height: i64,
+        executed: bool,
     ) -> Result<()> {
-        let receipt_tx_map = self
-            .resolve_and_persist_receipt_tx_origins(shard, block_height, db)
-            .await?;
-
-        if let Some(chunk) = &shard.chunk {
-            let shard_id_i32 = Self::shard_to_i32(shard.shard_id);
-            for tx_with_outcome in &chunk.transactions {
-                let tx = &tx_with_outcome.transaction;
-                let outcome = &tx_with_outcome.outcome.execution_outcome;
-                let tx_hash = tx.hash.to_string();
-                let status_json =
-                    serde_json::to_value(&outcome.outcome.status).unwrap_or(JsonValue::Null);
-                let success = is_outcome_success(&status_json);
-                let success_value_base64 = Self::extract_success_value(&status_json);
-
-                let action_context = ActionContext {
-                    predecessor_id: tx.signer_id.to_string(),
-                    receiver_id: tx.receiver_id.to_string(),
-                    transaction_hash: Some(tx_hash.clone()),
-                    receipt_id: outcome.id.to_string(),
-                    execution_outcome_id: outcome.id.to_string(),
-                    block_height,
-                    block_timestamp,
-                    shard_id: shard_id_i32,
-                    success,
-                    success_value_base64,
-                };
-
-                self.process_actions(&tx.actions, &action_context, db, state)
-                    .await?;
-
-                self.process_logs(
-                    &outcome.outcome.logs,
-                    tx.receiver_id.as_ref(),
-                    tx.signer_id.as_ref(),
-                    &outcome.id.to_string(),
-                    &outcome.id.to_string(),
-                    Some(tx_hash.as_str()),
-                    shard_id_i32,
-                    block_height,
-                    block_timestamp,
-                    success,
-                    db,
-                    state,
-                )
-                .await?;
-            }
-        }
-
-        for receipt_with_outcome in &shard.receipt_execution_outcomes {
-            let shard_id_i32 = Self::shard_to_i32(shard.shard_id);
-            let receipt = &receipt_with_outcome.receipt;
-            let outcome = &receipt_with_outcome.execution_outcome;
-            let receipt_id = receipt.receipt_id.to_string();
-            let transaction_hash = receipt_tx_map.get(&receipt_id).cloned();
-            let status_json =
-                serde_json::to_value(&outcome.outcome.status).unwrap_or(JsonValue::Null);
-            let success = is_outcome_success(&status_json);
-            let success_value_base64 = Self::extract_success_value(&status_json);
-
-            if let Some(actions) = Self::extract_actions_from_receipt(receipt) {
-                let action_context = ActionContext {
-                    predecessor_id: receipt.predecessor_id.to_string(),
-                    receiver_id: receipt.receiver_id.to_string(),
-                    transaction_hash: transaction_hash.clone(),
-                    receipt_id: receipt_id.clone(),
-                    execution_outcome_id: outcome.id.to_string(),
-                    block_height,
-                    block_timestamp,
-                    shard_id: shard_id_i32,
-                    success,
-                    success_value_base64,
-                };
-
-                self.process_actions(&actions, &action_context, db, state)
-                    .await?;
-            }
-
-            self.process_logs(
-                &outcome.outcome.logs,
-                receipt.receiver_id.as_ref(),
-                receipt.predecessor_id.as_ref(),
-                &receipt_id,
-                &outcome.id.to_string(),
-                transaction_hash.as_deref(),
-                shard_id_i32,
-                block_height,
-                block_timestamp,
-                success,
-                db,
-                state,
-            )
-            .await?;
-        }
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.venear_governance_relevant_receipts (
+                receipt_id,
+                reason,
+                discovered_by_receipt_id,
+                transaction_hash,
+                discovered_at_block_height,
+                executed,
+                created_at,
+                updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+            ON CONFLICT (receipt_id) DO UPDATE SET
+                reason = CASE
+                    WHEN near.venear_governance_relevant_receipts.reason = 'root' THEN near.venear_governance_relevant_receipts.reason
+                    ELSE EXCLUDED.reason
+                END,
+                discovered_by_receipt_id = COALESCE(
+                    near.venear_governance_relevant_receipts.discovered_by_receipt_id,
+                    EXCLUDED.discovered_by_receipt_id
+                ),
+                transaction_hash = COALESCE(
+                    near.venear_governance_relevant_receipts.transaction_hash,
+                    EXCLUDED.transaction_hash
+                ),
+                discovered_at_block_height = LEAST(
+                    near.venear_governance_relevant_receipts.discovered_at_block_height,
+                    EXCLUDED.discovered_at_block_height
+                ),
+                executed = near.venear_governance_relevant_receipts.executed OR EXCLUDED.executed,
+                updated_at = NOW()",
+            vec![
+                receipt_id.into(),
+                reason.into(),
+                discovered_by_receipt_id.map(ToString::to_string).into(),
+                transaction_hash.map(ToString::to_string).into(),
+                discovered_at_block_height.into(),
+                executed.into(),
+            ],
+        ))
+        .await
+        .context("failed to upsert near.venear_governance_relevant_receipts")?;
 
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn process_logs(
+    async fn upsert_receipt_edge(
         &self,
-        logs: &[String],
-        contract_id: &str,
+        db: &impl ConnectionTrait,
+        parent_receipt_id: &str,
+        child_receipt_id: &str,
+        parent_execution_outcome_id: &str,
+        block_height: i64,
+        block_hash: &str,
+        block_timestamp: i64,
+        transaction_hash: Option<&str>,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_receipt_edges (
+                parent_receipt_id,
+                child_receipt_id,
+                parent_execution_outcome_id,
+                block_height,
+                block_hash,
+                block_timestamp,
+                transaction_hash
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (parent_receipt_id, child_receipt_id) DO UPDATE SET
+                parent_execution_outcome_id = EXCLUDED.parent_execution_outcome_id,
+                block_height = EXCLUDED.block_height,
+                block_hash = EXCLUDED.block_hash,
+                block_timestamp = EXCLUDED.block_timestamp,
+                transaction_hash = COALESCE(
+                    near.near_receipt_edges.transaction_hash,
+                    EXCLUDED.transaction_hash
+                )",
+            vec![
+                parent_receipt_id.into(),
+                child_receipt_id.into(),
+                parent_execution_outcome_id.into(),
+                block_height.into(),
+                block_hash.into(),
+                block_timestamp.into(),
+                transaction_hash.map(ToString::to_string).into(),
+            ],
+        ))
+        .await
+        .context("failed to upsert near.near_receipt_edges")?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_near_receipt(
+        &self,
+        db: &impl ConnectionTrait,
+        receipt_id: &str,
+        block_height: i64,
+        shard_id: i64,
         predecessor_id: &str,
+        receiver_id: &str,
+        receipt_json: JsonValue,
+        raw_data_json: JsonValue,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_receipts (
+                receipt_id,
+                block_height,
+                shard_id,
+                predecessor_id,
+                receiver_id,
+                receipt,
+                raw_data
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (receipt_id) DO UPDATE SET
+                block_height = EXCLUDED.block_height,
+                shard_id = EXCLUDED.shard_id,
+                predecessor_id = EXCLUDED.predecessor_id,
+                receiver_id = EXCLUDED.receiver_id,
+                receipt = EXCLUDED.receipt,
+                raw_data = COALESCE(near.near_receipts.raw_data, EXCLUDED.raw_data)",
+            vec![
+                receipt_id.into(),
+                block_height.into(),
+                shard_id.into(),
+                predecessor_id.into(),
+                receiver_id.into(),
+                receipt_json.into(),
+                raw_data_json.into(),
+            ],
+        ))
+        .await
+        .context("failed to upsert near.near_receipts")?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_near_execution_outcome(
+        &self,
+        db: &impl ConnectionTrait,
         receipt_id: &str,
         execution_outcome_id: &str,
         transaction_hash: Option<&str>,
-        shard_id: i32,
         block_height: i64,
+        block_hash: &str,
+        chunk_hash: &str,
+        shard_id: i64,
+        gas_burnt: i64,
+        gas_used: f64,
+        tokens_burnt: f64,
+        executor_account_id: &str,
+        status: &str,
+        outcome_receipt_ids: JsonValue,
+        logs: JsonValue,
+        results_json: Option<JsonValue>,
+        outcome_json: JsonValue,
+        raw_data_json: JsonValue,
         block_timestamp: i64,
-        success: bool,
-        db: &impl ConnectionTrait,
-        state: &mut ProcessState,
     ) -> Result<()> {
-        if !self.is_target_contract(contract_id, state) {
-            return Ok(());
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_execution_outcomes (
+                id,
+                block_height,
+                shard_id,
+                receipt_id,
+                outcome,
+                raw_data,
+                transaction_hash,
+                block_hash,
+                chunk_hash,
+                gas_burnt,
+                gas_used,
+                tokens_burnt,
+                executor_account_id,
+                status,
+                outcome_receipt_ids,
+                executed_in_block_hash,
+                logs,
+                results_json,
+                block_timestamp
+            )
+            VALUES (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15,
+                $16, $17, $18, $19
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                block_height = EXCLUDED.block_height,
+                shard_id = EXCLUDED.shard_id,
+                receipt_id = COALESCE(near.near_execution_outcomes.receipt_id, EXCLUDED.receipt_id),
+                outcome = EXCLUDED.outcome,
+                raw_data = COALESCE(near.near_execution_outcomes.raw_data, EXCLUDED.raw_data),
+                transaction_hash = COALESCE(near.near_execution_outcomes.transaction_hash, EXCLUDED.transaction_hash),
+                block_hash = EXCLUDED.block_hash,
+                chunk_hash = EXCLUDED.chunk_hash,
+                gas_burnt = EXCLUDED.gas_burnt,
+                gas_used = EXCLUDED.gas_used,
+                tokens_burnt = EXCLUDED.tokens_burnt,
+                executor_account_id = EXCLUDED.executor_account_id,
+                status = EXCLUDED.status,
+                outcome_receipt_ids = EXCLUDED.outcome_receipt_ids,
+                executed_in_block_hash = EXCLUDED.executed_in_block_hash,
+                logs = EXCLUDED.logs,
+                results_json = EXCLUDED.results_json,
+                block_timestamp = EXCLUDED.block_timestamp",
+            vec![
+                execution_outcome_id.into(),
+                block_height.into(),
+                shard_id.into(),
+                Some(receipt_id.to_string()).into(),
+                outcome_json.into(),
+                raw_data_json.into(),
+                transaction_hash.map(ToString::to_string).into(),
+                block_hash.into(),
+                chunk_hash.into(),
+                gas_burnt.into(),
+                gas_used.into(),
+                tokens_burnt.into(),
+                executor_account_id.into(),
+                status.into(),
+                outcome_receipt_ids.into(),
+                block_hash.into(),
+                logs.into(),
+                results_json.into(),
+                block_timestamp.into(),
+            ],
+        ))
+        .await
+        .context("failed to upsert near.near_execution_outcomes")?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_near_receipt_action(
+        &self,
+        db: &impl ConnectionTrait,
+        id: &str,
+        block_height: i64,
+        receipt_id: &str,
+        execution_outcome_id: &str,
+        transaction_hash: Option<&str>,
+        shard_id: i64,
+        signer_account_id: Option<&str>,
+        signer_public_key: Option<&str>,
+        gas_price: Option<&str>,
+        predecessor_id: &str,
+        receiver_id: &str,
+        block_hash: &str,
+        chunk_hash: &str,
+        author: &str,
+        action_kind: &str,
+        action_json: JsonValue,
+        method_name: Option<&str>,
+        gas: Option<i64>,
+        deposit: Option<&str>,
+        args_base64: Option<&str>,
+        args_json: Option<JsonValue>,
+        action_index: i32,
+        block_timestamp: i64,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_receipt_actions (
+                id,
+                block_height,
+                receipt_id,
+                execution_outcome_id,
+                transaction_hash,
+                shard_id,
+                signer_account_id,
+                signer_public_key,
+                gas_price,
+                action_kind,
+                action_json,
+                predecessor_id,
+                receiver_id,
+                block_hash,
+                chunk_hash,
+                author,
+                method_name,
+                gas,
+                deposit,
+                args_base64,
+                args_json,
+                action_index,
+                block_timestamp
+            )
+            VALUES (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15,
+                $16, $17, $18, $19, $20,
+                $21, $22, $23
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                block_height = EXCLUDED.block_height,
+                receipt_id = EXCLUDED.receipt_id,
+                execution_outcome_id = EXCLUDED.execution_outcome_id,
+                transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_receipt_actions.transaction_hash),
+                shard_id = EXCLUDED.shard_id,
+                signer_account_id = EXCLUDED.signer_account_id,
+                signer_public_key = EXCLUDED.signer_public_key,
+                gas_price = EXCLUDED.gas_price,
+                action_kind = EXCLUDED.action_kind,
+                action_json = EXCLUDED.action_json,
+                predecessor_id = EXCLUDED.predecessor_id,
+                receiver_id = EXCLUDED.receiver_id,
+                block_hash = EXCLUDED.block_hash,
+                chunk_hash = EXCLUDED.chunk_hash,
+                author = EXCLUDED.author,
+                method_name = EXCLUDED.method_name,
+                gas = EXCLUDED.gas,
+                deposit = EXCLUDED.deposit,
+                args_base64 = EXCLUDED.args_base64,
+                args_json = EXCLUDED.args_json,
+                action_index = EXCLUDED.action_index,
+                block_timestamp = EXCLUDED.block_timestamp",
+            vec![
+                id.into(),
+                block_height.into(),
+                receipt_id.into(),
+                execution_outcome_id.into(),
+                transaction_hash.map(ToString::to_string).into(),
+                shard_id.into(),
+                signer_account_id.map(ToString::to_string).into(),
+                signer_public_key.map(ToString::to_string).into(),
+                gas_price.map(ToString::to_string).into(),
+                action_kind.into(),
+                action_json.into(),
+                predecessor_id.into(),
+                receiver_id.into(),
+                block_hash.into(),
+                chunk_hash.into(),
+                author.into(),
+                method_name.map(ToString::to_string).into(),
+                gas.into(),
+                deposit.map(ToString::to_string).into(),
+                args_base64.map(ToString::to_string).into(),
+                args_json.into(),
+                action_index.into(),
+                block_timestamp.into(),
+            ],
+        ))
+        .await
+        .context("failed to upsert near.near_receipt_actions")?;
+
+        Ok(())
+    }
+
+    async fn store_hos_projection(
+        &self,
+        msg: &StreamerMessage,
+        db: &impl ConnectionTrait,
+    ) -> Result<()> {
+        let block_height = msg.block.header.height as i64;
+        let block_hash = msg.block.header.hash.to_string();
+        let block_timestamp = msg.block.header.timestamp as i64;
+        let default_author = msg.block.author.to_string();
+
+        let mut receipt_tx_hashes: HashMap<String, String> = HashMap::new();
+
+        for shard in &msg.shards {
+            if let Some(chunk) = &shard.chunk {
+                for tx_with_outcome in &chunk.transactions {
+                    if let Some(receipt) = &tx_with_outcome.outcome.receipt {
+                        let receipt_id = receipt.receipt_id.to_string();
+                        let transaction_hash = tx_with_outcome.transaction.hash.to_string();
+                        receipt_tx_hashes.insert(receipt_id.clone(), transaction_hash.clone());
+
+                        let predecessor_id = receipt.predecessor_id.to_string();
+                        let receiver_id = receipt.receiver_id.to_string();
+                        if self.is_hos_related(&receiver_id, &predecessor_id) {
+                            self.upsert_relevant_receipt(
+                                db,
+                                &receipt_id,
+                                "root",
+                                None,
+                                Some(&transaction_hash),
+                                block_height,
+                                false,
+                            )
+                            .await?;
+                        }
+                    }
+                }
+            }
         }
 
-        for (log_index, log) in logs.iter().enumerate() {
-            if !log.starts_with(crate::modules::venear_governance::types::EVENT_JSON_PREFIX) {
-                self.upsert_raw_plain_log(
-                    db,
-                    block_height,
-                    block_timestamp,
-                    shard_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
-                    log_index as i32,
-                    success,
-                    log,
-                )
-                .await?;
-                continue;
+        let mut block_receipt_ids = Vec::new();
+        for shard in &msg.shards {
+            for outcome_with_receipt in &shard.receipt_execution_outcomes {
+                block_receipt_ids.push(outcome_with_receipt.receipt.receipt_id.to_string());
             }
+        }
 
-            let parsed = parse_event_log(log);
-            if let Some(parse_error) = parsed.parse_error.as_ref() {
-                self.upsert_raw_event(
-                    db,
-                    block_height,
-                    block_timestamp,
-                    shard_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
-                    log_index as i32,
-                    0,
-                    parsed.standard.as_deref(),
-                    parsed.event_type.as_deref(),
-                    success,
-                    Some(parse_error.clone()),
-                    None,
-                    log,
-                )
-                .await?;
-                continue;
-            }
+        let mut tracked_relevant = self
+            .load_relevant_receipts_for_block(db, &block_receipt_ids)
+            .await?;
 
-            if parsed.data_items.is_empty() {
-                self.upsert_raw_event(
-                    db,
-                    block_height,
-                    block_timestamp,
-                    shard_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
-                    log_index as i32,
-                    0,
-                    parsed.standard.as_deref(),
-                    parsed.event_type.as_deref(),
-                    success,
-                    None,
-                    None,
-                    log,
-                )
-                .await?;
-                continue;
-            }
+        for shard in &msg.shards {
+            let chunk_hash = shard
+                .chunk
+                .as_ref()
+                .map(|chunk| chunk.header.chunk_hash.to_string())
+                .unwrap_or_default();
+            let chunk_author = shard
+                .chunk
+                .as_ref()
+                .map(|chunk| chunk.author.to_string())
+                .unwrap_or_else(|| default_author.clone());
+            let shard_id = Self::shard_to_i64(shard.shard_id);
 
-            for (data_index, data_item) in parsed.data_items.iter().enumerate() {
-                let standard = parsed.standard.as_deref();
-                let event_type = parsed.event_type.as_deref();
+            for outcome_with_receipt in &shard.receipt_execution_outcomes {
+                let receipt = &outcome_with_receipt.receipt;
+                let receipt_id = receipt.receipt_id.to_string();
+                let predecessor_id = receipt.predecessor_id.to_string();
+                let receiver_id = receipt.receiver_id.to_string();
+                let is_hos_root_related = self.is_hos_related(&receiver_id, &predecessor_id);
+                let tracked_transaction_hash = tracked_relevant.get(&receipt_id).cloned().flatten();
+                let is_hos_related_receipt =
+                    is_hos_root_related || tracked_relevant.contains_key(&receipt_id);
 
-                self.upsert_raw_event(
-                    db,
-                    block_height,
-                    block_timestamp,
-                    shard_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
-                    log_index as i32,
-                    data_index as i32,
-                    standard,
-                    event_type,
-                    success,
-                    None,
-                    Some(data_item.clone()),
-                    log,
-                )
-                .await?;
-
-                if !success {
-                    if !self.is_normalized_event(standard, event_type, contract_id) {
-                        self.upsert_unhandled_event(
-                            db,
-                            block_height,
-                            block_timestamp,
-                            shard_id,
-                            receipt_id,
-                            execution_outcome_id,
-                            predecessor_id,
-                            contract_id,
-                            standard,
-                            event_type,
-                            log_index as i32,
-                            data_index as i32,
-                            data_item.clone(),
-                            log,
-                            "unmapped_event_type",
-                            success,
-                        )
-                        .await?;
-                    }
+                if !is_hos_related_receipt {
                     continue;
                 }
 
-                let normalized = match self
-                    .normalize_event(
-                        db,
-                        state,
-                        standard,
-                        event_type,
-                        data_item,
-                        block_height,
-                        block_timestamp,
-                        shard_id,
-                        receipt_id,
-                        execution_outcome_id,
-                        transaction_hash,
-                        predecessor_id,
-                        contract_id,
-                        log_index as i32,
-                        data_index as i32,
-                    )
-                    .await
-                {
-                    Ok(normalized) => normalized,
-                    Err(err) => {
-                        warn!(
-                            execution_outcome_id = execution_outcome_id,
-                            log_index = log_index,
-                            data_index = data_index,
-                            standard = ?parsed.standard,
-                            event_type = ?parsed.event_type,
-                            error = %err,
-                            "failed to normalize venear event data item"
-                        );
+                let transaction_hash = receipt_tx_hashes
+                    .get(&receipt_id)
+                    .cloned()
+                    .or(tracked_transaction_hash);
 
-                        self.upsert_raw_event(
-                            db,
-                            block_height,
-                            block_timestamp,
-                            shard_id,
-                            transaction_hash,
-                            receipt_id,
-                            execution_outcome_id,
-                            predecessor_id,
-                            contract_id,
-                            log_index as i32,
-                            data_index as i32,
-                            standard,
-                            event_type,
-                            success,
-                            Some(format!("failed to normalize event: {err}")),
-                            Some(data_item.clone()),
-                            log,
-                        )
-                        .await?;
-                        true
-                    }
-                };
-
-                if !normalized {
-                    self.upsert_unhandled_event(
-                        db,
-                        block_height,
-                        block_timestamp,
-                        shard_id,
-                        receipt_id,
-                        execution_outcome_id,
-                        predecessor_id,
-                        contract_id,
-                        standard,
-                        event_type,
-                        log_index as i32,
-                        data_index as i32,
-                        data_item.clone(),
-                        log,
-                        "unmapped_event_type",
-                        success,
-                    )
-                    .await?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn normalize_event(
-        &self,
-        db: &impl ConnectionTrait,
-        state: &mut ProcessState,
-        standard: Option<&str>,
-        event_type: Option<&str>,
-        data: &JsonValue,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        transaction_hash: Option<&str>,
-        predecessor_id: &str,
-        contract_id: &str,
-        log_index: i32,
-        data_index: i32,
-    ) -> Result<bool> {
-        let (Some(standard), Some(event_type)) = (standard, event_type) else {
-            return Ok(false);
-        };
-
-        let handled = match (standard, event_type) {
-            ("venear", "lockup_deployed") => {
-                if let Some(owner_account_id) = json_string(data, "account_id") {
-                    let lockup_account_id =
-                        derive_lockup_account_id(&owner_account_id, &self.lockup_account_suffix);
-                    let lockup_version = json_u64(data, "lockup_version").map(|v| v as i64);
-                    self.insert_lockup_event(
-                        db,
-                        &lockup_account_id,
-                        Some(&owner_account_id),
-                        "lockup_deployed",
-                        lockup_version,
-                        json_u64(data, "lockup_update_nonce").map(|v| v as i64),
-                        json_u64(data, "timestamp").map(|v| v as i64),
-                        json_u128(data, "locked_near_balance").map(|v| v.to_string()),
-                        "event_json",
-                        transaction_hash,
-                        receipt_id,
-                        execution_outcome_id,
-                        predecessor_id,
-                        contract_id,
-                        true,
-                        block_height,
-                        block_timestamp,
-                        shard_id,
-                        log_index,
-                        data_index,
-                        Some(data.clone()),
-                    )
-                    .await?;
-                    state.known_lockups.insert(lockup_account_id.clone());
-                    state
-                        .lockup_owners
-                        .insert(lockup_account_id, owner_account_id.clone());
-                }
-                true
-            }
-            ("venear", "lockup_delete") => {
-                if let Some(owner_account_id) = json_string(data, "account_id") {
-                    let lockup_account_id = if contract_id.ends_with(&self.lockup_account_suffix) {
-                        contract_id.to_string()
+                self.upsert_relevant_receipt(
+                    db,
+                    &receipt_id,
+                    if is_hos_root_related {
+                        "root"
                     } else {
-                        derive_lockup_account_id(&owner_account_id, &self.lockup_account_suffix)
-                    };
-                    let lockup_version = json_u64(data, "lockup_version").map(|v| v as i64);
-                    self.insert_lockup_event(
-                        db,
-                        &lockup_account_id,
-                        Some(&owner_account_id),
-                        "lockup_delete",
-                        lockup_version,
-                        json_u64(data, "lockup_update_nonce").map(|v| v as i64),
-                        json_u64(data, "timestamp").map(|v| v as i64),
-                        json_u128(data, "locked_near_balance").map(|v| v.to_string()),
-                        "event_json",
-                        transaction_hash,
-                        receipt_id,
-                        execution_outcome_id,
-                        predecessor_id,
-                        contract_id,
-                        true,
-                        block_height,
-                        block_timestamp,
-                        shard_id,
-                        log_index,
-                        data_index,
-                        Some(data.clone()),
-                    )
-                    .await?;
-                    state.known_lockups.insert(lockup_account_id.clone());
-                    state
-                        .lockup_owners
-                        .insert(lockup_account_id, owner_account_id.clone());
-                }
-                true
-            }
-            ("venear", "lockup_update") => {
-                if let Some(account_id) = json_string(data, "account_id") {
-                    let existing_total = self
-                        .get_existing_balance_total_for_identity(
-                            db,
-                            execution_outcome_id,
-                            log_index,
-                            data_index,
-                            &account_id,
-                        )
-                        .await?;
-
-                    let total_balance = if let Some(existing_total) = existing_total {
-                        existing_total
-                    } else {
-                        self.get_latest_total_balance(db, state, &account_id)
-                            .await?
-                    };
-
-                    let lockup_update_nonce =
-                        json_u64(data, "lockup_update_nonce").map(|v| v as i64);
-                    let lockup_version = json_u64(data, "lockup_version").map(|v| v as i64);
-                    let locked_near_balance = json_u128(data, "locked_near_balance");
-
-                    self.upsert_account_balance_row(
-                        db,
-                        &account_id,
-                        "lockup_update",
-                        None,
-                        total_balance,
-                        locked_near_balance,
-                        lockup_update_nonce,
-                        lockup_version,
-                        block_height,
-                        block_timestamp,
-                        shard_id,
-                        transaction_hash,
-                        receipt_id,
-                        execution_outcome_id,
-                        predecessor_id,
-                        contract_id,
-                        log_index,
-                        data_index,
-                        Some(data.clone()),
-                    )
-                    .await?;
-
-                    let lockup_account_id =
-                        derive_lockup_account_id(&account_id, &self.lockup_account_suffix);
-                    self.insert_lockup_event(
-                        db,
-                        &lockup_account_id,
-                        Some(&account_id),
-                        "lockup_update",
-                        lockup_version,
-                        lockup_update_nonce,
-                        json_u64(data, "timestamp").map(|v| v as i64),
-                        locked_near_balance.map(|v| v.to_string()),
-                        "event_json",
-                        transaction_hash,
-                        receipt_id,
-                        execution_outcome_id,
-                        predecessor_id,
-                        contract_id,
-                        true,
-                        block_height,
-                        block_timestamp,
-                        shard_id,
-                        log_index,
-                        data_index,
-                        Some(data.clone()),
-                    )
-                    .await?;
-
-                    state.known_lockups.insert(lockup_account_id.clone());
-                    state
-                        .lockup_owners
-                        .insert(lockup_account_id, account_id.clone());
-                    state.account_balances.insert(account_id, total_balance);
-                }
-                true
-            }
-            ("venear", "create_proposal") => {
-                let Some(proposal_id_raw) = json_u64(data, "proposal_id") else {
-                    return Ok(true);
-                };
-                let proposal_id = i64::try_from(proposal_id_raw).map_err(|_| {
-                    anyhow!(
-                        "proposal_id out of i64 range for event {event_type}: {proposal_id_raw}"
-                    )
-                })?;
-                let proposer_id = json_string(data, "proposer_id");
-                let voting_start_time_sec =
-                    json_u64(data, "voting_start_time_sec").map(|v| v as i64);
-                let mut metadata = json!({
-                    "title": data.get("title"),
-                    "description": data.get("description"),
-                    "link": data.get("link"),
-                    "voting_options": data.get("voting_options"),
-                });
-
-                if let Some(args_json) = self
-                    .get_method_call_args_json(db, execution_outcome_id, "create_proposal")
-                    .await?
-                {
-                    if let Some(fallback_metadata) =
-                        Self::extract_create_proposal_args_metadata(&args_json)
-                    {
-                        Self::merge_create_proposal_metadata(&mut metadata, &fallback_metadata);
-                    }
-                }
-
-                self.upsert_proposal_event(
-                    db,
-                    proposal_id,
-                    event_type,
-                    None, // account_id: create_proposal has no account_id field
-                    proposer_id,
-                    None, // reviewer_id
-                    voting_start_time_sec,
+                        "descendant"
+                    },
                     None,
-                    None,
-                    None,
-                    Some(metadata),
-                    Some(data.clone()),
+                    transaction_hash.as_deref(),
                     block_height,
-                    block_timestamp,
-                    shard_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
-                    log_index,
-                    data_index,
-                )
-                .await?;
-                true
-            }
-            ("venear", "proposal_approve") | ("venear", "proposal_reject") => {
-                let Some(proposal_id_raw) = json_u64(data, "proposal_id") else {
-                    return Ok(true);
-                };
-                let proposal_id = i64::try_from(proposal_id_raw).map_err(|_| {
-                    anyhow!(
-                        "proposal_id out of i64 range for event {event_type}: {proposal_id_raw}"
-                    )
-                })?;
-                let account_id = json_string(data, "account_id");
-                let voting_start_time_sec =
-                    json_u64(data, "voting_start_time_sec").map(|v| v as i64);
-                self.upsert_proposal_event(
-                    db,
-                    proposal_id,
-                    event_type,
-                    account_id.clone(), // account_id: reviewer (preserve existing behavior)
-                    None,               // proposer_id: not in approve/reject events
-                    account_id,         // reviewer_id: same as account_id (was None)
-                    voting_start_time_sec,
-                    None,
-                    None,
-                    None,
-                    None, // metadata: not in approve/reject events
-                    Some(data.clone()),
-                    block_height,
-                    block_timestamp,
-                    shard_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
-                    log_index,
-                    data_index,
-                )
-                .await?;
-                true
-            }
-            ("venear", "add_vote") | ("venear", "remove_vote") => {
-                let account_id = match json_string(data, "account_id") {
-                    Some(account) => account,
-                    None => return Ok(true),
-                };
-
-                let Some(proposal_id_raw) = json_u64(data, "proposal_id") else {
-                    return Ok(true);
-                };
-                let proposal_id = i64::try_from(proposal_id_raw).map_err(|_| {
-                    anyhow!(
-                        "proposal_id out of i64 range for vote event {event_type}: {proposal_id_raw}"
-                    )
-                })?;
-                let vote = parse_i32_field(data, "vote").map_err(|err| {
-                    anyhow!(
-                        "invalid vote field for account {account_id}, proposal {proposal_id}, event {event_type}: {err}"
-                    )
-                })?;
-                let account_balance = json_u128(data, "account_balance")
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "0".to_string());
-
-                self.upsert_vote_event(
-                    db,
-                    proposal_id,
-                    &account_id,
-                    vote,
-                    &account_balance,
-                    event_type,
-                    Some(data.clone()),
-                    block_height,
-                    block_timestamp,
-                    shard_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
-                    log_index,
-                    data_index,
-                )
-                .await?;
-
-                self.upsert_account_voting_power_event(
-                    db,
-                    &account_id,
-                    event_type,
-                    Some(proposal_id),
-                    &account_balance,
-                    None,
-                    block_height,
-                    block_timestamp,
-                    shard_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
-                    log_index,
-                    data_index,
-                    Some(data.clone()),
-                )
-                .await?;
-                true
-            }
-            ("nep141", "ft_mint") | ("nep141", "ft_burn")
-                if contract_id == self.venear_contract_id =>
-            {
-                let owner_id = match json_string(data, "owner_id") {
-                    Some(owner) => owner,
-                    None => return Ok(true),
-                };
-                let amount = match json_u128(data, "amount") {
-                    Some(amount) => amount,
-                    None => return Ok(true),
-                };
-
-                let existing_total = self
-                    .get_existing_balance_total_for_identity(
-                        db,
-                        execution_outcome_id,
-                        log_index,
-                        data_index,
-                        &owner_id,
-                    )
-                    .await?;
-
-                let total_balance = if let Some(existing_total) = existing_total {
-                    existing_total
-                } else {
-                    let previous_balance =
-                        self.get_latest_total_balance(db, state, &owner_id).await?;
-                    apply_balance_delta(previous_balance, event_type, amount)
-                };
-
-                let delta_amount = if event_type == "ft_mint" {
-                    amount.to_string()
-                } else {
-                    format!("-{amount}")
-                };
-
-                self.upsert_account_balance_row(
-                    db,
-                    &owner_id,
-                    event_type,
-                    Some(delta_amount),
-                    total_balance,
-                    None,
-                    None,
-                    None,
-                    block_height,
-                    block_timestamp,
-                    shard_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
-                    log_index,
-                    data_index,
-                    Some(data.clone()),
-                )
-                .await?;
-
-                state.account_balances.insert(owner_id, total_balance);
-                true
-            }
-            ("venear", "lockup_lock_near") => {
-                let lockup_account_id = json_string(data, "account_id")
-                    .filter(|value| value.ends_with(&self.lockup_account_suffix))
-                    .unwrap_or_else(|| contract_id.to_string());
-
-                let owner_account_id = state.lockup_owners.get(&lockup_account_id).cloned();
-                self.insert_lockup_event(
-                    db,
-                    &lockup_account_id,
-                    owner_account_id.as_deref(),
-                    "lockup_lock_near",
-                    json_u64(data, "lockup_version").map(|v| v as i64),
-                    json_u64(data, "lockup_update_nonce").map(|v| v as i64),
-                    json_u64(data, "timestamp").map(|v| v as i64),
-                    json_u128(data, "locked_near_balance").map(|v| v.to_string()),
-                    "event_json",
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    predecessor_id,
-                    contract_id,
                     true,
-                    block_height,
-                    block_timestamp,
-                    shard_id,
-                    log_index,
-                    data_index,
-                    Some(data.clone()),
                 )
                 .await?;
 
-                state.known_lockups.insert(lockup_account_id);
-                true
-            }
-            _ => false,
-        };
+                tracked_relevant.insert(receipt_id.clone(), transaction_hash.clone());
 
-        Ok(handled)
-    }
-
-    async fn process_actions(
-        &self,
-        actions: &[ActionView],
-        context: &ActionContext,
-        db: &impl ConnectionTrait,
-        state: &mut ProcessState,
-    ) -> Result<()> {
-        for (action_index, action) in actions.iter().enumerate() {
-            let ActionView::FunctionCall {
-                method_name,
-                args,
-                deposit,
-                gas: _,
-            } = action
-            else {
-                continue;
-            };
-
-            let args_bytes: &[u8] = args.as_ref();
-            let args_json = parse_args_json(args_bytes);
-            let args_base64 = base64::prelude::BASE64_STANDARD.encode(args_bytes);
-            let action_source = if context.transaction_hash.is_some() {
-                "transaction"
-            } else {
-                "receipt"
-            };
-            let success_value_json =
-                Self::decode_success_value_json(context.success_value_base64.as_deref());
-
-            if self.is_target_contract(&context.receiver_id, state) {
-                self.upsert_raw_method(
-                    db,
-                    action_source,
-                    action_index as i32,
-                    method_name,
-                    args_json.clone(),
-                    args_base64.clone(),
-                    deposit.to_string(),
-                    context,
-                )
-                .await?;
-            }
-
-            if Self::is_admin_method(&context.receiver_id, method_name, self) {
-                self.upsert_admin_event(
-                    db,
-                    &context.receiver_id,
-                    method_name,
-                    action_source,
-                    action_index as i32,
-                    &context.predecessor_id,
-                    args_json.clone(),
-                    args_base64.clone(),
-                    deposit.to_string(),
-                    context.transaction_hash.as_deref(),
-                    &context.receipt_id,
-                    &context.execution_outcome_id,
-                    context.success,
-                    context.block_height,
-                    context.block_timestamp,
-                    context.shard_id,
-                    success_value_json.clone(),
-                )
-                .await?;
-            }
-
-            if context.receiver_id == self.venear_contract_id
-                || context.receiver_id == self.voting_contract_id
-            {
-                let action_category =
-                    Self::classify_governance_action(&context.receiver_id, method_name, self);
-                let (
-                    proposal_id,
-                    vote_option,
-                    delegator_account_id,
-                    delegatee_account_id,
-                    owner_account_id,
-                ) = Self::parse_governance_action_fields(
-                    method_name,
-                    &args_json,
-                    &context.predecessor_id,
+                let outcome_view = &outcome_with_receipt.execution_outcome;
+                let outcome = &outcome_view.outcome;
+                let outcome_receipt_ids = JsonValue::Array(
+                    outcome
+                        .receipt_ids
+                        .iter()
+                        .map(|value| JsonValue::String(value.to_string()))
+                        .collect(),
                 );
+                let logs = JsonValue::Array(
+                    outcome
+                        .logs
+                        .iter()
+                        .cloned()
+                        .map(JsonValue::String)
+                        .collect(),
+                );
+                let (status, results_json) = Self::extract_status(&outcome.status);
+                let executor_account_id = outcome.executor_id.to_string();
 
-                self.upsert_governance_action(
+                self.upsert_near_execution_outcome(
                     db,
-                    action_source,
-                    action_index as i32,
-                    method_name,
-                    &context.predecessor_id,
-                    &context.receiver_id,
-                    &context.receiver_id,
-                    args_json.clone(),
-                    args_base64.clone(),
-                    deposit.to_string(),
-                    context.transaction_hash.as_deref(),
-                    &context.receipt_id,
-                    &context.execution_outcome_id,
-                    context.success,
-                    context.block_height,
-                    context.block_timestamp,
-                    context.shard_id,
-                    success_value_json.clone(),
-                    action_category,
-                    proposal_id,
-                    vote_option,
-                    delegator_account_id.as_deref(),
-                    delegatee_account_id.as_deref(),
-                    owner_account_id.as_deref(),
-                    None,
+                    &receipt_id,
+                    &outcome_view.id.to_string(),
+                    transaction_hash.as_deref(),
+                    block_height,
+                    &block_hash,
+                    &chunk_hash,
+                    shard_id,
+                    outcome.gas_burnt.as_gas() as i64,
+                    outcome.gas_burnt.as_gas() as f64,
+                    outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
+                    &executor_account_id,
+                    status,
+                    outcome_receipt_ids.clone(),
+                    logs,
+                    results_json,
+                    Self::serialize_json(&outcome_view.outcome, "execution outcome")?,
+                    Self::serialize_json(outcome_view, "execution outcome row")?,
+                    block_timestamp,
                 )
                 .await?;
-            }
 
-            if context.receiver_id == self.venear_contract_id
-                && method_name == "on_lockup_update"
-                && context.success
-            {
-                self.discover_lockup_from_on_lockup_update(
+                for child_receipt_id in &outcome.receipt_ids {
+                    let child_receipt_id = child_receipt_id.to_string();
+                    self.upsert_receipt_edge(
+                        db,
+                        &receipt_id,
+                        &child_receipt_id,
+                        &outcome_view.id.to_string(),
+                        block_height,
+                        &block_hash,
+                        block_timestamp,
+                        transaction_hash.as_deref(),
+                    )
+                    .await?;
+
+                    self.upsert_relevant_receipt(
+                        db,
+                        &child_receipt_id,
+                        "descendant",
+                        Some(&receipt_id),
+                        transaction_hash.as_deref(),
+                        block_height,
+                        false,
+                    )
+                    .await?;
+
+                    tracked_relevant
+                        .entry(child_receipt_id)
+                        .and_modify(|existing| {
+                            if existing.is_none() {
+                                *existing = transaction_hash.clone();
+                            }
+                        })
+                        .or_insert(transaction_hash.clone());
+                }
+
+                self.upsert_near_receipt(
                     db,
-                    state,
-                    context,
-                    action_source,
-                    action_index as i32,
-                    &args_json,
+                    &receipt_id,
+                    block_height,
+                    shard_id,
+                    &predecessor_id,
+                    &receiver_id,
+                    Self::serialize_json(&receipt.receipt, "receipt body")?,
+                    Self::serialize_json(receipt, "receipt row")?,
                 )
                 .await?;
+
+                if let ReceiptEnumView::Action {
+                    signer_id,
+                    signer_public_key,
+                    gas_price,
+                    actions,
+                    ..
+                } = &receipt.receipt
+                {
+                    for (action_index, action) in actions.iter().enumerate() {
+                        let action_json = Self::serialize_json(action, "receipt action")?;
+                        let action_kind = Self::action_kind_from_json(&action_json);
+                        let signer_id_value = signer_id.to_string();
+                        let signer_public_key_value = signer_public_key.to_string();
+                        let gas_price_value = gas_price.to_string();
+
+                        let mut method_name: Option<String> = None;
+                        let mut gas: Option<i64> = None;
+                        let mut deposit: Option<String> = None;
+                        let mut args_base64: Option<String> = None;
+                        let mut args_json: Option<JsonValue> = None;
+
+                        if let ActionView::FunctionCall {
+                            method_name: function_name,
+                            args,
+                            gas: function_gas,
+                            deposit: function_deposit,
+                        } = action
+                        {
+                            let args_bytes: &[u8] = args.as_ref();
+                            method_name = Some(function_name.clone());
+                            gas = Some(function_gas.as_gas() as i64);
+                            deposit = Some(function_deposit.to_string());
+                            args_base64 = Some(BASE64_STANDARD.encode(args_bytes));
+                            args_json = Some(Self::parse_args_json(args_bytes));
+                        }
+
+                        self.upsert_near_receipt_action(
+                            db,
+                            &format!("{receipt_id}-{action_index}"),
+                            block_height,
+                            &receipt_id,
+                            &outcome_view.id.to_string(),
+                            transaction_hash.as_deref(),
+                            shard_id,
+                            Some(&signer_id_value),
+                            Some(&signer_public_key_value),
+                            Some(&gas_price_value),
+                            &predecessor_id,
+                            &receiver_id,
+                            &block_hash,
+                            &chunk_hash,
+                            &chunk_author,
+                            &action_kind,
+                            action_json,
+                            method_name.as_deref(),
+                            gas,
+                            deposit.as_deref(),
+                            args_base64.as_deref(),
+                            args_json,
+                            action_index as i32,
+                            block_timestamp,
+                        )
+                        .await?;
+                    }
+                }
             }
-
-            if context.receiver_id == self.voting_contract_id
-                && method_name == "on_get_snapshot"
-                && context.success
-            {
-                self.insert_proposal_approval_finalized_event(
-                    db,
-                    context,
-                    action_index as i32,
-                    &args_json,
-                )
-                .await?;
-            }
-
-            if context.receiver_id == self.venear_contract_id && method_name == "on_lockup_deployed"
-            {
-                self.discover_lockup_from_on_lockup_deployed(
-                    db,
-                    state,
-                    context,
-                    action_source,
-                    action_index as i32,
-                    &args_json,
-                )
-                .await?;
-            }
-
-            if context.receiver_id == self.venear_contract_id
-                && matches!(method_name.as_str(), "delegate_all" | "undelegate")
-            {
-                let delegatee_account_id = if method_name == "delegate_all" {
-                    args_json
-                        .as_ref()
-                        .and_then(|args| json_string(args, "receiver_id"))
-                } else {
-                    None
-                };
-
-                self.upsert_delegation_event(
-                    db,
-                    &context.predecessor_id,
-                    delegatee_account_id.as_deref(),
-                    method_name,
-                    action_source,
-                    action_index as i32,
-                    args_json.clone(),
-                    args_base64.clone(),
-                    deposit.to_string(),
-                    context.transaction_hash.as_deref(),
-                    &context.receipt_id,
-                    &context.execution_outcome_id,
-                    context.success,
-                    context.block_height,
-                    context.block_timestamp,
-                    context.shard_id,
-                    &context.receiver_id,
-                    success_value_json.clone(),
-                )
-                .await?;
-            }
-
-            if !state.known_lockups.contains(&context.receiver_id)
-                && !context.receiver_id.ends_with(&self.lockup_account_suffix)
-            {
-                continue;
-            }
-
-            let staking_pool_account_id = args_json
-                .as_ref()
-                .and_then(|v| json_string(v, "staking_pool_account_id"));
-
-            let owner_account_id = state.lockup_owners.get(&context.receiver_id).cloned();
-
-            if matches!(
-                method_name.as_str(),
-                "begin_unlock_near" | "end_unlock_near" | "lock_pending_near"
-            ) {
-                self.insert_lockup_event(
-                    db,
-                    &context.receiver_id,
-                    owner_account_id.as_deref(),
-                    method_name,
-                    None,
-                    None,
-                    None,
-                    None,
-                    action_source,
-                    context.transaction_hash.as_deref(),
-                    &context.receipt_id,
-                    &context.execution_outcome_id,
-                    &context.predecessor_id,
-                    &context.receiver_id,
-                    context.success,
-                    context.block_height,
-                    context.block_timestamp,
-                    context.shard_id,
-                    -1,
-                    action_index as i32,
-                    args_json.clone(),
-                )
-                .await?;
-            }
-
-            self.upsert_lockup_action(
-                db,
-                &context.receiver_id,
-                owner_account_id.as_deref(),
-                &context.predecessor_id,
-                &context.receiver_id,
-                method_name,
-                action_source,
-                action_index as i32,
-                args_json.clone(),
-                args_base64,
-                deposit.to_string(),
-                context.transaction_hash.as_deref(),
-                &context.receipt_id,
-                &context.execution_outcome_id,
-                context.success,
-                context.block_height,
-                context.block_timestamp,
-                context.shard_id,
-                staking_pool_account_id.as_deref(),
-                None,
-            )
-            .await?;
         }
 
         Ok(())
     }
 
-    async fn discover_lockup_from_on_lockup_update(
+    async fn process_block_internal(
         &self,
-        db: &impl ConnectionTrait,
-        state: &mut ProcessState,
-        context: &ActionContext,
-        action_source: &str,
-        action_index: i32,
-        args_json: &Option<JsonValue>,
+        msg: &StreamerMessage,
+        db: &DatabaseConnection,
     ) -> Result<()> {
-        let Some(args_json) = args_json else {
-            return Ok(());
-        };
+        let start_time = Instant::now();
 
-        let Some(owner_account_id) = json_string(args_json, "owner_account_id") else {
-            return Ok(());
-        };
+        info!(
+            module = MODULE_NAME,
+            height = msg.block.header.height,
+            shard_count = msg.shards.len(),
+            "Processing HOS governance raw block data"
+        );
 
-        let expected_lockup =
-            derive_lockup_account_id(&owner_account_id, &self.lockup_account_suffix);
+        let txn = db.begin().await?;
 
-        if context.predecessor_id != expected_lockup {
-            warn!(
-                predecessor_id = context.predecessor_id,
-                expected_lockup = expected_lockup,
-                owner_account_id = owner_account_id,
-                "on_lockup_update predecessor does not match derived lockup id"
-            );
-            return Ok(());
+        self.store_hos_projection(msg, &txn)
+            .await
+            .context("failed to store HOS governance raw projection data")?;
+
+        txn.commit().await?;
+
+        let block_height = msg.block.header.height as i64;
+        if self.should_refresh_mviews(block_height) {
+            self.refresh_hos_materialized_views(db).await;
         }
 
-        let lockup_version = json_u64(args_json, "version").map(|v| v as i64);
-        let callback_update = args_json.get("update").and_then(|update| update.get("V1"));
-        let lockup_update_nonce = callback_update
-            .and_then(|update| json_u64(update, "lockup_update_nonce"))
-            .map(|v| v as i64);
-        let lockup_timestamp_ns = callback_update
-            .and_then(|update| json_u64(update, "timestamp"))
-            .map(|v| v as i64);
-        let locked_near_balance = callback_update
-            .and_then(|update| json_u128(update, "locked_near_balance"))
-            .map(|v| v.to_string());
-
-        self.insert_lockup_event(
-            db,
-            &expected_lockup,
-            Some(&owner_account_id),
-            "lockup_update_callback",
-            lockup_version,
-            lockup_update_nonce,
-            lockup_timestamp_ns,
-            locked_near_balance,
-            action_source,
-            context.transaction_hash.as_deref(),
-            &context.receipt_id,
-            &context.execution_outcome_id,
-            &context.predecessor_id,
-            &context.receiver_id,
-            context.success,
-            context.block_height,
-            context.block_timestamp,
-            context.shard_id,
-            -1,
-            action_index,
-            Some(args_json.clone()),
-        )
-        .await?;
-
-        state.known_lockups.insert(expected_lockup.clone());
-        state
-            .lockup_owners
-            .insert(expected_lockup, owner_account_id.clone());
-
-        Ok(())
-    }
-
-    async fn discover_lockup_from_on_lockup_deployed(
-        &self,
-        db: &impl ConnectionTrait,
-        state: &mut ProcessState,
-        context: &ActionContext,
-        action_source: &str,
-        action_index: i32,
-        args_json: &Option<JsonValue>,
-    ) -> Result<()> {
-        let Some(args_json) = args_json else {
-            return Ok(());
-        };
-
-        let Some(owner_account_id) = json_string(args_json, "account_id") else {
-            return Ok(());
-        };
-
-        let lockup_account_id =
-            derive_lockup_account_id(&owner_account_id, &self.lockup_account_suffix);
-
-        let lockup_version = json_u64(args_json, "version").map(|v| v as i64);
-
-        self.insert_lockup_event(
-            db,
-            &lockup_account_id,
-            Some(&owner_account_id),
-            "lockup_deployed_callback",
-            lockup_version,
-            json_u64(args_json, "lockup_update_nonce").map(|v| v as i64),
-            None,
-            None,
-            action_source,
-            context.transaction_hash.as_deref(),
-            &context.receipt_id,
-            &context.execution_outcome_id,
-            &context.predecessor_id,
-            &context.receiver_id,
-            context.success,
-            context.block_height,
-            context.block_timestamp,
-            context.shard_id,
-            -1,
-            action_index,
-            Some(args_json.clone()),
-        )
-        .await?;
-
-        // Track the lockup as known only when deployment succeeded.
-        // On success, the lockup_deployed event also fires and registers it via
-        // normalize_event; we add it here too so that the callback is processed
-        // in the same pass even if normalize_event hasn't run yet.
-        if context.success {
-            state.known_lockups.insert(lockup_account_id.clone());
-            state
-                .lockup_owners
-                .insert(lockup_account_id, owner_account_id);
-        }
-
-        Ok(())
-    }
-
-    async fn insert_proposal_approval_finalized_event(
-        &self,
-        db: &impl ConnectionTrait,
-        context: &ActionContext,
-        action_index: i32,
-        args_json: &Option<JsonValue>,
-    ) -> Result<()> {
-        let Some(args_json) = args_json else {
-            return Ok(());
-        };
-
-        let Some(proposal_id_raw) = json_u64(args_json, "proposal_id") else {
-            return Ok(());
-        };
-
-        let Ok(proposal_id) = i64::try_from(proposal_id_raw) else {
-            warn!(
-                proposal_id = proposal_id_raw,
-                receipt_id = context.receipt_id,
-                "proposal_id out of i64 range in on_get_snapshot callback; skipping"
-            );
-            return Ok(());
-        };
-
-        let reviewer_id = json_string(args_json, "reviewer_id");
-        let voting_start_time_sec = json_u64(args_json, "voting_start_time_sec").map(|v| v as i64);
-
-        let success_value_json =
-            Self::decode_success_value_json(context.success_value_base64.as_deref());
-
-        let snapshot_block_height = success_value_json
-            .as_ref()
-            .and_then(|v| v.get("snapshot_and_state"))
-            .and_then(|v| v.get("snapshot"))
-            .and_then(|v| json_u64(v, "block_height"))
-            .map(|v| v as i64);
-
-        let snapshot_root = success_value_json
-            .as_ref()
-            .and_then(|v| v.get("snapshot_and_state"))
-            .and_then(|v| v.get("snapshot"))
-            .and_then(|v| json_string(v, "root"));
-
-        let snapshot_total_venear = success_value_json
-            .as_ref()
-            .and_then(|v| v.get("snapshot_and_state"))
-            .and_then(|v| json_string(v, "total_venear"));
-
-        let metadata = success_value_json.as_ref().map(|value| {
-            json!({
-                "title": value.get("title"),
-                "description": value.get("description"),
-                "link": value.get("link"),
-                "voting_options": value.get("voting_options"),
-                "status": value.get("status"),
-            })
-        });
-
-        let payload = json!({
-            "args": args_json,
-            "source": "on_get_snapshot_callback",
-            "success_value": success_value_json,
-        });
-
-        self.upsert_proposal_event(
-            db,
-            proposal_id,
-            "proposal_approve_finalized",
-            None,
-            None,
-            reviewer_id,
-            voting_start_time_sec,
-            snapshot_block_height,
-            snapshot_root,
-            snapshot_total_venear,
-            metadata,
-            Some(payload),
-            context.block_height,
-            context.block_timestamp,
-            context.shard_id,
-            context.transaction_hash.as_deref(),
-            &context.receipt_id,
-            &context.execution_outcome_id,
-            &context.predecessor_id,
-            &context.receiver_id,
-            -1,
-            action_index,
-        )
-        .await?;
-
-        Ok(())
-    }
-
-    fn extract_actions_from_receipt(receipt: &ReceiptView) -> Option<Vec<ActionView>> {
-        match &receipt.receipt {
-            ReceiptEnumView::Action { actions, .. } => Some(actions.clone()),
-            _ => None,
-        }
-    }
-
-    async fn get_method_call_args_json(
-        &self,
-        db: &impl ConnectionTrait,
-        execution_outcome_id: &str,
-        method_name: &str,
-    ) -> Result<Option<JsonValue>> {
-        let row = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT args_json
-                 FROM near.near_venear_events_raw
-                 WHERE record_kind = 'method_call'
-                   AND execution_outcome_id = $1
-                   AND method_name = $2
-                 ORDER BY action_index ASC
-                 LIMIT 1",
-                vec![execution_outcome_id.into(), method_name.into()],
-            ))
-            .await?;
-
-        let Some(row) = row else {
-            return Ok(None);
-        };
-
-        let args_json: Option<JsonValue> = row.try_get("", "args_json")?;
-        Ok(args_json)
-    }
-
-    async fn get_existing_balance_total_for_identity(
-        &self,
-        db: &impl ConnectionTrait,
-        execution_outcome_id: &str,
-        log_index: i32,
-        data_index: i32,
-        account_id: &str,
-    ) -> Result<Option<u128>> {
-        let row = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT total_balance FROM near.near_venear_account_balances WHERE execution_outcome_id = $1 AND log_index = $2 AND data_index = $3 AND account_id = $4 LIMIT 1",
-                vec![
-                    execution_outcome_id.into(),
-                    log_index.into(),
-                    data_index.into(),
-                    account_id.into(),
-                ],
-            ))
-            .await?;
-
-        let Some(row) = row else {
-            return Ok(None);
-        };
-
-        let total_balance: String = row.try_get("", "total_balance")?;
-        Ok(total_balance.parse::<u128>().ok())
-    }
-
-    async fn get_latest_total_balance(
-        &self,
-        db: &impl ConnectionTrait,
-        state: &mut ProcessState,
-        account_id: &str,
-    ) -> Result<u128> {
-        if let Some(value) = state.account_balances.get(account_id) {
-            return Ok(*value);
-        }
-
-        let row = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT total_balance FROM near.near_venear_account_balances WHERE account_id = $1 ORDER BY block_height DESC, id DESC LIMIT 1",
-                vec![account_id.into()],
-            ))
-            .await?;
-
-        let value = if let Some(row) = row {
-            let total_balance: String = row.try_get("", "total_balance")?;
-            total_balance.parse::<u128>().unwrap_or(0)
-        } else {
-            0
-        };
-
-        state.account_balances.insert(account_id.to_string(), value);
-        Ok(value)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_raw_event(
-        &self,
-        db: &impl ConnectionTrait,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        transaction_hash: Option<&str>,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        predecessor_account_id: &str,
-        contract_id: &str,
-        log_index: i32,
-        data_index: i32,
-        standard: Option<&str>,
-        event_type: Option<&str>,
-        success: bool,
-        parse_error: Option<String>,
-        event_data: Option<JsonValue>,
-        log_text: &str,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_events_raw (record_kind, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, standard, event_type, log_index, data_index, method_name, action_source, action_index, args_json, args_base64, attached_deposit, success_value_json, parse_error, event_data, log_text)
-            VALUES ('event_json', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, '', '', -1, NULL, NULL, NULL, NULL, $14, $15, $16)
-            ON CONFLICT (execution_outcome_id, record_kind, log_index, data_index, action_source, action_index, method_name)
-            DO UPDATE SET
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_events_raw.transaction_hash),
-              receipt_id = EXCLUDED.receipt_id,
-              predecessor_account_id = EXCLUDED.predecessor_account_id,
-              contract_id = EXCLUDED.contract_id,
-              standard = EXCLUDED.standard,
-              event_type = EXCLUDED.event_type,
-              success = EXCLUDED.success,
-              parse_error = EXCLUDED.parse_error,
-              event_data = EXCLUDED.event_data,
-              log_text = EXCLUDED.log_text",
-            vec![
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                transaction_hash.map(ToString::to_string).into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                predecessor_account_id.into(),
-                contract_id.into(),
-                success.into(),
-                standard.map(ToString::to_string).into(),
-                event_type.map(ToString::to_string).into(),
-                log_index.into(),
-                data_index.into(),
-                parse_error.into(),
-                event_data.into(),
-                log_text.into(),
-            ],
-        ))
-        .await?;
-
-        self.upsert_identity_governance_accounts(db, [predecessor_account_id, contract_id])
-            .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_unhandled_event(
-        &self,
-        db: &impl ConnectionTrait,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        predecessor_account_id: &str,
-        contract_id: &str,
-        standard: Option<&str>,
-        event_type: Option<&str>,
-        log_index: i32,
-        data_index: i32,
-        event_data: JsonValue,
-        log_text: &str,
-        reason: &str,
-        success: bool,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_unhandled_events (block_height, block_timestamp, shard_id, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, standard, event_type, log_index, data_index, event_data, log_text, reason)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-            ON CONFLICT (execution_outcome_id, log_index, data_index, contract_id, standard, event_type)
-            DO UPDATE SET
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              receipt_id = EXCLUDED.receipt_id,
-              predecessor_account_id = EXCLUDED.predecessor_account_id,
-              success = EXCLUDED.success,
-              event_data = EXCLUDED.event_data,
-              log_text = EXCLUDED.log_text,
-              reason = EXCLUDED.reason",
-            vec![
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                predecessor_account_id.into(),
-                contract_id.into(),
-                success.into(),
-                standard.unwrap_or("").to_string().into(),
-                event_type.unwrap_or("").to_string().into(),
-                log_index.into(),
-                data_index.into(),
-                event_data.into(),
-                log_text.into(),
-                reason.into(),
-            ],
-        ))
-        .await?;
-
-        self.upsert_identity_governance_accounts(db, [predecessor_account_id, contract_id])
-            .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_raw_plain_log(
-        &self,
-        db: &impl ConnectionTrait,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        transaction_hash: Option<&str>,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        predecessor_account_id: &str,
-        contract_id: &str,
-        log_index: i32,
-        success: bool,
-        log_text: &str,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_events_raw (record_kind, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, standard, event_type, log_index, data_index, method_name, action_source, action_index, args_json, args_base64, attached_deposit, success_value_json, parse_error, event_data, log_text)
-            VALUES ('plain_log', $1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, -1, '', '', -1, NULL, NULL, NULL, NULL, NULL, NULL, $11)
-            ON CONFLICT (execution_outcome_id, record_kind, log_index, data_index, action_source, action_index, method_name)
-            DO UPDATE SET
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_events_raw.transaction_hash),
-              receipt_id = EXCLUDED.receipt_id,
-              predecessor_account_id = EXCLUDED.predecessor_account_id,
-              contract_id = EXCLUDED.contract_id,
-              success = EXCLUDED.success,
-              log_text = EXCLUDED.log_text",
-            vec![
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                transaction_hash.map(ToString::to_string).into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                predecessor_account_id.into(),
-                contract_id.into(),
-                success.into(),
-                log_index.into(),
-                log_text.into(),
-            ],
-        ))
-        .await?;
-
-        self.upsert_identity_governance_accounts(db, [predecessor_account_id, contract_id])
-            .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_raw_method(
-        &self,
-        db: &impl ConnectionTrait,
-        action_source: &str,
-        action_index: i32,
-        method_name: &str,
-        args_json: Option<JsonValue>,
-        args_base64: String,
-        attached_deposit: String,
-        context: &ActionContext,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_events_raw (record_kind, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, standard, event_type, log_index, data_index, method_name, action_source, action_index, args_json, args_base64, attached_deposit, success_value_json, parse_error, event_data, log_text)
-            VALUES ('method_call', $1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, -1, -1, $10, $11, $12, $13, $14, $15, $16, NULL, NULL, '')
-            ON CONFLICT (execution_outcome_id, record_kind, log_index, data_index, action_source, action_index, method_name)
-            DO UPDATE SET
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_events_raw.transaction_hash),
-              receipt_id = EXCLUDED.receipt_id,
-              predecessor_account_id = EXCLUDED.predecessor_account_id,
-              contract_id = EXCLUDED.contract_id,
-              success = EXCLUDED.success,
-              args_json = EXCLUDED.args_json,
-              args_base64 = EXCLUDED.args_base64,
-              attached_deposit = EXCLUDED.attached_deposit,
-              success_value_json = EXCLUDED.success_value_json",
-            vec![
-                context.block_height.into(),
-                context.block_timestamp.into(),
-                context.shard_id.into(),
-                context.transaction_hash.clone().into(),
-                context.receipt_id.clone().into(),
-                context.execution_outcome_id.clone().into(),
-                context.predecessor_id.clone().into(),
-                context.receiver_id.clone().into(),
-                context.success.into(),
-                method_name.into(),
-                action_source.into(),
-                action_index.into(),
-                args_json.into(),
-                args_base64.into(),
-                attached_deposit.into(),
-                Self::decode_success_value_json(context.success_value_base64.as_deref()).into(),
-            ],
-        ))
-        .await?;
-
-        self.upsert_identity_governance_accounts(
-            db,
-            [
-                context.predecessor_id.as_str(),
-                context.receiver_id.as_str(),
-            ],
-        )
-        .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn insert_lockup_event(
-        &self,
-        db: &impl ConnectionTrait,
-        lockup_account_id: &str,
-        owner_account_id: Option<&str>,
-        event_type: &str,
-        lockup_version: Option<i64>,
-        lockup_update_nonce: Option<i64>,
-        lockup_timestamp_ns: Option<i64>,
-        locked_near_balance: Option<String>,
-        action_source: &str,
-        transaction_hash: Option<&str>,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        predecessor_account_id: &str,
-        contract_id: &str,
-        success: bool,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        log_index: i32,
-        data_index: i32,
-        payload: Option<JsonValue>,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_lockup_events (lockup_account_id, owner_account_id, event_type, lockup_version, lockup_update_nonce, lockup_timestamp_ns, locked_near_balance, action_source, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, block_height, block_timestamp, shard_id, log_index, data_index, payload)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-            ON CONFLICT (execution_outcome_id, event_type, lockup_account_id, log_index, data_index)
-            DO UPDATE SET
-              owner_account_id = EXCLUDED.owner_account_id,
-              lockup_version = EXCLUDED.lockup_version,
-              lockup_update_nonce = EXCLUDED.lockup_update_nonce,
-              lockup_timestamp_ns = EXCLUDED.lockup_timestamp_ns,
-              locked_near_balance = EXCLUDED.locked_near_balance,
-              action_source = EXCLUDED.action_source,
-              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_lockup_events.transaction_hash),
-              predecessor_account_id = EXCLUDED.predecessor_account_id,
-              contract_id = EXCLUDED.contract_id,
-              success = EXCLUDED.success,
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              payload = EXCLUDED.payload",
-            vec![
-                lockup_account_id.into(),
-                owner_account_id.map(ToString::to_string).into(),
-                event_type.into(),
-                lockup_version.into(),
-                lockup_update_nonce.into(),
-                lockup_timestamp_ns.into(),
-                locked_near_balance.into(),
-                action_source.into(),
-                transaction_hash.map(ToString::to_string).into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                predecessor_account_id.into(),
-                contract_id.into(),
-                success.into(),
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                log_index.into(),
-                data_index.into(),
-                payload.into(),
-            ],
-        ))
-        .await?;
-
-        self.upsert_identity_lockup_accounts(db, [lockup_account_id])
-            .await?;
-        let mut governance_accounts = vec![predecessor_account_id, contract_id];
-        if let Some(owner_account_id) = owner_account_id {
-            governance_accounts.push(owner_account_id);
-        }
-        self.upsert_identity_governance_accounts(db, governance_accounts)
-            .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_admin_event(
-        &self,
-        db: &impl ConnectionTrait,
-        contract_id: &str,
-        method_name: &str,
-        action_source: &str,
-        action_index: i32,
-        predecessor_account_id: &str,
-        args_json: Option<JsonValue>,
-        args_base64: String,
-        attached_deposit: String,
-        transaction_hash: Option<&str>,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        success: bool,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        metadata: Option<JsonValue>,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_admin_events (contract_id, method_name, action_source, action_index, predecessor_account_id, args_json, args_base64, attached_deposit, transaction_hash, receipt_id, execution_outcome_id, success, block_height, block_timestamp, shard_id, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-            ON CONFLICT (receipt_id, action_index, method_name, contract_id)
-            DO UPDATE SET
-              action_source = EXCLUDED.action_source,
-              predecessor_account_id = EXCLUDED.predecessor_account_id,
-              args_json = EXCLUDED.args_json,
-              args_base64 = EXCLUDED.args_base64,
-              attached_deposit = EXCLUDED.attached_deposit,
-              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_admin_events.transaction_hash),
-              execution_outcome_id = EXCLUDED.execution_outcome_id,
-              success = EXCLUDED.success,
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              metadata = EXCLUDED.metadata",
-            vec![
-                contract_id.into(),
-                method_name.into(),
-                action_source.into(),
-                action_index.into(),
-                predecessor_account_id.into(),
-                args_json.into(),
-                args_base64.into(),
-                attached_deposit.into(),
-                transaction_hash.map(ToString::to_string).into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                success.into(),
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                metadata.into(),
-            ],
-        ))
-        .await?;
-
-        self.upsert_identity_governance_accounts(db, [predecessor_account_id, contract_id])
-            .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_governance_action(
-        &self,
-        db: &impl ConnectionTrait,
-        action_source: &str,
-        action_index: i32,
-        method_name: &str,
-        predecessor_account_id: &str,
-        receiver_account_id: &str,
-        contract_id: &str,
-        args_json: Option<JsonValue>,
-        args_base64: String,
-        attached_deposit: String,
-        transaction_hash: Option<&str>,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        success: bool,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        success_value_json: Option<JsonValue>,
-        action_category: &str,
-        proposal_id: Option<i64>,
-        vote_option: Option<i32>,
-        delegator_account_id: Option<&str>,
-        delegatee_account_id: Option<&str>,
-        owner_account_id: Option<&str>,
-        metadata: Option<JsonValue>,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_governance_actions (action_source, action_index, transaction_hash, receipt_id, execution_outcome_id, block_height, block_timestamp, shard_id, predecessor_account_id, receiver_account_id, contract_id, method_name, args_json, args_base64, attached_deposit, success, success_value_json, action_category, proposal_id, vote_option, delegator_account_id, delegatee_account_id, owner_account_id, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
-            ON CONFLICT (receipt_id, action_index, method_name, contract_id)
-            DO UPDATE SET
-              action_source = EXCLUDED.action_source,
-              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_governance_actions.transaction_hash),
-              execution_outcome_id = EXCLUDED.execution_outcome_id,
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              predecessor_account_id = EXCLUDED.predecessor_account_id,
-              receiver_account_id = EXCLUDED.receiver_account_id,
-              args_json = EXCLUDED.args_json,
-              args_base64 = EXCLUDED.args_base64,
-              attached_deposit = EXCLUDED.attached_deposit,
-              success = EXCLUDED.success,
-              success_value_json = EXCLUDED.success_value_json,
-              action_category = EXCLUDED.action_category,
-              proposal_id = EXCLUDED.proposal_id,
-              vote_option = EXCLUDED.vote_option,
-              delegator_account_id = EXCLUDED.delegator_account_id,
-              delegatee_account_id = EXCLUDED.delegatee_account_id,
-              owner_account_id = EXCLUDED.owner_account_id,
-              metadata = EXCLUDED.metadata",
-            vec![
-                action_source.into(),
-                action_index.into(),
-                transaction_hash.map(ToString::to_string).into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                predecessor_account_id.into(),
-                receiver_account_id.into(),
-                contract_id.into(),
-                method_name.into(),
-                args_json.into(),
-                args_base64.into(),
-                attached_deposit.into(),
-                success.into(),
-                success_value_json.into(),
-                action_category.into(),
-                proposal_id.into(),
-                vote_option.into(),
-                delegator_account_id.map(ToString::to_string).into(),
-                delegatee_account_id.map(ToString::to_string).into(),
-                owner_account_id.map(ToString::to_string).into(),
-                metadata.into(),
-            ],
-        ))
-        .await?;
-
-        let mut identity_accounts = vec![predecessor_account_id, receiver_account_id, contract_id];
-        if let Some(delegator_account_id) = delegator_account_id {
-            identity_accounts.push(delegator_account_id);
-        }
-        if let Some(delegatee_account_id) = delegatee_account_id {
-            identity_accounts.push(delegatee_account_id);
-        }
-        if let Some(owner_account_id) = owner_account_id {
-            identity_accounts.push(owner_account_id);
-        }
-        self.upsert_identity_governance_accounts(db, identity_accounts)
-            .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_account_balance_row(
-        &self,
-        db: &impl ConnectionTrait,
-        account_id: &str,
-        event_type: &str,
-        delta_amount: Option<String>,
-        total_balance: u128,
-        locked_near_balance: Option<u128>,
-        lockup_update_nonce: Option<i64>,
-        lockup_version: Option<i64>,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        transaction_hash: Option<&str>,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        predecessor_account_id: &str,
-        contract_id: &str,
-        log_index: i32,
-        data_index: i32,
-        payload: Option<JsonValue>,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_account_balances (account_id, event_type, delta_amount, total_balance, locked_near_balance, lockup_update_nonce, lockup_version, block_height, block_timestamp, shard_id, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index, payload)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-            ON CONFLICT (execution_outcome_id, log_index, data_index, account_id)
-            DO UPDATE SET
-              event_type = EXCLUDED.event_type,
-              delta_amount = EXCLUDED.delta_amount,
-              total_balance = EXCLUDED.total_balance,
-              locked_near_balance = EXCLUDED.locked_near_balance,
-              lockup_update_nonce = EXCLUDED.lockup_update_nonce,
-              lockup_version = EXCLUDED.lockup_version,
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              receipt_id = EXCLUDED.receipt_id,
-              predecessor_account_id = EXCLUDED.predecessor_account_id,
-              contract_id = EXCLUDED.contract_id,
-              payload = EXCLUDED.payload",
-            vec![
-                account_id.into(),
-                event_type.into(),
-                delta_amount.clone().into(),
-                total_balance.to_string().into(),
-                locked_near_balance.map(|v| v.to_string()).into(),
-                lockup_update_nonce.into(),
-                lockup_version.into(),
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                predecessor_account_id.into(),
-                contract_id.into(),
-                log_index.into(),
-                data_index.into(),
-                payload.clone().into(),
-            ],
-        ))
-        .await?;
-
-        self.upsert_account_voting_power_event(
-            db,
-            account_id,
-            event_type,
-            None,
-            &total_balance.to_string(),
-            delta_amount.clone(),
-            block_height,
-            block_timestamp,
-            shard_id,
-            transaction_hash,
-            receipt_id,
-            execution_outcome_id,
-            predecessor_account_id,
-            contract_id,
-            log_index,
-            data_index,
-            payload.clone(),
-        )
-        .await?;
-
-        self.upsert_identity_governance_accounts(
-            db,
-            [account_id, predecessor_account_id, contract_id],
-        )
-        .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_account_voting_power_event(
-        &self,
-        db: &impl ConnectionTrait,
-        account_id: &str,
-        event_type: &str,
-        proposal_id: Option<i64>,
-        voting_power: &str,
-        delta_voting_power: Option<String>,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        transaction_hash: Option<&str>,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        predecessor_account_id: &str,
-        contract_id: &str,
-        log_index: i32,
-        data_index: i32,
-        payload: Option<JsonValue>,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_account_voting_power_events (account_id, event_type, proposal_id, voting_power, delta_voting_power, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index, payload)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-            ON CONFLICT (execution_outcome_id, log_index, data_index, account_id, event_type)
-            DO UPDATE SET
-              proposal_id = EXCLUDED.proposal_id,
-              voting_power = EXCLUDED.voting_power,
-              delta_voting_power = EXCLUDED.delta_voting_power,
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_account_voting_power_events.transaction_hash),
-              receipt_id = EXCLUDED.receipt_id,
-              predecessor_account_id = EXCLUDED.predecessor_account_id,
-              contract_id = EXCLUDED.contract_id,
-              payload = EXCLUDED.payload",
-            vec![
-                account_id.into(),
-                event_type.into(),
-                proposal_id.into(),
-                voting_power.into(),
-                delta_voting_power.into(),
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                transaction_hash.map(ToString::to_string).into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                predecessor_account_id.into(),
-                contract_id.into(),
-                log_index.into(),
-                data_index.into(),
-                payload.into(),
-            ],
-        ))
-        .await?;
-
-        self.upsert_identity_governance_accounts(
-            db,
-            [account_id, predecessor_account_id, contract_id],
-        )
-        .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_proposal_event(
-        &self,
-        db: &impl ConnectionTrait,
-        proposal_id: i64,
-        event_type: &str,
-        account_id: Option<String>,
-        proposer_id: Option<String>,
-        reviewer_id: Option<String>,
-        voting_start_time_sec: Option<i64>,
-        snapshot_block_height: Option<i64>,
-        snapshot_root: Option<String>,
-        snapshot_total_venear: Option<String>,
-        metadata: Option<JsonValue>,
-        payload: Option<JsonValue>,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        transaction_hash: Option<&str>,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        predecessor_account_id: &str,
-        contract_id: &str,
-        log_index: i32,
-        data_index: i32,
-    ) -> Result<()> {
-        let mut identity_accounts = vec![predecessor_account_id, contract_id];
-        if let Some(account_id) = account_id.as_deref() {
-            identity_accounts.push(account_id);
-        }
-        if let Some(proposer_id) = proposer_id.as_deref() {
-            identity_accounts.push(proposer_id);
-        }
-        if let Some(reviewer_id) = reviewer_id.as_deref() {
-            identity_accounts.push(reviewer_id);
-        }
-
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_proposal_events (proposal_id, event_type, account_id, proposer_id, reviewer_id, voting_start_time_sec, snapshot_block_height, snapshot_root, snapshot_total_venear, metadata, payload, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-            ON CONFLICT (execution_outcome_id, log_index, data_index, event_type)
-            DO UPDATE SET
-              proposal_id = EXCLUDED.proposal_id,
-              account_id = EXCLUDED.account_id,
-              proposer_id = EXCLUDED.proposer_id,
-              reviewer_id = EXCLUDED.reviewer_id,
-              voting_start_time_sec = EXCLUDED.voting_start_time_sec,
-              snapshot_block_height = EXCLUDED.snapshot_block_height,
-              snapshot_root = EXCLUDED.snapshot_root,
-              snapshot_total_venear = EXCLUDED.snapshot_total_venear,
-              metadata = EXCLUDED.metadata,
-              payload = EXCLUDED.payload,
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_proposal_events.transaction_hash),
-              receipt_id = EXCLUDED.receipt_id,
-              predecessor_account_id = EXCLUDED.predecessor_account_id,
-              contract_id = EXCLUDED.contract_id",
-            vec![
-                proposal_id.into(),
-                event_type.into(),
-                account_id.clone().into(),
-                proposer_id.clone().into(),
-                reviewer_id.clone().into(),
-                voting_start_time_sec.into(),
-                snapshot_block_height.into(),
-                snapshot_root.into(),
-                snapshot_total_venear.into(),
-                metadata.into(),
-                payload.into(),
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                transaction_hash.map(ToString::to_string).into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                predecessor_account_id.into(),
-                contract_id.into(),
-                log_index.into(),
-                data_index.into(),
-            ],
-        ))
-        .await?;
-
-        self.upsert_identity_governance_accounts(db, identity_accounts)
-            .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_vote_event(
-        &self,
-        db: &impl ConnectionTrait,
-        proposal_id: i64,
-        account_id: &str,
-        vote: i32,
-        account_balance: &str,
-        event_type: &str,
-        payload: Option<JsonValue>,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        transaction_hash: Option<&str>,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        predecessor_account_id: &str,
-        contract_id: &str,
-        log_index: i32,
-        data_index: i32,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_votes (proposal_id, account_id, vote, account_balance, event_type, payload, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-            ON CONFLICT (execution_outcome_id, log_index, data_index, account_id, proposal_id)
-            DO UPDATE SET
-              vote = EXCLUDED.vote,
-              account_balance = EXCLUDED.account_balance,
-              event_type = EXCLUDED.event_type,
-              payload = EXCLUDED.payload,
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_votes.transaction_hash),
-              receipt_id = EXCLUDED.receipt_id,
-              predecessor_account_id = EXCLUDED.predecessor_account_id,
-              contract_id = EXCLUDED.contract_id",
-            vec![
-                proposal_id.into(),
-                account_id.into(),
-                vote.into(),
-                account_balance.into(),
-                event_type.into(),
-                payload.into(),
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                transaction_hash.map(ToString::to_string).into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                predecessor_account_id.into(),
-                contract_id.into(),
-                log_index.into(),
-                data_index.into(),
-            ],
-        ))
-        .await?;
-
-        self.upsert_identity_governance_accounts(
-            db,
-            [account_id, predecessor_account_id, contract_id],
-        )
-        .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_lockup_action(
-        &self,
-        db: &impl ConnectionTrait,
-        lockup_account_id: &str,
-        owner_account_id: Option<&str>,
-        predecessor_account_id: &str,
-        receiver_account_id: &str,
-        method_name: &str,
-        action_source: &str,
-        action_index: i32,
-        args_json: Option<JsonValue>,
-        args_base64: String,
-        attached_deposit: String,
-        transaction_hash: Option<&str>,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        success: bool,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        staking_pool_account_id: Option<&str>,
-        metadata: Option<JsonValue>,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_lockup_actions (lockup_account_id, owner_account_id, predecessor_account_id, receiver_account_id, method_name, action_source, action_index, args_json, args_base64, attached_deposit, transaction_hash, receipt_id, execution_outcome_id, success, block_height, block_timestamp, shard_id, staking_pool_account_id, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-            ON CONFLICT (receipt_id, action_index, method_name, predecessor_account_id, receiver_account_id)
-            DO UPDATE SET
-              lockup_account_id = EXCLUDED.lockup_account_id,
-              owner_account_id = EXCLUDED.owner_account_id,
-              action_source = EXCLUDED.action_source,
-              args_json = EXCLUDED.args_json,
-              args_base64 = EXCLUDED.args_base64,
-              attached_deposit = EXCLUDED.attached_deposit,
-              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_lockup_actions.transaction_hash),
-              execution_outcome_id = EXCLUDED.execution_outcome_id,
-              success = EXCLUDED.success,
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              staking_pool_account_id = EXCLUDED.staking_pool_account_id,
-              metadata = EXCLUDED.metadata",
-            vec![
-                lockup_account_id.into(),
-                owner_account_id.map(ToString::to_string).into(),
-                predecessor_account_id.into(),
-                receiver_account_id.into(),
-                method_name.into(),
-                action_source.into(),
-                action_index.into(),
-                args_json.into(),
-                args_base64.into(),
-                attached_deposit.into(),
-                transaction_hash.map(ToString::to_string).into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                success.into(),
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                staking_pool_account_id.map(ToString::to_string).into(),
-                metadata.into(),
-            ],
-        ))
-        .await?;
-
-        self.upsert_identity_lockup_accounts(db, [lockup_account_id])
-            .await?;
-
-        let mut identity_accounts = vec![predecessor_account_id, receiver_account_id];
-        if let Some(owner_account_id) = owner_account_id {
-            identity_accounts.push(owner_account_id);
-        }
-        if let Some(staking_pool_account_id) = staking_pool_account_id {
-            identity_accounts.push(staking_pool_account_id);
-        }
-
-        self.upsert_identity_governance_accounts(db, identity_accounts)
-            .await?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_delegation_event(
-        &self,
-        db: &impl ConnectionTrait,
-        delegator_account_id: &str,
-        delegatee_account_id: Option<&str>,
-        event_type: &str,
-        action_source: &str,
-        action_index: i32,
-        args_json: Option<JsonValue>,
-        args_base64: String,
-        attached_deposit: String,
-        transaction_hash: Option<&str>,
-        receipt_id: &str,
-        execution_outcome_id: &str,
-        success: bool,
-        block_height: i64,
-        block_timestamp: i64,
-        shard_id: i32,
-        contract_id: &str,
-        metadata: Option<JsonValue>,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_delegation_events (delegator_account_id, delegatee_account_id, event_type, action_source, action_index, args_json, args_base64, attached_deposit, transaction_hash, receipt_id, execution_outcome_id, success, block_height, block_timestamp, shard_id, contract_id, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-            ON CONFLICT (receipt_id, action_index, event_type, delegator_account_id, contract_id)
-            DO UPDATE SET
-              delegatee_account_id = EXCLUDED.delegatee_account_id,
-              action_source = EXCLUDED.action_source,
-              args_json = EXCLUDED.args_json,
-              args_base64 = EXCLUDED.args_base64,
-              attached_deposit = EXCLUDED.attached_deposit,
-              transaction_hash = EXCLUDED.transaction_hash,
-              execution_outcome_id = EXCLUDED.execution_outcome_id,
-              success = EXCLUDED.success,
-              block_height = EXCLUDED.block_height,
-              block_timestamp = EXCLUDED.block_timestamp,
-              shard_id = EXCLUDED.shard_id,
-              metadata = EXCLUDED.metadata",
-            vec![
-                delegator_account_id.into(),
-                delegatee_account_id.map(ToString::to_string).into(),
-                event_type.into(),
-                action_source.into(),
-                action_index.into(),
-                args_json.into(),
-                args_base64.into(),
-                attached_deposit.into(),
-                transaction_hash.map(ToString::to_string).into(),
-                receipt_id.into(),
-                execution_outcome_id.into(),
-                success.into(),
-                block_height.into(),
-                block_timestamp.into(),
-                shard_id.into(),
-                contract_id.into(),
-                metadata.into(),
-            ],
-        ))
-        .await?;
-
-        let mut identity_accounts = vec![delegator_account_id, contract_id];
-        if let Some(delegatee_account_id) = delegatee_account_id {
-            identity_accounts.push(delegatee_account_id);
-        }
-
-        self.upsert_identity_governance_accounts(db, identity_accounts)
-            .await?;
+        let elapsed = start_time.elapsed();
+        info!(
+            module = MODULE_NAME,
+            height = msg.block.header.height,
+            shard_count = msg.shards.len(),
+            elapsed_ms = elapsed.as_millis(),
+            "Successfully processed HOS governance raw block data"
+        );
 
         Ok(())
     }
@@ -3106,57 +931,12 @@ impl IndexerModule for VenearGovernanceModule {
     }
 
     async fn initialize(&self, db: &DatabaseConnection) -> Result<()> {
-        if !self.enabled {
-            return Ok(());
-        }
-
-        self.initialize_identity_accounts_support(db)
-            .await
-            .context("failed initializing identity account sync")?;
-
-        self.load_known_lockups(db)
-            .await
-            .context("failed initializing lockup cache")?;
-
-        Ok(())
+        self.upsert_hos_config(db).await
     }
 
     #[instrument(skip(self, msg, db), fields(module = "venear_governance", height = %msg.block.header.height))]
     async fn process_block(&self, msg: &StreamerMessage, db: &DatabaseConnection) -> Result<()> {
-        if !self.enabled {
-            return Ok(());
-        }
-
-        let block_height = msg.block.header.height as i64;
-        let block_timestamp = msg.block.header.timestamp as i64;
-        let start = Instant::now();
-
-        let txn = db.begin().await?;
-        let mut state = self.build_process_state();
-
-        for shard in &msg.shards {
-            self.process_shard(shard, block_height, block_timestamp, &txn, &mut state)
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed processing shard {} at block {}",
-                        shard.shard_id, block_height
-                    )
-                })?;
-        }
-
-        txn.commit().await?;
-
-        self.merge_process_state(&state);
-
-        info!(
-            block_height = block_height,
-            elapsed_ms = start.elapsed().as_millis(),
-            known_lockups = state.known_lockups.len(),
-            "processed venear governance block"
-        );
-
-        Ok(())
+        self.process_block_internal(msg, db).await
     }
 
     async fn get_cursor(&self, db: &DatabaseConnection) -> Result<Option<i64>> {
@@ -3170,817 +950,5 @@ impl IndexerModule for VenearGovernanceModule {
         prev_height: Option<i64>,
     ) -> Result<()> {
         cursor::upsert_module_cursor(db, MODULE_NAME, height, prev_height).await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use anyhow::Result;
-    use common::config::{
-        AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig,
-        NearModuleStreamMode, NearModulesConfig, NearStreamProvider, TelemetryConfig,
-        VenearGovernanceModuleConfig,
-    };
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-    use test_support::{init_test_tracing, TestDatabase};
-
-    fn build_test_config() -> AppConfig {
-        let db = DatabaseConfig {
-            url: "postgres://unused".to_string(),
-            ..DatabaseConfig::default()
-        };
-
-        let cfg = IndexerConfig {
-            database: db,
-            logging: LoggingConfig::default(),
-            telemetry: TelemetryConfig::default(),
-            discourse: None,
-            telegram: None,
-            near: Some(NearLakeConfig {
-                provider: NearStreamProvider::Lake,
-                chain: "mainnet".to_string(),
-                start_height: 0,
-                concurrency: Some(1),
-                preload_pool_size: Some(1),
-                fastnear_api_key: None,
-                fastnear_num_threads: None,
-                modules: Some(NearModulesConfig {
-                    raw: None,
-                    accounts: None,
-                    tokens: None,
-                    staking_pools: None,
-                    venear_governance: Some(VenearGovernanceModuleConfig {
-                        enabled: true,
-                        stream_mode: NearModuleStreamMode::Shared,
-                        start_height: None,
-                        venear_contract_id: "venear.dao".to_string(),
-                        voting_contract_id: "vote.dao".to_string(),
-                        lockup_account_suffix: ".venear.dao".to_string(),
-                        known_lockups: vec![],
-                    }),
-                }),
-            }),
-        };
-
-        AppConfig::Indexer(Box::new(cfg))
-    }
-
-    async fn scalar_i64(db: &impl ConnectionTrait, sql: &str) -> Result<i64> {
-        let row = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                sql,
-                vec![],
-            ))
-            .await?
-            .expect("expected one row");
-
-        Ok(row.try_get("", "value")?)
-    }
-
-    async fn scalar_bool(db: &impl ConnectionTrait, sql: &str) -> Result<bool> {
-        let row = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                sql,
-                vec![],
-            ))
-            .await?
-            .expect("expected one row");
-
-        Ok(row.try_get("", "value")?)
-    }
-
-    async fn scalar_string(db: &impl ConnectionTrait, sql: &str) -> Result<String> {
-        let row = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                sql,
-                vec![],
-            ))
-            .await?
-            .expect("expected one row");
-
-        Ok(row.try_get("", "value")?)
-    }
-
-    async fn scalar_opt_string(db: &impl ConnectionTrait, sql: &str) -> Result<Option<String>> {
-        let row = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                sql,
-                vec![],
-            ))
-            .await?
-            .expect("expected one row");
-
-        Ok(row.try_get("", "value")?)
-    }
-
-    #[tokio::test]
-    async fn parse_error_rows_keep_standard_and_event_type() -> Result<()> {
-        init_test_tracing();
-
-        let db = TestDatabase::new().await;
-        let conn = db.db();
-        let module = VenearGovernanceModule::new(&build_test_config());
-        module.initialize(conn.as_ref()).await?;
-        let mut state = module.build_process_state();
-
-        let log = r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"add_vote"}"#;
-
-        module
-            .process_logs(
-                &[log.to_string()],
-                "venear.dao",
-                "alice.near",
-                "rcpt-missing-data",
-                "exec-missing-data",
-                None,
-                0,
-                102,
-                1002,
-                true,
-                conn.as_ref(),
-                &mut state,
-            )
-            .await?;
-
-        let standard = scalar_opt_string(
-            conn.as_ref(),
-            "SELECT standard AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-missing-data' LIMIT 1",
-        )
-        .await?;
-        assert_eq!(standard.as_deref(), Some("venear"));
-
-        let event_type = scalar_opt_string(
-            conn.as_ref(),
-            "SELECT event_type AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-missing-data' LIMIT 1",
-        )
-        .await?;
-        assert_eq!(event_type.as_deref(), Some("add_vote"));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn invalid_vote_payload_does_not_fail_block() -> Result<()> {
-        init_test_tracing();
-
-        let db = TestDatabase::new().await;
-        let conn = db.db();
-        let module = VenearGovernanceModule::new(&build_test_config());
-        module.initialize(conn.as_ref()).await?;
-        let mut state = module.build_process_state();
-
-        let logs = vec![r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"add_vote","data":[{"account_id":"alice.near","proposal_id":1,"vote":"not-an-int","account_balance":"10"}]}"#.to_string()];
-
-        module
-            .process_logs(
-                &logs,
-                "venear.dao",
-                "alice.near",
-                "rcpt-invalid-vote",
-                "exec-invalid-vote",
-                None,
-                0,
-                103,
-                1003,
-                true,
-                conn.as_ref(),
-                &mut state,
-            )
-            .await?;
-
-        let raw_count = scalar_i64(
-            conn.as_ref(),
-            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-invalid-vote'",
-        )
-        .await?;
-        assert_eq!(raw_count, 1);
-
-        let parse_error = scalar_opt_string(
-            conn.as_ref(),
-            "SELECT parse_error AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-invalid-vote' LIMIT 1",
-        )
-        .await?;
-        assert!(parse_error
-            .as_deref()
-            .unwrap_or_default()
-            .contains("failed to normalize event"));
-
-        let votes_count = scalar_i64(
-            conn.as_ref(),
-            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_votes",
-        )
-        .await?;
-        assert_eq!(votes_count, 0);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn merge_process_state_applies_deletions() -> Result<()> {
-        init_test_tracing();
-
-        let module = VenearGovernanceModule::new(&build_test_config());
-
-        let mut add_state = ProcessState::default();
-        add_state
-            .known_lockups
-            .insert("example-lockup.venear.dao".to_string());
-        add_state.lockup_owners.insert(
-            "example-lockup.venear.dao".to_string(),
-            "alice.near".to_string(),
-        );
-        module.merge_process_state(&add_state);
-
-        assert!(module
-            .known_lockups
-            .read()
-            .unwrap()
-            .contains("example-lockup.venear.dao"));
-
-        let mut remove_state = ProcessState::default();
-        remove_state.lockup_owners.insert(
-            "another-lockup.venear.dao".to_string(),
-            "bob.near".to_string(),
-        );
-        module.merge_process_state(&remove_state);
-
-        assert!(!module
-            .known_lockups
-            .read()
-            .unwrap()
-            .contains("example-lockup.venear.dao"));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn lockup_event_stream_records_delete_and_reactivation() -> Result<()> {
-        init_test_tracing();
-
-        let db = TestDatabase::new().await;
-        let conn = db.db();
-        let module = VenearGovernanceModule::new(&build_test_config());
-        module.initialize(conn.as_ref()).await?;
-
-        module
-            .insert_lockup_event(
-                conn.as_ref(),
-                "reactivate.venear.dao",
-                Some("alice.near"),
-                "lockup_delete",
-                Some(1),
-                Some(10),
-                None,
-                Some("100".to_string()),
-                "event_json",
-                None,
-                "rcpt-delete",
-                "exec-delete",
-                "alice.near",
-                "reactivate.venear.dao",
-                true,
-                100,
-                1000,
-                0,
-                0,
-                0,
-                None,
-            )
-            .await?;
-
-        module
-            .insert_lockup_event(
-                conn.as_ref(),
-                "reactivate.venear.dao",
-                Some("alice.near"),
-                "lockup_deployed",
-                Some(1),
-                Some(11),
-                None,
-                Some("120".to_string()),
-                "event_json",
-                None,
-                "rcpt-deploy",
-                "exec-deploy",
-                "alice.near",
-                "reactivate.venear.dao",
-                true,
-                101,
-                1001,
-                0,
-                1,
-                0,
-                None,
-            )
-            .await?;
-
-        let event_count = scalar_i64(
-            conn.as_ref(),
-            "SELECT COUNT(*)::bigint AS value
-             FROM near.near_venear_lockup_events
-             WHERE lockup_account_id = 'reactivate.venear.dao'",
-        )
-        .await?;
-        assert_eq!(event_count, 2);
-
-        let latest_event_type = scalar_string(
-            conn.as_ref(),
-            "SELECT event_type AS value
-             FROM near.near_venear_lockup_events
-             WHERE lockup_account_id = 'reactivate.venear.dao'
-             ORDER BY block_height DESC, id DESC
-             LIMIT 1",
-        )
-        .await?;
-        assert_eq!(latest_event_type, "lockup_deployed");
-
-        let lockup_identity_exists = scalar_bool(
-            conn.as_ref(),
-            "SELECT EXISTS (
-                SELECT 1
-                FROM identity.accounts
-                WHERE platform_id = 'venear_lockup'
-                  AND scope = 'mainnet'
-                  AND external_id = 'reactivate.venear.dao'
-            ) AS value",
-        )
-        .await?;
-        assert!(lockup_identity_exists);
-
-        let owner_identity_exists = scalar_bool(
-            conn.as_ref(),
-            "SELECT EXISTS (
-                SELECT 1
-                FROM identity.accounts
-                WHERE platform_id = 'venear_governance'
-                  AND scope = 'mainnet'
-                  AND external_id = 'alice.near'
-            ) AS value",
-        )
-        .await?;
-        assert!(owner_identity_exists);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn failed_outcome_event_is_written_to_raw_only() -> Result<()> {
-        init_test_tracing();
-
-        let db = TestDatabase::new().await;
-        let conn = db.db();
-        let module = VenearGovernanceModule::new(&build_test_config());
-        module.initialize(conn.as_ref()).await?;
-        let mut state = module.build_process_state();
-
-        let logs = vec![r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"add_vote","data":[{"account_id":"alice.near","proposal_id":1,"vote":2,"account_balance":"10"}]}"#.to_string()];
-
-        module
-            .process_logs(
-                &logs,
-                "venear.dao",
-                "alice.near",
-                "rcpt-failed",
-                "exec-failed",
-                None,
-                0,
-                100,
-                1000,
-                false,
-                conn.as_ref(),
-                &mut state,
-            )
-            .await?;
-
-        let raw_count = scalar_i64(
-            conn.as_ref(),
-            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw",
-        )
-        .await?;
-        assert_eq!(raw_count, 1);
-
-        let votes_count = scalar_i64(
-            conn.as_ref(),
-            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_votes",
-        )
-        .await?;
-        assert_eq!(votes_count, 0);
-
-        let raw_success = scalar_bool(
-            conn.as_ref(),
-            "SELECT success AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-failed' LIMIT 1",
-        )
-        .await?;
-        assert!(!raw_success);
-
-        let raw_shape = scalar_string(
-            conn.as_ref(),
-            "SELECT record_kind || '|' ||
-                    COALESCE(standard, '') || '|' ||
-                    COALESCE(event_type, '') || '|' ||
-                    predecessor_account_id || '|' ||
-                    contract_id AS value
-             FROM near.near_venear_events_raw
-             WHERE execution_outcome_id = 'exec-failed'
-             LIMIT 1",
-        )
-        .await?;
-        assert_eq!(
-            raw_shape,
-            "event_json|venear|add_vote|alice.near|venear.dao"
-        );
-
-        let raw_event_account = scalar_opt_string(
-            conn.as_ref(),
-            "SELECT event_data->>'account_id' AS value
-             FROM near.near_venear_events_raw
-             WHERE execution_outcome_id = 'exec-failed'
-             LIMIT 1",
-        )
-        .await?;
-        assert_eq!(raw_event_account.as_deref(), Some("alice.near"));
-
-        let parse_error = scalar_opt_string(
-            conn.as_ref(),
-            "SELECT parse_error AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-failed' LIMIT 1",
-        )
-        .await?;
-        assert_eq!(parse_error, None);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn lockup_lock_near_event_keeps_balance_table_unchanged_and_writes_lockup_values(
-    ) -> Result<()> {
-        init_test_tracing();
-        let db = TestDatabase::new().await;
-        let conn = db.db();
-        let module = VenearGovernanceModule::new(&build_test_config());
-        module.initialize(conn.as_ref()).await?;
-        let mut state = module.build_process_state();
-
-        // Simulate a lockup account emitting lockup_lock_near
-        state.known_lockups.insert("abc123.venear.dao".to_string());
-        let log = r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"lockup_lock_near","data":[{"account_id":"abc123.venear.dao","lockup_version":1,"lockup_update_nonce":"5","locked_near_balance":"1000000000000000000000000"}]}"#;
-
-        module
-            .process_logs(
-                &[log.to_string()],
-                "abc123.venear.dao",
-                "alice.near",
-                "rcpt-lockup-lock",
-                "exec-lockup-lock",
-                None,
-                0,
-                200,
-                2000,
-                true,
-                conn.as_ref(),
-                &mut state,
-            )
-            .await?;
-
-        // Raw event stored
-        let raw_count = scalar_i64(
-            conn.as_ref(),
-            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-lockup-lock'",
-        )
-        .await?;
-        assert_eq!(raw_count, 1);
-
-        // No parse_error on the raw event (explicit skip, not an error)
-        let parse_error = scalar_opt_string(
-            conn.as_ref(),
-            "SELECT parse_error AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-lockup-lock' LIMIT 1",
-        )
-        .await?;
-        assert_eq!(parse_error, None);
-
-        let lockup_event_shape = scalar_string(
-            conn.as_ref(),
-            "SELECT lockup_account_id || '|' ||
-                    event_type || '|' ||
-                    COALESCE(locked_near_balance, '') || '|' ||
-                    lockup_version::text || '|' ||
-                    lockup_update_nonce::text || '|' ||
-                    predecessor_account_id || '|' ||
-                    contract_id AS value
-             FROM near.near_venear_lockup_events
-             WHERE execution_outcome_id = 'exec-lockup-lock'
-             LIMIT 1",
-        )
-        .await?;
-        assert_eq!(
-            lockup_event_shape,
-            "abc123.venear.dao|lockup_lock_near|1000000000000000000000000|1|5|alice.near|abc123.venear.dao"
-        );
-
-        let raw_event_shape = scalar_string(
-            conn.as_ref(),
-            "SELECT record_kind || '|' ||
-                    COALESCE(standard, '') || '|' ||
-                    COALESCE(event_type, '') || '|' ||
-                    (event_data->>'account_id') || '|' ||
-                    (event_data->>'lockup_update_nonce') || '|' ||
-                    (event_data->>'locked_near_balance') AS value
-             FROM near.near_venear_events_raw
-             WHERE execution_outcome_id = 'exec-lockup-lock'
-             LIMIT 1",
-        )
-        .await?;
-        assert_eq!(
-            raw_event_shape,
-            "event_json|venear|lockup_lock_near|abc123.venear.dao|5|1000000000000000000000000"
-        );
-
-        // Nothing written to account_balances
-        let balance_count = scalar_i64(
-            conn.as_ref(),
-            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_account_balances",
-        )
-        .await?;
-        assert_eq!(balance_count, 0);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn create_proposal_event_stores_metadata() -> Result<()> {
-        init_test_tracing();
-        let db = TestDatabase::new().await;
-        let conn = db.db();
-        let module = VenearGovernanceModule::new(&build_test_config());
-        module.initialize(conn.as_ref()).await?;
-        let mut state = module.build_process_state();
-
-        let log = r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"create_proposal","data":[{"proposer_id":"alice.near","proposal_id":0,"title":"My Proposal","description":"A great idea","link":"https://example.com","voting_options":["For","Against","Abstain"]}]}"#;
-
-        module
-            .process_logs(
-                &[log.to_string()],
-                "vote.dao",
-                "alice.near",
-                "rcpt-create-proposal",
-                "exec-create-proposal",
-                None,
-                0,
-                300,
-                3000,
-                true,
-                conn.as_ref(),
-                &mut state,
-            )
-            .await?;
-
-        let metadata = scalar_opt_string(
-            conn.as_ref(),
-            "SELECT metadata::text AS value FROM near.near_venear_proposal_events WHERE execution_outcome_id = 'exec-create-proposal' LIMIT 1",
-        )
-        .await?;
-        assert!(
-            metadata.is_some(),
-            "metadata must not be null for create_proposal"
-        );
-
-        let title = scalar_opt_string(
-            conn.as_ref(),
-            "SELECT metadata->>'title' AS value FROM near.near_venear_proposal_events WHERE execution_outcome_id = 'exec-create-proposal' LIMIT 1",
-        )
-        .await?;
-        assert_eq!(title.as_deref(), Some("My Proposal"));
-
-        let proposer_id = scalar_opt_string(
-            conn.as_ref(),
-            "SELECT proposer_id AS value FROM near.near_venear_proposal_events WHERE execution_outcome_id = 'exec-create-proposal' LIMIT 1",
-        )
-        .await?;
-        assert_eq!(proposer_id.as_deref(), Some("alice.near"));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn proposal_approve_event_sets_reviewer_id() -> Result<()> {
-        init_test_tracing();
-        let db = TestDatabase::new().await;
-        let conn = db.db();
-        let module = VenearGovernanceModule::new(&build_test_config());
-        module.initialize(conn.as_ref()).await?;
-        let mut state = module.build_process_state();
-
-        let log = r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"proposal_approve","data":[{"account_id":"reviewer.near","proposal_id":0,"voting_start_time_sec":1700000000}]}"#;
-
-        module
-            .process_logs(
-                &[log.to_string()],
-                "vote.dao",
-                "reviewer.near",
-                "rcpt-approve",
-                "exec-approve",
-                None,
-                0,
-                400,
-                4000,
-                true,
-                conn.as_ref(),
-                &mut state,
-            )
-            .await?;
-
-        let reviewer_id = scalar_opt_string(
-            conn.as_ref(),
-            "SELECT reviewer_id AS value FROM near.near_venear_proposal_events WHERE execution_outcome_id = 'exec-approve' LIMIT 1",
-        )
-        .await?;
-        assert_eq!(reviewer_id.as_deref(), Some("reviewer.near"));
-
-        // account_id is also preserved
-        let account_id = scalar_opt_string(
-            conn.as_ref(),
-            "SELECT account_id AS value FROM near.near_venear_proposal_events WHERE execution_outcome_id = 'exec-approve' LIMIT 1",
-        )
-        .await?;
-        assert_eq!(account_id.as_deref(), Some("reviewer.near"));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn add_vote_event_upserts_identity_accounts() -> Result<()> {
-        init_test_tracing();
-
-        let db = TestDatabase::new().await;
-        let conn = db.db();
-        let module = VenearGovernanceModule::new(&build_test_config());
-        module.initialize(conn.as_ref()).await?;
-        let mut state = module.build_process_state();
-
-        let log = r#"EVENT_JSON:{"standard":"venear","version":"1.0.0","event":"add_vote","data":[{"account_id":"alice.near","proposal_id":1,"vote":2,"account_balance":"10"}]}"#;
-
-        module
-            .process_logs(
-                &[log.to_string()],
-                "venear.dao",
-                "caller.near",
-                "rcpt-identity-upsert",
-                "exec-identity-upsert",
-                None,
-                0,
-                500,
-                5000,
-                true,
-                conn.as_ref(),
-                &mut state,
-            )
-            .await?;
-
-        let caller_exists = scalar_bool(
-            conn.as_ref(),
-            "SELECT EXISTS (
-                SELECT 1
-                FROM identity.accounts
-                WHERE platform_id = 'venear_governance'
-                  AND scope = 'mainnet'
-                  AND external_id = 'caller.near'
-            ) AS value",
-        )
-        .await?;
-        assert!(caller_exists);
-
-        let voter_exists = scalar_bool(
-            conn.as_ref(),
-            "SELECT EXISTS (
-                SELECT 1
-                FROM identity.accounts
-                WHERE platform_id = 'venear_governance'
-                  AND scope = 'mainnet'
-                  AND external_id = 'alice.near'
-            ) AS value",
-        )
-        .await?;
-        assert!(voter_exists);
-
-        let contract_exists = scalar_bool(
-            conn.as_ref(),
-            "SELECT EXISTS (
-                SELECT 1
-                FROM identity.accounts
-                WHERE platform_id = 'venear_governance'
-                  AND scope = 'mainnet'
-                  AND external_id = 'venear.dao'
-            ) AS value",
-        )
-        .await?;
-        assert!(contract_exists);
-
-        let vote_row = scalar_string(
-            conn.as_ref(),
-            "SELECT proposal_id::text || '|' ||
-                    account_id || '|' ||
-                    vote::text || '|' ||
-                    account_balance || '|' ||
-                    event_type AS value
-             FROM near.near_venear_votes
-             WHERE execution_outcome_id = 'exec-identity-upsert'
-             LIMIT 1",
-        )
-        .await?;
-        assert_eq!(vote_row, "1|alice.near|2|10|add_vote");
-
-        let voting_power_row = scalar_string(
-            conn.as_ref(),
-            "SELECT account_id || '|' ||
-                    event_type || '|' ||
-                    proposal_id::text || '|' ||
-                    voting_power AS value
-             FROM near.near_venear_account_voting_power_events
-             WHERE execution_outcome_id = 'exec-identity-upsert'
-             LIMIT 1",
-        )
-        .await?;
-        assert_eq!(voting_power_row, "alice.near|add_vote|1|10");
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn malformed_event_json_is_preserved_with_parse_error() -> Result<()> {
-        init_test_tracing();
-
-        let db = TestDatabase::new().await;
-        let conn = db.db();
-        let module = VenearGovernanceModule::new(&build_test_config());
-        module.initialize(conn.as_ref()).await?;
-        let mut state = module.build_process_state();
-
-        let malformed_log = "EVENT_JSON:{\"standard\":\"venear\",\"event\":\"add_vote\",\"data\":[";
-
-        module
-            .process_logs(
-                &[malformed_log.to_string()],
-                "venear.dao",
-                "alice.near",
-                "rcpt-malformed",
-                "exec-malformed",
-                None,
-                0,
-                101,
-                1001,
-                true,
-                conn.as_ref(),
-                &mut state,
-            )
-            .await?;
-
-        let raw_count = scalar_i64(
-            conn.as_ref(),
-            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw",
-        )
-        .await?;
-        assert_eq!(raw_count, 1);
-
-        let parse_error = scalar_string(
-            conn.as_ref(),
-            "SELECT parse_error AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-malformed' LIMIT 1",
-        )
-        .await?;
-        assert!(parse_error.contains("failed to parse EVENT_JSON payload"));
-
-        let stored_log = scalar_string(
-            conn.as_ref(),
-            "SELECT log_text AS value FROM near.near_venear_events_raw WHERE execution_outcome_id = 'exec-malformed' LIMIT 1",
-        )
-        .await?;
-        assert_eq!(stored_log, malformed_log);
-
-        let raw_shape = scalar_string(
-            conn.as_ref(),
-            "SELECT record_kind || '|' ||
-                    COALESCE(standard, '') || '|' ||
-                    COALESCE(event_type, '') || '|' ||
-                    predecessor_account_id || '|' ||
-                    contract_id || '|' ||
-                    success::text AS value
-             FROM near.near_venear_events_raw
-             WHERE execution_outcome_id = 'exec-malformed'
-             LIMIT 1",
-        )
-        .await?;
-        assert_eq!(raw_shape, "event_json|||alice.near|venear.dao|true");
-
-        let votes_count = scalar_i64(
-            conn.as_ref(),
-            "SELECT COUNT(*)::bigint AS value FROM near.near_venear_votes",
-        )
-        .await?;
-        assert_eq!(votes_count, 0);
-
-        Ok(())
     }
 }

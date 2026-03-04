@@ -74,15 +74,37 @@ async fn venear_governance_live_lake_ingests_into_postgres() -> Result<()> {
 
     assert!(processed > 0, "expected to process at least one block");
 
-    let raw_events = scalar_i64(
+    let tracked_relevant_receipts = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_events_raw",
+        "SELECT COUNT(*)::bigint AS value FROM near.venear_governance_relevant_receipts",
+    )
+    .await?;
+    let relevant_actions = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_actions ra
+         WHERE EXISTS (
+             SELECT 1
+             FROM near.venear_governance_relevant_receipts rr
+             WHERE rr.receipt_id = ra.receipt_id
+         )",
+    )
+    .await?;
+    let relevant_outcomes = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_execution_outcomes eo
+         WHERE EXISTS (
+             SELECT 1
+             FROM near.venear_governance_relevant_receipts rr
+             WHERE rr.receipt_id = eo.receipt_id
+         )",
     )
     .await?;
 
     assert!(
-        raw_events > 0,
-        "expected venear raw events in sampled live window; increase NEAR_LIVE_TEST_BLOCKS or adjust start height"
+        tracked_relevant_receipts > 0 && relevant_actions > 0 && relevant_outcomes > 0,
+        "expected HoS-related canonical raw rows in sampled live window; increase NEAR_LIVE_TEST_BLOCKS or adjust start height"
     );
 
     Ok(())
@@ -97,6 +119,7 @@ fn build_live_test_config(start_height: u64) -> AppConfig {
         logging: LoggingConfig::default(),
         telemetry: TelemetryConfig::default(),
         discourse: None,
+        telegram: None,
         near: Some(NearLakeConfig {
             provider: NearStreamProvider::Lake,
             chain: "mainnet".to_string(),
@@ -107,17 +130,11 @@ fn build_live_test_config(start_height: u64) -> AppConfig {
             fastnear_num_threads: None,
             modules: Some(NearModulesConfig {
                 raw: None,
-                accounts: None,
-                tokens: None,
-                staking_pools: None,
                 venear_governance: Some(VenearGovernanceModuleConfig {
                     enabled: true,
                     stream_mode: NearModuleStreamMode::Shared,
                     start_height: None,
-                    venear_contract_id: "venear.dao".to_string(),
-                    voting_contract_id: "vote.dao".to_string(),
-                    lockup_account_suffix: ".venear.dao".to_string(),
-                    known_lockups: vec![],
+                    mview_refresh_interval_blocks: 100,
                 }),
             }),
         }),

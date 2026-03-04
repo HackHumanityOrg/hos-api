@@ -58,113 +58,6 @@ pub async fn get_config_current(
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "
-            WITH candidate_actions AS (
-                SELECT
-                    id,
-                    action_source,
-                    action_index,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    block_height,
-                    block_timestamp,
-                    predecessor_account_id,
-                    contract_id,
-                    method_name,
-                    args_json,
-                    attached_deposit
-                FROM near.near_venear_governance_actions
-                WHERE contract_id IN ('venear.dao', 'vote.dao')
-                  AND method_name IN ('new', 'set_guardians', 'set_reviewer_ids')
-                  AND success = true
-            ),
-            deduped_actions AS (
-                SELECT *
-                FROM candidate_actions
-                WHERE action_source = 'transaction'
-                UNION ALL
-                SELECT r.*
-                FROM candidate_actions r
-                WHERE r.action_source = 'receipt'
-                  AND NOT EXISTS (
-                    SELECT 1
-                    FROM candidate_actions t
-                    WHERE t.action_source = 'transaction'
-                      AND t.contract_id = r.contract_id
-                      AND t.method_name = r.method_name
-                      AND t.predecessor_account_id = r.predecessor_account_id
-                      AND t.block_height = r.block_height
-                      AND t.attached_deposit = r.attached_deposit
-                      AND COALESCE(t.args_json::text, '') = COALESCE(r.args_json::text, '')
-                  )
-            ),
-            expanded AS (
-                SELECT
-                    id,
-                    contract_id,
-                    method_name,
-                    predecessor_account_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    block_height,
-                    block_timestamp,
-                    'guardians'::text AS config_field,
-                    CASE
-                        WHEN method_name = 'new' THEN args_json -> 'config' -> 'guardians'
-                        ELSE args_json -> 'guardians'
-                    END AS config_value,
-                    CASE
-                        WHEN method_name = 'new' THEN 'init_new'
-                        ELSE 'set_method'
-                    END AS config_source,
-                    0::integer AS field_order
-                FROM deduped_actions
-                WHERE method_name IN ('new', 'set_guardians')
-
-                UNION ALL
-
-                SELECT
-                    id,
-                    contract_id,
-                    method_name,
-                    predecessor_account_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    block_height,
-                    block_timestamp,
-                    'reviewer_ids'::text AS config_field,
-                    CASE
-                        WHEN method_name = 'new' THEN args_json -> 'config' -> 'reviewer_ids'
-                        ELSE args_json -> 'reviewer_ids'
-                    END AS config_value,
-                    CASE
-                        WHEN method_name = 'new' THEN 'init_new'
-                        ELSE 'set_method'
-                    END AS config_source,
-                    1::integer AS field_order
-                FROM deduped_actions
-                WHERE method_name IN ('new', 'set_reviewer_ids')
-            ),
-            normalized AS (
-                SELECT
-                    id,
-                    contract_id,
-                    method_name,
-                    predecessor_account_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    block_height,
-                    block_timestamp,
-                    config_field,
-                    config_value,
-                    config_source,
-                    field_order
-                FROM expanded
-                WHERE jsonb_typeof(config_value::jsonb) = 'array'
-            )
             SELECT DISTINCT ON (contract_id, config_field)
                 id,
                 contract_id,
@@ -179,7 +72,7 @@ pub async fn get_config_current(
                 config_value,
                 config_source,
                 field_order
-            FROM normalized
+            FROM near.hos_config_history
             ORDER BY contract_id ASC, config_field ASC, block_height DESC, id DESC
             ",
             vec![],
@@ -229,115 +122,6 @@ pub async fn list_config_history(
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "
-            WITH candidate_actions AS (
-                SELECT
-                    id,
-                    action_source,
-                    action_index,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    block_height,
-                    block_timestamp,
-                    predecessor_account_id,
-                    contract_id,
-                    method_name,
-                    args_json,
-                    attached_deposit
-                FROM near.near_venear_governance_actions
-                WHERE contract_id IN ('venear.dao', 'vote.dao')
-                  AND method_name IN ('new', 'set_guardians', 'set_reviewer_ids')
-                  AND success = true
-            ),
-            deduped_actions AS (
-                SELECT *
-                FROM candidate_actions
-                WHERE action_source = 'transaction'
-                UNION ALL
-                SELECT r.*
-                FROM candidate_actions r
-                WHERE r.action_source = 'receipt'
-                  AND NOT EXISTS (
-                    SELECT 1
-                    FROM candidate_actions t
-                    WHERE t.action_source = 'transaction'
-                      AND t.contract_id = r.contract_id
-                      AND t.method_name = r.method_name
-                      AND t.predecessor_account_id = r.predecessor_account_id
-                      AND t.block_height = r.block_height
-                      AND t.attached_deposit = r.attached_deposit
-                      AND COALESCE(t.args_json::text, '') = COALESCE(r.args_json::text, '')
-                  )
-            ),
-            expanded AS (
-                SELECT
-                    id,
-                    contract_id,
-                    method_name,
-                    predecessor_account_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    block_height,
-                    block_timestamp,
-                    'guardians'::text AS config_field,
-                    CASE
-                        WHEN method_name = 'new' THEN args_json -> 'config' -> 'guardians'
-                        ELSE args_json -> 'guardians'
-                    END AS config_value,
-                    CASE
-                        WHEN method_name = 'new' THEN 'init_new'
-                        ELSE 'set_method'
-                    END AS config_source,
-                    0::integer AS field_order
-                FROM deduped_actions
-                WHERE method_name IN ('new', 'set_guardians')
-
-                UNION ALL
-
-                SELECT
-                    id,
-                    contract_id,
-                    method_name,
-                    predecessor_account_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    block_height,
-                    block_timestamp,
-                    'reviewer_ids'::text AS config_field,
-                    CASE
-                        WHEN method_name = 'new' THEN args_json -> 'config' -> 'reviewer_ids'
-                        ELSE args_json -> 'reviewer_ids'
-                    END AS config_value,
-                    CASE
-                        WHEN method_name = 'new' THEN 'init_new'
-                        ELSE 'set_method'
-                    END AS config_source,
-                    1::integer AS field_order
-                FROM deduped_actions
-                WHERE method_name IN ('new', 'set_reviewer_ids')
-            ),
-            normalized AS (
-                SELECT
-                    id,
-                    contract_id,
-                    method_name,
-                    predecessor_account_id,
-                    transaction_hash,
-                    receipt_id,
-                    execution_outcome_id,
-                    block_height,
-                    block_timestamp,
-                    config_field,
-                    config_value,
-                    config_source,
-                    field_order
-                FROM expanded
-                WHERE jsonb_typeof(config_value::jsonb) = 'array'
-                  AND ($4::text IS NULL OR contract_id = $4::text)
-                  AND ($5::text IS NULL OR config_field = $5::text)
-            )
             SELECT
                 id,
                 contract_id,
@@ -352,7 +136,7 @@ pub async fn list_config_history(
                 config_value,
                 config_source,
                 field_order
-            FROM normalized
+            FROM near.hos_config_history
             WHERE (
                 $1::bigint IS NULL
                 OR block_height < $1::bigint
@@ -363,6 +147,8 @@ pub async fn list_config_history(
                     AND field_order > $3::integer
                 )
             )
+              AND ($4::text IS NULL OR contract_id = $4::text)
+              AND ($5::text IS NULL OR config_field = $5::text)
             ORDER BY block_height DESC, id DESC, field_order ASC
             LIMIT $6
             ",
@@ -436,26 +222,39 @@ pub async fn list_proposals(
             DatabaseBackend::Postgres,
             "
             WITH latest AS (
-                SELECT DISTINCT ON (proposal_id)
-                    id,
-                    proposal_id,
-                    event_type,
-                    account_id,
-                    proposer_id,
-                    reviewer_id,
-                    voting_start_time_sec,
-                    snapshot_block_height,
-                    snapshot_root,
-                    snapshot_total_venear,
-                    metadata,
-                    payload,
-                    block_height,
-                    block_timestamp,
-                    receipt_id,
-                    execution_outcome_id
-                FROM near.near_venear_proposal_events
-                WHERE ($1::bigint IS NULL OR proposal_id < $1::bigint)
-                ORDER BY proposal_id DESC, block_height DESC, id DESC
+                SELECT
+                    0::bigint AS id,
+                    p.proposal_id::bigint AS proposal_id,
+                    CASE
+                        WHEN p.is_rejected THEN 'proposal_reject'
+                        WHEN p.is_approved AND p.voting_start_at IS NOT NULL THEN 'proposal_approve_finalized'
+                        WHEN p.is_approved THEN 'proposal_approve'
+                        ELSE 'create_proposal'
+                    END AS event_type,
+                    NULL::text AS account_id,
+                    p.creator_id AS proposer_id,
+                    p.approver_id AS reviewer_id,
+                    CASE
+                        WHEN p.voting_start_at IS NULL THEN NULL
+                        ELSE EXTRACT(EPOCH FROM p.voting_start_at)::bigint
+                    END AS voting_start_time_sec,
+                    NULL::bigint AS snapshot_block_height,
+                    NULL::text AS snapshot_root,
+                    p.total_venear_at_approval::text AS snapshot_total_venear,
+                    p.proposal_metadata AS metadata,
+                    p.proposal_payload AS payload,
+                    p.block_height,
+                    p.block_timestamp,
+                    p.receipt_id,
+                    p.execution_outcome_id,
+                    p.voting_options,
+                    p.num_distinct_voters,
+                    p.for_voting_power,
+                    p.against_voting_power,
+                    p.abstain_voting_power,
+                    p.created_at
+                FROM near.hos_proposals p
+                WHERE ($1::bigint IS NULL OR p.proposal_id < $1::bigint)
             )
             SELECT
                 l.id,
@@ -474,40 +273,21 @@ pub async fn list_proposals(
                 l.block_timestamp,
                 l.receipt_id,
                 l.execution_outcome_id,
-                c.proposer_id AS create_proposer_id,
-                c.metadata AS create_metadata,
-                c.block_timestamp AS created_block_timestamp,
-                COALESCE(v.effective_votes_count, 0)::bigint AS effective_votes_count,
-                COALESCE(v.effective_votes_voting_power, '0')::text AS effective_votes_voting_power
+                l.proposer_id AS create_proposer_id,
+                l.metadata AS create_metadata,
+                CASE
+                    WHEN l.created_at IS NULL THEN NULL
+                    ELSE (EXTRACT(EPOCH FROM l.created_at) * 1000000000)::bigint
+                END AS created_block_timestamp,
+                COALESCE(l.num_distinct_voters, 0)::bigint AS effective_votes_count,
+                (
+                    COALESCE(l.for_voting_power, 0)
+                    + COALESCE(l.against_voting_power, 0)
+                    + COALESCE(l.abstain_voting_power, 0)
+                )::text AS effective_votes_voting_power
             FROM latest l
-            LEFT JOIN LATERAL (
-                SELECT
-                    proposer_id,
-                    metadata,
-                    block_timestamp
-                FROM near.near_venear_proposal_events p
-                WHERE p.proposal_id = l.proposal_id
-                  AND p.event_type = 'create_proposal'
-                ORDER BY p.block_height ASC, p.id ASC
-                LIMIT 1
-            ) c ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT
-                    COUNT(*)::bigint AS effective_votes_count,
-                    COALESCE(SUM((vv.account_balance)::numeric), 0)::text AS effective_votes_voting_power
-                FROM (
-                    SELECT DISTINCT ON (account_id)
-                        account_id,
-                        event_type,
-                        account_balance
-                    FROM near.near_venear_votes
-                    WHERE proposal_id = l.proposal_id
-                    ORDER BY account_id, block_height DESC, log_index DESC, data_index DESC, id DESC
-                ) vv
-                WHERE vv.event_type = 'add_vote'
-            ) v ON TRUE
             WHERE ($2::text IS NULL OR l.event_type = $2::text)
-              AND ($3::text IS NULL OR COALESCE(l.proposer_id, c.proposer_id) = $3::text)
+              AND ($3::text IS NULL OR l.proposer_id = $3::text)
             ORDER BY l.proposal_id DESC
             LIMIT $4
             ",
@@ -572,57 +352,45 @@ pub async fn get_proposal(
             DatabaseBackend::Postgres,
             "
             SELECT
-                l.id,
-                l.proposal_id,
-                l.event_type,
-                l.account_id,
-                l.proposer_id,
-                l.reviewer_id,
-                l.voting_start_time_sec,
-                l.snapshot_block_height,
-                l.snapshot_root,
-                l.snapshot_total_venear,
-                l.metadata,
-                l.payload,
-                l.block_height,
-                l.block_timestamp,
-                l.transaction_hash,
-                l.receipt_id,
-                l.execution_outcome_id,
-                c.proposer_id AS create_proposer_id,
-                c.metadata AS create_metadata,
-                c.block_timestamp AS created_block_timestamp,
-                COALESCE(v.effective_votes_count, 0)::bigint AS effective_votes_count,
-                COALESCE(v.effective_votes_voting_power, '0')::text AS effective_votes_voting_power
-            FROM near.near_venear_proposal_events l
-            LEFT JOIN LATERAL (
-                SELECT
-                    proposer_id,
-                    metadata,
-                    block_timestamp
-                FROM near.near_venear_proposal_events p
-                WHERE p.proposal_id = l.proposal_id
-                  AND p.event_type = 'create_proposal'
-                ORDER BY p.block_height ASC, p.id ASC
-                LIMIT 1
-            ) c ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT
-                    COUNT(*)::bigint AS effective_votes_count,
-                    COALESCE(SUM((vv.account_balance)::numeric), 0)::text AS effective_votes_voting_power
-                FROM (
-                    SELECT DISTINCT ON (account_id)
-                        account_id,
-                        event_type,
-                        account_balance
-                    FROM near.near_venear_votes
-                    WHERE proposal_id = l.proposal_id
-                    ORDER BY account_id, block_height DESC, log_index DESC, data_index DESC, id DESC
-                ) vv
-                WHERE vv.event_type = 'add_vote'
-            ) v ON TRUE
-            WHERE l.proposal_id = $1
-            ORDER BY l.block_height DESC, l.id DESC
+                0::bigint AS id,
+                p.proposal_id::bigint AS proposal_id,
+                CASE
+                    WHEN p.is_rejected THEN 'proposal_reject'
+                    WHEN p.is_approved AND p.voting_start_at IS NOT NULL THEN 'proposal_approve_finalized'
+                    WHEN p.is_approved THEN 'proposal_approve'
+                    ELSE 'create_proposal'
+                END AS event_type,
+                NULL::text AS account_id,
+                p.creator_id AS proposer_id,
+                p.approver_id AS reviewer_id,
+                CASE
+                    WHEN p.voting_start_at IS NULL THEN NULL
+                    ELSE EXTRACT(EPOCH FROM p.voting_start_at)::bigint
+                END AS voting_start_time_sec,
+                NULL::bigint AS snapshot_block_height,
+                NULL::text AS snapshot_root,
+                p.total_venear_at_approval::text AS snapshot_total_venear,
+                p.proposal_metadata AS metadata,
+                p.proposal_payload AS payload,
+                p.block_height,
+                p.block_timestamp,
+                p.transaction_hash,
+                p.receipt_id,
+                p.execution_outcome_id,
+                p.creator_id AS create_proposer_id,
+                p.proposal_metadata AS create_metadata,
+                CASE
+                    WHEN p.created_at IS NULL THEN NULL
+                    ELSE (EXTRACT(EPOCH FROM p.created_at) * 1000000000)::bigint
+                END AS created_block_timestamp,
+                COALESCE(p.num_distinct_voters, 0)::bigint AS effective_votes_count,
+                (
+                    COALESCE(p.for_voting_power, 0)
+                    + COALESCE(p.against_voting_power, 0)
+                    + COALESCE(p.abstain_voting_power, 0)
+                )::text AS effective_votes_voting_power
+            FROM near.hos_proposals p
+            WHERE p.proposal_id = $1
             LIMIT 1
             ",
             vec![proposal_id.into()],
@@ -712,6 +480,134 @@ pub async fn list_proposal_events(
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "
+            WITH base_proposal AS (
+                SELECT *
+                FROM near.hos_proposals
+                WHERE proposal_id = $1
+            ),
+            events AS (
+                SELECT
+                    bp.proposal_id::bigint AS proposal_id,
+                    'create_proposal'::text AS event_type,
+                    bp.creator_id AS account_id,
+                    bp.creator_id AS proposer_id,
+                    bp.approver_id AS reviewer_id,
+                    CASE
+                        WHEN bp.voting_start_at IS NULL THEN NULL
+                        ELSE EXTRACT(EPOCH FROM bp.voting_start_at)::bigint
+                    END AS voting_start_time_sec,
+                    NULL::bigint AS snapshot_block_height,
+                    NULL::text AS snapshot_root,
+                    bp.total_venear_at_approval::text AS snapshot_total_venear,
+                    bp.proposal_metadata AS metadata,
+                    bp.proposal_payload AS payload,
+                    bp.block_height,
+                    bp.block_timestamp,
+                    bp.transaction_hash,
+                    bp.receipt_id,
+                    bp.execution_outcome_id,
+                    0::integer AS event_order
+                FROM base_proposal bp
+
+                UNION ALL
+
+                SELECT
+                    bp.proposal_id::bigint AS proposal_id,
+                    'proposal_approve'::text AS event_type,
+                    COALESCE(ap.proposal_approver_id, bp.approver_id) AS account_id,
+                    bp.creator_id AS proposer_id,
+                    COALESCE(ap.proposal_approver_id, bp.approver_id) AS reviewer_id,
+                    CASE
+                        WHEN bp.voting_start_at IS NULL THEN NULL
+                        ELSE EXTRACT(EPOCH FROM bp.voting_start_at)::bigint
+                    END AS voting_start_time_sec,
+                    NULL::bigint AS snapshot_block_height,
+                    NULL::text AS snapshot_root,
+                    bp.total_venear_at_approval::text AS snapshot_total_venear,
+                    bp.proposal_metadata AS metadata,
+                    bp.proposal_payload AS payload,
+                    COALESCE(ap.block_height, bp.block_height) AS block_height,
+                    COALESCE(
+                        ap.block_timestamp,
+                        (EXTRACT(EPOCH FROM bp.approved_at) * 1000000000)::bigint,
+                        bp.block_timestamp
+                    ) AS block_timestamp,
+                    COALESCE(ap.transaction_hash, bp.transaction_hash) AS transaction_hash,
+                    COALESCE(ap.receipt_id, bp.receipt_id) AS receipt_id,
+                    COALESCE(ap.execution_outcome_id, bp.execution_outcome_id) AS execution_outcome_id,
+                    1::integer AS event_order
+                FROM base_proposal bp
+                LEFT JOIN LATERAL (
+                    SELECT
+                        ap.proposal_approver_id,
+                        ap.block_height,
+                        ap.block_timestamp,
+                        ap.transaction_hash,
+                        ap.receipt_id,
+                        ap.execution_outcome_id
+                    FROM near.hos_approved_proposals ap
+                    WHERE ap.proposal_id = bp.proposal_id
+                    ORDER BY ap.block_timestamp DESC, ap.receipt_id DESC
+                    LIMIT 1
+                ) ap ON TRUE
+                WHERE bp.is_approved = true
+
+                UNION ALL
+
+                SELECT
+                    bp.proposal_id::bigint AS proposal_id,
+                    'proposal_reject'::text AS event_type,
+                    COALESCE(rp.rejecter_id, bp.rejecter_id) AS account_id,
+                    bp.creator_id AS proposer_id,
+                    COALESCE(rp.rejecter_id, bp.rejecter_id) AS reviewer_id,
+                    CASE
+                        WHEN bp.voting_start_at IS NULL THEN NULL
+                        ELSE EXTRACT(EPOCH FROM bp.voting_start_at)::bigint
+                    END AS voting_start_time_sec,
+                    NULL::bigint AS snapshot_block_height,
+                    NULL::text AS snapshot_root,
+                    bp.total_venear_at_approval::text AS snapshot_total_venear,
+                    bp.proposal_metadata AS metadata,
+                    bp.proposal_payload AS payload,
+                    COALESCE(rp.block_height, bp.block_height) AS block_height,
+                    COALESCE(
+                        rp.block_timestamp,
+                        (EXTRACT(EPOCH FROM bp.rejected_at) * 1000000000)::bigint,
+                        bp.block_timestamp
+                    ) AS block_timestamp,
+                    COALESCE(rp.transaction_hash, bp.transaction_hash) AS transaction_hash,
+                    COALESCE(rp.receipt_id, bp.receipt_id) AS receipt_id,
+                    COALESCE(rp.execution_outcome_id, bp.execution_outcome_id) AS execution_outcome_id,
+                    2::integer AS event_order
+                FROM base_proposal bp
+                LEFT JOIN LATERAL (
+                    SELECT
+                        ra.signer_account_id AS rejecter_id,
+                        ra.block_height,
+                        ra.block_timestamp,
+                        ra.transaction_hash,
+                        ra.receipt_id,
+                        ra.execution_outcome_id
+                    FROM near.near_receipt_actions ra
+                    INNER JOIN near.near_execution_outcomes eo
+                        ON eo.receipt_id = ra.receipt_id
+                       AND near.is_hos_contract(eo.executor_account_id) = TRUE
+                    WHERE ra.method_name = 'reject_proposal'
+                      AND near.is_hos_action(ra.receiver_id, ra.predecessor_id, ra.signer_account_id) = TRUE
+                      AND COALESCE(ra.args_json ->> 'proposal_id', '') ~ '^[0-9]+$'
+                      AND (ra.args_json ->> 'proposal_id')::NUMERIC = bp.proposal_id
+                      AND eo.status IN ('SuccessReceiptId', 'SuccessValue')
+                    ORDER BY ra.block_timestamp DESC, ra.receipt_id DESC
+                    LIMIT 1
+                ) rp ON TRUE
+                WHERE bp.is_rejected = true
+            ),
+            ranked AS (
+                SELECT
+                    ROW_NUMBER() OVER (ORDER BY block_timestamp ASC, event_order ASC)::bigint AS id,
+                    *
+                FROM events
+            )
             SELECT
                 id,
                 proposal_id,
@@ -730,7 +626,7 @@ pub async fn list_proposal_events(
                 transaction_hash,
                 receipt_id,
                 execution_outcome_id
-            FROM near.near_venear_proposal_events
+            FROM ranked
             WHERE proposal_id = $1
               AND (
                 $2::bigint IS NULL
@@ -827,20 +723,19 @@ pub async fn list_proposal_votes(
             DatabaseBackend::Postgres,
             "
             WITH latest_votes AS (
-                SELECT DISTINCT ON (account_id)
-                    id,
-                    account_id,
-                    vote,
-                    account_balance,
-                    event_type,
+                SELECT
+                    ROW_NUMBER() OVER (ORDER BY block_timestamp DESC, receipt_id DESC)::bigint AS id,
+                    voter_id AS account_id,
+                    COALESCE(vote_option, 0)::integer AS vote,
+                    COALESCE(voting_power, 0)::text AS account_balance,
+                    COALESCE(event_type, 'add_vote') AS event_type,
                     block_height,
                     block_timestamp,
                     transaction_hash,
                     receipt_id,
                     execution_outcome_id
-                FROM near.near_venear_votes
+                FROM near.hos_proposal_voting_history
                 WHERE proposal_id = $1
-                ORDER BY account_id, block_height DESC, log_index DESC, data_index DESC, id DESC
             )
             SELECT
                 id,
@@ -940,104 +835,24 @@ pub async fn list_delegates(
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "
-            WITH latest_balances AS (
-                SELECT DISTINCT ON (account_id)
-                    account_id,
-                    total_balance,
-                    block_timestamp
-                FROM near.near_venear_account_balances
-                ORDER BY account_id, block_height DESC, log_index DESC, data_index DESC, id DESC
-            ),
-            latest_delegations AS (
-                SELECT DISTINCT ON (delegator_account_id)
-                    delegator_account_id,
-                    delegatee_account_id,
-                    event_type,
-                    block_timestamp
-                FROM near.near_venear_delegation_events
-                WHERE event_type IN ('delegate_all', 'undelegate')
-                  AND success = true
-                ORDER BY delegator_account_id, block_height DESC, id DESC
-            ),
-            active_delegations AS (
-                SELECT
-                    delegator_account_id,
-                    delegatee_account_id,
-                    block_timestamp
-                FROM latest_delegations
-                WHERE event_type = 'delegate_all'
-                  AND delegatee_account_id IS NOT NULL
-            ),
-            delegated_in AS (
-                SELECT
-                    ad.delegatee_account_id AS account_id,
-                    COUNT(*)::bigint AS delegators_count,
-                    COALESCE(SUM(COALESCE(lb.total_balance, '0')::numeric), 0)::text AS delegated_voting_power,
-                    MAX(ad.block_timestamp)::bigint AS latest_inbound_ts
-                FROM active_delegations ad
-                LEFT JOIN latest_balances lb ON lb.account_id = ad.delegator_account_id
-                GROUP BY ad.delegatee_account_id
-            ),
-            latest_votes AS (
-                SELECT
-                    account_id,
-                    MAX(block_timestamp)::bigint AS last_vote_ts
-                FROM near.near_venear_votes
-                WHERE event_type = 'add_vote'
-                GROUP BY account_id
-            ),
-            universe AS (
-                SELECT account_id FROM latest_balances
-                UNION
-                SELECT delegatee_account_id AS account_id FROM active_delegations
-                UNION
-                SELECT delegator_account_id AS account_id FROM active_delegations
-            ),
-            computed AS (
-                SELECT
-                    u.account_id,
-                    COALESCE(lb.total_balance, '0') AS own_voting_power,
-                    COALESCE(di.delegated_voting_power, '0') AS delegated_voting_power,
-                    CASE
-                        WHEN ao.delegator_account_id IS NOT NULL
-                            THEN COALESCE(di.delegated_voting_power, '0')::numeric
-                        ELSE COALESCE(lb.total_balance, '0')::numeric + COALESCE(di.delegated_voting_power, '0')::numeric
-                    END AS total_voting_power_num,
-                    COALESCE(di.delegators_count, 0)::bigint AS delegators_count,
-                    ao.delegatee_account_id AS delegated_to_account_id,
-                    (di.account_id IS NOT NULL) AS has_inbound_delegation,
-                    (ao.delegator_account_id IS NOT NULL) AS has_outbound_delegation,
-                    lv.last_vote_ts,
-                    GREATEST(
-                        COALESCE(lb.block_timestamp, 0),
-                        COALESCE(di.latest_inbound_ts, 0),
-                        COALESCE(ao.block_timestamp, 0),
-                        COALESCE(lv.last_vote_ts, 0)
-                    )::bigint AS updated_ts
-                FROM universe u
-                LEFT JOIN latest_balances lb ON lb.account_id = u.account_id
-                LEFT JOIN delegated_in di ON di.account_id = u.account_id
-                LEFT JOIN active_delegations ao ON ao.delegator_account_id = u.account_id
-                LEFT JOIN latest_votes lv ON lv.account_id = u.account_id
-            )
             SELECT
-                account_id,
+                registered_voter_id AS account_id,
                 own_voting_power,
                 delegated_voting_power,
-                total_voting_power_num::text AS total_voting_power,
+                total_voting_power,
                 delegators_count,
                 delegated_to_account_id,
                 has_inbound_delegation,
                 has_outbound_delegation,
                 last_vote_ts,
                 updated_ts
-            FROM computed
-            WHERE total_voting_power_num > 0
-              AND ($1::text IS NULL OR account_id > $1::text)
-              AND ($2::text IS NULL OR account_id LIKE ($2::text || '%'))
+            FROM near.hos_registered_voters
+            WHERE COALESCE(total_voting_power, '0')::numeric > 0
+              AND ($1::text IS NULL OR registered_voter_id > $1::text)
+              AND ($2::text IS NULL OR registered_voter_id LIKE ($2::text || '%'))
               AND ($3::boolean IS NULL OR has_inbound_delegation = $3::boolean)
               AND ($4::boolean IS NULL OR has_outbound_delegation = $4::boolean)
-            ORDER BY account_id ASC
+            ORDER BY registered_voter_id ASC
             LIMIT $5
             ",
             vec![
@@ -1115,32 +930,70 @@ pub async fn list_delegate_voting_power(
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "
+            WITH activity_events AS (
+                SELECT
+                    ROW_NUMBER() OVER (ORDER BY ua.block_timestamp DESC, ua.receipt_id DESC)::bigint AS id,
+                    ua.event_type,
+                    ua.proposal_id,
+                    COALESCE(ua.voting_power, ua.near_amount, ua.locked_near_balance, 0)::text AS voting_power,
+                    NULL::text AS delta_voting_power,
+                    ua.block_height,
+                    ua.block_timestamp,
+                    ua.transaction_hash,
+                    ua.receipt_id,
+                    ua.execution_outcome_id,
+                    d.event_type AS delegation_event_type,
+                    d.delegator_account_id AS delegation_delegator_account_id
+                FROM near.hos_user_activities ua
+                LEFT JOIN near.hos_delegation_events d
+                    ON d.receipt_id = ua.receipt_id
+                WHERE ua.account_id = $1
+            ),
+            vote_events AS (
+                SELECT
+                    (ROW_NUMBER() OVER (ORDER BY v.block_timestamp DESC, v.receipt_id DESC)::bigint + 1000000000) AS id,
+                    COALESCE(v.event_type, 'add_vote') AS event_type,
+                    v.proposal_id::bigint AS proposal_id,
+                    COALESCE(v.voting_power, 0)::text AS voting_power,
+                    NULL::text AS delta_voting_power,
+                    v.block_height,
+                    v.block_timestamp,
+                    v.transaction_hash,
+                    v.receipt_id,
+                    v.execution_outcome_id,
+                    NULL::text AS delegation_event_type,
+                    NULL::text AS delegation_delegator_account_id
+                FROM near.hos_proposal_voting_history v
+                WHERE v.voter_id = $1
+            ),
+            events AS (
+                SELECT * FROM activity_events
+                UNION ALL
+                SELECT * FROM vote_events
+            )
             SELECT
-                vp.id,
-                vp.event_type,
-                vp.proposal_id,
-                vp.voting_power,
-                vp.delta_voting_power,
-                vp.block_height,
-                vp.block_timestamp,
-                vp.transaction_hash,
-                vp.receipt_id,
-                vp.execution_outcome_id,
-                d.event_type AS delegation_event_type,
-                d.delegator_account_id AS delegation_delegator_account_id
-            FROM near.near_venear_account_voting_power_events vp
-            LEFT JOIN near.near_venear_delegation_events d
-                ON d.receipt_id = vp.receipt_id
-                AND d.success = true
-            WHERE vp.account_id = $1
+                id,
+                event_type,
+                proposal_id,
+                voting_power,
+                delta_voting_power,
+                block_height,
+                block_timestamp,
+                transaction_hash,
+                receipt_id,
+                execution_outcome_id,
+                delegation_event_type,
+                delegation_delegator_account_id
+            FROM events
+            WHERE 1 = 1
               AND (
                 $2::bigint IS NULL
-                OR vp.block_height < $2::bigint
-                OR (vp.block_height = $2::bigint AND vp.id < $3::bigint)
+                OR block_height < $2::bigint
+                OR (block_height = $2::bigint AND id < $3::bigint)
               )
-              AND ($4::text IS NULL OR vp.event_type = $4::text)
-              AND ($5::bigint IS NULL OR vp.proposal_id = $5::bigint)
-            ORDER BY vp.block_height DESC, vp.id DESC
+              AND ($4::text IS NULL OR event_type = $4::text)
+              AND ($5::bigint IS NULL OR proposal_id = $5::bigint)
+            ORDER BY block_height DESC, id DESC
             LIMIT $6
             ",
             vec![
@@ -1222,7 +1075,23 @@ pub async fn list_delegate_delegations(
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "
-            WITH events AS (
+            WITH base_events AS (
+                SELECT
+                    ROW_NUMBER() OVER (
+                        ORDER BY e.block_timestamp ASC, e.receipt_id ASC, e.id ASC
+                    )::bigint AS id,
+                    e.delegator_account_id,
+                    e.delegatee_account_id,
+                    e.event_type,
+                    e.success,
+                    e.block_height,
+                    e.block_timestamp,
+                    e.transaction_hash,
+                    e.receipt_id,
+                    e.execution_outcome_id
+                FROM near.hos_delegation_events e
+            ),
+            events AS (
                 SELECT
                     e.id,
                     e.delegator_account_id,
@@ -1235,10 +1104,10 @@ pub async fn list_delegate_delegations(
                     e.receipt_id,
                     e.execution_outcome_id,
                     prev.delegatee_account_id AS inferred_delegatee_account_id
-                FROM near.near_venear_delegation_events e
+                FROM base_events e
                 LEFT JOIN LATERAL (
                     SELECT p.delegatee_account_id
-                    FROM near.near_venear_delegation_events p
+                    FROM base_events p
                     WHERE p.delegator_account_id = e.delegator_account_id
                       AND p.event_type = 'delegate_all'
                       AND p.success = true
@@ -1708,26 +1577,12 @@ async fn fetch_proposal_voting_options(
             DatabaseBackend::Postgres,
             "
             SELECT
-                p.metadata,
-                p.payload,
-                c.metadata AS create_metadata
-            FROM (
-                SELECT
-                    metadata,
-                    payload
-                FROM near.near_venear_proposal_events
-                WHERE proposal_id = $1
-                ORDER BY block_height DESC, id DESC
-                LIMIT 1
-            ) p
-            LEFT JOIN LATERAL (
-                SELECT metadata
-                FROM near.near_venear_proposal_events
-                WHERE proposal_id = $1
-                  AND event_type = 'create_proposal'
-                ORDER BY block_height ASC, id ASC
-                LIMIT 1
-            ) c ON TRUE
+                voting_options,
+                proposal_metadata AS metadata,
+                proposal_payload AS payload
+            FROM near.hos_proposals
+            WHERE proposal_id = $1
+            LIMIT 1
             ",
             vec![proposal_id.into()],
         ))
@@ -1735,15 +1590,16 @@ async fn fetch_proposal_voting_options(
         .map_err(ApiErrorResponse::from)?
         .ok_or_else(|| ApiErrorResponse::not_found("Proposal not found"))?;
 
+    let voting_options = decode_row_col::<Option<Vec<String>>>(&row, "voting_options", "proposal")?
+        .unwrap_or_default();
+    if !voting_options.is_empty() {
+        return Ok(voting_options);
+    }
+
     let metadata = decode_row_col::<Option<JsonValue>>(&row, "metadata", "proposal")?;
-    let create_metadata = decode_row_col::<Option<JsonValue>>(&row, "create_metadata", "proposal")?;
     let payload = decode_row_col::<Option<JsonValue>>(&row, "payload", "proposal")?;
 
-    let sources = metadata_sources(
-        metadata.as_ref(),
-        create_metadata.as_ref(),
-        payload.as_ref(),
-    );
+    let sources = metadata_sources(metadata.as_ref(), None, payload.as_ref());
     Ok(pick_voting_options_from_sources(&sources))
 }
 
@@ -1757,19 +1613,18 @@ async fn fetch_vote_aggregates(
             DatabaseBackend::Postgres,
             "
             WITH latest_votes AS (
-                SELECT DISTINCT ON (account_id)
-                    account_id,
-                    vote,
-                    account_balance,
+                SELECT
+                    voter_id AS account_id,
+                    COALESCE(vote_option, 0)::integer AS vote,
+                    COALESCE(voting_power, 0)::numeric AS account_balance,
                     event_type
-                FROM near.near_venear_votes
+                FROM near.hos_proposal_voting_history
                 WHERE proposal_id = $1
-                ORDER BY account_id, block_height DESC, log_index DESC, data_index DESC, id DESC
             )
             SELECT
                 vote::integer AS option_index,
                 COUNT(*)::bigint AS votes_count,
-                COALESCE(SUM((account_balance)::numeric), 0)::text AS voting_power
+                COALESCE(SUM(account_balance), 0)::text AS voting_power
             FROM latest_votes
             WHERE event_type = 'add_vote'
             GROUP BY vote
@@ -1805,7 +1660,7 @@ async fn ensure_proposal_exists(
 ) -> Result<(), ApiErrorResponse> {
     let count = scalar_i64_with_values(
         db,
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_proposal_events WHERE proposal_id = $1",
+        "SELECT COUNT(*)::bigint AS value FROM near.hos_proposals WHERE proposal_id = $1",
         vec![proposal_id.into()],
     )
     .await?;

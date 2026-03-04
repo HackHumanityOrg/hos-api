@@ -1,13 +1,18 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use common::config::NearModuleStreamMode;
 use entities::near::*;
-use near_lake_framework::near_indexer_primitives::views::BlockView;
+use near_lake_framework::near_indexer_primitives::views::{
+    ActionView, BlockView, ExecutionStatusView, ReceiptEnumView,
+};
 use near_lake_framework::near_indexer_primitives::{IndexerShard, StreamerMessage};
 use sea_orm::{
-    sea_query::OnConflict, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait,
+    sea_query::OnConflict, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, Set,
+    Statement, TransactionTrait,
 };
-use serde_json;
+use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use std::time::Instant;
 use tracing::{info, instrument};
 
@@ -23,37 +28,23 @@ pub struct RawModule {
 
 impl RawModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
-        let (enabled, stream_mode) = match config {
-            common::config::AppConfig::Indexer(idx) => {
-                let idx = idx.as_ref();
-                let near_config = idx.near.as_ref();
+        let mut enabled = false;
+        let mut stream_mode = NearModuleStreamMode::Shared;
 
-                // Check if NEAR indexing is enabled at all
-                let near_enabled = near_config.map(|c| c.chain != "disabled").unwrap_or(false);
-
-                if !near_enabled {
-                    return Self {
-                        enabled: false,
-                        stream_mode: NearModuleStreamMode::Shared,
-                    };
+        if let common::config::AppConfig::Indexer(idx) = config {
+            let idx = idx.as_ref();
+            if let Some(near) = idx.near.as_ref() {
+                let near_enabled = near.chain != "disabled";
+                if near_enabled {
+                    if let Some(module_cfg) = near.modules.as_ref().and_then(|m| m.raw.as_ref()) {
+                        enabled = module_cfg.enabled;
+                        stream_mode = module_cfg.stream_mode;
+                    } else {
+                        enabled = true;
+                    }
                 }
-
-                // Get raw module configuration
-                let module_config = near_config
-                    .and_then(|c| c.modules.as_ref())
-                    .and_then(|m| m.raw.as_ref())
-                    .cloned();
-
-                (
-                    module_config.as_ref().map(|r| r.enabled).unwrap_or(true),
-                    module_config
-                        .as_ref()
-                        .map(|r| r.stream_mode)
-                        .unwrap_or_default(),
-                )
             }
-            _ => (false, NearModuleStreamMode::Shared),
-        };
+        }
 
         Self {
             enabled,
@@ -61,14 +52,350 @@ impl RawModule {
         }
     }
 
-    fn serialize_json<T: serde::Serialize>(value: &T, label: &str) -> Result<serde_json::Value> {
+    fn serialize_json<T: serde::Serialize>(value: &T, label: &str) -> Result<JsonValue> {
         serde_json::to_value(value).with_context(|| format!("Failed to serialize {label}"))
+    }
+
+    fn parse_args_json(args: &[u8]) -> JsonValue {
+        if args.is_empty() {
+            return JsonValue::Null;
+        }
+
+        serde_json::from_slice::<JsonValue>(args)
+            .or_else(|_| {
+                String::from_utf8(args.to_vec())
+                    .ok()
+                    .and_then(|text| serde_json::from_str::<JsonValue>(&text).ok())
+                    .ok_or_else(|| serde_json::Error::io(std::io::Error::other("invalid json")))
+            })
+            .unwrap_or_else(|_| serde_json::json!({ "value": "invalid json" }))
+    }
+
+    fn action_kind_from_json(action_json: &JsonValue) -> String {
+        match action_json {
+            JsonValue::Object(map) => map
+                .keys()
+                .next()
+                .cloned()
+                .unwrap_or_else(|| "Unknown".to_string()),
+            JsonValue::String(value) => value.clone(),
+            _ => "Unknown".to_string(),
+        }
+    }
+
+    fn extract_status(status: &ExecutionStatusView) -> (&'static str, Option<JsonValue>) {
+        match status {
+            ExecutionStatusView::Unknown => (
+                "Unknown",
+                Some(serde_json::json!({"status_type": "Unknown"})),
+            ),
+            ExecutionStatusView::Failure(failure) => (
+                "Failure",
+                Some(serde_json::json!({
+                    "error": failure.to_string(),
+                    "status_type": "Failure",
+                })),
+            ),
+            ExecutionStatusView::SuccessReceiptId(receipt_id) => (
+                "SuccessReceiptId",
+                Some(serde_json::json!({
+                    "receipt_id": receipt_id.to_string(),
+                    "status_type": "SuccessReceiptId",
+                })),
+            ),
+            ExecutionStatusView::SuccessValue(raw_value) => {
+                if raw_value.is_empty() {
+                    return ("SuccessValue", None);
+                }
+
+                let parsed = serde_json::from_slice::<JsonValue>(raw_value)
+                    .or_else(|_| {
+                        String::from_utf8(raw_value.clone())
+                            .ok()
+                            .and_then(|text| serde_json::from_str::<JsonValue>(&text).ok())
+                            .ok_or_else(|| {
+                                serde_json::Error::io(std::io::Error::other("invalid json"))
+                            })
+                    })
+                    .unwrap_or_else(|_| serde_json::json!({ "value": "invalid json" }));
+
+                ("SuccessValue", Some(parsed))
+            }
+        }
+    }
+
+    fn shard_to_i64(shard_id: near_lake_framework::near_indexer_primitives::types::ShardId) -> i64 {
+        let value: u64 = shard_id.into();
+        i64::try_from(value).unwrap_or(i64::MAX)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_near_execution_outcome(
+        &self,
+        db: &impl ConnectionTrait,
+        receipt_id: Option<&str>,
+        execution_outcome_id: &str,
+        transaction_hash: Option<&str>,
+        block_height: i64,
+        block_hash: &str,
+        chunk_hash: &str,
+        shard_id: i64,
+        gas_burnt: i64,
+        gas_used: f64,
+        tokens_burnt: f64,
+        executor_account_id: &str,
+        status: &str,
+        outcome_receipt_ids: JsonValue,
+        logs: JsonValue,
+        results_json: Option<JsonValue>,
+        outcome_json: JsonValue,
+        raw_data_json: JsonValue,
+        block_timestamp: i64,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_execution_outcomes (
+                id,
+                block_height,
+                shard_id,
+                receipt_id,
+                outcome,
+                raw_data,
+                transaction_hash,
+                block_hash,
+                chunk_hash,
+                gas_burnt,
+                gas_used,
+                tokens_burnt,
+                executor_account_id,
+                status,
+                outcome_receipt_ids,
+                executed_in_block_hash,
+                logs,
+                results_json,
+                block_timestamp
+            )
+            VALUES (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15,
+                $16, $17, $18, $19
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                block_height = EXCLUDED.block_height,
+                shard_id = EXCLUDED.shard_id,
+                receipt_id = COALESCE(near.near_execution_outcomes.receipt_id, EXCLUDED.receipt_id),
+                outcome = EXCLUDED.outcome,
+                raw_data = COALESCE(near.near_execution_outcomes.raw_data, EXCLUDED.raw_data),
+                transaction_hash = COALESCE(near.near_execution_outcomes.transaction_hash, EXCLUDED.transaction_hash),
+                block_hash = EXCLUDED.block_hash,
+                chunk_hash = EXCLUDED.chunk_hash,
+                gas_burnt = EXCLUDED.gas_burnt,
+                gas_used = EXCLUDED.gas_used,
+                tokens_burnt = EXCLUDED.tokens_burnt,
+                executor_account_id = EXCLUDED.executor_account_id,
+                status = EXCLUDED.status,
+                outcome_receipt_ids = EXCLUDED.outcome_receipt_ids,
+                executed_in_block_hash = EXCLUDED.executed_in_block_hash,
+                logs = EXCLUDED.logs,
+                results_json = EXCLUDED.results_json,
+                block_timestamp = EXCLUDED.block_timestamp",
+            vec![
+                execution_outcome_id.into(),
+                block_height.into(),
+                shard_id.into(),
+                receipt_id.map(ToString::to_string).into(),
+                outcome_json.into(),
+                raw_data_json.into(),
+                transaction_hash.map(ToString::to_string).into(),
+                block_hash.into(),
+                chunk_hash.into(),
+                gas_burnt.into(),
+                gas_used.into(),
+                tokens_burnt.into(),
+                executor_account_id.into(),
+                status.into(),
+                outcome_receipt_ids.into(),
+                block_hash.into(),
+                logs.into(),
+                results_json.into(),
+                block_timestamp.into(),
+            ],
+        ))
+        .await
+        .context("Failed to upsert near.near_execution_outcomes")?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_near_receipt_edge(
+        &self,
+        db: &impl ConnectionTrait,
+        parent_receipt_id: &str,
+        child_receipt_id: &str,
+        parent_execution_outcome_id: &str,
+        block_height: i64,
+        block_hash: &str,
+        block_timestamp: i64,
+        transaction_hash: Option<&str>,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_receipt_edges (
+                parent_receipt_id,
+                child_receipt_id,
+                parent_execution_outcome_id,
+                block_height,
+                block_hash,
+                block_timestamp,
+                transaction_hash
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (parent_receipt_id, child_receipt_id) DO UPDATE SET
+                parent_execution_outcome_id = EXCLUDED.parent_execution_outcome_id,
+                block_height = EXCLUDED.block_height,
+                block_hash = EXCLUDED.block_hash,
+                block_timestamp = EXCLUDED.block_timestamp,
+                transaction_hash = COALESCE(
+                    near.near_receipt_edges.transaction_hash,
+                    EXCLUDED.transaction_hash
+                )",
+            vec![
+                parent_receipt_id.into(),
+                child_receipt_id.into(),
+                parent_execution_outcome_id.into(),
+                block_height.into(),
+                block_hash.into(),
+                block_timestamp.into(),
+                transaction_hash.map(ToString::to_string).into(),
+            ],
+        ))
+        .await
+        .context("Failed to upsert near.near_receipt_edges")?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_near_receipt_action(
+        &self,
+        db: &impl ConnectionTrait,
+        id: &str,
+        block_height: i64,
+        receipt_id: &str,
+        execution_outcome_id: &str,
+        transaction_hash: Option<&str>,
+        shard_id: i64,
+        signer_account_id: Option<&str>,
+        signer_public_key: Option<&str>,
+        gas_price: Option<&str>,
+        predecessor_id: &str,
+        receiver_id: &str,
+        block_hash: &str,
+        chunk_hash: &str,
+        author: &str,
+        action_kind: &str,
+        action_json: JsonValue,
+        method_name: Option<&str>,
+        gas: Option<i64>,
+        deposit: Option<&str>,
+        args_base64: Option<&str>,
+        args_json: Option<JsonValue>,
+        action_index: i32,
+        block_timestamp: i64,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_receipt_actions (
+                id,
+                block_height,
+                receipt_id,
+                execution_outcome_id,
+                transaction_hash,
+                shard_id,
+                signer_account_id,
+                signer_public_key,
+                gas_price,
+                action_kind,
+                action_json,
+                predecessor_id,
+                receiver_id,
+                block_hash,
+                chunk_hash,
+                author,
+                method_name,
+                gas,
+                deposit,
+                args_base64,
+                args_json,
+                action_index,
+                block_timestamp
+            )
+            VALUES (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15,
+                $16, $17, $18, $19, $20,
+                $21, $22, $23
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                block_height = EXCLUDED.block_height,
+                receipt_id = EXCLUDED.receipt_id,
+                execution_outcome_id = EXCLUDED.execution_outcome_id,
+                transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_receipt_actions.transaction_hash),
+                shard_id = EXCLUDED.shard_id,
+                signer_account_id = EXCLUDED.signer_account_id,
+                signer_public_key = EXCLUDED.signer_public_key,
+                gas_price = EXCLUDED.gas_price,
+                action_kind = EXCLUDED.action_kind,
+                action_json = EXCLUDED.action_json,
+                predecessor_id = EXCLUDED.predecessor_id,
+                receiver_id = EXCLUDED.receiver_id,
+                block_hash = EXCLUDED.block_hash,
+                chunk_hash = EXCLUDED.chunk_hash,
+                author = EXCLUDED.author,
+                method_name = EXCLUDED.method_name,
+                gas = EXCLUDED.gas,
+                deposit = EXCLUDED.deposit,
+                args_base64 = EXCLUDED.args_base64,
+                args_json = EXCLUDED.args_json,
+                action_index = EXCLUDED.action_index,
+                block_timestamp = EXCLUDED.block_timestamp",
+            vec![
+                id.into(),
+                block_height.into(),
+                receipt_id.into(),
+                execution_outcome_id.into(),
+                transaction_hash.map(ToString::to_string).into(),
+                shard_id.into(),
+                signer_account_id.map(ToString::to_string).into(),
+                signer_public_key.map(ToString::to_string).into(),
+                gas_price.map(ToString::to_string).into(),
+                action_kind.into(),
+                action_json.into(),
+                predecessor_id.into(),
+                receiver_id.into(),
+                block_hash.into(),
+                chunk_hash.into(),
+                author.into(),
+                method_name.map(ToString::to_string).into(),
+                gas.into(),
+                deposit.map(ToString::to_string).into(),
+                args_base64.map(ToString::to_string).into(),
+                args_json.into(),
+                action_index.into(),
+                block_timestamp.into(),
+            ],
+        ))
+        .await
+        .context("Failed to upsert near.near_receipt_actions")?;
+
+        Ok(())
     }
 
     async fn store_block(&self, block: &BlockView, db: &impl ConnectionTrait) -> Result<()> {
         let header = &block.header;
 
-        // Store raw block data only
         let block_record = near_blocks::ActiveModel {
             height: Set(header.height as i64),
             hash: Set(header.hash.to_string()),
@@ -92,6 +419,7 @@ impl RawModule {
             .on_conflict_do_nothing()
             .exec(db)
             .await?;
+
         Ok(())
     }
 
@@ -104,12 +432,10 @@ impl RawModule {
         for shard in shards {
             if let Some(chunk) = &shard.chunk {
                 let header = &chunk.header;
-
-                // Store raw chunk data using correct entity structure
                 let chunk_record = near_chunks::ActiveModel {
                     chunk_hash: Set(header.chunk_hash.to_string()),
                     block_height: Set(block_height),
-                    shard_id: Set(Into::<u64>::into(header.shard_id) as i64),
+                    shard_id: Set(Self::shard_to_i64(header.shard_id)),
                     author: Set(chunk.author.to_string()),
                     height_created: Set(header.height_created as i64),
                     height_included: Set(header.height_included as i64),
@@ -141,11 +467,10 @@ impl RawModule {
                 for tx_with_outcome in &chunk.transactions {
                     let tx = &tx_with_outcome.transaction;
 
-                    // Store raw transaction data
                     let transaction_record = near_transactions::ActiveModel {
                         hash: Set(tx.hash.to_string()),
                         block_height: Set(block_height),
-                        shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
+                        shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                         signer_id: Set(tx.signer_id.to_string()),
                         receiver_id: Set(tx.receiver_id.to_string()),
                         nonce: Set(tx.nonce as i64),
@@ -175,15 +500,13 @@ impl RawModule {
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         for shard in shards {
-            // Store transaction receipts from chunks
             if let Some(chunk) = &shard.chunk {
-                // Store receipts from transaction outcomes
                 for tx_with_outcome in &chunk.transactions {
                     if let Some(receipt) = &tx_with_outcome.outcome.receipt {
                         let receipt_record = near_receipts::ActiveModel {
                             receipt_id: Set(receipt.receipt_id.to_string()),
                             block_height: Set(block_height),
-                            shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
+                            shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                             predecessor_id: Set(receipt.predecessor_id.to_string()),
                             receiver_id: Set(receipt.receiver_id.to_string()),
                             receipt: Set(Self::serialize_json(
@@ -204,12 +527,11 @@ impl RawModule {
                     }
                 }
 
-                // Store chunk receipts
                 for receipt in &chunk.receipts {
                     let receipt_record = near_receipts::ActiveModel {
                         receipt_id: Set(receipt.receipt_id.to_string()),
                         block_height: Set(block_height),
-                        shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
+                        shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                         predecessor_id: Set(receipt.predecessor_id.to_string()),
                         receiver_id: Set(receipt.receiver_id.to_string()),
                         receipt: Set(Self::serialize_json(
@@ -229,12 +551,11 @@ impl RawModule {
                         .context("Failed to insert chunk receipt record")?;
                 }
 
-                // Store local receipts (same-shard receipts where signer_id == receiver_id)
                 for receipt in &chunk.local_receipts {
                     let receipt_record = near_receipts::ActiveModel {
                         receipt_id: Set(receipt.receipt_id.to_string()),
                         block_height: Set(block_height),
-                        shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
+                        shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                         predecessor_id: Set(receipt.predecessor_id.to_string()),
                         receiver_id: Set(receipt.receiver_id.to_string()),
                         receipt: Set(Self::serialize_json(
@@ -255,14 +576,13 @@ impl RawModule {
                 }
             }
 
-            // Store receipt execution outcomes receipts
             for outcome_with_receipt in &shard.receipt_execution_outcomes {
                 let receipt = &outcome_with_receipt.receipt;
 
                 let receipt_record = near_receipts::ActiveModel {
                     receipt_id: Set(receipt.receipt_id.to_string()),
                     block_height: Set(block_height),
-                    shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
+                    shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                     predecessor_id: Set(receipt.predecessor_id.to_string()),
                     receiver_id: Set(receipt.receiver_id.to_string()),
                     receipt: Set(Self::serialize_json(
@@ -290,65 +610,242 @@ impl RawModule {
         &self,
         shards: &[IndexerShard],
         block_height: i64,
+        block_hash: &str,
+        block_timestamp: i64,
+        default_author: &str,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
+        let mut receipt_tx_hashes: HashMap<String, String> = HashMap::new();
+
         for shard in shards {
-            // Store execution outcomes from transaction outcomes
             if let Some(chunk) = &shard.chunk {
                 for tx_with_outcome in &chunk.transactions {
-                    let outcome = &tx_with_outcome.outcome.execution_outcome;
-                    let execution_outcome_record = near_execution_outcomes::ActiveModel {
-                        id: Set(outcome.id.to_string()),
-                        block_height: Set(block_height),
-                        shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
-                        receipt_id: Set(tx_with_outcome
-                            .outcome
-                            .receipt
-                            .as_ref()
-                            .map(|r| r.receipt_id.to_string())),
-                        outcome: Set(Self::serialize_json(
-                            &outcome.outcome,
-                            "transaction execution outcome body",
-                        )?),
-                        raw_data: Set(Some(Self::serialize_json(
-                            outcome,
-                            "transaction execution outcome raw_data",
-                        )?)),
-                    };
+                    if let Some(receipt) = &tx_with_outcome.outcome.receipt {
+                        receipt_tx_hashes.insert(
+                            receipt.receipt_id.to_string(),
+                            tx_with_outcome.transaction.hash.to_string(),
+                        );
+                    }
+                }
+            }
+        }
 
-                    near_execution_outcomes::Entity::insert(execution_outcome_record)
-                        .on_conflict_do_nothing()
-                        .exec(db)
-                        .await
-                        .context("Failed to insert tx execution outcome record")?;
+        for shard in shards {
+            let shard_id = Self::shard_to_i64(shard.shard_id);
+            let chunk_hash = shard
+                .chunk
+                .as_ref()
+                .map(|chunk| chunk.header.chunk_hash.to_string())
+                .unwrap_or_default();
+            let chunk_author = shard
+                .chunk
+                .as_ref()
+                .map(|chunk| chunk.author.to_string())
+                .unwrap_or_else(|| default_author.to_string());
+
+            if let Some(chunk) = &shard.chunk {
+                for tx_with_outcome in &chunk.transactions {
+                    let outcome_view = &tx_with_outcome.outcome.execution_outcome;
+                    let outcome = &outcome_view.outcome;
+                    let receipt_id = tx_with_outcome
+                        .outcome
+                        .receipt
+                        .as_ref()
+                        .map(|receipt| receipt.receipt_id.to_string());
+                    let transaction_hash = tx_with_outcome.transaction.hash.to_string();
+                    let outcome_receipt_ids = JsonValue::Array(
+                        outcome
+                            .receipt_ids
+                            .iter()
+                            .map(|value| JsonValue::String(value.to_string()))
+                            .collect(),
+                    );
+                    let logs = JsonValue::Array(
+                        outcome
+                            .logs
+                            .iter()
+                            .cloned()
+                            .map(JsonValue::String)
+                            .collect(),
+                    );
+                    let (status, results_json) = Self::extract_status(&outcome.status);
+                    let executor_account_id = outcome.executor_id.to_string();
+                    let execution_outcome_id = outcome_view.id.to_string();
+
+                    self.upsert_near_execution_outcome(
+                        db,
+                        receipt_id.as_deref(),
+                        &execution_outcome_id,
+                        Some(&transaction_hash),
+                        block_height,
+                        block_hash,
+                        &chunk_hash,
+                        shard_id,
+                        outcome.gas_burnt.as_gas() as i64,
+                        outcome.gas_burnt.as_gas() as f64,
+                        outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
+                        &executor_account_id,
+                        status,
+                        outcome_receipt_ids,
+                        logs,
+                        results_json,
+                        Self::serialize_json(
+                            &outcome_view.outcome,
+                            "transaction execution outcome body",
+                        )?,
+                        Self::serialize_json(outcome_view, "transaction execution outcome row")?,
+                        block_timestamp,
+                    )
+                    .await?;
+
+                    if let Some(parent_receipt_id) = receipt_id.as_deref() {
+                        for child_receipt_id in &outcome.receipt_ids {
+                            self.upsert_near_receipt_edge(
+                                db,
+                                parent_receipt_id,
+                                &child_receipt_id.to_string(),
+                                &execution_outcome_id,
+                                block_height,
+                                block_hash,
+                                block_timestamp,
+                                Some(&transaction_hash),
+                            )
+                            .await?;
+                        }
+                    }
                 }
             }
 
-            // Store receipt execution outcomes
             for outcome_with_receipt in &shard.receipt_execution_outcomes {
-                let outcome = &outcome_with_receipt.execution_outcome;
                 let receipt = &outcome_with_receipt.receipt;
+                let receipt_id = receipt.receipt_id.to_string();
+                let transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
+                let outcome_view = &outcome_with_receipt.execution_outcome;
+                let outcome = &outcome_view.outcome;
+                let outcome_receipt_ids = JsonValue::Array(
+                    outcome
+                        .receipt_ids
+                        .iter()
+                        .map(|value| JsonValue::String(value.to_string()))
+                        .collect(),
+                );
+                let logs = JsonValue::Array(
+                    outcome
+                        .logs
+                        .iter()
+                        .cloned()
+                        .map(JsonValue::String)
+                        .collect(),
+                );
+                let (status, results_json) = Self::extract_status(&outcome.status);
+                let executor_account_id = outcome.executor_id.to_string();
+                let execution_outcome_id = outcome_view.id.to_string();
 
-                let execution_outcome_record = near_execution_outcomes::ActiveModel {
-                    id: Set(outcome.id.to_string()),
-                    block_height: Set(block_height),
-                    shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
-                    receipt_id: Set(Some(receipt.receipt_id.to_string())),
-                    outcome: Set(Self::serialize_json(
-                        &outcome.outcome,
-                        "receipt execution outcome body",
-                    )?),
-                    raw_data: Set(Some(Self::serialize_json(
-                        outcome,
-                        "receipt execution outcome raw_data",
-                    )?)),
-                };
+                self.upsert_near_execution_outcome(
+                    db,
+                    Some(&receipt_id),
+                    &execution_outcome_id,
+                    transaction_hash.as_deref(),
+                    block_height,
+                    block_hash,
+                    &chunk_hash,
+                    shard_id,
+                    outcome.gas_burnt.as_gas() as i64,
+                    outcome.gas_burnt.as_gas() as f64,
+                    outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
+                    &executor_account_id,
+                    status,
+                    outcome_receipt_ids,
+                    logs,
+                    results_json,
+                    Self::serialize_json(&outcome_view.outcome, "receipt execution outcome body")?,
+                    Self::serialize_json(outcome_view, "receipt execution outcome row")?,
+                    block_timestamp,
+                )
+                .await?;
 
-                near_execution_outcomes::Entity::insert(execution_outcome_record)
-                    .on_conflict_do_nothing()
-                    .exec(db)
-                    .await
-                    .context("Failed to insert shard execution outcome record")?;
+                for child_receipt_id in &outcome.receipt_ids {
+                    self.upsert_near_receipt_edge(
+                        db,
+                        &receipt_id,
+                        &child_receipt_id.to_string(),
+                        &execution_outcome_id,
+                        block_height,
+                        block_hash,
+                        block_timestamp,
+                        transaction_hash.as_deref(),
+                    )
+                    .await?;
+                }
+
+                if let ReceiptEnumView::Action {
+                    signer_id,
+                    signer_public_key,
+                    gas_price,
+                    actions,
+                    ..
+                } = &receipt.receipt
+                {
+                    let predecessor_id_value = receipt.predecessor_id.to_string();
+                    let receiver_id_value = receipt.receiver_id.to_string();
+
+                    for (action_index, action) in actions.iter().enumerate() {
+                        let action_json = Self::serialize_json(action, "receipt action")?;
+                        let action_kind = Self::action_kind_from_json(&action_json);
+                        let signer_id_value = signer_id.to_string();
+                        let signer_public_key_value = signer_public_key.to_string();
+                        let gas_price_value = gas_price.to_string();
+
+                        let mut method_name: Option<String> = None;
+                        let mut gas: Option<i64> = None;
+                        let mut deposit: Option<String> = None;
+                        let mut args_base64: Option<String> = None;
+                        let mut args_json: Option<JsonValue> = None;
+
+                        if let ActionView::FunctionCall {
+                            method_name: function_name,
+                            args,
+                            gas: function_gas,
+                            deposit: function_deposit,
+                        } = action
+                        {
+                            let args_bytes: &[u8] = args.as_ref();
+                            method_name = Some(function_name.clone());
+                            gas = Some(function_gas.as_gas() as i64);
+                            deposit = Some(function_deposit.to_string());
+                            args_base64 = Some(BASE64_STANDARD.encode(args_bytes));
+                            args_json = Some(Self::parse_args_json(args_bytes));
+                        }
+
+                        self.upsert_near_receipt_action(
+                            db,
+                            &format!("{receipt_id}-{action_index}"),
+                            block_height,
+                            &receipt_id,
+                            &execution_outcome_id,
+                            transaction_hash.as_deref(),
+                            shard_id,
+                            Some(&signer_id_value),
+                            Some(&signer_public_key_value),
+                            Some(&gas_price_value),
+                            &predecessor_id_value,
+                            &receiver_id_value,
+                            block_hash,
+                            &chunk_hash,
+                            &chunk_author,
+                            &action_kind,
+                            action_json,
+                            method_name.as_deref(),
+                            gas,
+                            deposit.as_deref(),
+                            args_base64.as_deref(),
+                            args_json,
+                            action_index as i32,
+                            block_timestamp,
+                        )
+                        .await?;
+                    }
+                }
             }
         }
 
@@ -362,32 +859,100 @@ impl RawModule {
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         for shard in shards {
-            if !shard.state_changes.is_empty() {
-                let state_changes_record = near_state_changes::ActiveModel {
-                    id: sea_orm::ActiveValue::NotSet,
-                    block_height: Set(block_height),
-                    shard_id: Set(Into::<u64>::into(shard.shard_id) as i64),
-                    state_changes: Set(Self::serialize_json(
-                        &shard.state_changes,
-                        "state changes payload",
-                    )?),
-                };
-
-                near_state_changes::Entity::insert(state_changes_record)
-                    .on_conflict(
-                        OnConflict::columns([
-                            near_state_changes::Column::BlockHeight,
-                            near_state_changes::Column::ShardId,
-                        ])
-                        .do_nothing()
-                        .to_owned(),
-                    )
-                    .do_nothing()
-                    .exec(db)
-                    .await
-                    .context("Failed to insert state changes record")?;
+            if shard.state_changes.is_empty() {
+                continue;
             }
+
+            let state_changes_record = near_state_changes::ActiveModel {
+                id: sea_orm::ActiveValue::NotSet,
+                block_height: Set(block_height),
+                shard_id: Set(Self::shard_to_i64(shard.shard_id)),
+                state_changes: Set(Self::serialize_json(
+                    &shard.state_changes,
+                    "state changes payload",
+                )?),
+            };
+
+            near_state_changes::Entity::insert(state_changes_record)
+                .on_conflict(
+                    OnConflict::columns([
+                        near_state_changes::Column::BlockHeight,
+                        near_state_changes::Column::ShardId,
+                    ])
+                    .do_nothing()
+                    .to_owned(),
+                )
+                .do_nothing()
+                .exec(db)
+                .await
+                .context("Failed to insert state changes record")?;
         }
+
+        Ok(())
+    }
+
+    async fn process_block_internal(
+        &self,
+        msg: &StreamerMessage,
+        db: &DatabaseConnection,
+    ) -> Result<()> {
+        let start_time = Instant::now();
+
+        info!(
+            module = MODULE_NAME,
+            height = msg.block.header.height,
+            shard_count = msg.shards.len(),
+            "Processing NEAR raw block data"
+        );
+
+        let block_height = msg.block.header.height as i64;
+        let block_hash = msg.block.header.hash.to_string();
+        let block_timestamp = msg.block.header.timestamp as i64;
+        let block_author = msg.block.author.to_string();
+
+        let txn = db.begin().await?;
+
+        self.store_block(&msg.block, &txn)
+            .await
+            .context("Failed to store block data")?;
+
+        self.store_chunks(&msg.shards, block_height, &txn)
+            .await
+            .context("Failed to store chunk data")?;
+
+        self.store_transactions(&msg.shards, block_height, &txn)
+            .await
+            .context("Failed to store transaction data")?;
+
+        self.store_receipts(&msg.shards, block_height, &txn)
+            .await
+            .context("Failed to store receipt data")?;
+
+        self.store_execution_outcomes(
+            &msg.shards,
+            block_height,
+            &block_hash,
+            block_timestamp,
+            &block_author,
+            &txn,
+        )
+        .await
+        .context("Failed to store execution outcome data")?;
+
+        self.store_state_changes(&msg.shards, block_height, &txn)
+            .await
+            .context("Failed to store state change data")?;
+
+        txn.commit().await?;
+
+        let elapsed = start_time.elapsed();
+        info!(
+            module = MODULE_NAME,
+            height = msg.block.header.height,
+            shard_count = msg.shards.len(),
+            elapsed_ms = elapsed.as_millis(),
+            "Successfully processed NEAR raw block data"
+        );
 
         Ok(())
     }
@@ -407,63 +972,9 @@ impl IndexerModule for RawModule {
         self.stream_mode
     }
 
-    async fn initialize(&self, _db: &DatabaseConnection) -> Result<()> {
-        // No initialization needed for raw data storage
-        Ok(())
-    }
-
     #[instrument(skip(self, msg, db), fields(module = "raw", height = %msg.block.header.height))]
     async fn process_block(&self, msg: &StreamerMessage, db: &DatabaseConnection) -> Result<()> {
-        let start_time = Instant::now();
-        info!(
-            height = msg.block.header.height,
-            shard_count = msg.shards.len(),
-            "Processing raw block data"
-        );
-
-        let txn = db.begin().await?;
-
-        // Store raw block data
-        self.store_block(&msg.block, &txn)
-            .await
-            .context("Failed to store block data")?;
-
-        // Store raw chunk data
-        self.store_chunks(&msg.shards, msg.block.header.height as i64, &txn)
-            .await
-            .context("Failed to store chunk data")?;
-
-        // Store raw transaction data
-        self.store_transactions(&msg.shards, msg.block.header.height as i64, &txn)
-            .await
-            .context("Failed to store transaction data")?;
-
-        // Store raw receipt data
-        self.store_receipts(&msg.shards, msg.block.header.height as i64, &txn)
-            .await
-            .context("Failed to store receipt data")?;
-
-        // Store raw execution outcome data
-        self.store_execution_outcomes(&msg.shards, msg.block.header.height as i64, &txn)
-            .await
-            .context("Failed to store execution outcome data")?;
-
-        // Store raw state change data
-        self.store_state_changes(&msg.shards, msg.block.header.height as i64, &txn)
-            .await
-            .context("Failed to store state change data")?;
-
-        txn.commit().await?;
-
-        let elapsed = start_time.elapsed();
-        info!(
-            height = msg.block.header.height,
-            shard_count = msg.shards.len(),
-            elapsed_ms = elapsed.as_millis(),
-            "Successfully stored raw block data"
-        );
-
-        Ok(())
+        self.process_block_internal(msg, db).await
     }
 
     async fn get_cursor(&self, db: &DatabaseConnection) -> Result<Option<i64>> {

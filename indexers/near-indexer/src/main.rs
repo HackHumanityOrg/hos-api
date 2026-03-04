@@ -73,15 +73,6 @@ fn configured_module_start_heights(config: &AppConfig) -> HashMap<String, u64> {
     if let Some(start_height) = modules.raw.as_ref().and_then(|m| m.start_height) {
         start_heights.insert("raw".to_string(), start_height);
     }
-    if let Some(start_height) = modules.accounts.as_ref().and_then(|m| m.start_height) {
-        start_heights.insert("accounts".to_string(), start_height);
-    }
-    if let Some(start_height) = modules.tokens.as_ref().and_then(|m| m.start_height) {
-        start_heights.insert("tokens".to_string(), start_height);
-    }
-    if let Some(start_height) = modules.staking_pools.as_ref().and_then(|m| m.start_height) {
-        start_heights.insert("staking_pools".to_string(), start_height);
-    }
     if let Some(start_height) = modules
         .venear_governance
         .as_ref()

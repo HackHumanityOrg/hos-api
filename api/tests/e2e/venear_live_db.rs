@@ -48,7 +48,7 @@ async fn venear_endpoints_return_seeded_data() {
         proposals_page_2.data[0].snapshot_total_venear.as_deref(),
         Some("1000000000000000000")
     );
-    assert_eq!(proposals_page_2.data[0].status, "approved");
+    assert_eq!(proposals_page_2.data[0].status, "finished");
 
     let created_only: VenearProposalsListResponse = get_json(
         &router,
@@ -139,21 +139,18 @@ async fn venear_endpoints_return_seeded_data() {
 
     let proposal: VenearProposalDto = get_json(&router, "/api/v1/venear/proposals/1").await;
     assert_eq!(proposal.proposal_id, 1);
-    assert_eq!(proposal.status, "approved");
+    assert_eq!(proposal.status, "finished");
     assert_eq!(proposal.reviewer_id.as_deref(), Some("reviewer.near"));
     assert_eq!(
         proposal.latest_event.transaction_hash.as_deref(),
-        Some("tx-p1-final")
+        Some("tx-p1-create")
     );
     assert_eq!(proposal.vote_aggregates.len(), 2);
 
     let proposal_events: VenearProposalEventsListResponse =
         get_json(&router, "/api/v1/venear/proposals/1/events").await;
     assert_eq!(proposal_events.data.len(), 2);
-    assert_eq!(
-        proposal_events.data[0].event_type,
-        "proposal_approve_finalized"
-    );
+    assert_eq!(proposal_events.data[0].event_type, "proposal_approve");
     assert_eq!(
         proposal_events.data[0].transaction_hash.as_deref(),
         Some("tx-p1-final")
@@ -165,14 +162,11 @@ async fn venear_endpoints_return_seeded_data() {
 
     let finalized_events: VenearProposalEventsListResponse = get_json(
         &router,
-        "/api/v1/venear/proposals/1/events?event_type=proposal_approve_finalized&actor_account_id=reviewer.near",
+        "/api/v1/venear/proposals/1/events?event_type=proposal_approve&actor_account_id=reviewer.near",
     )
     .await;
     assert_eq!(finalized_events.data.len(), 1);
-    assert_eq!(
-        finalized_events.data[0].event_type,
-        "proposal_approve_finalized"
-    );
+    assert_eq!(finalized_events.data[0].event_type, "proposal_approve");
 
     let votes: VenearVotesListResponse =
         get_json(&router, "/api/v1/venear/proposals/1/votes").await;
@@ -213,23 +207,23 @@ async fn venear_endpoints_return_seeded_data() {
     assert_eq!(voting_power.data[0].account_id, "lane.near");
     assert_eq!(voting_power.data[0].event_type, "ft_burn");
     assert_eq!(voting_power.data[0].reason, "delegation_given");
-    assert_eq!(voting_power.data[1].event_type, "add_vote");
-    assert_eq!(voting_power.data[1].proposal_id, Some(1));
-    assert_eq!(voting_power.data[1].voting_power, "8");
-    assert_eq!(voting_power.data[1].reason, "vote_cast");
-    assert_eq!(voting_power.data[2].event_type, "ft_mint");
-    assert_eq!(voting_power.data[2].reason, "balance_increase");
+    assert_eq!(voting_power.data[1].event_type, "ft_mint");
+    assert_eq!(voting_power.data[1].reason, "balance_increase");
+    assert_eq!(voting_power.data[2].event_type, "add_vote");
+    assert_eq!(voting_power.data[2].proposal_id, Some(1));
+    assert_eq!(voting_power.data[2].voting_power, "8");
+    assert_eq!(voting_power.data[2].reason, "vote_cast");
     assert_eq!(
         voting_power.data[0].transaction_hash.as_deref(),
         Some("tx-deleg-1")
     );
     assert_eq!(
         voting_power.data[1].transaction_hash.as_deref(),
-        Some("tx-vp-2")
+        Some("tx-vp-1")
     );
     assert_eq!(
         voting_power.data[2].transaction_hash.as_deref(),
-        Some("tx-vp-1")
+        Some("tx-vp-2")
     );
 
     let proposal_scoped_vp: VenearDelegateVotingPowerEventsListResponse = get_json(
@@ -245,8 +239,8 @@ async fn venear_endpoints_return_seeded_data() {
         get_json(&router, "/api/v1/venear/delegates/jane.near/voting-power").await;
     assert_eq!(jane_vp.data.len(), 1);
     assert_eq!(jane_vp.data[0].account_id, "jane.near");
-    assert_eq!(jane_vp.data[0].event_type, "ft_mint");
-    assert_eq!(jane_vp.data[0].reason, "delegation_received");
+    assert_eq!(jane_vp.data[0].event_type, "add_vote");
+    assert_eq!(jane_vp.data[0].reason, "vote_cast");
 
     let delegations: VenearDelegationEventsListResponse =
         get_json(&router, "/api/v1/venear/delegates/lane.near/delegations").await;
@@ -281,11 +275,17 @@ async fn get_json<T: DeserializeOwned>(router: &Router, path: &str) -> T {
         .await
         .expect("response");
 
-    assert_eq!(response.status(), StatusCode::OK);
-
+    let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("body bytes");
+    if status != StatusCode::OK {
+        panic!(
+            "request path: {path}, status: {status}, body: {}",
+            String::from_utf8_lossy(&bytes)
+        );
+    }
+
     serde_json::from_slice(&bytes).expect("json body")
 }
 
@@ -293,41 +293,47 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
     execute_sql(
         db,
         r#"
-        INSERT INTO near.near_venear_proposal_events (
-            proposal_id, event_type, account_id, proposer_id, reviewer_id,
-            voting_start_time_sec, snapshot_block_height, snapshot_root, snapshot_total_venear,
-            metadata, payload, block_height, block_timestamp, shard_id,
+        INSERT INTO near.near_receipt_actions (
+            id,
+            block_height,
+            receipt_id,
+            execution_outcome_id,
             transaction_hash,
-            receipt_id, execution_outcome_id, predecessor_account_id, contract_id,
-            log_index, data_index
+            shard_id,
+            signer_account_id,
+            signer_public_key,
+            gas_price,
+            action_kind,
+            action_json,
+            predecessor_id,
+            receiver_id,
+            block_hash,
+            chunk_hash,
+            author,
+            method_name,
+            gas,
+            deposit,
+            args_base64,
+            args_json,
+            action_index,
+            block_timestamp
         ) VALUES
-            (
-                1, 'create_proposal', NULL, 'alice.near', NULL,
-                NULL, NULL, NULL, NULL,
-                '{"title":"P1"}'::jsonb, '{"source":"intent"}'::jsonb,
-                100, 1760000000000000000, 0,
-                'tx-p1-create',
-                'rcpt-p1-create', 'exec-p1-create', 'alice.near', 'venear.dao',
-                0, 0
-            ),
-            (
-                1, 'proposal_approve_finalized', NULL, NULL, 'reviewer.near',
-                1760000200, 176000050, 'root-1', '1000000000000000000',
-                '{"title":"P1","status":"Approved"}'::jsonb, '{"source":"callback"}'::jsonb,
-                102, 1760000200000000000, 0,
-                'tx-p1-final',
-                'rcpt-p1-final', 'exec-p1-final', 'vote.dao', 'vote.dao',
-                -1, 0
-            ),
-            (
-                2, 'create_proposal', NULL, 'bob.near', NULL,
-                NULL, NULL, NULL, NULL,
-                '{"title":"P2"}'::jsonb, '{"source":"intent"}'::jsonb,
-                120, 1760000300000000000, 1,
-                'tx-p2-create',
-                'rcpt-p2-create', 'exec-p2-create', 'bob.near', 'venear.dao',
-                0, 0
-            )
+            ('a-config-new-vote', 90, 'rcpt-config-new-vote', 'exec-config-new-vote', 'tx-config-new-vote', 0, 'owner.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"new"}}'::jsonb, 'owner.near', 'vote.dao', 'bh-90', 'ch-90', 'author.near', 'new', 0, '0', NULL, '{"config":{"guardians":["guardian1.near"],"reviewer_ids":["reviewer1.near","reviewer2.near"]}}'::jsonb, 0, 1759999900000000000),
+            ('a-config-new-venear', 91, 'rcpt-config-new-venear', 'exec-config-new-venear', 'tx-config-new-venear', 0, 'owner.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"new"}}'::jsonb, 'owner.near', 'venear.dao', 'bh-91', 'ch-91', 'author.near', 'new', 0, '0', NULL, '{"config":{"guardians":["guardian0.near"]}}'::jsonb, 0, 1759999910000000000),
+            ('a-p1-create', 100, 'rcpt-p1-create', 'exec-p1-create', 'tx-p1-create', 0, 'alice.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"create_proposal"}}'::jsonb, 'alice.near', 'vote.dao', 'bh-100', 'ch-100', 'author.near', 'create_proposal', 0, '0', NULL, '{"metadata":{"title":"P1","description":"Proposal 1","voting_options":["For","Against","Abstain"]}}'::jsonb, 0, 1760000000000000000),
+            ('a-vote-lane', 110, 'rcpt-vote-1', 'exec-vote-1', 'tx-vp-2', 0, 'system.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"vote"}}'::jsonb, 'lane.near', 'vote.dao', 'bh-110', 'ch-110', 'author.near', 'vote', 0, '0', NULL, '{"proposal_id":"1","vote":"1"}'::jsonb, 0, 1760000100000000000),
+            ('a-vote-jane', 111, 'rcpt-vote-2', 'exec-vote-2', 'tx-vote-2', 0, 'system.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"vote"}}'::jsonb, 'jane.near', 'vote.dao', 'bh-111', 'ch-111', 'author.near', 'vote', 0, '0', NULL, '{"proposal_id":"1","vote":"0"}'::jsonb, 0, 1760000110000000000),
+            ('a-p1-approve', 102, 'rcpt-p1-approve', 'exec-p1-approve', 'tx-p1-final', 0, 'reviewer.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"approve_proposal"}}'::jsonb, 'reviewer.near', 'vote.dao', 'bh-102', 'ch-102', 'author.near', 'approve_proposal', 0, '0', NULL, '{"proposal_id":"1"}'::jsonb, 0, 1760000200000000000),
+            ('a-p1-snapshot', 103, 'rcpt-p1-snapshot', 'exec-p1-snapshot', 'tx-p1-final', 0, 'vote.dao', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"on_get_snapshot"}}'::jsonb, 'vote.dao', 'vote.dao', 'bh-103', 'ch-103', 'author.near', 'on_get_snapshot', 0, '0', NULL, '{}'::jsonb, 0, 1760000210000000000),
+            ('a-p2-create', 120, 'rcpt-p2-create', 'exec-p2-create', 'tx-p2-create', 1, 'bob.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"create_proposal"}}'::jsonb, 'bob.near', 'vote.dao', 'bh-120', 'ch-120', 'author.near', 'create_proposal', 0, '0', NULL, '{"metadata":{"title":"P2","description":"Proposal 2","voting_options":["For","Against","Abstain"]}}'::jsonb, 0, 1760000300000000000),
+            ('a-lockup-lane', 129, 'rcpt-lockup-lane', 'exec-lockup-lane', 'tx-lockup-lane', 0, 'system.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"on_lockup_deployed"}}'::jsonb, 'venear.dao', 'venear.dao', 'bh-129', 'ch-129', 'author.near', 'on_lockup_deployed', 0, '0', NULL, '{"account_id":"lane.near"}'::jsonb, 0, 1760000390000000000),
+            ('a-storage-lane', 130, 'rcpt-storage-lane', 'exec-storage-lane', 'tx-vp-1', 0, 'lane.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"storage_deposit"}}'::jsonb, 'lane.near', 'venear.dao', 'bh-130', 'ch-130', 'author.near', 'storage_deposit', 0, '0', NULL, '{"amount":"8"}'::jsonb, 0, 1760000400000000000),
+            ('a-lockup-jane', 131, 'rcpt-lockup-jane', 'exec-lockup-jane', 'tx-lockup-jane', 0, 'system.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"on_lockup_deployed"}}'::jsonb, 'venear.dao', 'venear.dao', 'bh-131', 'ch-131', 'author.near', 'on_lockup_deployed', 0, '0', NULL, '{"account_id":"jane.near"}'::jsonb, 0, 1760000410000000000),
+            ('a-delegate-lane', 143, 'rcpt-deleg-1', 'exec-deleg-1', 'tx-deleg-1', 0, 'system.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"delegate_all"}}'::jsonb, 'lane.near', 'venear.dao', 'bh-143', 'ch-143', 'author.near', 'delegate_all', 0, '0', NULL, '{"receiver_id":"jane.near"}'::jsonb, 0, 1760000530000000000),
+            ('a-burn-lane', 143, 'rcpt-deleg-1', 'exec-deleg-1', 'tx-deleg-1', 0, 'lane.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"lock_near"}}'::jsonb, 'lane.near', 'venear.dao', 'bh-143', 'ch-143', 'author.near', 'lock_near', 0, '0', NULL, '{"amount":"3"}'::jsonb, 1, 1760000530000000000),
+            ('a-config-set-guardians-vote', 160, 'rcpt-config-set-guardians-vote', 'exec-config-set-guardians-vote', 'tx-config-set-guardians-vote', 0, 'owner.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"set_guardians"}}'::jsonb, 'owner.near', 'vote.dao', 'bh-160', 'ch-160', 'author.near', 'set_guardians', 0, '0', NULL, '{"guardians":["guardian2.near","guardian3.near"]}'::jsonb, 0, 1760000600000000000),
+            ('a-config-set-reviewers-vote', 170, 'rcpt-config-set-reviewers-vote', 'exec-config-set-reviewers-vote', 'tx-config-set-reviewers-vote', 0, 'owner.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"set_reviewer_ids"}}'::jsonb, 'owner.near', 'vote.dao', 'bh-170', 'ch-170', 'author.near', 'set_reviewer_ids', 0, '0', NULL, '{"reviewer_ids":["reviewer9.near"]}'::jsonb, 0, 1760000700000000000),
+            ('a-config-set-guardians-venear', 171, 'rcpt-config-set-guardians-venear', 'exec-config-set-guardians-venear', 'tx-config-set-guardians-venear', 0, 'owner.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"set_guardians"}}'::jsonb, 'owner.near', 'venear.dao', 'bh-171', 'ch-171', 'author.near', 'set_guardians', 0, '0', NULL, '{"guardians":["guardian4.near"]}'::jsonb, 0, 1760000710000000000)
         "#,
     )
     .await?;
@@ -335,309 +341,47 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
     execute_sql(
         db,
         r#"
-        INSERT INTO near.near_venear_votes (
-            proposal_id, account_id, vote, account_balance, event_type, payload,
-            block_height, block_timestamp, shard_id,
+        INSERT INTO near.near_execution_outcomes (
+            id,
+            block_height,
+            receipt_id,
+            outcome,
+            raw_data,
+            shard_id,
             transaction_hash,
-            receipt_id, execution_outcome_id, predecessor_account_id, contract_id,
-            log_index, data_index
+            block_hash,
+            chunk_hash,
+            gas_burnt,
+            gas_used,
+            tokens_burnt,
+            executor_account_id,
+            status,
+            outcome_receipt_ids,
+            executed_in_block_hash,
+            logs,
+            results_json,
+            block_timestamp
         ) VALUES
-            (
-                1, 'lane.near', 1, '32279877702596545200000002', 'add_vote', '{"from":"fixture"}'::jsonb,
-                110, 1760000100000000000, 0,
-                'tx-vote-1',
-                'rcpt-vote-1', 'exec-vote-1', 'lane.near', 'vote.dao',
-                0, 0
-            ),
-            (
-                1, 'jane.near', 0, '900000000000000000000', 'add_vote', NULL,
-                111, 1760000110000000000, 0,
-                'tx-vote-2',
-                'rcpt-vote-2', 'exec-vote-2', 'jane.near', 'vote.dao',
-                0, 1
-            )
+            ('exec-config-new-vote', 90, 'rcpt-config-new-vote', '{}'::jsonb, NULL, 0, 'tx-config-new-vote', 'bh-90', 'ch-90', 0, 0, 0, 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-90', '[]'::jsonb, NULL, 1759999900000000000),
+            ('exec-config-new-venear', 91, 'rcpt-config-new-venear', '{}'::jsonb, NULL, 0, 'tx-config-new-venear', 'bh-91', 'ch-91', 0, 0, 0, 'venear.dao', 'SuccessValue', '[]'::jsonb, 'bh-91', '[]'::jsonb, NULL, 1759999910000000000),
+            ('exec-p1-create', 100, 'rcpt-p1-create', '{}'::jsonb, NULL, 0, 'tx-p1-create', 'bh-100', 'ch-100', 0, 0, 0, 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-100', '["EVENT_JSON:{\"event\":\"create_proposal\",\"data\":[{\"proposal_id\":\"1\"}]}"]'::jsonb, NULL, 1760000000000000000),
+            ('exec-vote-1', 110, 'rcpt-vote-1', '{}'::jsonb, NULL, 0, 'tx-vp-2', 'bh-110', 'ch-110', 0, 0, 0, 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-110', '["EVENT_JSON:{\"event\":\"add_vote\",\"data\":[{\"account_balance\":\"8\"}]}"]'::jsonb, NULL, 1760000100000000000),
+            ('exec-vote-2', 111, 'rcpt-vote-2', '{}'::jsonb, NULL, 0, 'tx-vote-2', 'bh-111', 'ch-111', 0, 0, 0, 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-111', '["EVENT_JSON:{\"event\":\"add_vote\",\"data\":[{\"account_balance\":\"900000000000000000000\"}]}"]'::jsonb, NULL, 1760000110000000000),
+            ('exec-p1-approve', 102, 'rcpt-p1-approve', '{}'::jsonb, NULL, 0, 'tx-p1-final', 'bh-102', 'ch-102', 0, 0, 0, 'vote.dao', 'SuccessReceiptId', '[]'::jsonb, 'bh-102', '[]'::jsonb, '{"receipt_id":"rcpt-p1-snapshot"}'::jsonb, 1760000200000000000),
+            ('exec-p1-snapshot', 103, 'rcpt-p1-snapshot', '{}'::jsonb, NULL, 0, 'tx-p1-final', 'bh-103', 'ch-103', 0, 0, 0, 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-103', '[]'::jsonb, '{"creation_time_ns":"1760000000000000000","voting_start_time_ns":"1760000200000000000","voting_duration_ns":"3600000000000","snapshot_and_state":{"total_venear":"1000000000000000000"}}'::jsonb, 1760000210000000000),
+            ('exec-p2-create', 120, 'rcpt-p2-create', '{}'::jsonb, NULL, 1, 'tx-p2-create', 'bh-120', 'ch-120', 0, 0, 0, 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-120', '["EVENT_JSON:{\"event\":\"create_proposal\",\"data\":[{\"proposal_id\":\"2\"}]}"]'::jsonb, NULL, 1760000300000000000),
+            ('exec-lockup-lane', 129, 'rcpt-lockup-lane', '{}'::jsonb, NULL, 0, 'tx-lockup-lane', 'bh-129', 'ch-129', 0, 0, 0, 'venear.dao', 'SuccessValue', '[]'::jsonb, 'bh-129', '["EVENT_JSON:{\"event\":\"lockup_deployed\",\"data\":[{\"account_id\":\"lane.near\"}]}"]'::jsonb, NULL, 1760000390000000000),
+            ('exec-storage-lane', 130, 'rcpt-storage-lane', '{}'::jsonb, NULL, 0, 'tx-vp-1', 'bh-130', 'ch-130', 0, 0, 0, 'venear.dao', 'SuccessValue', '[]'::jsonb, 'bh-130', '["EVENT_JSON:{\"event\":\"ft_mint\",\"data\":[{\"amount\":\"8\",\"account_balance\":\"8\"}]}"]'::jsonb, NULL, 1760000400000000000),
+            ('exec-lockup-jane', 131, 'rcpt-lockup-jane', '{}'::jsonb, NULL, 0, 'tx-lockup-jane', 'bh-131', 'ch-131', 0, 0, 0, 'venear.dao', 'SuccessValue', '[]'::jsonb, 'bh-131', '["EVENT_JSON:{\"event\":\"lockup_deployed\",\"data\":[{\"account_id\":\"jane.near\"}]}"]'::jsonb, NULL, 1760000410000000000),
+            ('exec-deleg-1', 143, 'rcpt-deleg-1', '{}'::jsonb, NULL, 0, 'tx-deleg-1', 'bh-143', 'ch-143', 0, 0, 0, 'venear.dao', 'SuccessValue', '[]'::jsonb, 'bh-143', '["EVENT_JSON:{\"event\":\"ft_burn\",\"data\":[{\"owner_id\":\"lane.near\",\"amount\":\"3\"}]}"]'::jsonb, NULL, 1760000530000000000),
+            ('exec-config-set-guardians-vote', 160, 'rcpt-config-set-guardians-vote', '{}'::jsonb, NULL, 0, 'tx-config-set-guardians-vote', 'bh-160', 'ch-160', 0, 0, 0, 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-160', '[]'::jsonb, NULL, 1760000600000000000),
+            ('exec-config-set-reviewers-vote', 170, 'rcpt-config-set-reviewers-vote', '{}'::jsonb, NULL, 0, 'tx-config-set-reviewers-vote', 'bh-170', 'ch-170', 0, 0, 0, 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-170', '[]'::jsonb, NULL, 1760000700000000000),
+            ('exec-config-set-guardians-venear', 171, 'rcpt-config-set-guardians-venear', '{}'::jsonb, NULL, 0, 'tx-config-set-guardians-venear', 'bh-171', 'ch-171', 0, 0, 0, 'venear.dao', 'SuccessValue', '[]'::jsonb, 'bh-171', '[]'::jsonb, NULL, 1760000710000000000)
         "#,
     )
     .await?;
 
-    execute_sql(
-        db,
-        r#"
-        INSERT INTO near.near_venear_governance_actions (
-            action_source, action_index,
-            transaction_hash, receipt_id, execution_outcome_id,
-            block_height, block_timestamp, shard_id,
-            predecessor_account_id, receiver_account_id,
-            contract_id, method_name,
-            args_json, args_base64, attached_deposit,
-            success, success_value_json,
-            action_category, proposal_id, vote_option,
-            delegator_account_id, delegatee_account_id, owner_account_id,
-            metadata
-        ) VALUES
-            (
-                'transaction', 0,
-                'tx-config-new-vote', 'rcpt-config-new-vote-tx', 'exec-config-new-vote-tx',
-                90, 1759999900000000000, 0,
-                'owner.near', 'vote.dao',
-                'vote.dao', 'new',
-                '{"config":{"guardians":["guardian1.near"],"reviewer_ids":["reviewer1.near","reviewer2.near"]}}'::jsonb,
-                'e30=', '0',
-                true, NULL,
-                'other', NULL, NULL,
-                NULL, NULL, NULL,
-                '{"source":"fixture"}'::jsonb
-            ),
-            (
-                'receipt', 0,
-                NULL, 'rcpt-config-new-vote-rx', 'exec-config-new-vote-rx',
-                90, 1759999900000000000, 0,
-                'owner.near', 'vote.dao',
-                'vote.dao', 'new',
-                '{"config":{"guardians":["guardian1.near"],"reviewer_ids":["reviewer1.near","reviewer2.near"]}}'::jsonb,
-                'e30=', '0',
-                true, NULL,
-                'other', NULL, NULL,
-                NULL, NULL, NULL,
-                '{"source":"fixture"}'::jsonb
-            ),
-            (
-                'transaction', 0,
-                'tx-config-new-venear', 'rcpt-config-new-venear-tx', 'exec-config-new-venear-tx',
-                91, 1759999910000000000, 0,
-                'owner.near', 'venear.dao',
-                'venear.dao', 'new',
-                '{"config":{"guardians":["guardian0.near"]}}'::jsonb,
-                'e30=', '0',
-                true, NULL,
-                'other', NULL, NULL,
-                NULL, NULL, NULL,
-                '{"source":"fixture"}'::jsonb
-            ),
-            (
-                'transaction', 0,
-                'tx-config-set-guardians-vote', 'rcpt-config-set-guardians-vote-tx', 'exec-config-set-guardians-vote-tx',
-                160, 1760000600000000000, 0,
-                'owner.near', 'vote.dao',
-                'vote.dao', 'set_guardians',
-                '{"guardians":["guardian2.near","guardian3.near"]}'::jsonb,
-                'e30=', '0',
-                true, NULL,
-                'admin', NULL, NULL,
-                NULL, NULL, NULL,
-                '{"source":"fixture"}'::jsonb
-            ),
-            (
-                'receipt', 0,
-                NULL, 'rcpt-config-set-guardians-vote-rx', 'exec-config-set-guardians-vote-rx',
-                160, 1760000600000000000, 0,
-                'owner.near', 'vote.dao',
-                'vote.dao', 'set_guardians',
-                '{"guardians":["guardian2.near","guardian3.near"]}'::jsonb,
-                'e30=', '0',
-                true, NULL,
-                'admin', NULL, NULL,
-                NULL, NULL, NULL,
-                '{"source":"fixture"}'::jsonb
-            ),
-            (
-                'transaction', 1,
-                'tx-config-set-reviewers-vote', 'rcpt-config-set-reviewers-vote-tx', 'exec-config-set-reviewers-vote-tx',
-                170, 1760000700000000000, 0,
-                'owner.near', 'vote.dao',
-                'vote.dao', 'set_reviewer_ids',
-                '{"reviewer_ids":["reviewer9.near"]}'::jsonb,
-                'e30=', '0',
-                true, NULL,
-                'admin', NULL, NULL,
-                NULL, NULL, NULL,
-                '{"source":"fixture"}'::jsonb
-            ),
-            (
-                'receipt', 0,
-                NULL, 'rcpt-config-set-guardians-venear-rx', 'exec-config-set-guardians-venear-rx',
-                171, 1760000710000000000, 0,
-                'owner.near', 'venear.dao',
-                'venear.dao', 'set_guardians',
-                '{"guardians":["guardian4.near"]}'::jsonb,
-                'e30=', '0',
-                true, NULL,
-                'admin', NULL, NULL,
-                NULL, NULL, NULL,
-                '{"source":"fixture"}'::jsonb
-            )
-        "#,
-    )
-    .await?;
-
-    execute_sql(
-        db,
-        r#"
-        INSERT INTO near.near_venear_account_balances (
-            account_id, event_type, delta_amount, total_balance, locked_near_balance,
-            lockup_update_nonce, lockup_version,
-            block_height, block_timestamp, shard_id,
-            receipt_id, execution_outcome_id, predecessor_account_id, contract_id,
-            log_index, data_index, payload
-        ) VALUES
-            (
-                'lane.near', 'ft_mint', '10', '10', NULL,
-                NULL, NULL,
-                130, 1760000400000000000, 0,
-                'rcpt-bal-1', 'exec-bal-1', 'venear.dao', 'venear.dao',
-                0, 0, '{"memo":"mint"}'::jsonb
-            ),
-            (
-                'lane.near', 'ft_burn', '-2', '8', NULL,
-                NULL, NULL,
-                131, 1760000410000000000, 0,
-                'rcpt-bal-2', 'exec-bal-2', 'venear.dao', 'venear.dao',
-                0, 0, '{"memo":"burn"}'::jsonb
-            )
-        "#,
-    )
-    .await?;
-
-    execute_sql(
-        db,
-        r#"
-        INSERT INTO near.near_venear_account_voting_power_events (
-            account_id, event_type, proposal_id, voting_power, delta_voting_power,
-            block_height, block_timestamp, shard_id,
-            transaction_hash,
-            receipt_id, execution_outcome_id, predecessor_account_id, contract_id,
-            log_index, data_index, payload
-        ) VALUES
-            (
-                'lane.near', 'ft_mint', NULL, '10', '10',
-                130, 1760000400000000000, 0,
-                'tx-vp-1',
-                'rcpt-vp-1', 'exec-vp-1', 'venear.dao', 'venear.dao',
-                0, 0, '{"memo":"mint"}'::json
-            ),
-            (
-                'lane.near', 'add_vote', 1, '8', '-2',
-                132, 1760000420000000000, 0,
-                'tx-vp-2',
-                'rcpt-vp-2', 'exec-vp-2', 'lane.near', 'vote.dao',
-                0, 1, '{"memo":"vote"}'::json
-            ),
-            (
-                'lane.near', 'ft_burn', NULL, '5', '-3',
-                143, 1760000530000000000, 0,
-                'tx-deleg-1',
-                'rcpt-deleg-1', 'exec-deleg-1', 'venear.dao', 'venear.dao',
-                0, 2, '{"memo":"delegation burn"}'::json
-            ),
-            (
-                'jane.near', 'ft_mint', NULL, '3', '3',
-                143, 1760000530000000000, 0,
-                'tx-deleg-1',
-                'rcpt-deleg-1', 'exec-deleg-1', 'venear.dao', 'venear.dao',
-                0, 3, '{"memo":"delegation mint"}'::json
-            )
-        "#,
-    )
-    .await?;
-
-    execute_sql(
-        db,
-        r#"
-        INSERT INTO near.near_venear_lockup_events (
-            lockup_account_id, owner_account_id, event_type,
-            lockup_version, lockup_update_nonce, locked_near_balance,
-            action_source, transaction_hash,
-            receipt_id, execution_outcome_id,
-            predecessor_account_id, contract_id,
-            success, block_height, block_timestamp, shard_id,
-            log_index, data_index, payload
-        ) VALUES
-            (
-                'lock1.venear.dao', 'lane.near', 'lockup_deployed',
-                1, NULL, NULL,
-                'event_json', 'tx-lockup-1',
-                'rcpt-lockup-1', 'exec-lockup-1',
-                'venear.dao', 'venear.dao',
-                true, 140, 1760000500000000000, 0,
-                0, 0, '{"origin":"fixture"}'::jsonb
-            ),
-            (
-                'lock2.venear.dao', 'bob.near', 'lockup_delete',
-                1, NULL, NULL,
-                'event_json', 'tx-lockup-2',
-                'rcpt-lockup-2', 'exec-lockup-2',
-                'bob.near', 'lock2.venear.dao',
-                true, 100, 1760000000000000000, 0,
-                0, 0, NULL
-            )
-        "#,
-    )
-    .await?;
-
-    execute_sql(
-        db,
-        r#"
-        INSERT INTO near.near_venear_delegation_events (
-            delegator_account_id, delegatee_account_id, event_type,
-            action_source, action_index,
-            args_json, args_base64, attached_deposit,
-            transaction_hash, receipt_id, execution_outcome_id,
-            success, block_height, block_timestamp, shard_id,
-            contract_id, metadata
-        ) VALUES
-            (
-                'lane.near', 'jane.near', 'delegate_all',
-                'receipt', 0,
-                '{"receiver_id":"jane.near"}'::jsonb, 'eyJyZWNlaXZlcl9pZCI6ImphbmUubmVhciJ9', '1',
-                'tx-deleg-1', 'rcpt-deleg-1', 'exec-deleg-1',
-                true, 143, 1760000530000000000, 0,
-                'venear.dao', '{"source":"fixture"}'::jsonb
-            ),
-            (
-                'jane.near', NULL, 'undelegate',
-                'receipt', 1,
-                '{}'::jsonb, 'e30=', '1',
-                'tx-deleg-2', 'rcpt-deleg-2', 'exec-deleg-2',
-                false, 144, 1760000540000000000, 0,
-                'venear.dao', '{"source":"fixture"}'::jsonb
-            )
-        "#,
-    )
-    .await?;
-
-    execute_sql(
-        db,
-        r#"
-        INSERT INTO near.near_venear_lockup_actions (
-            lockup_account_id, owner_account_id,
-            predecessor_account_id, receiver_account_id,
-            method_name, action_source, action_index,
-            args_json, args_base64, attached_deposit,
-            transaction_hash, receipt_id, execution_outcome_id, success,
-            block_height, block_timestamp, shard_id,
-            staking_pool_account_id, metadata
-        ) VALUES
-            (
-                'lock1.venear.dao', 'lane.near',
-                'lane.near', 'lock1.venear.dao',
-                'select_staking_pool', 'transaction', 0,
-                '{"staking_pool_account_id":"poolv1.near"}'::jsonb, 'e30=', '0',
-                'tx-hash-1', 'rcpt-action-1', 'exec-action-1', true,
-                141, 1760000510000000000, 0,
-                'poolv1.near', '{"source":"fixture"}'::jsonb
-            ),
-            (
-                'lock1.venear.dao', 'lane.near',
-                'lane.near', 'lock1.venear.dao',
-                'unbond', 'receipt', 1,
-                NULL, 'e30=', '1',
-                NULL, 'rcpt-action-2', 'exec-action-2', true,
-                142, 1760000520000000000, 0,
-                NULL, NULL
-            )
-        "#,
-    )
-    .await?;
+    execute_sql(db, "SELECT near.refresh_hos_materialized_views()").await?;
 
     Ok(())
 }

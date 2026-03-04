@@ -435,16 +435,7 @@ pub struct NearModulesConfig {
     /// Raw data module configuration
     #[serde(default)]
     pub raw: Option<RawModuleConfig>,
-    /// Accounts module configuration
-    #[serde(default)]
-    pub accounts: Option<AccountsModuleConfig>,
-    /// Tokens module configuration
-    #[serde(default)]
-    pub tokens: Option<TokensModuleConfig>,
-    /// Staking pools module configuration
-    #[serde(default)]
-    pub staking_pools: Option<StakingPoolsModuleConfig>,
-    /// veNEAR governance module configuration
+    /// veNEAR governance filtered raw module configuration
     #[serde(default)]
     pub venear_governance: Option<VenearGovernanceModuleConfig>,
 }
@@ -460,94 +451,29 @@ pub struct RawModuleConfig {
     pub start_height: Option<u64>,
 }
 
-/// Accounts module configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AccountsModuleConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    #[serde(default)]
-    pub stream_mode: NearModuleStreamMode,
-    #[serde(default)]
-    pub start_height: Option<u64>,
-}
-
-/// Tokens module configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TokensModuleConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub stream_mode: NearModuleStreamMode,
-    #[serde(default)]
-    pub start_height: Option<u64>,
-    #[serde(default = "default_true")]
-    pub track_nep141: bool,
-    #[serde(default = "default_true")]
-    pub track_nep171: bool,
-    #[serde(default = "default_true")]
-    pub track_nep245: bool,
-    #[serde(default)]
-    pub contracts: Vec<String>,
-}
-
-/// Staking pools module configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct StakingPoolsModuleConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub stream_mode: NearModuleStreamMode,
-    #[serde(default)]
-    pub start_height: Option<u64>,
-    #[serde(default = "default_pool_patterns")]
-    pub pool_patterns: Vec<String>,
-    #[serde(default)]
-    pub custom_pools: Vec<String>,
-    #[serde(default = "default_true")]
-    pub track_epochs: bool,
-    #[serde(default = "default_true")]
-    pub track_delegators: bool,
-    #[serde(default = "default_true")]
-    pub parse_events: bool,
-}
-
-/// veNEAR governance module configuration
+/// veNEAR governance filtered raw module configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VenearGovernanceModuleConfig {
-    #[serde(default)]
+    #[serde(default = "default_false")]
     pub enabled: bool,
     #[serde(default)]
     pub stream_mode: NearModuleStreamMode,
     #[serde(default)]
     pub start_height: Option<u64>,
-    #[serde(default = "default_venear_contract_id")]
-    pub venear_contract_id: String,
-    #[serde(default = "default_voting_contract_id")]
-    pub voting_contract_id: String,
-    #[serde(default = "default_lockup_account_suffix")]
-    pub lockup_account_suffix: String,
-    #[serde(default)]
-    pub known_lockups: Vec<String>,
+    #[serde(default = "default_hos_mview_refresh_interval_blocks")]
+    pub mview_refresh_interval_blocks: u64,
 }
 
 fn default_chain() -> String {
     "mainnet".to_string()
 }
 
-fn default_pool_patterns() -> Vec<String> {
-    vec!["*.poolv1.near".to_string(), "*.pool.near".to_string()]
+fn default_false() -> bool {
+    false
 }
 
-fn default_venear_contract_id() -> String {
-    "venear.dao".to_string()
-}
-
-fn default_voting_contract_id() -> String {
-    "vote.dao".to_string()
-}
-
-fn default_lockup_account_suffix() -> String {
-    ".venear.dao".to_string()
+fn default_hos_mview_refresh_interval_blocks() -> u64 {
+    100
 }
 
 impl ToLog for NearLakeConfig {
@@ -569,10 +495,7 @@ impl ToLog for NearModulesConfig {
     fn to_log(&self) -> JsonValue {
         json!({
             "raw": self.raw.as_ref().map(|r| r.to_log()),
-            "accounts": self.accounts.as_ref().map(|a| a.to_log()),
-            "tokens": self.tokens.as_ref().map(|t| t.to_log()),
-            "staking_pools": self.staking_pools.as_ref().map(|s| s.to_log()),
-            "venear_governance": self.venear_governance.as_ref().map(|v| v.to_log()),
+            "venear_governance": self.venear_governance.as_ref().map(|h| h.to_log()),
         })
     }
 }
@@ -587,67 +510,13 @@ impl ToLog for RawModuleConfig {
     }
 }
 
-impl ToLog for AccountsModuleConfig {
-    fn to_log(&self) -> JsonValue {
-        json!({
-            "enabled": self.enabled,
-            "stream_mode": self.stream_mode.as_str(),
-            "start_height": self.start_height,
-        })
-    }
-}
-
-impl ToLog for TokensModuleConfig {
-    fn to_log(&self) -> JsonValue {
-        json!({
-            "enabled": self.enabled,
-            "stream_mode": self.stream_mode.as_str(),
-            "start_height": self.start_height,
-            "track_nep141": self.track_nep141,
-            "track_nep171": self.track_nep171,
-            "track_nep245": self.track_nep245,
-            "contracts": if self.contracts.is_empty() {
-                "all".to_string()
-            } else {
-                format!("{} contracts", self.contracts.len())
-            },
-        })
-    }
-}
-
-impl ToLog for StakingPoolsModuleConfig {
-    fn to_log(&self) -> JsonValue {
-        json!({
-            "enabled": self.enabled,
-            "stream_mode": self.stream_mode.as_str(),
-            "start_height": self.start_height,
-            "pool_patterns": self.pool_patterns,
-            "custom_pools": if self.custom_pools.is_empty() {
-                "none".to_string()
-            } else {
-                format!("{} custom pools", self.custom_pools.len())
-            },
-            "track_epochs": self.track_epochs,
-            "track_delegators": self.track_delegators,
-            "parse_events": self.parse_events,
-        })
-    }
-}
-
 impl ToLog for VenearGovernanceModuleConfig {
     fn to_log(&self) -> JsonValue {
         json!({
             "enabled": self.enabled,
             "stream_mode": self.stream_mode.as_str(),
             "start_height": self.start_height,
-            "venear_contract_id": self.venear_contract_id,
-            "voting_contract_id": self.voting_contract_id,
-            "lockup_account_suffix": self.lockup_account_suffix,
-            "known_lockups": if self.known_lockups.is_empty() {
-                "none".to_string()
-            } else {
-                format!("{} lockups", self.known_lockups.len())
-            },
+            "mview_refresh_interval_blocks": self.mview_refresh_interval_blocks,
         })
     }
 }
@@ -1212,22 +1081,14 @@ mod tests {
         assert_eq!(near_cfg.fastnear_num_threads, None);
 
         let raw = RawModuleConfig::default();
-        let accounts = AccountsModuleConfig::default();
-        let tokens = TokensModuleConfig::default();
-        let staking_pools = StakingPoolsModuleConfig::default();
-        let venear = VenearGovernanceModuleConfig::default();
+        let venear_governance = VenearGovernanceModuleConfig::default();
 
         assert_eq!(raw.stream_mode, NearModuleStreamMode::Shared);
-        assert_eq!(accounts.stream_mode, NearModuleStreamMode::Shared);
-        assert_eq!(tokens.stream_mode, NearModuleStreamMode::Shared);
-        assert_eq!(staking_pools.stream_mode, NearModuleStreamMode::Shared);
-        assert_eq!(venear.stream_mode, NearModuleStreamMode::Shared);
+        assert_eq!(venear_governance.stream_mode, NearModuleStreamMode::Shared);
 
         assert_eq!(raw.start_height, None);
-        assert_eq!(accounts.start_height, None);
-        assert_eq!(tokens.start_height, None);
-        assert_eq!(staking_pools.start_height, None);
-        assert_eq!(venear.start_height, None);
+        assert_eq!(venear_governance.start_height, None);
+        assert_eq!(venear_governance.mview_refresh_interval_blocks, 100);
     }
 
     #[test]
@@ -1260,5 +1121,16 @@ mod tests {
         .expect("start height should deserialize");
 
         assert_eq!(cfg.start_height, Some(160000000));
+    }
+
+    #[test]
+    fn near_module_mview_refresh_interval_deserializes() {
+        let cfg: VenearGovernanceModuleConfig = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "mview_refresh_interval_blocks": 250
+        }))
+        .expect("refresh interval should deserialize");
+
+        assert_eq!(cfg.mview_refresh_interval_blocks, 250);
     }
 }

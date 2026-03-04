@@ -81,8 +81,10 @@ impl TestDatabase {
 pub fn init_test_tracing() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
+        let env_filter =
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into());
         tracing_subscriber::fmt()
-            .with_env_filter("debug")
+            .with_env_filter(env_filter)
             .json()
             .with_test_writer()
             .init();
