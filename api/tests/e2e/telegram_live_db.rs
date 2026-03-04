@@ -27,14 +27,14 @@ async fn telegram_endpoints_return_seeded_data() {
         get_json(&router, "/api/v1/telegram/channels?limit=1").await;
     assert_eq!(channels_page_1.data.len(), 1);
     assert!(channels_page_1.has_more);
-    assert_eq!(channels_page_1.data[0].telegram_id, -1005000000002);
+    assert_eq!(channels_page_1.data[0].channel_telegram_id, -1005000000002);
     let cursor = channels_page_1.next_cursor.clone().expect("next cursor");
 
     let channels_page_2: TelegramChannelsListResponse =
         get_json(&router, &format!("/api/v1/telegram/channels?cursor={cursor}")).await;
     assert_eq!(channels_page_2.data.len(), 1);
     assert!(!channels_page_2.has_more);
-    assert_eq!(channels_page_2.data[0].telegram_id, -1005000000001);
+    assert_eq!(channels_page_2.data[0].channel_telegram_id, -1005000000001);
 
     let channel_messages: TelegramMessagesListResponse = get_json(
         &router,
@@ -43,7 +43,7 @@ async fn telegram_endpoints_return_seeded_data() {
     .await;
     assert_eq!(channel_messages.data.len(), 1);
     assert_eq!(channel_messages.data[0].telegram_message_id, 11);
-    assert_eq!(channel_messages.data[0].from_user_telegram_id, Some(100002));
+    assert_eq!(channel_messages.data[0].user_telegram_id, Some(100002));
     assert_eq!(
         channel_messages.data[0].reply_to_telegram_message_id,
         Some(10)
@@ -69,7 +69,7 @@ async fn telegram_endpoints_return_seeded_data() {
 
     let users: TelegramUsersListResponse = get_json(&router, "/api/v1/telegram/users?q=ali").await;
     assert_eq!(users.data.len(), 1);
-    assert_eq!(users.data[0].telegram_id, 100001);
+    assert_eq!(users.data[0].user_telegram_id, 100001);
 
     let user_messages: TelegramMessagesListResponse =
         get_json(&router, "/api/v1/telegram/users/100002/messages").await;

@@ -1194,6 +1194,7 @@ fn to_delegate_voting_power_dto(
 
     Ok(VenearDelegateVotingPowerEventDto {
         id,
+        account_id: account_id.to_string(),
         event_type: event_type.clone(),
         reason: voting_power_reason(&event_type, delegation_event_type.as_deref(), is_delegator)
             .to_string(),
@@ -1238,6 +1239,7 @@ fn to_delegation_event_dto(
 
     Ok(VenearDelegationEventDto {
         id,
+        account_id: account_id.to_string(),
         direction: direction.to_string(),
         event_type,
         delegator_account_id,

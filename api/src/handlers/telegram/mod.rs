@@ -174,9 +174,8 @@ pub async fn list_channel_messages(
         .order_by_desc(telegram_messages::Column::Date)
         .order_by_desc(telegram_messages::Column::TelegramMessageId);
 
-    if let Some(from_user_telegram_id) = query.from_user_telegram_id {
-        let Some(user) =
-            find_user_by_telegram_id_optional(db.as_ref(), from_user_telegram_id).await?
+    if let Some(user_telegram_id) = query.user_telegram_id {
+        let Some(user) = find_user_by_telegram_id_optional(db.as_ref(), user_telegram_id).await?
         else {
             return Ok(Json(TelegramMessagesListResponse {
                 data: Vec::new(),
@@ -743,7 +742,7 @@ pub async fn list_user_messages(
 
 fn to_channel_dto(row: telegram_channels::Model) -> TelegramChannelDto {
     TelegramChannelDto {
-        telegram_id: row.telegram_id,
+        channel_telegram_id: row.telegram_id,
         name: row.name,
         username: row.username,
         channel_type: row.r#type,
@@ -754,7 +753,7 @@ fn to_channel_dto(row: telegram_channels::Model) -> TelegramChannelDto {
 
 fn to_user_dto(row: telegram_users::Model) -> TelegramUserDto {
     TelegramUserDto {
-        telegram_id: row.telegram_id,
+        user_telegram_id: row.telegram_id,
         username: row.username,
         display_name: row.display_name,
         created_at: to_rfc3339(row.created_at),
@@ -767,7 +766,7 @@ fn to_message_dto(
     channel_telegram_id: i64,
     users_by_id: &HashMap<i64, telegram_users::Model>,
 ) -> TelegramMessageDto {
-    let (from_user_telegram_id, from_username, from_display_name) = row
+    let (user_telegram_id, from_username, from_display_name) = row
         .from_user_id
         .and_then(|id| users_by_id.get(&id))
         .map(|user| {
@@ -783,7 +782,7 @@ fn to_message_dto(
         channel_telegram_id,
         telegram_message_id: row.telegram_message_id,
         message_type: row.message_type,
-        from_user_telegram_id,
+        user_telegram_id,
         from_username,
         from_display_name,
         reply_to_telegram_message_id: row.reply_to_telegram_message_id,

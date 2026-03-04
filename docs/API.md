@@ -170,14 +170,14 @@ Response:
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/telegram/channels` | List all indexed channels |
-| GET | `/api/v1/telegram/channels/{channel_id}` | Get a channel |
-| GET | `/api/v1/telegram/channels/{channel_id}/messages` | List messages |
-| GET | `/api/v1/telegram/channels/{channel_id}/messages/{id}` | Get a message |
-| GET | `/api/v1/telegram/channels/{channel_id}/messages/{id}/reactions` | List message reactions |
-| GET | `/api/v1/telegram/channels/{channel_id}/messages/{id}/service-actions` | List service actions |
+| GET | `/api/v1/telegram/channels/{channel_telegram_id}` | Get a channel |
+| GET | `/api/v1/telegram/channels/{channel_telegram_id}/messages` | List messages |
+| GET | `/api/v1/telegram/channels/{channel_telegram_id}/messages/{telegram_message_id}` | Get a message |
+| GET | `/api/v1/telegram/channels/{channel_telegram_id}/messages/{telegram_message_id}/reactions` | List message reactions |
+| GET | `/api/v1/telegram/channels/{channel_telegram_id}/messages/{telegram_message_id}/service-actions` | List service actions |
 | GET | `/api/v1/telegram/users` | List users |
-| GET | `/api/v1/telegram/users/{user_id}` | Get a user |
-| GET | `/api/v1/telegram/users/{user_id}/messages` | List messages by user |
+| GET | `/api/v1/telegram/users/{user_telegram_id}` | Get a user |
+| GET | `/api/v1/telegram/users/{user_telegram_id}/messages` | List messages by user |
 
 ### Identity
 
@@ -232,7 +232,7 @@ use crate::{errors::ApiErrorResponse, state::AppState};
 
 #[derive(Serialize, ToSchema)]
 pub struct InstanceResponse {
-    pub key: String,
+    pub instance: String,
     pub base_url: String,
 }
 
@@ -277,7 +277,7 @@ pub async fn list_instances(
         .map_err(ApiErrorResponse::from)?;
 
     Ok(Json(rows.into_iter().map(|r| InstanceResponse {
-        key: r.key,
+        instance: r.key,
         base_url: r.base_url,
     }).collect()))
 }
@@ -370,7 +370,7 @@ ApiErrorResponse::unprocessable_entity("Validation failed") // 422 VALIDATION_ER
 
 // Add human-readable detail with builder chaining
 ApiErrorResponse::not_found("Instance not found")
-    .with_detail(format!("No instance with key '{key}'"))
+    .with_detail(format!("No instance with id '{instance}'"))
 
 // Convert from sea_orm::DbErr directly
 .map_err(ApiErrorResponse::from)?

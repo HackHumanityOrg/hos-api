@@ -122,8 +122,8 @@ pub struct PostRevisionsListResponse {
 /// Indexed Discourse instance metadata.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DiscourseInstanceDto {
-    /// Stable upstream instance key (for example, subdomain).
-    pub key: String,
+    /// Stable upstream instance identifier (for example, subdomain).
+    pub instance: String,
     /// Base URL of the indexed Discourse instance.
     pub base_url: String,
     /// Whether the instance is enabled in the indexer pipeline.
@@ -140,7 +140,7 @@ pub struct DiscourseCategoryDto {
     /// Instance key owning this indexed category.
     pub instance: String,
     /// Upstream category id from Discourse.
-    pub external_id: i32,
+    pub category_id: i32,
     /// Human-readable category name.
     pub name: String,
     /// UI accent color.
@@ -181,7 +181,7 @@ pub struct DiscourseTopicDto {
     /// Instance key owning this topic.
     pub instance: String,
     /// Upstream topic id.
-    pub external_id: i32,
+    pub topic_id: i32,
     /// Public title of the topic.
     pub title: String,
     /// Fancy title variant from Discourse.
@@ -228,7 +228,7 @@ pub struct DiscoursePostDto {
     /// Instance key owning this post.
     pub instance: String,
     /// Upstream post id.
-    pub external_id: i32,
+    pub post_id: i32,
     /// Author display name or null for some system posts.
     pub name: Option<String>,
     /// Author username.
@@ -289,7 +289,7 @@ pub struct DiscourseUserDto {
     /// Instance key owning this user index.
     pub instance: String,
     /// Upstream user id.
-    pub external_id: i32,
+    pub user_id: i32,
     /// Username.
     pub username: String,
     /// Optional display name.
@@ -322,9 +322,9 @@ pub struct DiscoursePostLikeDto {
     /// Instance key owning this like event.
     pub instance: String,
     /// Upstream post id that was liked.
-    pub external_post_id: i32,
+    pub post_id: i32,
     /// Upstream user id of liker.
-    pub external_user_id: i32,
+    pub user_id: i32,
     /// Optional liker username (resolved via users table).
     pub username: Option<String>,
     /// Like creation timestamp in RFC 3339.
@@ -337,7 +337,7 @@ pub struct DiscoursePostRevisionDto {
     /// Instance key owning this post revision.
     pub instance: String,
     /// Upstream post id for which the revision was created.
-    pub external_post_id: i32,
+    pub post_id: i32,
     /// Sequential revision number.
     pub version: i32,
     /// Revision creation timestamp in RFC 3339.
@@ -932,6 +932,8 @@ pub struct VenearDelegateDto {
 pub struct VenearDelegateVotingPowerEventDto {
     /// Internal primary key for ordering.
     pub id: i64,
+    /// Delegate account id used for lookup.
+    pub account_id: String,
     /// Event type for this mutation.
     pub event_type: String,
     /// Normalized reason label: `balance_increase`, `balance_decrease`,
@@ -959,6 +961,8 @@ pub struct VenearDelegateVotingPowerEventDto {
 pub struct VenearDelegationEventDto {
     /// Internal primary key for ordering.
     pub id: i64,
+    /// Account id used for lookup.
+    pub account_id: String,
     /// Direction relative to the requested account (`inbound` or `outbound`).
     pub direction: String,
     /// Delegation event type (`delegate_all` or `undelegate`).
@@ -1044,7 +1048,7 @@ pub struct TelegramServiceActionsListResponse {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TelegramChannelDto {
     /// Telegram internal numeric channel identifier.
-    pub telegram_id: i64,
+    pub channel_telegram_id: i64,
     /// Display name shown for the channel.
     pub name: String,
     /// Optional public username (`@...`) if configured.
@@ -1061,7 +1065,7 @@ pub struct TelegramChannelDto {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TelegramUserDto {
     /// Telegram internal numeric user identifier.
-    pub telegram_id: i64,
+    pub user_telegram_id: i64,
     /// Optional public username (`@...`) for the user.
     pub username: Option<String>,
     /// Optional display name from Telegram profile.
@@ -1082,7 +1086,7 @@ pub struct TelegramMessageDto {
     /// Message type classification.
     pub message_type: String,
     /// Optional Telegram sender user id.
-    pub from_user_telegram_id: Option<i64>,
+    pub user_telegram_id: Option<i64>,
     /// Optional sender username.
     pub from_username: Option<String>,
     /// Optional sender display name.
@@ -1214,7 +1218,7 @@ pub struct TelegramMessagesQuery {
     /// Exact match on Telegram author user id.
     ///
     /// If the user id is unknown in the channel messages index, an empty page is returned.
-    pub from_user_telegram_id: Option<i64>,
+    pub user_telegram_id: Option<i64>,
     /// Filter by message type.
     ///
     /// Typical values are `message`, `media`, `service`, and `unknown`.

@@ -200,6 +200,127 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(schemas.contains_key("VenearDelegateDto"));
     assert!(schemas.contains_key("VenearDelegateVotingPowerEventDto"));
 
+    let discourse_instance_props = schemas
+        .get("DiscourseInstanceDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("DiscourseInstanceDto properties");
+    assert!(
+        discourse_instance_props.contains_key("instance"),
+        "instance payload should expose instance identifier"
+    );
+    assert!(
+        !discourse_instance_props.contains_key("key"),
+        "legacy key field should be removed"
+    );
+
+    let discourse_category_props = schemas
+        .get("DiscourseCategoryDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("DiscourseCategoryDto properties");
+    assert!(discourse_category_props.contains_key("category_id"));
+    assert!(!discourse_category_props.contains_key("external_id"));
+
+    let discourse_topic_props = schemas
+        .get("DiscourseTopicDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("DiscourseTopicDto properties");
+    assert!(discourse_topic_props.contains_key("topic_id"));
+    assert!(!discourse_topic_props.contains_key("external_id"));
+
+    let discourse_post_props = schemas
+        .get("DiscoursePostDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("DiscoursePostDto properties");
+    assert!(discourse_post_props.contains_key("post_id"));
+    assert!(!discourse_post_props.contains_key("external_id"));
+
+    let discourse_user_props = schemas
+        .get("DiscourseUserDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("DiscourseUserDto properties");
+    assert!(discourse_user_props.contains_key("user_id"));
+    assert!(!discourse_user_props.contains_key("external_id"));
+
+    let discourse_like_props = schemas
+        .get("DiscoursePostLikeDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("DiscoursePostLikeDto properties");
+    assert!(discourse_like_props.contains_key("post_id"));
+    assert!(discourse_like_props.contains_key("user_id"));
+    assert!(!discourse_like_props.contains_key("external_post_id"));
+    assert!(!discourse_like_props.contains_key("external_user_id"));
+
+    let discourse_revision_props = schemas
+        .get("DiscoursePostRevisionDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("DiscoursePostRevisionDto properties");
+    assert!(discourse_revision_props.contains_key("post_id"));
+    assert!(!discourse_revision_props.contains_key("external_post_id"));
+
+    let telegram_channel_props = schemas
+        .get("TelegramChannelDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("TelegramChannelDto properties");
+    assert!(telegram_channel_props.contains_key("channel_telegram_id"));
+    assert!(!telegram_channel_props.contains_key("telegram_id"));
+
+    let telegram_user_props = schemas
+        .get("TelegramUserDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("TelegramUserDto properties");
+    assert!(telegram_user_props.contains_key("user_telegram_id"));
+    assert!(!telegram_user_props.contains_key("telegram_id"));
+
+    let telegram_message_props = schemas
+        .get("TelegramMessageDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("TelegramMessageDto properties");
+    assert!(telegram_message_props.contains_key("user_telegram_id"));
+    assert!(!telegram_message_props.contains_key("from_user_telegram_id"));
+
+    let venear_vp_props = schemas
+        .get("VenearDelegateVotingPowerEventDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("VenearDelegateVotingPowerEventDto properties");
+    assert!(venear_vp_props.contains_key("account_id"));
+
+    let venear_delegation_props = schemas
+        .get("VenearDelegationEventDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("VenearDelegationEventDto properties");
+    assert!(venear_delegation_props.contains_key("account_id"));
+
+    let telegram_messages_parameters = paths
+        .get("/api/v1/telegram/channels/{channel_telegram_id}/messages")
+        .and_then(|path| path.get("get"))
+        .and_then(|op| op.get("parameters"))
+        .and_then(|params| params.as_array())
+        .expect("telegram messages parameters");
+    assert!(
+        telegram_messages_parameters
+            .iter()
+            .any(|param| param.get("name").and_then(|v| v.as_str()) == Some("user_telegram_id")),
+        "telegram messages query should expose user_telegram_id"
+    );
+    assert!(
+        !telegram_messages_parameters.iter().any(|param| {
+            param.get("name").and_then(|v| v.as_str()) == Some("from_user_telegram_id")
+        }),
+        "legacy from_user_telegram_id query parameter should be removed"
+    );
+
     let cursor_meta = schemas
         .get("CursorPageMeta")
         .and_then(|schema| schema.as_object())

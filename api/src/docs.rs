@@ -294,6 +294,115 @@ mod tests {
             identity_person_properties.contains_key("name"),
             "identity person schema should expose name"
         );
+
+        let discourse_instance_properties = schemas
+            .get("DiscourseInstanceDto")
+            .and_then(|s| s.get("properties"))
+            .and_then(|p| p.as_object())
+            .expect("DiscourseInstanceDto properties");
+        assert!(
+            discourse_instance_properties.contains_key("instance"),
+            "discourse instance schema should expose instance"
+        );
+        assert!(
+            !discourse_instance_properties.contains_key("key"),
+            "legacy discourse instance key field should be removed"
+        );
+
+        let discourse_topic_properties = schemas
+            .get("DiscourseTopicDto")
+            .and_then(|s| s.get("properties"))
+            .and_then(|p| p.as_object())
+            .expect("DiscourseTopicDto properties");
+        assert!(
+            discourse_topic_properties.contains_key("topic_id"),
+            "discourse topic schema should expose topic_id"
+        );
+        assert!(
+            !discourse_topic_properties.contains_key("external_id"),
+            "legacy discourse topic external_id field should be removed"
+        );
+
+        let telegram_channel_properties = schemas
+            .get("TelegramChannelDto")
+            .and_then(|s| s.get("properties"))
+            .and_then(|p| p.as_object())
+            .expect("TelegramChannelDto properties");
+        assert!(
+            telegram_channel_properties.contains_key("channel_telegram_id"),
+            "telegram channel schema should expose channel_telegram_id"
+        );
+        assert!(
+            !telegram_channel_properties.contains_key("telegram_id"),
+            "legacy telegram_id field should be removed from channels"
+        );
+
+        let telegram_user_properties = schemas
+            .get("TelegramUserDto")
+            .and_then(|s| s.get("properties"))
+            .and_then(|p| p.as_object())
+            .expect("TelegramUserDto properties");
+        assert!(
+            telegram_user_properties.contains_key("user_telegram_id"),
+            "telegram user schema should expose user_telegram_id"
+        );
+        assert!(
+            !telegram_user_properties.contains_key("telegram_id"),
+            "legacy telegram_id field should be removed from users"
+        );
+
+        let telegram_message_properties = schemas
+            .get("TelegramMessageDto")
+            .and_then(|s| s.get("properties"))
+            .and_then(|p| p.as_object())
+            .expect("TelegramMessageDto properties");
+        assert!(
+            telegram_message_properties.contains_key("user_telegram_id"),
+            "telegram message schema should expose user_telegram_id"
+        );
+        assert!(
+            !telegram_message_properties.contains_key("from_user_telegram_id"),
+            "legacy from_user_telegram_id field should be removed"
+        );
+
+        let venear_voting_power_properties = schemas
+            .get("VenearDelegateVotingPowerEventDto")
+            .and_then(|s| s.get("properties"))
+            .and_then(|p| p.as_object())
+            .expect("VenearDelegateVotingPowerEventDto properties");
+        assert!(
+            venear_voting_power_properties.contains_key("account_id"),
+            "delegate voting power events should expose scoped account_id"
+        );
+
+        let venear_delegation_properties = schemas
+            .get("VenearDelegationEventDto")
+            .and_then(|s| s.get("properties"))
+            .and_then(|p| p.as_object())
+            .expect("VenearDelegationEventDto properties");
+        assert!(
+            venear_delegation_properties.contains_key("account_id"),
+            "delegation events should expose scoped account_id"
+        );
+
+        let telegram_messages_parameters = paths
+            .get("/api/v1/telegram/channels/{channel_telegram_id}/messages")
+            .and_then(|path| path.get("get"))
+            .and_then(|op| op.get("parameters"))
+            .and_then(|params| params.as_array())
+            .expect("telegram messages parameters");
+        assert!(
+            telegram_messages_parameters
+                .iter()
+                .any(|param| param.get("name").and_then(|v| v.as_str()) == Some("user_telegram_id")),
+            "telegram messages query should expose user_telegram_id"
+        );
+        assert!(
+            !telegram_messages_parameters.iter().any(|param| {
+                param.get("name").and_then(|v| v.as_str()) == Some("from_user_telegram_id")
+            }),
+            "legacy from_user_telegram_id query parameter should be removed"
+        );
     }
 
     #[test]

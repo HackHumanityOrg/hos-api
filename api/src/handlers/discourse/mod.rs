@@ -599,8 +599,8 @@ pub async fn list_post_likes(
             .into_iter()
             .map(|row| DiscoursePostLikeDto {
                 instance: row.instance,
-                external_post_id: row.external_post_id,
-                external_user_id: row.external_user_id,
+                post_id: row.external_post_id,
+                user_id: row.external_user_id,
                 username: usernames.get(&row.external_user_id).cloned(),
                 created_at: to_rfc3339(row.created_at),
             })
@@ -1132,7 +1132,7 @@ fn is_coverage_check_key(key: &str) -> bool {
 
 fn to_instance_dto(row: discourse_instances::Model) -> DiscourseInstanceDto {
     DiscourseInstanceDto {
-        key: row.key,
+        instance: row.key,
         base_url: row.base_url,
         enabled: row.enabled,
         created_at: row.created_at.map(to_rfc3339),
@@ -1143,7 +1143,7 @@ fn to_instance_dto(row: discourse_instances::Model) -> DiscourseInstanceDto {
 fn to_category_dto(row: discourse_categories::Model) -> DiscourseCategoryDto {
     DiscourseCategoryDto {
         instance: row.instance,
-        external_id: row.external_id,
+        category_id: row.external_id,
         name: row.name,
         color: row.color,
         text_color: row.text_color,
@@ -1166,7 +1166,7 @@ fn to_category_dto(row: discourse_categories::Model) -> DiscourseCategoryDto {
 fn to_topic_dto(row: discourse_topics::Model) -> DiscourseTopicDto {
     DiscourseTopicDto {
         instance: row.instance,
-        external_id: row.external_id,
+        topic_id: row.external_id,
         title: row.title,
         fancy_title: row.fancy_title,
         slug: row.slug,
@@ -1192,7 +1192,7 @@ fn to_topic_dto(row: discourse_topics::Model) -> DiscourseTopicDto {
 fn to_post_dto(row: discourse_posts::Model) -> DiscoursePostDto {
     DiscoursePostDto {
         instance: row.instance,
-        external_id: row.external_id,
+        post_id: row.external_id,
         name: row.name,
         username: row.username,
         created_at: to_rfc3339(row.created_at),
@@ -1225,7 +1225,7 @@ fn to_post_dto(row: discourse_posts::Model) -> DiscoursePostDto {
 fn to_user_dto(row: discourse_users::Model) -> DiscourseUserDto {
     DiscourseUserDto {
         instance: row.instance,
-        external_id: row.external_id,
+        user_id: row.external_id,
         username: row.username,
         name: row.name,
         avatar_template: row.avatar_template,
@@ -1244,7 +1244,7 @@ fn to_user_dto(row: discourse_users::Model) -> DiscourseUserDto {
 fn to_revision_dto(row: discourse_post_revisions::Model) -> DiscoursePostRevisionDto {
     DiscoursePostRevisionDto {
         instance: row.instance,
-        external_post_id: row.external_post_id,
+        post_id: row.external_post_id,
         version: row.version,
         created_at: to_rfc3339(row.created_at),
         username: row.username,
