@@ -1,4 +1,4 @@
-//! veNEAR governance read API handlers.
+//! Ergonomic veNEAR governance read API handlers.
 
 use crate::{errors::ApiErrorResponse, state::AppState, types::*};
 use axum::{
@@ -6,11 +6,12 @@ use axum::{
     Json,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, QueryResult, Statement, Value,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -24,16 +25,21 @@ struct HeightIdCursor {
     id: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct DelegateCursor {
+    account_id: String,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals",
-    summary = "List latest state per proposal",
-    description = "Returns one latest-event snapshot per proposal from the indexed proposal event stream, ordered by proposal id descending with cursor pagination.",
+    summary = "List veNEAR proposals",
+    description = "Returns one latest-state projection per proposal, ordered by proposal id descending.",
     params(CursorPaginationQuery),
     tag = "venear",
     operation_id = "listVenearProposals",
     responses(
-        (status = 200, description = "Latest event state for each proposal", body = VenearProposalsListResponse),
+        (status = 200, description = "Latest proposal states", body = VenearProposalsListResponse),
         (status = 400, description = "Invalid request", body = crate::errors::ApiError),
         (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
     )
@@ -45,41 +51,89 @@ pub async fn list_proposals(
     let db = require_db(&app_state)?;
     let limit = resolve_limit(query.limit);
 
-    let proposal_cursor = match query.cursor.as_deref() {
-        Some(cursor) => Some(decode_cursor::<ProposalCursor>(cursor)?.proposal_id),
-        None => None,
-    };
+    let proposal_cursor = query
+        .cursor
+        .as_deref()
+        .map(decode_cursor::<ProposalCursor>)
+        .transpose()?
+        .map(|cursor| cursor.proposal_id);
 
     let rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "
-            SELECT DISTINCT ON (proposal_id)
-                id,
-                proposal_id,
-                event_type,
-                account_id,
-                proposer_id,
-                reviewer_id,
-                voting_start_time_sec,
-                snapshot_block_height,
-                snapshot_root,
-                snapshot_total_venear,
-                metadata,
-                payload,
-                block_height,
-                block_timestamp,
-                shard_id,
-                receipt_id,
-                execution_outcome_id,
-                predecessor_account_id,
-                contract_id,
-                log_index,
-                data_index,
-                created_at
-            FROM near.near_venear_proposal_events
-            WHERE ($1::bigint IS NULL OR proposal_id < $1::bigint)
-            ORDER BY proposal_id DESC, block_height DESC, id DESC
+            WITH latest AS (
+                SELECT DISTINCT ON (proposal_id)
+                    id,
+                    proposal_id,
+                    event_type,
+                    account_id,
+                    proposer_id,
+                    reviewer_id,
+                    voting_start_time_sec,
+                    snapshot_block_height,
+                    snapshot_root,
+                    snapshot_total_venear,
+                    metadata,
+                    payload,
+                    block_height,
+                    block_timestamp,
+                    receipt_id,
+                    execution_outcome_id
+                FROM near.near_venear_proposal_events
+                WHERE ($1::bigint IS NULL OR proposal_id < $1::bigint)
+                ORDER BY proposal_id DESC, block_height DESC, id DESC
+            )
+            SELECT
+                l.id,
+                l.proposal_id,
+                l.event_type,
+                l.account_id,
+                l.proposer_id,
+                l.reviewer_id,
+                l.voting_start_time_sec,
+                l.snapshot_block_height,
+                l.snapshot_root,
+                l.snapshot_total_venear,
+                l.metadata,
+                l.payload,
+                l.block_height,
+                l.block_timestamp,
+                l.receipt_id,
+                l.execution_outcome_id,
+                c.proposer_id AS create_proposer_id,
+                c.metadata AS create_metadata,
+                c.block_timestamp AS created_block_timestamp,
+                COALESCE(v.effective_votes_count, 0)::bigint AS effective_votes_count,
+                COALESCE(v.effective_votes_voting_power, '0')::text AS effective_votes_voting_power
+            FROM latest l
+            LEFT JOIN LATERAL (
+                SELECT
+                    proposer_id,
+                    metadata,
+                    block_timestamp
+                FROM near.near_venear_proposal_events p
+                WHERE p.proposal_id = l.proposal_id
+                  AND p.event_type = 'create_proposal'
+                ORDER BY p.block_height ASC, p.id ASC
+                LIMIT 1
+            ) c ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*)::bigint AS effective_votes_count,
+                    COALESCE(SUM((vv.account_balance)::numeric), 0)::text AS effective_votes_voting_power
+                FROM (
+                    SELECT DISTINCT ON (account_id)
+                        account_id,
+                        event_type,
+                        account_balance
+                    FROM near.near_venear_votes
+                    WHERE proposal_id = l.proposal_id
+                    ORDER BY account_id, block_height DESC, log_index DESC, data_index DESC, id DESC
+                ) vv
+                WHERE vv.event_type = 'add_vote'
+            ) v ON TRUE
+            ORDER BY l.proposal_id DESC
             LIMIT $2
             ",
             vec![
@@ -92,7 +146,7 @@ pub async fn list_proposals(
 
     let mut data = rows
         .iter()
-        .map(to_latest_proposal_dto)
+        .map(to_proposal_summary_dto)
         .collect::<Result<Vec<_>, _>>()?;
 
     let has_more = data.len() > limit as usize;
@@ -118,9 +172,128 @@ pub async fn list_proposals(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/venear/proposals/{proposal_id}",
+    summary = "Get one veNEAR proposal",
+    description = "Returns the latest proposal view with vote aggregates and latest event metadata.",
+    params(("proposal_id" = i64, Path, description = "Proposal id")),
+    tag = "venear",
+    operation_id = "getVenearProposal",
+    responses(
+        (status = 200, description = "Proposal detail", body = VenearProposalDto),
+        (status = 404, description = "Proposal not found", body = crate::errors::ApiError),
+        (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
+    )
+)]
+pub async fn get_proposal(
+    State(app_state): State<AppState>,
+    Path(proposal_id): Path<i64>,
+) -> Result<Json<VenearProposalDto>, ApiErrorResponse> {
+    let db = require_db(&app_state)?;
+
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "
+            SELECT
+                l.id,
+                l.proposal_id,
+                l.event_type,
+                l.account_id,
+                l.proposer_id,
+                l.reviewer_id,
+                l.voting_start_time_sec,
+                l.snapshot_block_height,
+                l.snapshot_root,
+                l.snapshot_total_venear,
+                l.metadata,
+                l.payload,
+                l.block_height,
+                l.block_timestamp,
+                l.receipt_id,
+                l.execution_outcome_id,
+                c.proposer_id AS create_proposer_id,
+                c.metadata AS create_metadata,
+                c.block_timestamp AS created_block_timestamp,
+                COALESCE(v.effective_votes_count, 0)::bigint AS effective_votes_count,
+                COALESCE(v.effective_votes_voting_power, '0')::text AS effective_votes_voting_power
+            FROM near.near_venear_proposal_events l
+            LEFT JOIN LATERAL (
+                SELECT
+                    proposer_id,
+                    metadata,
+                    block_timestamp
+                FROM near.near_venear_proposal_events p
+                WHERE p.proposal_id = l.proposal_id
+                  AND p.event_type = 'create_proposal'
+                ORDER BY p.block_height ASC, p.id ASC
+                LIMIT 1
+            ) c ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*)::bigint AS effective_votes_count,
+                    COALESCE(SUM((vv.account_balance)::numeric), 0)::text AS effective_votes_voting_power
+                FROM (
+                    SELECT DISTINCT ON (account_id)
+                        account_id,
+                        event_type,
+                        account_balance
+                    FROM near.near_venear_votes
+                    WHERE proposal_id = l.proposal_id
+                    ORDER BY account_id, block_height DESC, log_index DESC, data_index DESC, id DESC
+                ) vv
+                WHERE vv.event_type = 'add_vote'
+            ) v ON TRUE
+            WHERE l.proposal_id = $1
+            ORDER BY l.block_height DESC, l.id DESC
+            LIMIT 1
+            ",
+            vec![proposal_id.into()],
+        ))
+        .await
+        .map_err(ApiErrorResponse::from)?
+        .ok_or_else(|| ApiErrorResponse::not_found("Proposal not found"))?;
+
+    let summary = to_proposal_summary_dto(&row)?;
+    let vote_aggregates =
+        fetch_vote_aggregates(db.as_ref(), proposal_id, &summary.voting_options).await?;
+
+    Ok(Json(VenearProposalDto {
+        proposal_id: summary.proposal_id,
+        title: summary.title,
+        description: summary.description,
+        link: summary.link,
+        voting_options: summary.voting_options,
+        status: summary.status,
+        proposer_id: summary.proposer_id,
+        reviewer_id: summary.reviewer_id,
+        created_at: summary.created_at,
+        voting_start_at: summary.voting_start_at,
+        voting_end_at: summary.voting_end_at,
+        snapshot_block_height: summary.snapshot_block_height,
+        snapshot_root: summary.snapshot_root,
+        snapshot_total_venear: summary.snapshot_total_venear,
+        effective_votes_count: summary.effective_votes_count,
+        effective_votes_voting_power: summary.effective_votes_voting_power,
+        vote_aggregates,
+        latest_event: VenearProposalLatestEventDto {
+            event_type: summary.latest_event_type,
+            block_height: summary.latest_block_height,
+            block_timestamp: summary.latest_block_timestamp,
+            receipt_id: decode_row_col::<String>(&row, "receipt_id", "proposal")?,
+            execution_outcome_id: decode_row_col::<String>(
+                &row,
+                "execution_outcome_id",
+                "proposal",
+            )?,
+        },
+    }))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/venear/proposals/{proposal_id}/events",
-    summary = "List all events for a proposal",
-    description = "Returns the full indexed event stream for a proposal, ordered by block height and row id descending with cursor pagination.",
+    summary = "List proposal events",
+    description = "Returns proposal events ordered by block height and row id descending.",
     params(
         ("proposal_id" = i64, Path, description = "Proposal id"),
         CursorPaginationQuery
@@ -128,7 +301,7 @@ pub async fn list_proposals(
     tag = "venear",
     operation_id = "listVenearProposalEvents",
     responses(
-        (status = 200, description = "Proposal event rows", body = VenearProposalEventsListResponse),
+        (status = 200, description = "Proposal events", body = VenearProposalEventsListResponse),
         (status = 400, description = "Invalid request", body = crate::errors::ApiError),
         (status = 404, description = "Proposal not found", body = crate::errors::ApiError),
         (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
@@ -168,14 +341,8 @@ pub async fn list_proposal_events(
                 payload,
                 block_height,
                 block_timestamp,
-                shard_id,
                 receipt_id,
-                execution_outcome_id,
-                predecessor_account_id,
-                contract_id,
-                log_index,
-                data_index,
-                created_at
+                execution_outcome_id
             FROM near.near_venear_proposal_events
             WHERE proposal_id = $1
               AND (
@@ -226,8 +393,8 @@ pub async fn list_proposal_events(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals/{proposal_id}/votes",
-    summary = "List votes for a proposal",
-    description = "Returns indexed vote rows for a proposal, ordered by block height and row id descending with cursor pagination.",
+    summary = "List effective proposal votes",
+    description = "Returns one latest effective vote per voter for the proposal, ordered by block height and row id descending.",
     params(
         ("proposal_id" = i64, Path, description = "Proposal id"),
         CursorPaginationQuery
@@ -235,7 +402,7 @@ pub async fn list_proposal_events(
     tag = "venear",
     operation_id = "listVenearProposalVotes",
     responses(
-        (status = 200, description = "Proposal votes", body = VenearVotesListResponse),
+        (status = 200, description = "Effective proposal votes", body = VenearVotesListResponse),
         (status = 400, description = "Invalid request", body = crate::errors::ApiError),
         (status = 404, description = "Proposal not found", body = crate::errors::ApiError),
         (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
@@ -256,30 +423,39 @@ pub async fn list_proposal_votes(
         .map(decode_cursor::<HeightIdCursor>)
         .transpose()?;
 
+    let voting_options = fetch_proposal_voting_options(db.as_ref(), proposal_id).await?;
+
     let rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "
+            WITH latest_votes AS (
+                SELECT DISTINCT ON (account_id)
+                    id,
+                    account_id,
+                    vote,
+                    account_balance,
+                    event_type,
+                    block_height,
+                    block_timestamp,
+                    receipt_id,
+                    execution_outcome_id
+                FROM near.near_venear_votes
+                WHERE proposal_id = $1
+                ORDER BY account_id, block_height DESC, log_index DESC, data_index DESC, id DESC
+            )
             SELECT
                 id,
-                proposal_id,
                 account_id,
                 vote,
                 account_balance,
                 event_type,
-                payload,
                 block_height,
                 block_timestamp,
-                shard_id,
                 receipt_id,
-                execution_outcome_id,
-                predecessor_account_id,
-                contract_id,
-                log_index,
-                data_index,
-                created_at
-            FROM near.near_venear_votes
-            WHERE proposal_id = $1
+                execution_outcome_id
+            FROM latest_votes
+            WHERE event_type = 'add_vote'
               AND (
                 $2::bigint IS NULL
                 OR block_height < $2::bigint
@@ -300,7 +476,7 @@ pub async fn list_proposal_votes(
 
     let mut data = rows
         .iter()
-        .map(to_vote_dto)
+        .map(|row| to_effective_vote_dto(row, proposal_id, &voting_options))
         .collect::<Result<Vec<_>, _>>()?;
 
     let has_more = data.len() > limit as usize;
@@ -327,29 +503,190 @@ pub async fn list_proposal_votes(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/venear/accounts/{account_id}/balances",
-    summary = "List veNEAR balances for an account",
-    description = "Returns balance mutation rows for a governance account, including deltas and totals, ordered by block height and row id descending.",
-    params(
-        ("account_id" = String, Path, description = "NEAR account id"),
-        CursorPaginationQuery
-    ),
+    path = "/api/v1/venear/delegates",
+    summary = "List delegates",
+    description = "Returns possible voters with own, delegated, and total voting power, ordered by account id ascending.",
+    params(CursorPaginationQuery),
     tag = "venear",
-    operation_id = "listVenearAccountBalances",
+    operation_id = "listVenearDelegates",
     responses(
-        (status = 200, description = "veNEAR balance rows for account", body = VenearAccountBalancesListResponse),
+        (status = 200, description = "Delegate rows", body = VenearDelegatesListResponse),
         (status = 400, description = "Invalid request", body = crate::errors::ApiError),
-        (status = 404, description = "Account not found", body = crate::errors::ApiError),
         (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
     )
 )]
-pub async fn list_account_balances(
+pub async fn list_delegates(
+    State(app_state): State<AppState>,
+    Query(query): Query<CursorPaginationQuery>,
+) -> Result<Json<VenearDelegatesListResponse>, ApiErrorResponse> {
+    let db = require_db(&app_state)?;
+    let limit = resolve_limit(query.limit);
+
+    let delegate_cursor = query
+        .cursor
+        .as_deref()
+        .map(decode_cursor::<DelegateCursor>)
+        .transpose()?
+        .map(|cursor| cursor.account_id);
+
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "
+            WITH latest_balances AS (
+                SELECT DISTINCT ON (account_id)
+                    account_id,
+                    total_balance,
+                    block_timestamp
+                FROM near.near_venear_account_balances
+                ORDER BY account_id, block_height DESC, log_index DESC, data_index DESC, id DESC
+            ),
+            latest_delegations AS (
+                SELECT DISTINCT ON (delegator_account_id)
+                    delegator_account_id,
+                    delegatee_account_id,
+                    event_type,
+                    block_timestamp
+                FROM near.near_venear_delegation_events
+                WHERE event_type IN ('delegate_all', 'undelegate')
+                  AND success = true
+                ORDER BY delegator_account_id, block_height DESC, id DESC
+            ),
+            active_delegations AS (
+                SELECT
+                    delegator_account_id,
+                    delegatee_account_id,
+                    block_timestamp
+                FROM latest_delegations
+                WHERE event_type = 'delegate_all'
+                  AND delegatee_account_id IS NOT NULL
+            ),
+            delegated_in AS (
+                SELECT
+                    ad.delegatee_account_id AS account_id,
+                    COUNT(*)::bigint AS delegators_count,
+                    COALESCE(SUM(COALESCE(lb.total_balance, '0')::numeric), 0)::text AS delegated_voting_power,
+                    MAX(ad.block_timestamp)::bigint AS latest_inbound_ts
+                FROM active_delegations ad
+                LEFT JOIN latest_balances lb ON lb.account_id = ad.delegator_account_id
+                GROUP BY ad.delegatee_account_id
+            ),
+            latest_votes AS (
+                SELECT
+                    account_id,
+                    MAX(block_timestamp)::bigint AS last_vote_ts
+                FROM near.near_venear_votes
+                WHERE event_type = 'add_vote'
+                GROUP BY account_id
+            ),
+            universe AS (
+                SELECT account_id FROM latest_balances
+                UNION
+                SELECT delegatee_account_id AS account_id FROM active_delegations
+                UNION
+                SELECT delegator_account_id AS account_id FROM active_delegations
+            ),
+            computed AS (
+                SELECT
+                    u.account_id,
+                    COALESCE(lb.total_balance, '0') AS own_voting_power,
+                    COALESCE(di.delegated_voting_power, '0') AS delegated_voting_power,
+                    CASE
+                        WHEN ao.delegator_account_id IS NOT NULL
+                            THEN COALESCE(di.delegated_voting_power, '0')::numeric
+                        ELSE COALESCE(lb.total_balance, '0')::numeric + COALESCE(di.delegated_voting_power, '0')::numeric
+                    END AS total_voting_power_num,
+                    COALESCE(di.delegators_count, 0)::bigint AS delegators_count,
+                    ao.delegatee_account_id AS delegated_to_account_id,
+                    (di.account_id IS NOT NULL) AS has_inbound_delegation,
+                    (ao.delegator_account_id IS NOT NULL) AS has_outbound_delegation,
+                    lv.last_vote_ts,
+                    GREATEST(
+                        COALESCE(lb.block_timestamp, 0),
+                        COALESCE(di.latest_inbound_ts, 0),
+                        COALESCE(ao.block_timestamp, 0),
+                        COALESCE(lv.last_vote_ts, 0)
+                    )::bigint AS updated_ts
+                FROM universe u
+                LEFT JOIN latest_balances lb ON lb.account_id = u.account_id
+                LEFT JOIN delegated_in di ON di.account_id = u.account_id
+                LEFT JOIN active_delegations ao ON ao.delegator_account_id = u.account_id
+                LEFT JOIN latest_votes lv ON lv.account_id = u.account_id
+            )
+            SELECT
+                account_id,
+                own_voting_power,
+                delegated_voting_power,
+                total_voting_power_num::text AS total_voting_power,
+                delegators_count,
+                delegated_to_account_id,
+                has_inbound_delegation,
+                has_outbound_delegation,
+                last_vote_ts,
+                updated_ts
+            FROM computed
+            WHERE total_voting_power_num > 0
+              AND ($1::text IS NULL OR account_id > $1::text)
+            ORDER BY account_id ASC
+            LIMIT $2
+            ",
+            vec![
+                delegate_cursor.into(),
+                i64::try_from(limit + 1).unwrap_or(101).into(),
+            ],
+        ))
+        .await
+        .map_err(ApiErrorResponse::from)?;
+
+    let mut data = rows
+        .iter()
+        .map(to_delegate_dto)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let has_more = data.len() > limit as usize;
+    if has_more {
+        data.pop();
+    }
+
+    let next_cursor = data
+        .last()
+        .map(|row| {
+            encode_cursor(&DelegateCursor {
+                account_id: row.account_id.clone(),
+            })
+        })
+        .transpose()?;
+
+    Ok(Json(VenearDelegatesListResponse {
+        data,
+        next_cursor,
+        has_more,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/venear/delegates/{account_id}/voting-power",
+    summary = "List voting power history for a delegate",
+    description = "Returns voting power mutations for the given delegate/voter account.",
+    params(
+        ("account_id" = String, Path, description = "Delegate account id"),
+        CursorPaginationQuery
+    ),
+    tag = "venear",
+    operation_id = "listVenearDelegateVotingPower",
+    responses(
+        (status = 200, description = "Voting power history", body = VenearDelegateVotingPowerEventsListResponse),
+        (status = 400, description = "Invalid request", body = crate::errors::ApiError),
+        (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
+    )
+)]
+pub async fn list_delegate_voting_power(
     State(app_state): State<AppState>,
     Path(account_id): Path<String>,
     Query(query): Query<CursorPaginationQuery>,
-) -> Result<Json<VenearAccountBalancesListResponse>, ApiErrorResponse> {
+) -> Result<Json<VenearDelegateVotingPowerEventsListResponse>, ApiErrorResponse> {
     let db = require_db(&app_state)?;
-    ensure_account_balance_exists(db.as_ref(), &account_id).await?;
     let limit = resolve_limit(query.limit);
 
     let cursor = query
@@ -363,37 +700,32 @@ pub async fn list_account_balances(
             DatabaseBackend::Postgres,
             "
             SELECT
-                id,
-                account_id,
-                event_type,
-                delta_amount,
-                total_balance,
-                locked_near_balance,
-                lockup_update_nonce,
-                lockup_version,
-                block_height,
-                block_timestamp,
-                shard_id,
-                receipt_id,
-                execution_outcome_id,
-                predecessor_account_id,
-                contract_id,
-                log_index,
-                data_index,
-                payload,
-                created_at
-            FROM near.near_venear_account_balances
-            WHERE account_id = $1
+                vp.id,
+                vp.event_type,
+                vp.proposal_id,
+                vp.voting_power,
+                vp.delta_voting_power,
+                vp.block_height,
+                vp.block_timestamp,
+                vp.receipt_id,
+                vp.execution_outcome_id,
+                d.event_type AS delegation_event_type,
+                d.delegator_account_id AS delegation_delegator_account_id
+            FROM near.near_venear_account_voting_power_events vp
+            LEFT JOIN near.near_venear_delegation_events d
+                ON d.receipt_id = vp.receipt_id
+                AND d.success = true
+            WHERE vp.account_id = $1
               AND (
                 $2::bigint IS NULL
-                OR block_height < $2::bigint
-                OR (block_height = $2::bigint AND id < $3::bigint)
+                OR vp.block_height < $2::bigint
+                OR (vp.block_height = $2::bigint AND vp.id < $3::bigint)
               )
-            ORDER BY block_height DESC, id DESC
+            ORDER BY vp.block_height DESC, vp.id DESC
             LIMIT $4
             ",
             vec![
-                account_id.into(),
+                account_id.clone().into(),
                 cursor.as_ref().map(|value| value.block_height).into(),
                 cursor.as_ref().map(|value| value.id).into(),
                 i64::try_from(limit + 1).unwrap_or(101).into(),
@@ -404,7 +736,7 @@ pub async fn list_account_balances(
 
     let mut data = rows
         .iter()
-        .map(to_account_balance_dto)
+        .map(|row| to_delegate_voting_power_dto(row, &account_id))
         .collect::<Result<Vec<_>, _>>()?;
 
     let has_more = data.len() > limit as usize;
@@ -422,7 +754,7 @@ pub async fn list_account_balances(
         })
         .transpose()?;
 
-    Ok(Json(VenearAccountBalancesListResponse {
+    Ok(Json(VenearDelegateVotingPowerEventsListResponse {
         data,
         next_cursor,
         has_more,
@@ -431,29 +763,27 @@ pub async fn list_account_balances(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/venear/accounts/{account_id}/delegations",
-    summary = "List veNEAR delegation actions for an account",
-    description = "Returns delegation action rows where the account appears as delegator or delegatee, ordered by block height and row id descending.",
+    path = "/api/v1/venear/delegates/{account_id}/delegations",
+    summary = "List delegation events for a delegate",
+    description = "Returns delegation events where the account appears as delegator or delegatee, with delegatee inference for undelegate events when possible.",
     params(
-        ("account_id" = String, Path, description = "NEAR account id"),
-        VenearDelegationEventsQuery
+        ("account_id" = String, Path, description = "Delegate account id"),
+        CursorPaginationQuery
     ),
     tag = "venear",
-    operation_id = "listVenearAccountDelegations",
+    operation_id = "listVenearDelegateDelegations",
     responses(
-        (status = 200, description = "veNEAR delegation rows for account", body = VenearDelegationEventsListResponse),
+        (status = 200, description = "Delegation events", body = VenearDelegationEventsListResponse),
         (status = 400, description = "Invalid request", body = crate::errors::ApiError),
-        (status = 404, description = "Account not found", body = crate::errors::ApiError),
         (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
     )
 )]
-pub async fn list_account_delegations(
+pub async fn list_delegate_delegations(
     State(app_state): State<AppState>,
     Path(account_id): Path<String>,
-    Query(query): Query<VenearDelegationEventsQuery>,
+    Query(query): Query<CursorPaginationQuery>,
 ) -> Result<Json<VenearDelegationEventsListResponse>, ApiErrorResponse> {
     let db = require_db(&app_state)?;
-    ensure_delegation_account_exists(db.as_ref(), &account_id).await?;
     let limit = resolve_limit(query.limit);
 
     let cursor = query
@@ -462,53 +792,66 @@ pub async fn list_account_delegations(
         .map(decode_cursor::<HeightIdCursor>)
         .transpose()?;
 
-    let event_type = query
-        .event_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string);
-
     let rows = db
         .query_all(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "
+            WITH events AS (
+                SELECT
+                    e.id,
+                    e.delegator_account_id,
+                    e.delegatee_account_id,
+                    e.event_type,
+                    e.success,
+                    e.block_height,
+                    e.block_timestamp,
+                    e.transaction_hash,
+                    e.receipt_id,
+                    e.execution_outcome_id,
+                    prev.delegatee_account_id AS inferred_delegatee_account_id
+                FROM near.near_venear_delegation_events e
+                LEFT JOIN LATERAL (
+                    SELECT p.delegatee_account_id
+                    FROM near.near_venear_delegation_events p
+                    WHERE p.delegator_account_id = e.delegator_account_id
+                      AND p.event_type = 'delegate_all'
+                      AND p.success = true
+                      AND (
+                        p.block_height < e.block_height
+                        OR (p.block_height = e.block_height AND p.id < e.id)
+                      )
+                    ORDER BY p.block_height DESC, p.id DESC
+                    LIMIT 1
+                ) prev ON TRUE
+            )
             SELECT
                 id,
                 delegator_account_id,
                 delegatee_account_id,
                 event_type,
-                action_source,
-                action_index,
-                args_json,
-                args_base64,
-                attached_deposit,
-                transaction_hash,
-                receipt_id,
-                execution_outcome_id,
                 success,
                 block_height,
                 block_timestamp,
-                shard_id,
-                contract_id,
-                metadata,
-                created_at
-            FROM near.near_venear_delegation_events
-            WHERE (delegator_account_id = $1 OR delegatee_account_id = $1)
-              AND ($2::text IS NULL OR event_type = $2)
-              AND ($3::boolean IS NULL OR success = $3::boolean)
+                transaction_hash,
+                receipt_id,
+                execution_outcome_id,
+                COALESCE(delegatee_account_id, CASE WHEN event_type = 'undelegate' THEN inferred_delegatee_account_id END) AS resolved_delegatee_account_id,
+                (delegatee_account_id IS NULL AND event_type = 'undelegate' AND inferred_delegatee_account_id IS NOT NULL) AS delegatee_inferred
+            FROM events
+            WHERE (
+                delegator_account_id = $1
+                OR COALESCE(delegatee_account_id, CASE WHEN event_type = 'undelegate' THEN inferred_delegatee_account_id END) = $1
+            )
               AND (
-                $4::bigint IS NULL
-                OR block_height < $4::bigint
-                OR (block_height = $4::bigint AND id < $5::bigint)
+                $2::bigint IS NULL
+                OR block_height < $2::bigint
+                OR (block_height = $2::bigint AND id < $3::bigint)
               )
             ORDER BY block_height DESC, id DESC
-            LIMIT $6
+            LIMIT $4
             ",
             vec![
-                account_id.into(),
-                event_type.into(),
-                query.success.into(),
+                account_id.clone().into(),
                 cursor.as_ref().map(|value| value.block_height).into(),
                 cursor.as_ref().map(|value| value.id).into(),
                 i64::try_from(limit + 1).unwrap_or(101).into(),
@@ -519,7 +862,7 @@ pub async fn list_account_delegations(
 
     let mut data = rows
         .iter()
-        .map(to_delegation_event_dto)
+        .map(|row| to_delegation_event_dto(row, &account_id))
         .collect::<Result<Vec<_>, _>>()?;
 
     let has_more = data.len() > limit as usize;
@@ -544,260 +887,15 @@ pub async fn list_account_delegations(
     }))
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/v1/venear/lockups",
-    summary = "List lockup lifecycle events",
-    description = "Returns append-only veNEAR lockup lifecycle metadata with optional lockup-account, owner, event-type, and success filters.",
-    params(VenearLockupsQuery),
-    tag = "venear",
-    operation_id = "listVenearLockups",
-    responses(
-        (status = 200, description = "veNEAR lockup lifecycle event rows", body = VenearLockupsListResponse),
-        (status = 400, description = "Invalid request", body = crate::errors::ApiError),
-        (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
-    )
-)]
-pub async fn list_lockups(
-    State(app_state): State<AppState>,
-    Query(query): Query<VenearLockupsQuery>,
-) -> Result<Json<VenearLockupsListResponse>, ApiErrorResponse> {
-    let db = require_db(&app_state)?;
-    let limit = resolve_limit(query.limit);
-
-    let lockup_account_id = query
-        .lockup_account_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string);
-
-    let owner_account_id = query
-        .owner_account_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string);
-
-    let event_type = query
-        .event_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string);
-
-    let lockup_cursor = query
-        .cursor
-        .as_deref()
-        .map(decode_cursor::<HeightIdCursor>)
-        .transpose()?;
-
-    let rows = db
-        .query_all(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "
-            SELECT
-                id,
-                lockup_account_id,
-                owner_account_id,
-                event_type,
-                lockup_version,
-                lockup_update_nonce,
-                locked_near_balance,
-                action_source,
-                transaction_hash,
-                receipt_id,
-                execution_outcome_id,
-                predecessor_account_id,
-                contract_id,
-                success,
-                block_height,
-                block_timestamp,
-                shard_id,
-                log_index,
-                data_index,
-                payload,
-                created_at
-            FROM near.near_venear_lockup_events
-            WHERE ($1::text IS NULL OR lockup_account_id = $1::text)
-              AND ($2::text IS NULL OR owner_account_id = $2::text)
-              AND ($3::text IS NULL OR event_type = $3::text)
-              AND ($4::boolean IS NULL OR success = $4::boolean)
-              AND (
-                $5::bigint IS NULL
-                OR block_height < $5::bigint
-                OR (block_height = $5::bigint AND id < $6::bigint)
-              )
-            ORDER BY block_height DESC, id DESC
-            LIMIT $7
-            ",
-            vec![
-                lockup_account_id.into(),
-                owner_account_id.into(),
-                event_type.into(),
-                query.success.into(),
-                lockup_cursor
-                    .as_ref()
-                    .map(|value| value.block_height)
-                    .into(),
-                lockup_cursor.as_ref().map(|value| value.id).into(),
-                i64::try_from(limit + 1).unwrap_or(101).into(),
-            ],
-        ))
-        .await
-        .map_err(ApiErrorResponse::from)?;
-
-    let mut data = rows
-        .iter()
-        .map(to_lockup_dto)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let has_more = data.len() > limit as usize;
-    if has_more {
-        data.pop();
-    }
-
-    let next_cursor = data
-        .last()
-        .map(|row| {
-            encode_cursor(&HeightIdCursor {
-                block_height: row.block_height,
-                id: row.id,
-            })
-        })
-        .transpose()?;
-
-    Ok(Json(VenearLockupsListResponse {
-        data,
-        next_cursor,
-        has_more,
-    }))
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/venear/lockups/{lockup_account_id}/actions",
-    summary = "List actions for a lockup account",
-    description = "Returns indexed lockup-contract actions for a lockup account, with optional method-name and success filters, ordered by block height and row id descending.",
-    params(
-        ("lockup_account_id" = String, Path, description = "Lockup account id"),
-        VenearLockupActionsQuery
-    ),
-    tag = "venear",
-    operation_id = "listVenearLockupActions",
-    responses(
-        (status = 200, description = "Actions associated with a lockup", body = VenearLockupActionsListResponse),
-        (status = 400, description = "Invalid request", body = crate::errors::ApiError),
-        (status = 404, description = "Lockup not found", body = crate::errors::ApiError),
-        (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
-    )
-)]
-pub async fn list_lockup_actions(
-    State(app_state): State<AppState>,
-    Path(lockup_account_id): Path<String>,
-    Query(query): Query<VenearLockupActionsQuery>,
-) -> Result<Json<VenearLockupActionsListResponse>, ApiErrorResponse> {
-    let db = require_db(&app_state)?;
-    ensure_lockup_exists(db.as_ref(), &lockup_account_id).await?;
-    let limit = resolve_limit(query.limit);
-
-    let method_name = query
-        .method_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string);
-
-    let cursor = query
-        .cursor
-        .as_deref()
-        .map(decode_cursor::<HeightIdCursor>)
-        .transpose()?;
-
-    let rows = db
-        .query_all(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "
-            SELECT
-                id,
-                lockup_account_id,
-                owner_account_id,
-                predecessor_account_id,
-                receiver_account_id,
-                method_name,
-                action_source,
-                action_index,
-                args_json,
-                args_base64,
-                attached_deposit,
-                transaction_hash,
-                receipt_id,
-                execution_outcome_id,
-                success,
-                block_height,
-                block_timestamp,
-                shard_id,
-                staking_pool_account_id,
-                metadata,
-                created_at
-            FROM near.near_venear_lockup_actions
-            WHERE lockup_account_id = $1
-              AND ($2::text IS NULL OR method_name = $2::text)
-              AND ($3::boolean IS NULL OR success = $3::boolean)
-              AND (
-                $4::bigint IS NULL
-                OR block_height < $4::bigint
-                OR (block_height = $4::bigint AND id < $5::bigint)
-              )
-            ORDER BY block_height DESC, id DESC
-            LIMIT $6
-            ",
-            vec![
-                lockup_account_id.into(),
-                method_name.into(),
-                query.success.into(),
-                cursor.as_ref().map(|value| value.block_height).into(),
-                cursor.as_ref().map(|value| value.id).into(),
-                i64::try_from(limit + 1).unwrap_or(101).into(),
-            ],
-        ))
-        .await
-        .map_err(ApiErrorResponse::from)?;
-
-    let mut data = rows
-        .iter()
-        .map(to_lockup_action_dto)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let has_more = data.len() > limit as usize;
-    if has_more {
-        data.pop();
-    }
-
-    let next_cursor = data
-        .last()
-        .map(|row| {
-            encode_cursor(&HeightIdCursor {
-                block_height: row.block_height,
-                id: row.id,
-            })
-        })
-        .transpose()?;
-
-    Ok(Json(VenearLockupActionsListResponse {
-        data,
-        next_cursor,
-        has_more,
-    }))
-}
-
 #[allow(clippy::result_large_err)]
-fn to_latest_proposal_dto(row: &QueryResult) -> Result<VenearProposalDto, ApiErrorResponse> {
-    let id = decode_row_col::<i64>(row, "id", "proposal")?;
+fn to_proposal_summary_dto(
+    row: &QueryResult,
+) -> Result<VenearProposalSummaryDto, ApiErrorResponse> {
     let proposal_id = decode_row_col::<i64>(row, "proposal_id", "proposal")?;
     let latest_event_type = decode_row_col::<String>(row, "event_type", "proposal")?;
-    let account_id = decode_row_col::<Option<String>>(row, "account_id", "proposal")?;
     let proposer_id = decode_row_col::<Option<String>>(row, "proposer_id", "proposal")?;
+    let create_proposer_id =
+        decode_row_col::<Option<String>>(row, "create_proposer_id", "proposal")?;
     let reviewer_id = decode_row_col::<Option<String>>(row, "reviewer_id", "proposal")?;
     let voting_start_time_sec =
         decode_row_col::<Option<i64>>(row, "voting_start_time_sec", "proposal")?;
@@ -806,46 +904,68 @@ fn to_latest_proposal_dto(row: &QueryResult) -> Result<VenearProposalDto, ApiErr
     let snapshot_root = decode_row_col::<Option<String>>(row, "snapshot_root", "proposal")?;
     let snapshot_total_venear =
         decode_row_col::<Option<String>>(row, "snapshot_total_venear", "proposal")?;
-    let metadata = decode_row_col::<Option<serde_json::Value>>(row, "metadata", "proposal")?;
-    let payload = decode_row_col::<Option<serde_json::Value>>(row, "payload", "proposal")?;
+    let metadata = decode_row_col::<Option<JsonValue>>(row, "metadata", "proposal")?;
+    let create_metadata = decode_row_col::<Option<JsonValue>>(row, "create_metadata", "proposal")?;
+    let payload = decode_row_col::<Option<JsonValue>>(row, "payload", "proposal")?;
     let block_height = decode_row_col::<i64>(row, "block_height", "proposal")?;
     let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "proposal")?;
-    let shard_id = decode_row_col::<i32>(row, "shard_id", "proposal")?;
-    let receipt_id = decode_row_col::<String>(row, "receipt_id", "proposal")?;
-    let execution_outcome_id = decode_row_col::<String>(row, "execution_outcome_id", "proposal")?;
-    let predecessor_account_id =
-        decode_row_col::<String>(row, "predecessor_account_id", "proposal")?;
-    let contract_id = decode_row_col::<String>(row, "contract_id", "proposal")?;
-    let log_index = decode_row_col::<i32>(row, "log_index", "proposal")?;
-    let data_index = decode_row_col::<i32>(row, "data_index", "proposal")?;
-    let created_at = decode_row_col::<NaiveDateTime>(row, "created_at", "proposal")?;
+    let created_block_timestamp_ns =
+        decode_row_col::<Option<i64>>(row, "created_block_timestamp", "proposal")?;
+    let effective_votes_count = decode_row_col::<i64>(row, "effective_votes_count", "proposal")?;
+    let effective_votes_voting_power =
+        decode_row_col::<String>(row, "effective_votes_voting_power", "proposal")?;
 
-    Ok(VenearProposalDto {
-        id,
+    let sources = metadata_sources(
+        metadata.as_ref(),
+        create_metadata.as_ref(),
+        payload.as_ref(),
+    );
+    let title = pick_string_from_sources(&sources, "title");
+    let description = pick_string_from_sources(&sources, "description");
+    let link = pick_string_from_sources(&sources, "link");
+    let voting_options = pick_voting_options_from_sources(&sources);
+
+    let voting_start_ns = proposal_voting_start_ns(payload.as_ref(), voting_start_time_sec);
+    let voting_duration_ns = proposal_voting_duration_ns(payload.as_ref());
+    let created_at_ns = proposal_created_at_ns(payload.as_ref(), created_block_timestamp_ns);
+
+    let voting_start_at = voting_start_ns.map(ns_to_rfc3339).transpose()?;
+    let voting_end_at = match (voting_start_ns, voting_duration_ns) {
+        (Some(start_ns), Some(duration_ns)) => start_ns
+            .checked_add(duration_ns)
+            .map(ns_to_rfc3339)
+            .transpose()?,
+        _ => None,
+    };
+
+    let status = derive_proposal_status(
+        &latest_event_type,
+        metadata.as_ref(),
+        payload.as_ref(),
+        voting_start_ns,
+        voting_duration_ns,
+    );
+
+    Ok(VenearProposalSummaryDto {
         proposal_id,
-        latest_event_type,
-        account_id,
-        proposer_id,
+        title,
+        description,
+        link,
+        voting_options,
+        status,
+        proposer_id: proposer_id.or(create_proposer_id),
         reviewer_id,
-        voting_start_time_sec,
-        voting_start_time: voting_start_time_sec.map(sec_to_rfc3339).transpose()?,
+        created_at: created_at_ns.map(ns_to_rfc3339).transpose()?,
+        voting_start_at,
+        voting_end_at,
         snapshot_block_height,
         snapshot_root,
         snapshot_total_venear,
-        metadata,
-        payload,
-        block_height,
-        block_timestamp_ns,
-        block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
-        shard_id,
-        receipt_id,
-        execution_outcome_id,
-        predecessor_account_id,
-        contract_id,
-        log_index,
-        data_index,
-        created_at: naive_to_rfc3339(created_at),
-        created_at_epoch: naive_to_epoch(created_at),
+        effective_votes_count,
+        effective_votes_voting_power,
+        latest_event_type,
+        latest_block_height: block_height,
+        latest_block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
     })
 }
 
@@ -864,318 +984,305 @@ fn to_proposal_event_dto(row: &QueryResult) -> Result<VenearProposalEventDto, Ap
     let snapshot_root = decode_row_col::<Option<String>>(row, "snapshot_root", "proposal event")?;
     let snapshot_total_venear =
         decode_row_col::<Option<String>>(row, "snapshot_total_venear", "proposal event")?;
-    let metadata = decode_row_col::<Option<serde_json::Value>>(row, "metadata", "proposal event")?;
-    let payload = decode_row_col::<Option<serde_json::Value>>(row, "payload", "proposal event")?;
+    let metadata = decode_row_col::<Option<JsonValue>>(row, "metadata", "proposal event")?;
+    let payload = decode_row_col::<Option<JsonValue>>(row, "payload", "proposal event")?;
     let block_height = decode_row_col::<i64>(row, "block_height", "proposal event")?;
     let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "proposal event")?;
-    let shard_id = decode_row_col::<i32>(row, "shard_id", "proposal event")?;
     let receipt_id = decode_row_col::<String>(row, "receipt_id", "proposal event")?;
     let execution_outcome_id =
         decode_row_col::<String>(row, "execution_outcome_id", "proposal event")?;
-    let predecessor_account_id =
-        decode_row_col::<String>(row, "predecessor_account_id", "proposal event")?;
-    let contract_id = decode_row_col::<String>(row, "contract_id", "proposal event")?;
-    let log_index = decode_row_col::<i32>(row, "log_index", "proposal event")?;
-    let data_index = decode_row_col::<i32>(row, "data_index", "proposal event")?;
-    let created_at = decode_row_col::<NaiveDateTime>(row, "created_at", "proposal event")?;
+
+    let sources = metadata_sources(metadata.as_ref(), None, payload.as_ref());
+    let voting_start_ns = proposal_voting_start_ns(payload.as_ref(), voting_start_time_sec);
+    let voting_duration_ns = proposal_voting_duration_ns(payload.as_ref());
 
     Ok(VenearProposalEventDto {
         id,
         proposal_id,
-        event_type,
-        account_id,
+        event_type: event_type.clone(),
+        actor_account_id: account_id
+            .or_else(|| proposer_id.clone())
+            .or_else(|| reviewer_id.clone()),
         proposer_id,
         reviewer_id,
-        voting_start_time_sec,
-        voting_start_time: voting_start_time_sec.map(sec_to_rfc3339).transpose()?,
+        status: Some(derive_proposal_status(
+            &event_type,
+            metadata.as_ref(),
+            payload.as_ref(),
+            voting_start_ns,
+            voting_duration_ns,
+        )),
+        title: pick_string_from_sources(&sources, "title"),
+        description: pick_string_from_sources(&sources, "description"),
+        link: pick_string_from_sources(&sources, "link"),
+        voting_start_at: voting_start_ns.map(ns_to_rfc3339).transpose()?,
+        voting_duration_ns: voting_duration_ns.map(|value| value.to_string()),
         snapshot_block_height,
         snapshot_root,
         snapshot_total_venear,
-        metadata,
-        payload,
         block_height,
-        block_timestamp_ns,
         block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
-        shard_id,
         receipt_id,
         execution_outcome_id,
-        predecessor_account_id,
-        contract_id,
-        log_index,
-        data_index,
-        created_at: naive_to_rfc3339(created_at),
-        created_at_epoch: naive_to_epoch(created_at),
     })
 }
 
 #[allow(clippy::result_large_err)]
-fn to_vote_dto(row: &QueryResult) -> Result<VenearVoteDto, ApiErrorResponse> {
+fn to_effective_vote_dto(
+    row: &QueryResult,
+    proposal_id: i64,
+    voting_options: &[String],
+) -> Result<VenearVoteDto, ApiErrorResponse> {
     let id = decode_row_col::<i64>(row, "id", "vote")?;
-    let proposal_id = decode_row_col::<i64>(row, "proposal_id", "vote")?;
-    let account_id = decode_row_col::<String>(row, "account_id", "vote")?;
-    let vote = decode_row_col::<i32>(row, "vote", "vote")?;
-    let account_balance = decode_row_col::<String>(row, "account_balance", "vote")?;
+    let voter_account_id = decode_row_col::<String>(row, "account_id", "vote")?;
+    let vote_option = decode_row_col::<i32>(row, "vote", "vote")?;
+    let voting_power = decode_row_col::<String>(row, "account_balance", "vote")?;
     let event_type = decode_row_col::<String>(row, "event_type", "vote")?;
-    let payload = decode_row_col::<Option<serde_json::Value>>(row, "payload", "vote")?;
     let block_height = decode_row_col::<i64>(row, "block_height", "vote")?;
     let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "vote")?;
-    let shard_id = decode_row_col::<i32>(row, "shard_id", "vote")?;
     let receipt_id = decode_row_col::<String>(row, "receipt_id", "vote")?;
     let execution_outcome_id = decode_row_col::<String>(row, "execution_outcome_id", "vote")?;
-    let predecessor_account_id = decode_row_col::<String>(row, "predecessor_account_id", "vote")?;
-    let contract_id = decode_row_col::<String>(row, "contract_id", "vote")?;
-    let log_index = decode_row_col::<i32>(row, "log_index", "vote")?;
-    let data_index = decode_row_col::<i32>(row, "data_index", "vote")?;
-    let created_at = decode_row_col::<NaiveDateTime>(row, "created_at", "vote")?;
+
+    let vote_label = usize::try_from(vote_option)
+        .ok()
+        .and_then(|idx| voting_options.get(idx).cloned());
 
     Ok(VenearVoteDto {
         id,
         proposal_id,
+        voter_account_id,
+        vote_option,
+        vote_label,
+        voting_power,
+        event_type: event_type.clone(),
+        is_effective: event_type == "add_vote",
+        block_height,
+        block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
+        receipt_id,
+        execution_outcome_id,
+    })
+}
+
+#[allow(clippy::result_large_err)]
+fn to_delegate_dto(row: &QueryResult) -> Result<VenearDelegateDto, ApiErrorResponse> {
+    let account_id = decode_row_col::<String>(row, "account_id", "delegate")?;
+    let own_voting_power = decode_row_col::<String>(row, "own_voting_power", "delegate")?;
+    let delegated_voting_power =
+        decode_row_col::<String>(row, "delegated_voting_power", "delegate")?;
+    let total_voting_power = decode_row_col::<String>(row, "total_voting_power", "delegate")?;
+    let delegators_count = decode_row_col::<i64>(row, "delegators_count", "delegate")?;
+    let delegated_to_account_id =
+        decode_row_col::<Option<String>>(row, "delegated_to_account_id", "delegate")?;
+    let has_inbound_delegation = decode_row_col::<bool>(row, "has_inbound_delegation", "delegate")?;
+    let has_outbound_delegation =
+        decode_row_col::<bool>(row, "has_outbound_delegation", "delegate")?;
+    let last_vote_ts = decode_row_col::<Option<i64>>(row, "last_vote_ts", "delegate")?;
+    let updated_ts = decode_row_col::<i64>(row, "updated_ts", "delegate")?;
+
+    Ok(VenearDelegateDto {
         account_id,
-        vote,
-        account_balance,
-        event_type,
-        payload,
-        block_height,
-        block_timestamp_ns,
-        block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
-        shard_id,
-        receipt_id,
-        execution_outcome_id,
-        predecessor_account_id,
-        contract_id,
-        log_index,
-        data_index,
-        created_at: naive_to_rfc3339(created_at),
-        created_at_epoch: naive_to_epoch(created_at),
+        own_voting_power,
+        delegated_voting_power,
+        total_voting_power,
+        delegators_count,
+        delegated_to_account_id,
+        has_inbound_delegation,
+        has_outbound_delegation,
+        last_vote_at: last_vote_ts.map(ns_to_rfc3339).transpose()?,
+        updated_at: ns_to_rfc3339(updated_ts)?,
     })
 }
 
 #[allow(clippy::result_large_err)]
-fn to_account_balance_dto(row: &QueryResult) -> Result<VenearAccountBalanceDto, ApiErrorResponse> {
-    let id = decode_row_col::<i64>(row, "id", "account balance")?;
-    let account_id = decode_row_col::<String>(row, "account_id", "account balance")?;
-    let event_type = decode_row_col::<String>(row, "event_type", "account balance")?;
-    let delta_amount = decode_row_col::<Option<String>>(row, "delta_amount", "account balance")?;
-    let total_balance = decode_row_col::<String>(row, "total_balance", "account balance")?;
-    let locked_near_balance =
-        decode_row_col::<Option<String>>(row, "locked_near_balance", "account balance")?;
-    let lockup_update_nonce =
-        decode_row_col::<Option<i64>>(row, "lockup_update_nonce", "account balance")?;
-    let lockup_version = decode_row_col::<Option<i64>>(row, "lockup_version", "account balance")?;
-    let block_height = decode_row_col::<i64>(row, "block_height", "account balance")?;
-    let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "account balance")?;
-    let shard_id = decode_row_col::<i32>(row, "shard_id", "account balance")?;
-    let receipt_id = decode_row_col::<String>(row, "receipt_id", "account balance")?;
+fn to_delegate_voting_power_dto(
+    row: &QueryResult,
+    account_id: &str,
+) -> Result<VenearDelegateVotingPowerEventDto, ApiErrorResponse> {
+    let id = decode_row_col::<i64>(row, "id", "delegate voting power")?;
+    let event_type = decode_row_col::<String>(row, "event_type", "delegate voting power")?;
+    let proposal_id = decode_row_col::<Option<i64>>(row, "proposal_id", "delegate voting power")?;
+    let voting_power = decode_row_col::<String>(row, "voting_power", "delegate voting power")?;
+    let delta_voting_power =
+        decode_row_col::<Option<String>>(row, "delta_voting_power", "delegate voting power")?;
+    let block_height = decode_row_col::<i64>(row, "block_height", "delegate voting power")?;
+    let block_timestamp_ns =
+        decode_row_col::<i64>(row, "block_timestamp", "delegate voting power")?;
+    let receipt_id = decode_row_col::<String>(row, "receipt_id", "delegate voting power")?;
     let execution_outcome_id =
-        decode_row_col::<String>(row, "execution_outcome_id", "account balance")?;
-    let predecessor_account_id =
-        decode_row_col::<String>(row, "predecessor_account_id", "account balance")?;
-    let contract_id = decode_row_col::<String>(row, "contract_id", "account balance")?;
-    let log_index = decode_row_col::<i32>(row, "log_index", "account balance")?;
-    let data_index = decode_row_col::<i32>(row, "data_index", "account balance")?;
-    let payload = decode_row_col::<Option<serde_json::Value>>(row, "payload", "account balance")?;
-    let created_at = decode_row_col::<NaiveDateTime>(row, "created_at", "account balance")?;
+        decode_row_col::<String>(row, "execution_outcome_id", "delegate voting power")?;
+    let delegation_event_type = decode_row_col::<Option<String>>(
+        row,
+        "delegation_event_type",
+        "delegate voting power",
+    )?;
+    let delegation_delegator_account_id = decode_row_col::<Option<String>>(
+        row,
+        "delegation_delegator_account_id",
+        "delegate voting power",
+    )?;
+    let is_delegator = delegation_delegator_account_id
+        .as_deref()
+        .is_some_and(|d| d == account_id);
 
-    Ok(VenearAccountBalanceDto {
+    Ok(VenearDelegateVotingPowerEventDto {
         id,
-        account_id,
-        event_type,
-        delta_amount,
-        total_balance,
-        locked_near_balance,
-        lockup_update_nonce,
-        lockup_version,
+        event_type: event_type.clone(),
+        reason: voting_power_reason(&event_type, delegation_event_type.as_deref(), is_delegator)
+            .to_string(),
+        proposal_id,
+        voting_power,
+        delta_voting_power,
         block_height,
-        block_timestamp_ns,
         block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
-        shard_id,
         receipt_id,
         execution_outcome_id,
-        predecessor_account_id,
-        contract_id,
-        log_index,
-        data_index,
-        payload,
-        created_at: naive_to_rfc3339(created_at),
-        created_at_epoch: naive_to_epoch(created_at),
-    })
-}
-
-#[allow(clippy::result_large_err)]
-fn to_lockup_dto(row: &QueryResult) -> Result<VenearLockupDto, ApiErrorResponse> {
-    let id = decode_row_col::<i64>(row, "id", "lockup event")?;
-    let lockup_account_id = decode_row_col::<String>(row, "lockup_account_id", "lockup")?;
-    let owner_account_id = decode_row_col::<Option<String>>(row, "owner_account_id", "lockup")?;
-    let event_type = decode_row_col::<String>(row, "event_type", "lockup")?;
-    let lockup_version = decode_row_col::<Option<i64>>(row, "lockup_version", "lockup")?;
-    let lockup_update_nonce = decode_row_col::<Option<i64>>(row, "lockup_update_nonce", "lockup")?;
-    let locked_near_balance =
-        decode_row_col::<Option<String>>(row, "locked_near_balance", "lockup")?;
-    let action_source = decode_row_col::<String>(row, "action_source", "lockup")?;
-    let transaction_hash = decode_row_col::<Option<String>>(row, "transaction_hash", "lockup")?;
-    let receipt_id = decode_row_col::<String>(row, "receipt_id", "lockup")?;
-    let execution_outcome_id = decode_row_col::<String>(row, "execution_outcome_id", "lockup")?;
-    let predecessor_account_id = decode_row_col::<String>(row, "predecessor_account_id", "lockup")?;
-    let contract_id = decode_row_col::<String>(row, "contract_id", "lockup")?;
-    let success = decode_row_col::<bool>(row, "success", "lockup")?;
-    let block_height = decode_row_col::<i64>(row, "block_height", "lockup")?;
-    let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "lockup")?;
-    let shard_id = decode_row_col::<i32>(row, "shard_id", "lockup")?;
-    let log_index = decode_row_col::<i32>(row, "log_index", "lockup")?;
-    let data_index = decode_row_col::<i32>(row, "data_index", "lockup")?;
-    let payload = decode_row_col::<Option<serde_json::Value>>(row, "payload", "lockup")?;
-    let created_at = decode_row_col::<NaiveDateTime>(row, "created_at", "lockup")?;
-
-    Ok(VenearLockupDto {
-        id,
-        lockup_account_id,
-        owner_account_id,
-        event_type,
-        lockup_version,
-        lockup_update_nonce,
-        locked_near_balance,
-        action_source,
-        transaction_hash,
-        receipt_id,
-        execution_outcome_id,
-        predecessor_account_id,
-        contract_id,
-        success,
-        block_height,
-        block_timestamp_ns,
-        block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
-        shard_id,
-        log_index,
-        data_index,
-        payload,
-        created_at: naive_to_rfc3339(created_at),
-        created_at_epoch: naive_to_epoch(created_at),
-    })
-}
-
-#[allow(clippy::result_large_err)]
-fn to_lockup_action_dto(row: &QueryResult) -> Result<VenearLockupActionDto, ApiErrorResponse> {
-    let id = decode_row_col::<i64>(row, "id", "lockup action")?;
-    let lockup_account_id = decode_row_col::<String>(row, "lockup_account_id", "lockup action")?;
-    let owner_account_id =
-        decode_row_col::<Option<String>>(row, "owner_account_id", "lockup action")?;
-    let predecessor_account_id =
-        decode_row_col::<String>(row, "predecessor_account_id", "lockup action")?;
-    let receiver_account_id =
-        decode_row_col::<String>(row, "receiver_account_id", "lockup action")?;
-    let method_name = decode_row_col::<String>(row, "method_name", "lockup action")?;
-    let action_source = decode_row_col::<String>(row, "action_source", "lockup action")?;
-    let action_index = decode_row_col::<i32>(row, "action_index", "lockup action")?;
-    let args_json = decode_row_col::<Option<serde_json::Value>>(row, "args_json", "lockup action")?;
-    let args_base64 = decode_row_col::<String>(row, "args_base64", "lockup action")?;
-    let attached_deposit = decode_row_col::<String>(row, "attached_deposit", "lockup action")?;
-    let transaction_hash =
-        decode_row_col::<Option<String>>(row, "transaction_hash", "lockup action")?;
-    let receipt_id = decode_row_col::<String>(row, "receipt_id", "lockup action")?;
-    let execution_outcome_id =
-        decode_row_col::<String>(row, "execution_outcome_id", "lockup action")?;
-    let success = decode_row_col::<bool>(row, "success", "lockup action")?;
-    let block_height = decode_row_col::<i64>(row, "block_height", "lockup action")?;
-    let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "lockup action")?;
-    let shard_id = decode_row_col::<i32>(row, "shard_id", "lockup action")?;
-    let staking_pool_account_id =
-        decode_row_col::<Option<String>>(row, "staking_pool_account_id", "lockup action")?;
-    let metadata = decode_row_col::<Option<serde_json::Value>>(row, "metadata", "lockup action")?;
-    let created_at = decode_row_col::<NaiveDateTime>(row, "created_at", "lockup action")?;
-
-    Ok(VenearLockupActionDto {
-        id,
-        lockup_account_id,
-        owner_account_id,
-        predecessor_account_id,
-        receiver_account_id,
-        method_name,
-        action_source,
-        action_index,
-        args_json,
-        args_base64,
-        attached_deposit,
-        transaction_hash,
-        receipt_id,
-        execution_outcome_id,
-        success,
-        block_height,
-        block_timestamp_ns,
-        block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
-        shard_id,
-        staking_pool_account_id,
-        metadata,
-        created_at: naive_to_rfc3339(created_at),
-        created_at_epoch: naive_to_epoch(created_at),
     })
 }
 
 #[allow(clippy::result_large_err)]
 fn to_delegation_event_dto(
     row: &QueryResult,
+    account_id: &str,
 ) -> Result<VenearDelegationEventDto, ApiErrorResponse> {
     let id = decode_row_col::<i64>(row, "id", "delegation event")?;
     let delegator_account_id =
         decode_row_col::<String>(row, "delegator_account_id", "delegation event")?;
     let delegatee_account_id =
         decode_row_col::<Option<String>>(row, "delegatee_account_id", "delegation event")?;
+    let resolved_delegatee_account_id =
+        decode_row_col::<Option<String>>(row, "resolved_delegatee_account_id", "delegation event")?;
+    let delegatee_inferred = decode_row_col::<bool>(row, "delegatee_inferred", "delegation event")?;
     let event_type = decode_row_col::<String>(row, "event_type", "delegation event")?;
-    let action_source = decode_row_col::<String>(row, "action_source", "delegation event")?;
-    let action_index = decode_row_col::<i32>(row, "action_index", "delegation event")?;
-    let args_json =
-        decode_row_col::<Option<serde_json::Value>>(row, "args_json", "delegation event")?;
-    let args_base64 = decode_row_col::<String>(row, "args_base64", "delegation event")?;
-    let attached_deposit = decode_row_col::<String>(row, "attached_deposit", "delegation event")?;
+    let success = decode_row_col::<bool>(row, "success", "delegation event")?;
+    let block_height = decode_row_col::<i64>(row, "block_height", "delegation event")?;
+    let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "delegation event")?;
     let transaction_hash =
         decode_row_col::<Option<String>>(row, "transaction_hash", "delegation event")?;
     let receipt_id = decode_row_col::<String>(row, "receipt_id", "delegation event")?;
     let execution_outcome_id =
         decode_row_col::<String>(row, "execution_outcome_id", "delegation event")?;
-    let success = decode_row_col::<bool>(row, "success", "delegation event")?;
-    let block_height = decode_row_col::<i64>(row, "block_height", "delegation event")?;
-    let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "delegation event")?;
-    let shard_id = decode_row_col::<i32>(row, "shard_id", "delegation event")?;
-    let contract_id = decode_row_col::<String>(row, "contract_id", "delegation event")?;
-    let metadata =
-        decode_row_col::<Option<serde_json::Value>>(row, "metadata", "delegation event")?;
-    let created_at = decode_row_col::<NaiveDateTime>(row, "created_at", "delegation event")?;
+
+    let direction = if delegator_account_id == account_id {
+        "outbound"
+    } else {
+        "inbound"
+    };
 
     Ok(VenearDelegationEventDto {
         id,
+        direction: direction.to_string(),
+        event_type,
         delegator_account_id,
         delegatee_account_id,
-        event_type,
-        action_source,
-        action_index,
-        args_json,
-        args_base64,
-        attached_deposit,
+        resolved_delegatee_account_id,
+        delegatee_inferred,
+        success,
+        block_height,
+        block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
         transaction_hash,
         receipt_id,
         execution_outcome_id,
-        success,
-        block_height,
-        block_timestamp_ns,
-        block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
-        shard_id,
-        contract_id,
-        metadata,
-        created_at: naive_to_rfc3339(created_at),
-        created_at_epoch: naive_to_epoch(created_at),
     })
 }
 
-fn resolve_limit(limit: Option<u64>) -> u64 {
-    limit.unwrap_or(20).clamp(1, 100)
+async fn fetch_proposal_voting_options(
+    db: &DatabaseConnection,
+    proposal_id: i64,
+) -> Result<Vec<String>, ApiErrorResponse> {
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "
+            SELECT
+                p.metadata,
+                p.payload,
+                c.metadata AS create_metadata
+            FROM (
+                SELECT
+                    metadata,
+                    payload
+                FROM near.near_venear_proposal_events
+                WHERE proposal_id = $1
+                ORDER BY block_height DESC, id DESC
+                LIMIT 1
+            ) p
+            LEFT JOIN LATERAL (
+                SELECT metadata
+                FROM near.near_venear_proposal_events
+                WHERE proposal_id = $1
+                  AND event_type = 'create_proposal'
+                ORDER BY block_height ASC, id ASC
+                LIMIT 1
+            ) c ON TRUE
+            ",
+            vec![proposal_id.into()],
+        ))
+        .await
+        .map_err(ApiErrorResponse::from)?
+        .ok_or_else(|| ApiErrorResponse::not_found("Proposal not found"))?;
+
+    let metadata = decode_row_col::<Option<JsonValue>>(&row, "metadata", "proposal")?;
+    let create_metadata = decode_row_col::<Option<JsonValue>>(&row, "create_metadata", "proposal")?;
+    let payload = decode_row_col::<Option<JsonValue>>(&row, "payload", "proposal")?;
+
+    let sources = metadata_sources(
+        metadata.as_ref(),
+        create_metadata.as_ref(),
+        payload.as_ref(),
+    );
+    Ok(pick_voting_options_from_sources(&sources))
 }
 
-#[allow(clippy::result_large_err)]
-fn require_db(app_state: &AppState) -> Result<Arc<DatabaseConnection>, ApiErrorResponse> {
-    app_state
-        .db
-        .clone()
-        .ok_or_else(|| ApiErrorResponse::service_unavailable("Database connection unavailable"))
+async fn fetch_vote_aggregates(
+    db: &DatabaseConnection,
+    proposal_id: i64,
+    voting_options: &[String],
+) -> Result<Vec<VenearVoteAggregateDto>, ApiErrorResponse> {
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "
+            WITH latest_votes AS (
+                SELECT DISTINCT ON (account_id)
+                    account_id,
+                    vote,
+                    account_balance,
+                    event_type
+                FROM near.near_venear_votes
+                WHERE proposal_id = $1
+                ORDER BY account_id, block_height DESC, log_index DESC, data_index DESC, id DESC
+            )
+            SELECT
+                vote::integer AS option_index,
+                COUNT(*)::bigint AS votes_count,
+                COALESCE(SUM((account_balance)::numeric), 0)::text AS voting_power
+            FROM latest_votes
+            WHERE event_type = 'add_vote'
+            GROUP BY vote
+            ORDER BY vote ASC
+            ",
+            vec![proposal_id.into()],
+        ))
+        .await
+        .map_err(ApiErrorResponse::from)?;
+
+    rows.iter()
+        .map(|row| {
+            let option_index = decode_row_col::<i32>(row, "option_index", "vote aggregate")?;
+            let votes_count = decode_row_col::<i64>(row, "votes_count", "vote aggregate")?;
+            let voting_power = decode_row_col::<String>(row, "voting_power", "vote aggregate")?;
+            let option_label = usize::try_from(option_index)
+                .ok()
+                .and_then(|idx| voting_options.get(idx).cloned());
+
+            Ok(VenearVoteAggregateDto {
+                option_index,
+                option_label,
+                votes_count,
+                voting_power,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiErrorResponse>>()
 }
 
 async fn ensure_proposal_exists(
@@ -1196,60 +1303,207 @@ async fn ensure_proposal_exists(
     }
 }
 
-async fn ensure_account_balance_exists(
-    db: &DatabaseConnection,
-    account_id: &str,
-) -> Result<(), ApiErrorResponse> {
-    let count = scalar_i64_with_values(
-        db,
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_account_balances WHERE account_id = $1",
-        vec![account_id.into()],
-    )
-    .await?;
+fn metadata_sources<'a>(
+    metadata: Option<&'a JsonValue>,
+    create_metadata: Option<&'a JsonValue>,
+    payload: Option<&'a JsonValue>,
+) -> [Option<&'a JsonValue>; 3] {
+    [
+        metadata,
+        create_metadata,
+        payload.and_then(extract_success_value),
+    ]
+}
 
-    if count > 0 {
-        Ok(())
-    } else {
-        Err(ApiErrorResponse::not_found("Account not found"))
+fn extract_success_value(payload: &JsonValue) -> Option<&JsonValue> {
+    payload.get("success_value")
+}
+
+fn pick_string_from_sources(sources: &[Option<&JsonValue>], key: &str) -> Option<String> {
+    sources.iter().flatten().find_map(|source| {
+        source
+            .get(key)
+            .and_then(json_value_to_string)
+            .filter(|v| !v.is_empty())
+    })
+}
+
+fn pick_voting_options_from_sources(sources: &[Option<&JsonValue>]) -> Vec<String> {
+    for source in sources.iter().flatten() {
+        if let Some(value) = source.get("voting_options") {
+            let options = json_value_to_string_vec(value);
+            if !options.is_empty() {
+                return options;
+            }
+        }
+    }
+    Vec::new()
+}
+
+fn proposal_voting_start_ns(
+    payload: Option<&JsonValue>,
+    voting_start_time_sec: Option<i64>,
+) -> Option<i64> {
+    payload
+        .and_then(extract_success_value)
+        .and_then(|value| value.get("voting_start_time_ns"))
+        .and_then(json_value_to_i64)
+        .or_else(|| voting_start_time_sec.and_then(|sec| sec.checked_mul(1_000_000_000)))
+}
+
+fn proposal_voting_duration_ns(payload: Option<&JsonValue>) -> Option<i64> {
+    payload
+        .and_then(extract_success_value)
+        .and_then(|value| value.get("voting_duration_ns"))
+        .and_then(json_value_to_i64)
+}
+
+fn proposal_created_at_ns(
+    payload: Option<&JsonValue>,
+    created_block_timestamp_ns: Option<i64>,
+) -> Option<i64> {
+    payload
+        .and_then(extract_success_value)
+        .and_then(|value| value.get("creation_time_ns"))
+        .and_then(json_value_to_i64)
+        .or(created_block_timestamp_ns)
+}
+
+fn derive_proposal_status(
+    event_type: &str,
+    metadata: Option<&JsonValue>,
+    payload: Option<&JsonValue>,
+    voting_start_ns: Option<i64>,
+    voting_duration_ns: Option<i64>,
+) -> String {
+    match event_type {
+        "proposal_reject" => "rejected".to_string(),
+        "create_proposal" => "created".to_string(),
+        "proposal_approve" => "approved".to_string(),
+        "proposal_approve_finalized" => {
+            if let (Some(start_ns), Some(duration_ns)) = (voting_start_ns, voting_duration_ns) {
+                if let Some(end_ns) = start_ns.checked_add(duration_ns) {
+                    let now_ns = Utc::now().timestamp_micros().saturating_mul(1_000);
+                    if now_ns >= end_ns {
+                        return "finished".to_string();
+                    }
+                    if now_ns >= start_ns {
+                        return "voting".to_string();
+                    }
+                }
+            }
+            "approved".to_string()
+        }
+        _ => {
+            let raw_status = metadata
+                .and_then(|value| value.get("status"))
+                .and_then(json_value_to_string)
+                .or_else(|| {
+                    payload
+                        .and_then(extract_success_value)
+                        .and_then(|value| value.get("status"))
+                        .and_then(json_value_to_string)
+                });
+
+            raw_status
+                .as_deref()
+                .and_then(normalize_proposal_status)
+                .unwrap_or_else(|| "created".to_string())
+        }
     }
 }
 
-async fn ensure_delegation_account_exists(
-    db: &DatabaseConnection,
-    account_id: &str,
-) -> Result<(), ApiErrorResponse> {
-    let count = scalar_i64_with_values(
-        db,
-        "SELECT COUNT(*)::bigint AS value
-         FROM near.near_venear_delegation_events
-         WHERE delegator_account_id = $1 OR delegatee_account_id = $1",
-        vec![account_id.into()],
-    )
-    .await?;
-
-    if count > 0 {
-        Ok(())
-    } else {
-        Err(ApiErrorResponse::not_found("Account not found"))
+fn normalize_proposal_status(raw: &str) -> Option<String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "created" => Some("created".to_string()),
+        "rejected" => Some("rejected".to_string()),
+        "approved" => Some("approved".to_string()),
+        "voting" => Some("voting".to_string()),
+        "finished" => Some("finished".to_string()),
+        _ => None,
     }
 }
 
-async fn ensure_lockup_exists(
-    db: &DatabaseConnection,
-    lockup_account_id: &str,
-) -> Result<(), ApiErrorResponse> {
-    let count = scalar_i64_with_values(
-        db,
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_lockup_events WHERE lockup_account_id = $1",
-        vec![lockup_account_id.into()],
-    )
-    .await?;
-
-    if count > 0 {
-        Ok(())
-    } else {
-        Err(ApiErrorResponse::not_found("Lockup not found"))
+fn voting_power_reason(
+    event_type: &str,
+    delegation_event_type: Option<&str>,
+    is_delegator: bool,
+) -> &'static str {
+    match (event_type, delegation_event_type) {
+        ("ft_mint", Some("delegate_all")) => {
+            if is_delegator {
+                "balance_increase"
+            } else {
+                "delegation_received"
+            }
+        }
+        ("ft_burn", Some("delegate_all")) => {
+            if is_delegator {
+                "delegation_given"
+            } else {
+                "balance_decrease"
+            }
+        }
+        ("ft_mint", Some("undelegate")) => {
+            if is_delegator {
+                "delegation_returned"
+            } else {
+                "balance_increase"
+            }
+        }
+        ("ft_burn", Some("undelegate")) => {
+            if is_delegator {
+                "balance_decrease"
+            } else {
+                "delegation_removed"
+            }
+        }
+        ("ft_mint", _) => "balance_increase",
+        ("ft_burn", _) => "balance_decrease",
+        ("add_vote", _) => "vote_cast",
+        ("remove_vote", _) => "vote_removed",
+        _ => "other",
     }
+}
+
+fn json_value_to_string(value: &JsonValue) -> Option<String> {
+    match value {
+        JsonValue::String(text) => Some(text.clone()),
+        JsonValue::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
+}
+
+fn json_value_to_i64(value: &JsonValue) -> Option<i64> {
+    match value {
+        JsonValue::Number(number) => number.as_i64(),
+        JsonValue::String(text) => text.parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+fn json_value_to_string_vec(value: &JsonValue) -> Vec<String> {
+    let Some(array) = value.as_array() else {
+        return Vec::new();
+    };
+
+    array
+        .iter()
+        .filter_map(json_value_to_string)
+        .filter(|entry| !entry.is_empty())
+        .collect()
+}
+
+fn resolve_limit(limit: Option<u64>) -> u64 {
+    limit.unwrap_or(20).clamp(1, 100)
+}
+
+#[allow(clippy::result_large_err)]
+fn require_db(app_state: &AppState) -> Result<Arc<DatabaseConnection>, ApiErrorResponse> {
+    app_state
+        .db
+        .clone()
+        .ok_or_else(|| ApiErrorResponse::service_unavailable("Database connection unavailable"))
 }
 
 async fn scalar_i64_with_values(
@@ -1274,23 +1528,6 @@ async fn scalar_i64_with_values(
         ApiErrorResponse::internal_server_error("Failed to decode scalar query result")
             .with_detail(err.to_string())
     })
-}
-
-fn naive_to_rfc3339(value: NaiveDateTime) -> String {
-    value.and_utc().to_rfc3339()
-}
-
-fn naive_to_epoch(value: NaiveDateTime) -> i64 {
-    value.and_utc().timestamp()
-}
-
-#[allow(clippy::result_large_err)]
-fn sec_to_rfc3339(epoch_seconds: i64) -> Result<String, ApiErrorResponse> {
-    DateTime::<Utc>::from_timestamp(epoch_seconds, 0)
-        .map(|value| value.to_rfc3339())
-        .ok_or_else(|| {
-            ApiErrorResponse::internal_server_error("Invalid epoch seconds in stored data")
-        })
 }
 
 #[allow(clippy::result_large_err)]
@@ -1364,13 +1601,35 @@ mod tests {
     }
 
     #[test]
-    fn timestamp_conversions_work() {
+    fn status_normalization_is_expected() {
         assert_eq!(
-            ns_to_rfc3339(1_760_000_000_000_000_000).expect("ns to rfc3339"),
-            "2025-10-09T08:53:20+00:00"
+            normalize_proposal_status("Created"),
+            Some("created".to_string())
         );
         assert_eq!(
-            sec_to_rfc3339(1_760_000_000).expect("sec to rfc3339"),
+            normalize_proposal_status("Voting"),
+            Some("voting".to_string())
+        );
+        assert_eq!(normalize_proposal_status("unknown"), None);
+    }
+
+    #[test]
+    fn finalized_status_prefers_time_window_over_stale_metadata() {
+        let metadata = serde_json::json!({"status":"Voting"});
+        let status = derive_proposal_status(
+            "proposal_approve_finalized",
+            Some(&metadata),
+            None,
+            Some(1),
+            Some(1),
+        );
+        assert_eq!(status, "finished");
+    }
+
+    #[test]
+    fn timestamp_conversion_works() {
+        assert_eq!(
+            ns_to_rfc3339(1_760_000_000_000_000_000).expect("ns to rfc3339"),
             "2025-10-09T08:53:20+00:00"
         );
     }

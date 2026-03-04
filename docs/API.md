@@ -195,12 +195,12 @@ Notes:
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/venear/proposals` | List governance proposals |
+| GET | `/api/v1/venear/proposals/{proposal_id}` | Get latest details for a proposal |
 | GET | `/api/v1/venear/proposals/{proposal_id}/events` | List events for a proposal |
-| GET | `/api/v1/venear/proposals/{proposal_id}/votes` | List votes for a proposal |
-| GET | `/api/v1/venear/accounts/{account_id}/balances` | List account balance history |
-| GET | `/api/v1/venear/accounts/{account_id}/delegations` | List delegation actions for an account |
-| GET | `/api/v1/venear/lockups` | List lockup lifecycle events |
-| GET | `/api/v1/venear/lockups/{lockup_account_id}/actions` | List lockup actions |
+| GET | `/api/v1/venear/proposals/{proposal_id}/votes` | List effective votes for a proposal |
+| GET | `/api/v1/venear/delegates` | List delegates (possible voters) |
+| GET | `/api/v1/venear/delegates/{account_id}/voting-power` | List voting power history for a delegate |
+| GET | `/api/v1/venear/delegates/{account_id}/delegations` | List delegation events for a delegate |
 
 ## Adding New Endpoints
 

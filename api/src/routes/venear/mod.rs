@@ -6,6 +6,7 @@ use axum::{routing::get, Router};
 pub fn venear_routes() -> Router<AppState> {
     Router::new()
         .route("/venear/proposals", get(venear::list_proposals))
+        .route("/venear/proposals/{proposal_id}", get(venear::get_proposal))
         .route(
             "/venear/proposals/{proposal_id}/events",
             get(venear::list_proposal_events),
@@ -14,17 +15,13 @@ pub fn venear_routes() -> Router<AppState> {
             "/venear/proposals/{proposal_id}/votes",
             get(venear::list_proposal_votes),
         )
+        .route("/venear/delegates", get(venear::list_delegates))
         .route(
-            "/venear/accounts/{account_id}/balances",
-            get(venear::list_account_balances),
+            "/venear/delegates/{account_id}/voting-power",
+            get(venear::list_delegate_voting_power),
         )
         .route(
-            "/venear/accounts/{account_id}/delegations",
-            get(venear::list_account_delegations),
-        )
-        .route("/venear/lockups", get(venear::list_lockups))
-        .route(
-            "/venear/lockups/{lockup_account_id}/actions",
-            get(venear::list_lockup_actions),
+            "/venear/delegates/{account_id}/delegations",
+            get(venear::list_delegate_delegations),
         )
 }

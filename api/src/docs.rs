@@ -44,12 +44,12 @@ use utoipa::OpenApi;
         handlers::telegram::get_user,
         handlers::telegram::list_user_messages,
         handlers::venear::list_proposals,
+        handlers::venear::get_proposal,
         handlers::venear::list_proposal_events,
         handlers::venear::list_proposal_votes,
-        handlers::venear::list_account_balances,
-        handlers::venear::list_account_delegations,
-        handlers::venear::list_lockups,
-        handlers::venear::list_lockup_actions,
+        handlers::venear::list_delegates,
+        handlers::venear::list_delegate_voting_power,
+        handlers::venear::list_delegate_delegations,
     ),
     components(schemas(
         types::HealthResponse,
@@ -90,17 +90,18 @@ use utoipa::OpenApi;
         types::VenearProposalsListResponse,
         types::VenearProposalEventsListResponse,
         types::VenearVotesListResponse,
-        types::VenearAccountBalancesListResponse,
+        types::VenearDelegatesListResponse,
+        types::VenearDelegateVotingPowerEventsListResponse,
         types::VenearDelegationEventsListResponse,
-        types::VenearLockupsListResponse,
-        types::VenearLockupActionsListResponse,
+        types::VenearProposalSummaryDto,
         types::VenearProposalDto,
+        types::VenearVoteAggregateDto,
+        types::VenearProposalLatestEventDto,
         types::VenearProposalEventDto,
         types::VenearVoteDto,
-        types::VenearAccountBalanceDto,
+        types::VenearDelegateDto,
+        types::VenearDelegateVotingPowerEventDto,
         types::VenearDelegationEventDto,
-        types::VenearLockupDto,
-        types::VenearLockupActionDto,
     )),
         tags(
         (name = "health", description = "Service and dependency health diagnostics"),
@@ -108,7 +109,7 @@ use utoipa::OpenApi;
         (name = "discourse", description = "Read endpoints over indexed Discourse entities (instances, categories, topics, posts, likes, users)"),
         (name = "discourse-ops", description = "Operational diagnostics for data integrity and coverage checks"),
         (name = "telegram", description = "Read endpoints over indexed Telegram entities (channels, users, messages, reactions, service actions)"),
-        (name = "venear", description = "Read endpoints over indexed veNEAR governance entities (proposals, votes, balances, lockups, actions)")
+        (name = "venear", description = "Read endpoints over indexed veNEAR governance entities (proposals, votes, delegates, voting power, delegations)")
     )
 )]
 pub struct ApiDoc;
@@ -217,18 +218,18 @@ mod tests {
             "identity persons endpoint should explain pagination semantics"
         );
 
-        let lockups_get = paths
-            .get("/api/v1/venear/lockups")
+        let delegates_get = paths
+            .get("/api/v1/venear/delegates")
             .and_then(|p| p.get("get"))
             .and_then(|op| op.as_object())
-            .expect("lockups get operation");
+            .expect("delegates get operation");
         assert!(
-            lockups_get
+            delegates_get
                 .get("description")
                 .and_then(|v| v.as_str())
-                .expect("lockups description")
-                .contains("append-only"),
-            "lockups endpoint should explain dataset semantics"
+                .expect("delegates description")
+                .contains("possible voters"),
+            "delegates endpoint should explain dataset semantics"
         );
 
         let telegram_messages_get = paths

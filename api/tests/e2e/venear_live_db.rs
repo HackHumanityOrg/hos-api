@@ -1,6 +1,6 @@
 use api::types::{
-    VenearAccountBalancesListResponse, VenearDelegationEventsListResponse,
-    VenearLockupActionsListResponse, VenearLockupsListResponse, VenearProposalEventsListResponse,
+    VenearDelegateVotingPowerEventsListResponse, VenearDelegatesListResponse,
+    VenearDelegationEventsListResponse, VenearProposalDto, VenearProposalEventsListResponse,
     VenearProposalsListResponse, VenearVotesListResponse,
 };
 use axum::{
@@ -45,6 +45,13 @@ async fn venear_endpoints_return_seeded_data() {
         proposals_page_2.data[0].snapshot_total_venear.as_deref(),
         Some("1000000000000000000")
     );
+    assert_eq!(proposals_page_2.data[0].status, "approved");
+
+    let proposal: VenearProposalDto = get_json(&router, "/api/v1/venear/proposals/1").await;
+    assert_eq!(proposal.proposal_id, 1);
+    assert_eq!(proposal.status, "approved");
+    assert_eq!(proposal.reviewer_id.as_deref(), Some("reviewer.near"));
+    assert_eq!(proposal.vote_aggregates.len(), 2);
 
     let proposal_events: VenearProposalEventsListResponse =
         get_json(&router, "/api/v1/venear/proposals/1/events").await;
@@ -53,39 +60,46 @@ async fn venear_endpoints_return_seeded_data() {
 
     let votes: VenearVotesListResponse = get_json(&router, "/api/v1/venear/proposals/1/votes").await;
     assert_eq!(votes.data.len(), 2);
-    assert_eq!(votes.data[0].account_balance, "900000000000000000000");
+    assert_eq!(votes.data[0].voter_account_id, "jane.near");
+    assert_eq!(votes.data[0].voting_power, "900000000000000000000");
+    assert!(votes.data[0].is_effective);
 
-    let balances: VenearAccountBalancesListResponse =
-        get_json(&router, "/api/v1/venear/accounts/lane.near/balances").await;
-    assert_eq!(balances.data.len(), 2);
-    assert_eq!(balances.data[0].event_type, "ft_burn");
-    assert_eq!(balances.data[0].total_balance, "8");
+    let delegates: VenearDelegatesListResponse =
+        get_json(&router, "/api/v1/venear/delegates").await;
+    assert_eq!(delegates.data.len(), 1);
+    assert_eq!(delegates.data[0].account_id, "jane.near");
+    assert_eq!(delegates.data[0].delegated_voting_power, "8");
+    assert_eq!(delegates.data[0].total_voting_power, "8");
+    assert!(delegates.data[0].has_inbound_delegation);
 
-    let delegations: VenearDelegationEventsListResponse = get_json(
-        &router,
-        "/api/v1/venear/accounts/lane.near/delegations?event_type=delegate_all",
-    )
-    .await;
+    let voting_power: VenearDelegateVotingPowerEventsListResponse =
+        get_json(&router, "/api/v1/venear/delegates/lane.near/voting-power").await;
+    assert_eq!(voting_power.data.len(), 3);
+    assert_eq!(voting_power.data[0].event_type, "ft_burn");
+    assert_eq!(voting_power.data[0].reason, "delegation_given");
+    assert_eq!(voting_power.data[1].event_type, "add_vote");
+    assert_eq!(voting_power.data[1].proposal_id, Some(1));
+    assert_eq!(voting_power.data[1].voting_power, "8");
+    assert_eq!(voting_power.data[1].reason, "vote_cast");
+    assert_eq!(voting_power.data[2].event_type, "ft_mint");
+    assert_eq!(voting_power.data[2].reason, "balance_increase");
+
+    let jane_vp: VenearDelegateVotingPowerEventsListResponse =
+        get_json(&router, "/api/v1/venear/delegates/jane.near/voting-power").await;
+    assert_eq!(jane_vp.data.len(), 1);
+    assert_eq!(jane_vp.data[0].event_type, "ft_mint");
+    assert_eq!(jane_vp.data[0].reason, "delegation_received");
+
+    let delegations: VenearDelegationEventsListResponse =
+        get_json(&router, "/api/v1/venear/delegates/lane.near/delegations").await;
     assert_eq!(delegations.data.len(), 1);
+    assert_eq!(delegations.data[0].direction, "outbound");
     assert_eq!(delegations.data[0].delegator_account_id, "lane.near");
     assert_eq!(
         delegations.data[0].delegatee_account_id.as_deref(),
         Some("jane.near")
     );
     assert!(delegations.data[0].success);
-
-    let lockups: VenearLockupsListResponse =
-        get_json(&router, "/api/v1/venear/lockups?owner_account_id=lane.near").await;
-    assert_eq!(lockups.data.len(), 1);
-    assert_eq!(lockups.data[0].lockup_account_id, "lock1.venear.dao");
-
-    let actions: VenearLockupActionsListResponse = get_json(
-        &router,
-        "/api/v1/venear/lockups/lock1.venear.dao/actions?method_name=select_staking_pool",
-    )
-    .await;
-    assert_eq!(actions.data.len(), 1);
-    assert_eq!(actions.data[0].method_name, "select_staking_pool");
 }
 
 async fn get_json<T: DeserializeOwned>(router: &Router, path: &str) -> T {
@@ -191,6 +205,43 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
                 131, 1760000410000000000, 0,
                 'rcpt-bal-2', 'exec-bal-2', 'venear.dao', 'venear.dao',
                 0, 0, '{"memo":"burn"}'::jsonb
+            )
+        "#,
+    )
+    .await?;
+
+    execute_sql(
+        db,
+        r#"
+        INSERT INTO near.near_venear_account_voting_power_events (
+            account_id, event_type, proposal_id, voting_power, delta_voting_power,
+            block_height, block_timestamp, shard_id,
+            receipt_id, execution_outcome_id, predecessor_account_id, contract_id,
+            log_index, data_index, payload
+        ) VALUES
+            (
+                'lane.near', 'ft_mint', NULL, '10', '10',
+                130, 1760000400000000000, 0,
+                'rcpt-vp-1', 'exec-vp-1', 'venear.dao', 'venear.dao',
+                0, 0, '{"memo":"mint"}'::json
+            ),
+            (
+                'lane.near', 'add_vote', 1, '8', '-2',
+                132, 1760000420000000000, 0,
+                'rcpt-vp-2', 'exec-vp-2', 'lane.near', 'vote.dao',
+                0, 1, '{"memo":"vote"}'::json
+            ),
+            (
+                'lane.near', 'ft_burn', NULL, '5', '-3',
+                143, 1760000530000000000, 0,
+                'rcpt-deleg-1', 'exec-deleg-1', 'venear.dao', 'venear.dao',
+                0, 2, '{"memo":"delegation burn"}'::json
+            ),
+            (
+                'jane.near', 'ft_mint', NULL, '3', '3',
+                143, 1760000530000000000, 0,
+                'rcpt-deleg-1', 'exec-deleg-1', 'venear.dao', 'venear.dao',
+                0, 3, '{"memo":"delegation mint"}'::json
             )
         "#,
     )

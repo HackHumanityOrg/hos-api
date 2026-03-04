@@ -540,7 +540,7 @@ pub struct UserPostsQuery {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearProposalsListResponse {
     /// Page of proposal rows.
-    pub data: Vec<VenearProposalDto>,
+    pub data: Vec<VenearProposalSummaryDto>,
     /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
     /// Indicates whether another page exists.
@@ -561,7 +561,7 @@ pub struct VenearProposalEventsListResponse {
 /// Paginated response of proposal vote rows.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearVotesListResponse {
-    /// Page of vote rows.
+    /// Page of proposal vote rows.
     pub data: Vec<VenearVoteDto>,
     /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
@@ -569,33 +569,22 @@ pub struct VenearVotesListResponse {
     pub has_more: bool,
 }
 
-/// Paginated response of account balance mutation rows.
+/// Paginated response of delegate rows.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct VenearAccountBalancesListResponse {
-    /// Page of account balance rows.
-    pub data: Vec<VenearAccountBalanceDto>,
+pub struct VenearDelegatesListResponse {
+    /// Page of delegate rows.
+    pub data: Vec<VenearDelegateDto>,
     /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
     /// Indicates whether another page exists.
     pub has_more: bool,
 }
 
-/// Paginated response of discovered lockup rows.
+/// Paginated response of delegate voting power history rows.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct VenearLockupsListResponse {
-    /// Page of lockup rows.
-    pub data: Vec<VenearLockupDto>,
-    /// Opaque cursor for the next page.
-    pub next_cursor: Option<String>,
-    /// Indicates whether another page exists.
-    pub has_more: bool,
-}
-
-/// Paginated response of lockup action rows.
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct VenearLockupActionsListResponse {
-    /// Page of lockup action rows.
-    pub data: Vec<VenearLockupActionDto>,
+pub struct VenearDelegateVotingPowerEventsListResponse {
+    /// Page of delegate voting power event rows.
+    pub data: Vec<VenearDelegateVotingPowerEventDto>,
     /// Opaque cursor for the next page.
     pub next_cursor: Option<String>,
     /// Indicates whether another page exists.
@@ -613,418 +602,271 @@ pub struct VenearDelegationEventsListResponse {
     pub has_more: bool,
 }
 
-/// Latest-state projection for a veNEAR proposal.
+/// Latest-state projection for a veNEAR proposal in list views.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct VenearProposalDto {
-    /// Internal primary key for the latest projection row.
-    pub id: i64,
+pub struct VenearProposalSummaryDto {
     /// Upstream proposal identifier.
     pub proposal_id: i64,
-    /// Latest known event type for this proposal stream.
-    pub latest_event_type: String,
-    /// Account that initiated the latest proposal action, when present.
-    pub account_id: Option<String>,
-    /// Account that proposed the draft, when present.
+    /// Proposal title, when present.
+    pub title: Option<String>,
+    /// Proposal description, when present.
+    pub description: Option<String>,
+    /// Proposal link, when present.
+    pub link: Option<String>,
+    /// Voting options available for the proposal.
+    pub voting_options: Vec<String>,
+    /// Normalized proposal status (`created`, `approved`, `voting`, `finished`, `rejected`).
+    pub status: String,
+    /// Proposal creator account id.
     pub proposer_id: Option<String>,
-    /// Account assigned as reviewer, when present.
+    /// Reviewer account id, when available.
     pub reviewer_id: Option<String>,
-    /// Voting start epoch seconds, when available.
-    pub voting_start_time_sec: Option<i64>,
-    /// RFC3339 voting start timestamp derived from `voting_start_time_sec`.
-    pub voting_start_time: Option<String>,
-    /// Snapshot block height used for voting state, when available.
+    /// Proposal creation timestamp.
+    pub created_at: Option<String>,
+    /// Voting start timestamp.
+    pub voting_start_at: Option<String>,
+    /// Voting end timestamp.
+    pub voting_end_at: Option<String>,
+    /// Snapshot block height, when available.
     pub snapshot_block_height: Option<i64>,
-    /// Snapshot Merkle root for voting state, when available.
+    /// Snapshot Merkle root, when available.
     pub snapshot_root: Option<String>,
-    /// Snapshot total veNEAR at proposal creation, stringified for precision.
+    /// Snapshot total veNEAR, stringified for precision.
     pub snapshot_total_venear: Option<String>,
-    /// Additional proposal metadata payload.
-    pub metadata: Option<serde_json::Value>,
-    /// Raw proposal payload if available.
-    pub payload: Option<serde_json::Value>,
-    /// Block height for the latest proposal event.
+    /// Number of currently effective votes.
+    pub effective_votes_count: i64,
+    /// Total voting power of currently effective votes.
+    pub effective_votes_voting_power: String,
+    /// Latest event type in the proposal stream.
+    pub latest_event_type: String,
+    /// Block height of the latest event.
+    pub latest_block_height: i64,
+    /// Block timestamp of the latest event.
+    pub latest_block_timestamp: String,
+}
+
+/// Detailed proposal view.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalDto {
+    /// Upstream proposal identifier.
+    pub proposal_id: i64,
+    /// Proposal title, when present.
+    pub title: Option<String>,
+    /// Proposal description, when present.
+    pub description: Option<String>,
+    /// Proposal link, when present.
+    pub link: Option<String>,
+    /// Voting options available for the proposal.
+    pub voting_options: Vec<String>,
+    /// Normalized proposal status (`created`, `approved`, `voting`, `finished`, `rejected`).
+    pub status: String,
+    /// Proposal creator account id.
+    pub proposer_id: Option<String>,
+    /// Reviewer account id, when available.
+    pub reviewer_id: Option<String>,
+    /// Proposal creation timestamp.
+    pub created_at: Option<String>,
+    /// Voting start timestamp.
+    pub voting_start_at: Option<String>,
+    /// Voting end timestamp.
+    pub voting_end_at: Option<String>,
+    /// Snapshot block height, when available.
+    pub snapshot_block_height: Option<i64>,
+    /// Snapshot Merkle root, when available.
+    pub snapshot_root: Option<String>,
+    /// Snapshot total veNEAR, stringified for precision.
+    pub snapshot_total_venear: Option<String>,
+    /// Number of currently effective votes.
+    pub effective_votes_count: i64,
+    /// Total voting power of currently effective votes.
+    pub effective_votes_voting_power: String,
+    /// Aggregates per vote option.
+    pub vote_aggregates: Vec<VenearVoteAggregateDto>,
+    /// Metadata about the latest proposal event.
+    pub latest_event: VenearProposalLatestEventDto,
+}
+
+/// Aggregated vote information for one voting option.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearVoteAggregateDto {
+    /// Index of voting option.
+    pub option_index: i32,
+    /// Label of voting option, when available.
+    pub option_label: Option<String>,
+    /// Number of votes for this option.
+    pub votes_count: i64,
+    /// Total voting power for this option.
+    pub voting_power: String,
+}
+
+/// Latest event metadata for a proposal.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalLatestEventDto {
+    /// Event type.
+    pub event_type: String,
+    /// Block height where the event was emitted.
     pub block_height: i64,
-    /// Block timestamp in nanoseconds.
-    pub block_timestamp_ns: i64,
-    /// Human-readable UTC RFC3339 block timestamp.
+    /// Block timestamp in RFC 3339 format.
     pub block_timestamp: String,
-    /// Shard identifier where the block was produced.
-    pub shard_id: i32,
-    /// Receipt id for the action.
+    /// Receipt id associated with the event.
     pub receipt_id: String,
-    /// Execution outcome id for the event log.
+    /// Execution outcome id associated with the event.
     pub execution_outcome_id: String,
-    /// Predecessor account that produced the action.
-    pub predecessor_account_id: String,
-    /// Smart contract account id.
-    pub contract_id: String,
-    /// Event log index inside the transaction.
-    pub log_index: i32,
-    /// Data index inside the event stream.
-    pub data_index: i32,
-    /// Timestamp when this row was first indexed.
-    pub created_at: String,
-    /// Unix epoch (seconds) equivalent of `created_at`.
-    pub created_at_epoch: i64,
 }
 
 /// Event row from the proposal event stream.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearProposalEventDto {
-    /// Internal primary key for the proposal event row.
+    /// Internal primary key for ordering.
     pub id: i64,
-    /// Upstream proposal identifier.
+    /// Proposal id associated with this event.
     pub proposal_id: i64,
-    /// Event type emitted by the proposal state machine.
+    /// Event type emitted by the contract.
     pub event_type: String,
-    /// Account that emitted this event.
-    pub account_id: Option<String>,
-    /// Account that proposed the draft, when present.
+    /// Primary actor account id, when available.
+    pub actor_account_id: Option<String>,
+    /// Proposer account id, when available.
     pub proposer_id: Option<String>,
-    /// Account that reviewed the proposal, when present.
+    /// Reviewer account id, when available.
     pub reviewer_id: Option<String>,
-    /// Voting start epoch seconds, when available.
-    pub voting_start_time_sec: Option<i64>,
-    /// RFC3339 voting start timestamp derived from `voting_start_time_sec`.
-    pub voting_start_time: Option<String>,
-    /// Snapshot block height used for this event.
+    /// Normalized proposal status inferred at this event.
+    pub status: Option<String>,
+    /// Proposal title, when available.
+    pub title: Option<String>,
+    /// Proposal description, when available.
+    pub description: Option<String>,
+    /// Proposal link, when available.
+    pub link: Option<String>,
+    /// Voting start timestamp, when available.
+    pub voting_start_at: Option<String>,
+    /// Voting duration in nanoseconds, when available.
+    pub voting_duration_ns: Option<String>,
+    /// Snapshot block height, when available.
     pub snapshot_block_height: Option<i64>,
-    /// Snapshot Merkle root for this event, when available.
+    /// Snapshot root, when available.
     pub snapshot_root: Option<String>,
-    /// Snapshot total veNEAR at snapshot time, stringified for precision.
+    /// Snapshot total veNEAR, when available.
     pub snapshot_total_venear: Option<String>,
-    /// Optional metadata payload attached to the event.
-    pub metadata: Option<serde_json::Value>,
-    /// Optional raw payload attached to the event.
-    pub payload: Option<serde_json::Value>,
     /// Block height where the event was emitted.
     pub block_height: i64,
-    /// Block timestamp in nanoseconds.
-    pub block_timestamp_ns: i64,
-    /// Human-readable UTC RFC3339 block timestamp.
+    /// Block timestamp in RFC 3339 format.
     pub block_timestamp: String,
-    /// Shard identifier for the producing block.
-    pub shard_id: i32,
-    /// Receipt id for the action.
+    /// Receipt id associated with the event.
     pub receipt_id: String,
-    /// Execution outcome id for the event.
+    /// Execution outcome id associated with the event.
     pub execution_outcome_id: String,
-    /// Predecessor account that emitted the event.
-    pub predecessor_account_id: String,
-    /// Contract account id.
-    pub contract_id: String,
-    /// Log index in the receipt outcome.
-    pub log_index: i32,
-    /// Data index in the event vector.
-    pub data_index: i32,
-    /// Timestamp when the event row was indexed.
-    pub created_at: String,
-    /// Unix epoch (seconds) equivalent of `created_at`.
-    pub created_at_epoch: i64,
 }
 
-/// Vote row recorded for a proposal.
+/// Effective vote row recorded for a proposal.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearVoteDto {
-    /// Internal primary key for the vote row.
+    /// Internal primary key for ordering.
     pub id: i64,
     /// Proposal id receiving the vote.
     pub proposal_id: i64,
     /// Account id of the voter.
+    pub voter_account_id: String,
+    /// Numeric option index selected by the voter.
+    pub vote_option: i32,
+    /// Voting option label, when available.
+    pub vote_label: Option<String>,
+    /// Voting power of the voter at vote time.
+    pub voting_power: String,
+    /// Event type for the latest vote row (`add_vote` expected for effective votes).
+    pub event_type: String,
+    /// Whether this vote is currently effective.
+    pub is_effective: bool,
+    /// Block height where the vote event was emitted.
+    pub block_height: i64,
+    /// Block timestamp in RFC 3339 format.
+    pub block_timestamp: String,
+    /// Receipt id associated with the vote event.
+    pub receipt_id: String,
+    /// Execution outcome id associated with the vote event.
+    pub execution_outcome_id: String,
+}
+
+/// Delegate row with own and delegated voting power.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearDelegateDto {
+    /// Delegate account id.
     pub account_id: String,
-    /// Raw vote value as emitted by governance contract.
-    pub vote: i32,
-    /// Voter balance at time of voting.
-    pub account_balance: String,
-    /// Event type for this vote row.
-    pub event_type: String,
-    /// Optional payload details for vote event.
-    pub payload: Option<serde_json::Value>,
-    /// Block height where vote was produced.
-    pub block_height: i64,
-    /// Block timestamp in nanoseconds.
-    pub block_timestamp_ns: i64,
-    /// Human-readable UTC RFC3339 block timestamp.
-    pub block_timestamp: String,
-    /// Shard identifier for the block.
-    pub shard_id: i32,
-    /// Receipt id for the vote event.
-    pub receipt_id: String,
-    /// Execution outcome id for the vote event.
-    pub execution_outcome_id: String,
-    /// Predecessor account emitting the vote event.
-    pub predecessor_account_id: String,
-    /// Contract account id.
-    pub contract_id: String,
-    /// Log index within the transaction receipt.
-    pub log_index: i32,
-    /// Data index within the event list.
-    pub data_index: i32,
-    /// Timestamp when the vote row was indexed.
-    pub created_at: String,
-    /// Unix epoch (seconds) equivalent of `created_at`.
-    pub created_at_epoch: i64,
+    /// Voting power owned directly by this account.
+    pub own_voting_power: String,
+    /// Voting power delegated to this account from others.
+    pub delegated_voting_power: String,
+    /// Effective total voting power available to this account.
+    pub total_voting_power: String,
+    /// Number of accounts currently delegating to this account.
+    pub delegators_count: i64,
+    /// Delegate target if this account currently delegates outward.
+    pub delegated_to_account_id: Option<String>,
+    /// Whether this account currently has inbound delegation.
+    pub has_inbound_delegation: bool,
+    /// Whether this account currently delegates to another account.
+    pub has_outbound_delegation: bool,
+    /// Most recent timestamp where the account cast an effective vote.
+    pub last_vote_at: Option<String>,
+    /// Last observed timestamp from balance/delegation/vote activity.
+    pub updated_at: String,
 }
 
-/// Account balance mutation row for veNEAR governance balances.
+/// Voting power mutation row for a delegate account.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct VenearAccountBalanceDto {
-    /// Internal primary key for the balance change row.
+pub struct VenearDelegateVotingPowerEventDto {
+    /// Internal primary key for ordering.
     pub id: i64,
-    /// Account id whose balance changed.
-    pub account_id: String,
-    /// Event type describing the balance mutation.
+    /// Event type for this mutation.
     pub event_type: String,
-    /// Optional delta amount for this mutation.
-    pub delta_amount: Option<String>,
-    /// Total balance after applying the delta.
-    pub total_balance: String,
-    /// Optional locked NEAR balance in this account.
-    pub locked_near_balance: Option<String>,
-    /// Lockup update nonce, when present.
-    pub lockup_update_nonce: Option<i64>,
-    /// Lockup version number, when present.
-    pub lockup_version: Option<i64>,
-    /// Block height for the balance change.
+    /// Normalized reason label: `balance_increase`, `balance_decrease`,
+    /// `delegation_received`, `delegation_given`, `delegation_returned`,
+    /// `delegation_removed`, `vote_cast`, `vote_removed`, or `other`.
+    pub reason: String,
+    /// Proposal id when mutation is proposal-scoped.
+    pub proposal_id: Option<i64>,
+    /// Voting power after this mutation.
+    pub voting_power: String,
+    /// Voting power delta for this mutation, when available.
+    pub delta_voting_power: Option<String>,
+    /// Block height where this mutation was recorded.
     pub block_height: i64,
-    /// Block timestamp in nanoseconds.
-    pub block_timestamp_ns: i64,
-    /// Human-readable UTC RFC3339 block timestamp.
+    /// Block timestamp in RFC 3339 format.
     pub block_timestamp: String,
-    /// Shard id where the event was emitted.
-    pub shard_id: i32,
-    /// Receipt id for the balance event.
+    /// Receipt id associated with this mutation.
     pub receipt_id: String,
-    /// Execution outcome id for the balance event.
+    /// Execution outcome id associated with this mutation.
     pub execution_outcome_id: String,
-    /// Predecessor account involved in the balance event.
-    pub predecessor_account_id: String,
-    /// Contract account for the balance event.
-    pub contract_id: String,
-    /// Log index for the receipt.
-    pub log_index: i32,
-    /// Data index for the event record.
-    pub data_index: i32,
-    /// Optional event payload.
-    pub payload: Option<serde_json::Value>,
-    /// Timestamp when this row was indexed.
-    pub created_at: String,
-    /// Unix epoch (seconds) equivalent of `created_at`.
-    pub created_at_epoch: i64,
 }
 
-/// Timeseries lockup lifecycle event row.
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct VenearLockupDto {
-    /// Internal primary key for the lockup event row.
-    pub id: i64,
-    /// Lockup account id this row belongs to.
-    pub lockup_account_id: String,
-    /// Owner account associated with this lockup, if known.
-    pub owner_account_id: Option<String>,
-    /// Event type for this lockup lifecycle row.
-    pub event_type: String,
-    /// Lockup version number, when present.
-    pub lockup_version: Option<i64>,
-    /// Lockup update nonce, when present.
-    pub lockup_update_nonce: Option<i64>,
-    /// Locked NEAR balance after update, when available.
-    pub locked_near_balance: Option<String>,
-    /// Source module or action that wrote this row.
-    pub action_source: String,
-    /// Optional transaction hash for convenience.
-    pub transaction_hash: Option<String>,
-    /// Receipt id linked to the lockup action.
-    pub receipt_id: String,
-    /// Execution outcome id for the lockup action.
-    pub execution_outcome_id: String,
-    /// Predecessor account for the action.
-    pub predecessor_account_id: String,
-    /// Contract account for lockup actions.
-    pub contract_id: String,
-    /// Whether the action succeeded.
-    pub success: bool,
-    /// Block height when lockup event was emitted.
-    pub block_height: i64,
-    /// Block timestamp in nanoseconds.
-    pub block_timestamp_ns: i64,
-    /// Human-readable UTC RFC3339 block timestamp.
-    pub block_timestamp: String,
-    /// Shard id where lockup event was indexed.
-    pub shard_id: i32,
-    /// Log index for ordering within the receipt.
-    pub log_index: i32,
-    /// Data index for ordering within the event payload.
-    pub data_index: i32,
-    /// Optional payload details for the event.
-    pub payload: Option<serde_json::Value>,
-    /// Timestamp when the row was created.
-    pub created_at: String,
-    /// Unix epoch (seconds) equivalent of `created_at`.
-    pub created_at_epoch: i64,
-}
-
-/// Indexed action row tied to a lockup account.
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct VenearLockupActionDto {
-    /// Internal primary key for the lockup action.
-    pub id: i64,
-    /// Lockup account id that this action targets.
-    pub lockup_account_id: String,
-    /// Owner account of the lockup, if known.
-    pub owner_account_id: Option<String>,
-    /// Predecessor account that emitted the action.
-    pub predecessor_account_id: String,
-    /// Receiver account when the action transfers or interacts with funds.
-    pub receiver_account_id: String,
-    /// Contract method name for the action.
-    pub method_name: String,
-    /// Source system/component that generated this action.
-    pub action_source: String,
-    /// Index of action in the transaction execution.
-    pub action_index: i32,
-    /// Parsed JSON action arguments when available.
-    pub args_json: Option<serde_json::Value>,
-    /// Base64-encoded action arguments.
-    pub args_base64: String,
-    /// Attached deposit amount as stringified integer.
-    pub attached_deposit: String,
-    /// Optional transaction hash for traceability.
-    pub transaction_hash: Option<String>,
-    /// Receipt id that contains this action.
-    pub receipt_id: String,
-    /// Execution outcome id.
-    pub execution_outcome_id: String,
-    /// Whether the action succeeded.
-    pub success: bool,
-    /// Block height at which action was emitted.
-    pub block_height: i64,
-    /// Block timestamp in nanoseconds.
-    pub block_timestamp_ns: i64,
-    /// Human-readable UTC RFC3339 block timestamp.
-    pub block_timestamp: String,
-    /// Shard id where the action was executed.
-    pub shard_id: i32,
-    /// Optional staking pool account id for delegation actions.
-    pub staking_pool_account_id: Option<String>,
-    /// Optional structured metadata.
-    pub metadata: Option<serde_json::Value>,
-    /// Timestamp when this row was indexed.
-    pub created_at: String,
-    /// Unix epoch (seconds) equivalent of `created_at`.
-    pub created_at_epoch: i64,
-}
-
-/// Indexed delegation action row tied to a governance account.
+/// Delegation event row for a delegate account.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VenearDelegationEventDto {
-    /// Internal primary key for the delegation event.
+    /// Internal primary key for ordering.
     pub id: i64,
-    /// Account that delegated tokens.
-    pub delegator_account_id: String,
-    /// Account delegated to, when present.
-    pub delegatee_account_id: Option<String>,
-    /// Delegation event type (for example `delegate_all` or `undelegate`).
+    /// Direction relative to the requested account (`inbound` or `outbound`).
+    pub direction: String,
+    /// Delegation event type (`delegate_all` or `undelegate`).
     pub event_type: String,
-    /// Source system/component that generated the event.
-    pub action_source: String,
-    /// Action index in the transaction execution sequence.
-    pub action_index: i32,
-    /// Optional JSON parsed arguments for the event.
-    pub args_json: Option<serde_json::Value>,
-    /// Base64-encoded argument payload.
-    pub args_base64: String,
-    /// Attached deposit amount as string.
-    pub attached_deposit: String,
-    /// Optional transaction hash for inspection.
-    pub transaction_hash: Option<String>,
-    /// Receipt id where delegation event occurred.
-    pub receipt_id: String,
-    /// Execution outcome id for the event.
-    pub execution_outcome_id: String,
+    /// Delegator account id.
+    pub delegator_account_id: String,
+    /// Raw delegatee account id as stored in the event.
+    pub delegatee_account_id: Option<String>,
+    /// Delegatee account id with undelegate inference applied when possible.
+    pub resolved_delegatee_account_id: Option<String>,
+    /// Whether `resolved_delegatee_account_id` was inferred.
+    pub delegatee_inferred: bool,
     /// Whether the action succeeded.
     pub success: bool,
-    /// Block height of the delegation event.
+    /// Block height where the event was emitted.
     pub block_height: i64,
-    /// Block timestamp in nanoseconds.
-    pub block_timestamp_ns: i64,
-    /// Human-readable UTC RFC3339 block timestamp.
+    /// Block timestamp in RFC 3339 format.
     pub block_timestamp: String,
-    /// Shard identifier for the event block.
-    pub shard_id: i32,
-    /// Contract account for the delegation.
-    pub contract_id: String,
-    /// Optional structured metadata.
-    pub metadata: Option<serde_json::Value>,
-    /// Timestamp when this event row was indexed.
-    pub created_at: String,
-    /// Unix epoch (seconds) equivalent of `created_at`.
-    pub created_at_epoch: i64,
-}
-
-/// Query options for listing lockup lifecycle events.
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct VenearLockupsQuery {
-    /// Maximum number of rows to return in one response page.
-    ///
-    /// - Omit to use the default value of 20.
-    /// - The API clamps values to 1..=100.
-    #[param(minimum = 1, maximum = 100, default = 20)]
-    pub limit: Option<u64>,
-    /// Opaque pagination cursor from a previous response's `next_cursor`.
-    pub cursor: Option<String>,
-    /// Exact match on lockup account id.
-    pub lockup_account_id: Option<String>,
-    /// Exact match on owner account id.
-    pub owner_account_id: Option<String>,
-    /// Filter by lockup event type (exact match).
-    ///
-    /// This is a backend-specific event label string.
-    pub event_type: Option<String>,
-    /// Filter by execution success status:
-    /// - `true` for successful events
-    /// - `false` for failed events
-    pub success: Option<bool>,
-}
-
-/// Query options for listing actions linked to one lockup account.
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct VenearLockupActionsQuery {
-    /// Maximum number of rows to return in one response page.
-    ///
-    /// - Omit to use the default value of 20.
-    /// - The API clamps values to 1..=100.
-    #[param(minimum = 1, maximum = 100, default = 20)]
-    pub limit: Option<u64>,
-    /// Opaque pagination cursor from a previous response's `next_cursor`.
-    pub cursor: Option<String>,
-    /// Exact match on lockup action method name.
-    pub method_name: Option<String>,
-    /// Filter by execution success status:
-    /// - `true` for successful events
-    /// - `false` for failed events
-    pub success: Option<bool>,
-}
-
-/// Query options for listing delegation actions linked to one account.
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct VenearDelegationEventsQuery {
-    /// Maximum number of rows to return in one response page.
-    ///
-    /// - Omit to use the default value of 20.
-    /// - The API clamps values to 1..=100.
-    #[param(minimum = 1, maximum = 100, default = 20)]
-    pub limit: Option<u64>,
-    /// Opaque pagination cursor from a previous response's `next_cursor`.
-    pub cursor: Option<String>,
-    /// Exact-match delegation event type.
-    ///
-    /// Example values include `delegate_all` and `undelegate`.
-    pub event_type: Option<String>,
-    /// Filter by execution success status:
-    /// - `true` for successful events
-    /// - `false` for failed events
-    pub success: Option<bool>,
+    /// Optional transaction hash.
+    pub transaction_hash: Option<String>,
+    /// Receipt id associated with the event.
+    pub receipt_id: String,
+    /// Execution outcome id associated with the event.
+    pub execution_outcome_id: String,
 }
 
 /// Paginated response of indexed Telegram channels.

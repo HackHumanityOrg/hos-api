@@ -46,6 +46,10 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         "venear proposals path present"
     );
     assert!(
+        paths.contains_key("/api/v1/venear/proposals/{proposal_id}"),
+        "venear proposal details path present"
+    );
+    assert!(
         paths.contains_key("/api/v1/telegram/channels"),
         "telegram channels path present"
     );
@@ -62,8 +66,16 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         "venear proposal events path present"
     );
     assert!(
-        paths.contains_key("/api/v1/venear/lockups/{lockup_account_id}/actions"),
-        "venear lockup actions path present"
+        paths.contains_key("/api/v1/venear/delegates"),
+        "venear delegates path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/delegates/{account_id}/voting-power"),
+        "venear delegate voting power path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/delegates/{account_id}/delegations"),
+        "venear delegate delegations path present"
     );
 
     let health_operation = paths
@@ -101,18 +113,18 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         "topics description should explain ordering semantics"
     );
 
-    let venear_lockups_operation = paths
-        .get("/api/v1/venear/lockups")
+    let venear_delegates_operation = paths
+        .get("/api/v1/venear/delegates")
         .and_then(|path| path.get("get"))
         .and_then(|op| op.as_object())
-        .expect("venear lockups get operation");
+        .expect("venear delegates get operation");
     assert!(
-        venear_lockups_operation
+        venear_delegates_operation
             .get("description")
             .and_then(|v| v.as_str())
-            .expect("lockups description")
-            .contains("lifecycle metadata"),
-        "lockups description should explain dataset semantics"
+            .expect("delegates description")
+            .contains("possible voters"),
+        "delegates description should explain dataset semantics"
     );
 
     let telegram_messages_operation = paths
@@ -182,9 +194,11 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(schemas.contains_key("TelegramMessageDto"));
     assert!(schemas.contains_key("TelegramReactionDto"));
     assert!(schemas.contains_key("TelegramServiceActionDto"));
+    assert!(schemas.contains_key("VenearProposalSummaryDto"));
     assert!(schemas.contains_key("VenearProposalDto"));
     assert!(schemas.contains_key("VenearVoteDto"));
-    assert!(schemas.contains_key("VenearLockupActionDto"));
+    assert!(schemas.contains_key("VenearDelegateDto"));
+    assert!(schemas.contains_key("VenearDelegateVotingPowerEventDto"));
 
     let cursor_meta = schemas
         .get("CursorPageMeta")
