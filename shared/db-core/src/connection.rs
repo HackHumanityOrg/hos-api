@@ -21,9 +21,13 @@ pub async fn establish_connection(
         .acquire_timeout(Duration::from_secs(config.acquire_timeout.unwrap_or(30)))
         .idle_timeout(Duration::from_secs(config.idle_timeout.unwrap_or(600)))
         .max_lifetime(Duration::from_secs(config.max_lifetime.unwrap_or(1800)))
-        // Configure SQLx logging to provide meaningful database query messages
+        // Keep statement logs off at default info level and emit only slow queries at warn.
         .sqlx_logging(true)
-        .sqlx_logging_level(tracing::log::LevelFilter::Warn);
+        .sqlx_logging_level(tracing::log::LevelFilter::Debug)
+        .sqlx_slow_statements_logging_settings(
+            tracing::log::LevelFilter::Warn,
+            Duration::from_millis(200),
+        );
 
     let db = Database::connect(opt)
         .await

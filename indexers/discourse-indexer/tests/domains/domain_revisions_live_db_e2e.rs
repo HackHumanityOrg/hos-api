@@ -118,7 +118,11 @@ async fn upsert_revision_validates_all_columns() -> Result<()> {
         .title_changes
         .as_ref()
         .map(|tc| tc.get_raw_title_after());
-    let body_changes = Some(serde_json::to_value(&revision.body_changes)?);
+    let body_changes = revision
+        .body_changes
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()?;
     let title_changes = revision
         .title_changes
         .as_ref()

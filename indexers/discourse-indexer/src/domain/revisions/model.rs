@@ -39,17 +39,24 @@ pub struct Revision {
     #[serde(default)]
     pub avatar_template: String,
     pub edit_reason: Option<String>,
-    pub body_changes: BodyChanges,
+    #[serde(default)]
+    pub body_changes: Option<BodyChanges>,
     pub title_changes: Option<TitleChanges>,
 }
 
 impl Revision {
     pub fn get_raw_markdown_before(&self) -> String {
-        extract_raw_markdown_before(&self.body_changes.side_by_side_markdown).unwrap_or_default()
+        self.body_changes
+            .as_ref()
+            .and_then(|changes| extract_raw_markdown_before(&changes.side_by_side_markdown))
+            .unwrap_or_default()
     }
 
     pub fn get_raw_markdown_after(&self) -> String {
-        extract_raw_markdown_after(&self.body_changes.side_by_side_markdown).unwrap_or_default()
+        self.body_changes
+            .as_ref()
+            .and_then(|changes| extract_raw_markdown_after(&changes.side_by_side_markdown))
+            .unwrap_or_default()
     }
 }
 
@@ -223,5 +230,32 @@ mod tests {
         assert!(after.contains("More notes:"));
         assert!(!before.contains("<del>"));
         assert!(!after.contains("<ins>"));
+    }
+
+    #[test]
+    fn parses_revision_with_null_body_changes() {
+        let raw = r#"
+        {
+          "created_at": "2021-01-08T16:42:31.934Z",
+          "post_id": 676,
+          "previous_revision": 3,
+          "current_revision": 4,
+          "next_revision": 5,
+          "current_version": 4,
+          "username": "illia",
+          "edit_reason": null,
+          "body_changes": null,
+          "title_changes": {
+            "inline": "<div class=\"inline-diff\"><div>EVM Runtime native token</div></div>",
+            "side_by_side": "<div class=\"revision-content --previous\"><div>EVM Runtime native token</div></div><div class=\"revision-content --current\"><div>EVM Runtime native token</div></div>"
+          }
+        }
+        "#;
+
+        let revision: Revision = serde_json::from_str(raw).expect("null body_changes should parse");
+
+        assert!(revision.body_changes.is_none());
+        assert_eq!(revision.get_raw_markdown_before(), "");
+        assert_eq!(revision.get_raw_markdown_after(), "");
     }
 }

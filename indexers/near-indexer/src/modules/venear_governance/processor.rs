@@ -105,7 +105,12 @@ impl VenearGovernanceModule {
                     receipt_ids.insert(local_receipt.receipt_id.to_string());
                 }
 
-                for receipt_id in &tx_with_outcome.outcome.execution_outcome.outcome.receipt_ids {
+                for receipt_id in &tx_with_outcome
+                    .outcome
+                    .execution_outcome
+                    .outcome
+                    .receipt_ids
+                {
                     receipt_ids.insert(receipt_id.to_string());
                 }
             }
@@ -146,11 +151,7 @@ impl VenearGovernanceModule {
                  WHERE receipt_id IN ({placeholders})"
             );
 
-            let values = chunk
-                .iter()
-                .cloned()
-                .map(Into::into)
-                .collect::<Vec<_>>();
+            let values = chunk.iter().cloned().map(Into::into).collect::<Vec<_>>();
 
             let rows = db
                 .query_all(Statement::from_sql_and_values(
@@ -271,7 +272,11 @@ impl VenearGovernanceModule {
                         .or_insert_with(|| tx_hash.clone());
                 }
 
-                for child_receipt_id in &tx_with_outcome.outcome.execution_outcome.outcome.receipt_ids
+                for child_receipt_id in &tx_with_outcome
+                    .outcome
+                    .execution_outcome
+                    .outcome
+                    .receipt_ids
                 {
                     receipt_tx_map
                         .entry(child_receipt_id.to_string())
@@ -290,7 +295,8 @@ impl VenearGovernanceModule {
                     continue;
                 };
 
-                for child_receipt_id in &receipt_with_outcome.execution_outcome.outcome.receipt_ids {
+                for child_receipt_id in &receipt_with_outcome.execution_outcome.outcome.receipt_ids
+                {
                     let child_receipt_id = child_receipt_id.to_string();
 
                     if let Some(existing_hash) = receipt_tx_map.get(&child_receipt_id) {

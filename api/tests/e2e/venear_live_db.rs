@@ -32,9 +32,11 @@ async fn venear_endpoints_return_seeded_data() {
     assert_eq!(proposals_page_1.data[0].proposal_id, 2);
     let cursor = proposals_page_1.next_cursor.clone().expect("next cursor");
 
-    let proposals_page_2: VenearProposalsListResponse =
-        get_json(&router, &format!("/api/v1/venear/proposals?cursor={cursor}"))
-            .await;
+    let proposals_page_2: VenearProposalsListResponse = get_json(
+        &router,
+        &format!("/api/v1/venear/proposals?cursor={cursor}"),
+    )
+    .await;
     assert_eq!(proposals_page_2.data.len(), 1);
     assert!(!proposals_page_2.has_more);
     assert_eq!(proposals_page_2.data[0].proposal_id, 1);
@@ -48,8 +50,11 @@ async fn venear_endpoints_return_seeded_data() {
     );
     assert_eq!(proposals_page_2.data[0].status, "approved");
 
-    let created_only: VenearProposalsListResponse =
-        get_json(&router, "/api/v1/venear/proposals?latest_event_type=create_proposal").await;
+    let created_only: VenearProposalsListResponse = get_json(
+        &router,
+        "/api/v1/venear/proposals?latest_event_type=create_proposal",
+    )
+    .await;
     assert_eq!(created_only.data.len(), 1);
     assert_eq!(created_only.data[0].proposal_id, 2);
 
@@ -101,12 +106,11 @@ async fn venear_endpoints_return_seeded_data() {
         .clone()
         .expect("config history cursor");
 
-    let config_history_page_2: VenearConfigHistoryListResponse =
-        get_json(
-            &router,
-            &format!("/api/v1/venear/config/history?limit=2&cursor={config_history_cursor}"),
-        )
-        .await;
+    let config_history_page_2: VenearConfigHistoryListResponse = get_json(
+        &router,
+        &format!("/api/v1/venear/config/history?limit=2&cursor={config_history_cursor}"),
+    )
+    .await;
     assert_eq!(config_history_page_2.data.len(), 2);
     assert!(config_history_page_2.has_more);
     assert_eq!(config_history_page_2.data[0].field, "guardians");
@@ -146,7 +150,10 @@ async fn venear_endpoints_return_seeded_data() {
     let proposal_events: VenearProposalEventsListResponse =
         get_json(&router, "/api/v1/venear/proposals/1/events").await;
     assert_eq!(proposal_events.data.len(), 2);
-    assert_eq!(proposal_events.data[0].event_type, "proposal_approve_finalized");
+    assert_eq!(
+        proposal_events.data[0].event_type,
+        "proposal_approve_finalized"
+    );
     assert_eq!(
         proposal_events.data[0].transaction_hash.as_deref(),
         Some("tx-p1-final")
@@ -162,9 +169,13 @@ async fn venear_endpoints_return_seeded_data() {
     )
     .await;
     assert_eq!(finalized_events.data.len(), 1);
-    assert_eq!(finalized_events.data[0].event_type, "proposal_approve_finalized");
+    assert_eq!(
+        finalized_events.data[0].event_type,
+        "proposal_approve_finalized"
+    );
 
-    let votes: VenearVotesListResponse = get_json(&router, "/api/v1/venear/proposals/1/votes").await;
+    let votes: VenearVotesListResponse =
+        get_json(&router, "/api/v1/venear/proposals/1/votes").await;
     assert_eq!(votes.data.len(), 2);
     assert_eq!(votes.data[0].voter_account_id, "jane.near");
     assert_eq!(votes.data[0].voting_power, "900000000000000000000");
