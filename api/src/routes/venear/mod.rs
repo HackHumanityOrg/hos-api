@@ -5,6 +5,8 @@ use axum::{routing::get, Router};
 
 pub fn venear_routes() -> Router<AppState> {
     Router::new()
+        .route("/venear/config/current", get(venear::get_config_current))
+        .route("/venear/config/history", get(venear::list_config_history))
         .route("/venear/proposals", get(venear::list_proposals))
         .route("/venear/proposals/{proposal_id}", get(venear::get_proposal))
         .route(

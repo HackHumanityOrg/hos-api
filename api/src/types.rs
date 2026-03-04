@@ -447,6 +447,23 @@ pub struct VenearProposalsQuery {
     pub proposer_id: Option<String>,
 }
 
+/// Query options for listing veNEAR config history events.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearConfigHistoryQuery {
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
+    #[param(minimum = 1, maximum = 100, default = 20)]
+    pub limit: Option<u64>,
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
+    pub cursor: Option<String>,
+    /// Optional exact contract filter (for example `venear.dao` or `vote.dao`).
+    pub contract_id: Option<String>,
+    /// Optional config field filter (`guardians` or `reviewer_ids`).
+    pub field: Option<String>,
+}
+
 /// Query options for listing events of a single proposal.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearProposalEventsQuery {
@@ -650,6 +667,53 @@ pub struct UserPostsQuery {
     pub limit: Option<u64>,
     /// Opaque pagination cursor from a previous response's `next_cursor`.
     pub cursor: Option<String>,
+}
+
+/// Paginated response of veNEAR config history rows.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearConfigHistoryListResponse {
+    /// Page of veNEAR config history rows.
+    pub data: Vec<VenearConfigEntryDto>,
+    /// Opaque cursor for the next page.
+    pub next_cursor: Option<String>,
+    /// Indicates whether another page exists.
+    pub has_more: bool,
+}
+
+/// Latest veNEAR config snapshot rows.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearConfigCurrentResponse {
+    /// Latest config row per `(contract_id, field)`.
+    pub data: Vec<VenearConfigEntryDto>,
+}
+
+/// veNEAR config event row normalized from governance method calls.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VenearConfigEntryDto {
+    /// Internal primary key for deterministic ordering.
+    pub id: i64,
+    /// Contract account id where the config change was called.
+    pub contract_id: String,
+    /// Config field (`guardians` or `reviewer_ids`).
+    pub field: String,
+    /// New value assigned to the config field.
+    pub value: Vec<String>,
+    /// Normalized source (`init_new` or `set_method`).
+    pub source: String,
+    /// Raw contract method used (`new`, `set_guardians`, or `set_reviewer_ids`).
+    pub method_name: String,
+    /// Predecessor account id that submitted the call.
+    pub predecessor_account_id: String,
+    /// Optional transaction hash when captured at transaction level.
+    pub transaction_hash: Option<String>,
+    /// Receipt id associated with this action.
+    pub receipt_id: String,
+    /// Execution outcome id associated with this action.
+    pub execution_outcome_id: String,
+    /// Block height where the action was indexed.
+    pub block_height: i64,
+    /// Block timestamp in RFC 3339 format.
+    pub block_timestamp: String,
 }
 
 /// Paginated response of latest proposal state rows.

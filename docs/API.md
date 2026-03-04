@@ -194,6 +194,8 @@ Notes:
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/api/v1/venear/config/current` | Get latest indexed config per contract and field |
+| GET | `/api/v1/venear/config/history` | List config change history from governance method calls |
 | GET | `/api/v1/venear/proposals` | List governance proposals |
 | GET | `/api/v1/venear/proposals/{proposal_id}` | Get latest details for a proposal |
 | GET | `/api/v1/venear/proposals/{proposal_id}/events` | List events for a proposal |
@@ -204,6 +206,8 @@ Notes:
 
 Notes:
 - All veNEAR list endpoints support cursor pagination via `limit` and `cursor`.
+- `GET /api/v1/venear/config/current` returns the latest row for each `(contract_id, field)` pair.
+- `GET /api/v1/venear/config/history` supports `contract_id` and `field` (`guardians` or `reviewer_ids`).
 - `GET /api/v1/venear/proposals` supports `latest_event_type` and `proposer_id`.
 - `GET /api/v1/venear/proposals/{proposal_id}/events` supports `event_type` and `actor_account_id`.
 - `GET /api/v1/venear/proposals/{proposal_id}/votes` supports `voter_account_id` and `vote_option`.

@@ -46,6 +46,14 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         "venear proposals path present"
     );
     assert!(
+        paths.contains_key("/api/v1/venear/config/current"),
+        "venear config current path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/config/history"),
+        "venear config history path present"
+    );
+    assert!(
         paths.contains_key("/api/v1/venear/proposals/{proposal_id}"),
         "venear proposal details path present"
     );
@@ -197,6 +205,9 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(schemas.contains_key("VenearProposalSummaryDto"));
     assert!(schemas.contains_key("VenearProposalDto"));
     assert!(schemas.contains_key("VenearVoteDto"));
+    assert!(schemas.contains_key("VenearConfigCurrentResponse"));
+    assert!(schemas.contains_key("VenearConfigHistoryListResponse"));
+    assert!(schemas.contains_key("VenearConfigEntryDto"));
     assert!(schemas.contains_key("VenearDelegateDto"));
     assert!(schemas.contains_key("VenearDelegateVotingPowerEventDto"));
 

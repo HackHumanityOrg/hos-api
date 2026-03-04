@@ -1,4 +1,5 @@
 use api::types::{
+    VenearConfigCurrentResponse, VenearConfigHistoryListResponse,
     VenearDelegateVotingPowerEventsListResponse, VenearDelegatesListResponse,
     VenearDelegationEventsListResponse, VenearProposalDto, VenearProposalEventsListResponse,
     VenearProposalsListResponse, VenearVotesListResponse,
@@ -51,6 +52,86 @@ async fn venear_endpoints_return_seeded_data() {
         get_json(&router, "/api/v1/venear/proposals?latest_event_type=create_proposal").await;
     assert_eq!(created_only.data.len(), 1);
     assert_eq!(created_only.data[0].proposal_id, 2);
+
+    let config_current: VenearConfigCurrentResponse =
+        get_json(&router, "/api/v1/venear/config/current").await;
+    assert_eq!(config_current.data.len(), 3);
+
+    let vote_guardians = config_current
+        .data
+        .iter()
+        .find(|row| row.contract_id == "vote.dao" && row.field == "guardians")
+        .expect("vote.dao guardians current row");
+    assert_eq!(
+        vote_guardians.value,
+        vec!["guardian2.near".to_string(), "guardian3.near".to_string()]
+    );
+    assert_eq!(vote_guardians.source, "set_method");
+
+    let vote_reviewers = config_current
+        .data
+        .iter()
+        .find(|row| row.contract_id == "vote.dao" && row.field == "reviewer_ids")
+        .expect("vote.dao reviewer_ids current row");
+    assert_eq!(vote_reviewers.value, vec!["reviewer9.near".to_string()]);
+    assert_eq!(vote_reviewers.source, "set_method");
+
+    let venear_guardians = config_current
+        .data
+        .iter()
+        .find(|row| row.contract_id == "venear.dao" && row.field == "guardians")
+        .expect("venear.dao guardians current row");
+    assert_eq!(venear_guardians.value, vec!["guardian4.near".to_string()]);
+    assert_eq!(venear_guardians.source, "set_method");
+
+    let config_history_page_1: VenearConfigHistoryListResponse =
+        get_json(&router, "/api/v1/venear/config/history?limit=2").await;
+    assert_eq!(config_history_page_1.data.len(), 2);
+    assert!(config_history_page_1.has_more);
+    assert_eq!(config_history_page_1.data[0].contract_id, "venear.dao");
+    assert_eq!(config_history_page_1.data[0].field, "guardians");
+    assert_eq!(
+        config_history_page_1.data[0].value,
+        vec!["guardian4.near".to_string()]
+    );
+    assert_eq!(config_history_page_1.data[0].source, "set_method");
+
+    let config_history_cursor = config_history_page_1
+        .next_cursor
+        .clone()
+        .expect("config history cursor");
+
+    let config_history_page_2: VenearConfigHistoryListResponse =
+        get_json(
+            &router,
+            &format!("/api/v1/venear/config/history?limit=2&cursor={config_history_cursor}"),
+        )
+        .await;
+    assert_eq!(config_history_page_2.data.len(), 2);
+    assert!(config_history_page_2.has_more);
+    assert_eq!(config_history_page_2.data[0].field, "guardians");
+    assert_eq!(config_history_page_2.data[0].contract_id, "vote.dao");
+    assert_eq!(config_history_page_2.data[0].source, "set_method");
+
+    let reviewer_history: VenearConfigHistoryListResponse =
+        get_json(&router, "/api/v1/venear/config/history?field=reviewer_ids").await;
+    assert_eq!(reviewer_history.data.len(), 2);
+    assert!(reviewer_history
+        .data
+        .iter()
+        .all(|entry| entry.field == "reviewer_ids"));
+
+    let invalid_field_response = router
+        .clone()
+        .into_service()
+        .oneshot(
+            Request::get("/api/v1/venear/config/history?field=owners")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("invalid field response");
+    assert_eq!(invalid_field_response.status(), StatusCode::BAD_REQUEST);
 
     let proposal: VenearProposalDto = get_json(&router, "/api/v1/venear/proposals/1").await;
     assert_eq!(proposal.proposal_id, 1);
@@ -227,6 +308,116 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
                 111, 1760000110000000000, 0,
                 'rcpt-vote-2', 'exec-vote-2', 'jane.near', 'vote.dao',
                 0, 1
+            )
+        "#,
+    )
+    .await?;
+
+    execute_sql(
+        db,
+        r#"
+        INSERT INTO near.near_venear_governance_actions (
+            action_source, action_index,
+            transaction_hash, receipt_id, execution_outcome_id,
+            block_height, block_timestamp, shard_id,
+            predecessor_account_id, receiver_account_id,
+            contract_id, method_name,
+            args_json, args_base64, attached_deposit,
+            success, success_value_json,
+            action_category, proposal_id, vote_option,
+            delegator_account_id, delegatee_account_id, owner_account_id,
+            metadata
+        ) VALUES
+            (
+                'transaction', 0,
+                'tx-config-new-vote', 'rcpt-config-new-vote-tx', 'exec-config-new-vote-tx',
+                90, 1759999900000000000, 0,
+                'owner.near', 'vote.dao',
+                'vote.dao', 'new',
+                '{"config":{"guardians":["guardian1.near"],"reviewer_ids":["reviewer1.near","reviewer2.near"]}}'::jsonb,
+                'e30=', '0',
+                true, NULL,
+                'other', NULL, NULL,
+                NULL, NULL, NULL,
+                '{"source":"fixture"}'::jsonb
+            ),
+            (
+                'receipt', 0,
+                NULL, 'rcpt-config-new-vote-rx', 'exec-config-new-vote-rx',
+                90, 1759999900000000000, 0,
+                'owner.near', 'vote.dao',
+                'vote.dao', 'new',
+                '{"config":{"guardians":["guardian1.near"],"reviewer_ids":["reviewer1.near","reviewer2.near"]}}'::jsonb,
+                'e30=', '0',
+                true, NULL,
+                'other', NULL, NULL,
+                NULL, NULL, NULL,
+                '{"source":"fixture"}'::jsonb
+            ),
+            (
+                'transaction', 0,
+                'tx-config-new-venear', 'rcpt-config-new-venear-tx', 'exec-config-new-venear-tx',
+                91, 1759999910000000000, 0,
+                'owner.near', 'venear.dao',
+                'venear.dao', 'new',
+                '{"config":{"guardians":["guardian0.near"]}}'::jsonb,
+                'e30=', '0',
+                true, NULL,
+                'other', NULL, NULL,
+                NULL, NULL, NULL,
+                '{"source":"fixture"}'::jsonb
+            ),
+            (
+                'transaction', 0,
+                'tx-config-set-guardians-vote', 'rcpt-config-set-guardians-vote-tx', 'exec-config-set-guardians-vote-tx',
+                160, 1760000600000000000, 0,
+                'owner.near', 'vote.dao',
+                'vote.dao', 'set_guardians',
+                '{"guardians":["guardian2.near","guardian3.near"]}'::jsonb,
+                'e30=', '0',
+                true, NULL,
+                'admin', NULL, NULL,
+                NULL, NULL, NULL,
+                '{"source":"fixture"}'::jsonb
+            ),
+            (
+                'receipt', 0,
+                NULL, 'rcpt-config-set-guardians-vote-rx', 'exec-config-set-guardians-vote-rx',
+                160, 1760000600000000000, 0,
+                'owner.near', 'vote.dao',
+                'vote.dao', 'set_guardians',
+                '{"guardians":["guardian2.near","guardian3.near"]}'::jsonb,
+                'e30=', '0',
+                true, NULL,
+                'admin', NULL, NULL,
+                NULL, NULL, NULL,
+                '{"source":"fixture"}'::jsonb
+            ),
+            (
+                'transaction', 1,
+                'tx-config-set-reviewers-vote', 'rcpt-config-set-reviewers-vote-tx', 'exec-config-set-reviewers-vote-tx',
+                170, 1760000700000000000, 0,
+                'owner.near', 'vote.dao',
+                'vote.dao', 'set_reviewer_ids',
+                '{"reviewer_ids":["reviewer9.near"]}'::jsonb,
+                'e30=', '0',
+                true, NULL,
+                'admin', NULL, NULL,
+                NULL, NULL, NULL,
+                '{"source":"fixture"}'::jsonb
+            ),
+            (
+                'receipt', 0,
+                NULL, 'rcpt-config-set-guardians-venear-rx', 'exec-config-set-guardians-venear-rx',
+                171, 1760000710000000000, 0,
+                'owner.near', 'venear.dao',
+                'venear.dao', 'set_guardians',
+                '{"guardians":["guardian4.near"]}'::jsonb,
+                'e30=', '0',
+                true, NULL,
+                'admin', NULL, NULL,
+                NULL, NULL, NULL,
+                '{"source":"fixture"}'::jsonb
             )
         "#,
     )

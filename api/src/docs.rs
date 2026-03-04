@@ -43,6 +43,8 @@ use utoipa::OpenApi;
         handlers::telegram::list_users,
         handlers::telegram::get_user,
         handlers::telegram::list_user_messages,
+        handlers::venear::get_config_current,
+        handlers::venear::list_config_history,
         handlers::venear::list_proposals,
         handlers::venear::get_proposal,
         handlers::venear::list_proposal_events,
@@ -87,6 +89,9 @@ use utoipa::OpenApi;
         types::TelegramMessageDto,
         types::TelegramReactionDto,
         types::TelegramServiceActionDto,
+        types::VenearConfigCurrentResponse,
+        types::VenearConfigHistoryListResponse,
+        types::VenearConfigEntryDto,
         types::VenearProposalsListResponse,
         types::VenearProposalEventsListResponse,
         types::VenearVotesListResponse,
@@ -109,7 +114,7 @@ use utoipa::OpenApi;
         (name = "discourse", description = "Read endpoints over indexed Discourse entities (instances, categories, topics, posts, likes, users)"),
         (name = "discourse-ops", description = "Operational diagnostics for data integrity and coverage checks"),
         (name = "telegram", description = "Read endpoints over indexed Telegram entities (channels, users, messages, reactions, service actions)"),
-        (name = "venear", description = "Read endpoints over indexed veNEAR governance entities (proposals, votes, delegates, voting power, delegations)")
+        (name = "venear", description = "Read endpoints over indexed veNEAR governance entities (config, proposals, votes, delegates, voting power, delegations)")
     )
 )]
 pub struct ApiDoc;

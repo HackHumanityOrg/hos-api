@@ -71,6 +71,23 @@ async fn venear_routes_are_wired_under_api_v1() {
 }
 
 #[tokio::test]
+async fn venear_config_routes_are_wired_under_api_v1() {
+    support::init_test_tracing();
+
+    let response = support::build_router_with_state(None)
+        .into_service()
+        .oneshot(
+            Request::get("/api/v1/venear/config/current")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
 async fn telegram_routes_are_wired_under_api_v1() {
     support::init_test_tracing();
 

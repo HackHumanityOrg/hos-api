@@ -30,6 +30,376 @@ struct DelegateCursor {
     account_id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ConfigCursor {
+    block_height: i64,
+    id: i64,
+    field_order: i32,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/venear/config/current",
+    summary = "Get current veNEAR config",
+    description = "Returns the latest indexed config value per `(contract_id, field)` for guardians and reviewer ids.",
+    tag = "venear",
+    operation_id = "getVenearConfigCurrent",
+    responses(
+        (status = 200, description = "Latest veNEAR config rows", body = VenearConfigCurrentResponse),
+        (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
+    )
+)]
+pub async fn get_config_current(
+    State(app_state): State<AppState>,
+) -> Result<Json<VenearConfigCurrentResponse>, ApiErrorResponse> {
+    let db = require_db(&app_state)?;
+
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "
+            WITH candidate_actions AS (
+                SELECT
+                    id,
+                    action_source,
+                    action_index,
+                    transaction_hash,
+                    receipt_id,
+                    execution_outcome_id,
+                    block_height,
+                    block_timestamp,
+                    predecessor_account_id,
+                    contract_id,
+                    method_name,
+                    args_json,
+                    attached_deposit
+                FROM near.near_venear_governance_actions
+                WHERE contract_id IN ('venear.dao', 'vote.dao')
+                  AND method_name IN ('new', 'set_guardians', 'set_reviewer_ids')
+                  AND success = true
+            ),
+            deduped_actions AS (
+                SELECT *
+                FROM candidate_actions
+                WHERE action_source = 'transaction'
+                UNION ALL
+                SELECT r.*
+                FROM candidate_actions r
+                WHERE r.action_source = 'receipt'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM candidate_actions t
+                    WHERE t.action_source = 'transaction'
+                      AND t.contract_id = r.contract_id
+                      AND t.method_name = r.method_name
+                      AND t.predecessor_account_id = r.predecessor_account_id
+                      AND t.block_height = r.block_height
+                      AND t.attached_deposit = r.attached_deposit
+                      AND COALESCE(t.args_json::text, '') = COALESCE(r.args_json::text, '')
+                  )
+            ),
+            expanded AS (
+                SELECT
+                    id,
+                    contract_id,
+                    method_name,
+                    predecessor_account_id,
+                    transaction_hash,
+                    receipt_id,
+                    execution_outcome_id,
+                    block_height,
+                    block_timestamp,
+                    'guardians'::text AS config_field,
+                    CASE
+                        WHEN method_name = 'new' THEN args_json -> 'config' -> 'guardians'
+                        ELSE args_json -> 'guardians'
+                    END AS config_value,
+                    CASE
+                        WHEN method_name = 'new' THEN 'init_new'
+                        ELSE 'set_method'
+                    END AS config_source,
+                    0::integer AS field_order
+                FROM deduped_actions
+                WHERE method_name IN ('new', 'set_guardians')
+
+                UNION ALL
+
+                SELECT
+                    id,
+                    contract_id,
+                    method_name,
+                    predecessor_account_id,
+                    transaction_hash,
+                    receipt_id,
+                    execution_outcome_id,
+                    block_height,
+                    block_timestamp,
+                    'reviewer_ids'::text AS config_field,
+                    CASE
+                        WHEN method_name = 'new' THEN args_json -> 'config' -> 'reviewer_ids'
+                        ELSE args_json -> 'reviewer_ids'
+                    END AS config_value,
+                    CASE
+                        WHEN method_name = 'new' THEN 'init_new'
+                        ELSE 'set_method'
+                    END AS config_source,
+                    1::integer AS field_order
+                FROM deduped_actions
+                WHERE method_name IN ('new', 'set_reviewer_ids')
+            ),
+            normalized AS (
+                SELECT
+                    id,
+                    contract_id,
+                    method_name,
+                    predecessor_account_id,
+                    transaction_hash,
+                    receipt_id,
+                    execution_outcome_id,
+                    block_height,
+                    block_timestamp,
+                    config_field,
+                    config_value,
+                    config_source,
+                    field_order
+                FROM expanded
+                WHERE jsonb_typeof(config_value) = 'array'
+            )
+            SELECT DISTINCT ON (contract_id, config_field)
+                id,
+                contract_id,
+                method_name,
+                predecessor_account_id,
+                transaction_hash,
+                receipt_id,
+                execution_outcome_id,
+                block_height,
+                block_timestamp,
+                config_field,
+                config_value,
+                config_source,
+                field_order
+            FROM normalized
+            ORDER BY contract_id ASC, config_field ASC, block_height DESC, id DESC
+            ",
+            vec![],
+        ))
+        .await
+        .map_err(ApiErrorResponse::from)?;
+
+    let data = rows
+        .iter()
+        .map(to_config_entry_dto)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(Json(VenearConfigCurrentResponse { data }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/venear/config/history",
+    summary = "List veNEAR config history",
+    description = "Returns normalized config updates from `new`, `set_guardians`, and `set_reviewer_ids` method calls, ordered by block height and id descending.",
+    params(VenearConfigHistoryQuery),
+    tag = "venear",
+    operation_id = "listVenearConfigHistory",
+    responses(
+        (status = 200, description = "veNEAR config history rows", body = VenearConfigHistoryListResponse),
+        (status = 400, description = "Invalid request", body = crate::errors::ApiError),
+        (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
+    )
+)]
+pub async fn list_config_history(
+    State(app_state): State<AppState>,
+    Query(query): Query<VenearConfigHistoryQuery>,
+) -> Result<Json<VenearConfigHistoryListResponse>, ApiErrorResponse> {
+    let db = require_db(&app_state)?;
+    let limit = resolve_limit(query.limit);
+
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(decode_cursor::<ConfigCursor>)
+        .transpose()?;
+
+    let contract_id = normalized_contract_id_filter(query.contract_id.as_deref());
+    let field = parse_config_field_filter(query.field.as_deref())?;
+
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "
+            WITH candidate_actions AS (
+                SELECT
+                    id,
+                    action_source,
+                    action_index,
+                    transaction_hash,
+                    receipt_id,
+                    execution_outcome_id,
+                    block_height,
+                    block_timestamp,
+                    predecessor_account_id,
+                    contract_id,
+                    method_name,
+                    args_json,
+                    attached_deposit
+                FROM near.near_venear_governance_actions
+                WHERE contract_id IN ('venear.dao', 'vote.dao')
+                  AND method_name IN ('new', 'set_guardians', 'set_reviewer_ids')
+                  AND success = true
+            ),
+            deduped_actions AS (
+                SELECT *
+                FROM candidate_actions
+                WHERE action_source = 'transaction'
+                UNION ALL
+                SELECT r.*
+                FROM candidate_actions r
+                WHERE r.action_source = 'receipt'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM candidate_actions t
+                    WHERE t.action_source = 'transaction'
+                      AND t.contract_id = r.contract_id
+                      AND t.method_name = r.method_name
+                      AND t.predecessor_account_id = r.predecessor_account_id
+                      AND t.block_height = r.block_height
+                      AND t.attached_deposit = r.attached_deposit
+                      AND COALESCE(t.args_json::text, '') = COALESCE(r.args_json::text, '')
+                  )
+            ),
+            expanded AS (
+                SELECT
+                    id,
+                    contract_id,
+                    method_name,
+                    predecessor_account_id,
+                    transaction_hash,
+                    receipt_id,
+                    execution_outcome_id,
+                    block_height,
+                    block_timestamp,
+                    'guardians'::text AS config_field,
+                    CASE
+                        WHEN method_name = 'new' THEN args_json -> 'config' -> 'guardians'
+                        ELSE args_json -> 'guardians'
+                    END AS config_value,
+                    CASE
+                        WHEN method_name = 'new' THEN 'init_new'
+                        ELSE 'set_method'
+                    END AS config_source,
+                    0::integer AS field_order
+                FROM deduped_actions
+                WHERE method_name IN ('new', 'set_guardians')
+
+                UNION ALL
+
+                SELECT
+                    id,
+                    contract_id,
+                    method_name,
+                    predecessor_account_id,
+                    transaction_hash,
+                    receipt_id,
+                    execution_outcome_id,
+                    block_height,
+                    block_timestamp,
+                    'reviewer_ids'::text AS config_field,
+                    CASE
+                        WHEN method_name = 'new' THEN args_json -> 'config' -> 'reviewer_ids'
+                        ELSE args_json -> 'reviewer_ids'
+                    END AS config_value,
+                    CASE
+                        WHEN method_name = 'new' THEN 'init_new'
+                        ELSE 'set_method'
+                    END AS config_source,
+                    1::integer AS field_order
+                FROM deduped_actions
+                WHERE method_name IN ('new', 'set_reviewer_ids')
+            ),
+            normalized AS (
+                SELECT
+                    id,
+                    contract_id,
+                    method_name,
+                    predecessor_account_id,
+                    transaction_hash,
+                    receipt_id,
+                    execution_outcome_id,
+                    block_height,
+                    block_timestamp,
+                    config_field,
+                    config_value,
+                    config_source,
+                    field_order
+                FROM expanded
+                WHERE jsonb_typeof(config_value) = 'array'
+                  AND ($4::text IS NULL OR contract_id = $4::text)
+                  AND ($5::text IS NULL OR config_field = $5::text)
+            )
+            SELECT
+                id,
+                contract_id,
+                method_name,
+                predecessor_account_id,
+                transaction_hash,
+                receipt_id,
+                execution_outcome_id,
+                block_height,
+                block_timestamp,
+                config_field,
+                config_value,
+                config_source,
+                field_order
+            FROM normalized
+            WHERE (
+                $1::bigint IS NULL
+                OR block_height < $1::bigint
+                OR (block_height = $1::bigint AND id < $2::bigint)
+                OR (
+                    block_height = $1::bigint
+                    AND id = $2::bigint
+                    AND field_order > $3::integer
+                )
+            )
+            ORDER BY block_height DESC, id DESC, field_order ASC
+            LIMIT $6
+            ",
+            vec![
+                cursor.as_ref().map(|value| value.block_height).into(),
+                cursor.as_ref().map(|value| value.id).into(),
+                cursor.as_ref().map(|value| value.field_order).into(),
+                contract_id.into(),
+                field.into(),
+                i64::try_from(limit + 1).unwrap_or(101).into(),
+            ],
+        ))
+        .await
+        .map_err(ApiErrorResponse::from)?;
+
+    let mut data = rows
+        .iter()
+        .map(to_config_entry_with_cursor)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let has_more = data.len() > limit as usize;
+    if has_more {
+        data.pop();
+    }
+
+    let next_cursor = data
+        .last()
+        .map(|row| encode_cursor(&row.cursor))
+        .transpose()?;
+
+    Ok(Json(VenearConfigHistoryListResponse {
+        data: data.into_iter().map(|row| row.dto).collect(),
+        next_cursor,
+        has_more,
+    }))
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals",
@@ -1255,6 +1625,62 @@ fn to_delegation_event_dto(
     })
 }
 
+struct ConfigEntryWithCursor {
+    dto: VenearConfigEntryDto,
+    cursor: ConfigCursor,
+}
+
+#[allow(clippy::result_large_err)]
+fn to_config_entry_dto(row: &QueryResult) -> Result<VenearConfigEntryDto, ApiErrorResponse> {
+    let id = decode_row_col::<i64>(row, "id", "config event")?;
+    let contract_id = decode_row_col::<String>(row, "contract_id", "config event")?;
+    let method_name = decode_row_col::<String>(row, "method_name", "config event")?;
+    let predecessor_account_id =
+        decode_row_col::<String>(row, "predecessor_account_id", "config event")?;
+    let transaction_hash =
+        decode_row_col::<Option<String>>(row, "transaction_hash", "config event")?;
+    let receipt_id = decode_row_col::<String>(row, "receipt_id", "config event")?;
+    let execution_outcome_id =
+        decode_row_col::<String>(row, "execution_outcome_id", "config event")?;
+    let block_height = decode_row_col::<i64>(row, "block_height", "config event")?;
+    let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "config event")?;
+    let field = decode_row_col::<String>(row, "config_field", "config event")?;
+    let source = decode_row_col::<String>(row, "config_source", "config event")?;
+    let config_value = decode_row_col::<JsonValue>(row, "config_value", "config event")?;
+
+    Ok(VenearConfigEntryDto {
+        id,
+        contract_id,
+        field,
+        value: json_value_to_string_vec(&config_value),
+        source,
+        method_name,
+        predecessor_account_id,
+        transaction_hash,
+        receipt_id,
+        execution_outcome_id,
+        block_height,
+        block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
+    })
+}
+
+#[allow(clippy::result_large_err)]
+fn to_config_entry_with_cursor(
+    row: &QueryResult,
+) -> Result<ConfigEntryWithCursor, ApiErrorResponse> {
+    let dto = to_config_entry_dto(row)?;
+    let field_order = decode_row_col::<i32>(row, "field_order", "config event")?;
+
+    Ok(ConfigEntryWithCursor {
+        cursor: ConfigCursor {
+            block_height: dto.block_height,
+            id: dto.id,
+            field_order,
+        },
+        dto,
+    })
+}
+
 async fn fetch_proposal_voting_options(
     db: &DatabaseConnection,
     proposal_id: i64,
@@ -1571,8 +1997,27 @@ fn normalized_text_filter(value: Option<&str>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn normalized_contract_id_filter(value: Option<&str>) -> Option<String> {
+    normalized_text_filter(value).map(|value| value.to_ascii_lowercase())
+}
+
 fn normalized_event_type_filter(value: Option<&str>) -> Option<String> {
     normalized_text_filter(value).map(|value| value.to_ascii_lowercase())
+}
+
+#[allow(clippy::result_large_err)]
+fn parse_config_field_filter(value: Option<&str>) -> Result<Option<String>, ApiErrorResponse> {
+    let Some(field) = normalized_text_filter(value) else {
+        return Ok(None);
+    };
+
+    match field.to_ascii_lowercase().as_str() {
+        "guardians" => Ok(Some("guardians".to_string())),
+        "reviewer_ids" => Ok(Some("reviewer_ids".to_string())),
+        _ => Err(ApiErrorResponse::bad_request(
+            "Invalid field filter. Use 'guardians' or 'reviewer_ids'.",
+        )),
+    }
 }
 
 #[allow(clippy::result_large_err)]
@@ -1753,5 +2198,18 @@ mod tests {
             Some("outbound".to_string())
         );
         assert!(parse_delegation_direction_filter(Some("sideways")).is_err());
+    }
+
+    #[test]
+    fn config_field_filter_is_validated() {
+        assert_eq!(
+            parse_config_field_filter(Some("guardians")).expect("guardians field"),
+            Some("guardians".to_string())
+        );
+        assert_eq!(
+            parse_config_field_filter(Some(" REVIEWER_IDS ")).expect("reviewer ids field"),
+            Some("reviewer_ids".to_string())
+        );
+        assert!(parse_config_field_filter(Some("owners")).is_err());
     }
 }
