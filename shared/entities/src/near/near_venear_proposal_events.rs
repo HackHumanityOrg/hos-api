@@ -24,6 +24,7 @@ pub struct Model {
     pub payload: Option<Json>,
     pub block_height: i64,
     pub block_timestamp: i64,
+    pub transaction_hash: Option<String>,
     pub shard_id: i32,
     pub receipt_id: String,
     pub execution_outcome_id: String,

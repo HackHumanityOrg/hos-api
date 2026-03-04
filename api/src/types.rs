@@ -888,6 +888,8 @@ pub struct VenearProposalLatestEventDto {
     pub block_height: i64,
     /// Block timestamp in RFC 3339 format.
     pub block_timestamp: String,
+    /// Optional transaction hash.
+    pub transaction_hash: Option<String>,
     /// Receipt id associated with the event.
     pub receipt_id: String,
     /// Execution outcome id associated with the event.
@@ -931,6 +933,8 @@ pub struct VenearProposalEventDto {
     pub block_height: i64,
     /// Block timestamp in RFC 3339 format.
     pub block_timestamp: String,
+    /// Optional transaction hash.
+    pub transaction_hash: Option<String>,
     /// Receipt id associated with the event.
     pub receipt_id: String,
     /// Execution outcome id associated with the event.
@@ -960,6 +964,8 @@ pub struct VenearVoteDto {
     pub block_height: i64,
     /// Block timestamp in RFC 3339 format.
     pub block_timestamp: String,
+    /// Optional transaction hash.
+    pub transaction_hash: Option<String>,
     /// Receipt id associated with the vote event.
     pub receipt_id: String,
     /// Execution outcome id associated with the vote event.
@@ -1014,6 +1020,8 @@ pub struct VenearDelegateVotingPowerEventDto {
     pub block_height: i64,
     /// Block timestamp in RFC 3339 format.
     pub block_timestamp: String,
+    /// Optional transaction hash.
+    pub transaction_hash: Option<String>,
     /// Receipt id associated with this mutation.
     pub receipt_id: String,
     /// Execution outcome id associated with this mutation.

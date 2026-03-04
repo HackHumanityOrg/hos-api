@@ -152,11 +152,9 @@ async fn accounts_events_and_balances_are_replay_idempotent() -> Result<()> {
 
     let vote_account_snapshot = scalar_string(
         db.connection.as_ref(),
-        &format!(
-            "SELECT account_type || '|' || parent_account_id || '|' || created_at_height::text || '|' || last_seen_height::text AS value
-             FROM near.near_accounts
-             WHERE account_id = 'vote.dao'"
-        ),
+        "SELECT account_type || '|' || parent_account_id || '|' || created_at_height::text || '|' || last_seen_height::text AS value
+         FROM near.near_accounts
+         WHERE account_id = 'vote.dao'",
     )
     .await?;
     assert_eq!(

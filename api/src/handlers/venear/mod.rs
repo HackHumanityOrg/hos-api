@@ -586,6 +586,7 @@ pub async fn get_proposal(
                 l.payload,
                 l.block_height,
                 l.block_timestamp,
+                l.transaction_hash,
                 l.receipt_id,
                 l.execution_outcome_id,
                 c.proposer_id AS create_proposer_id,
@@ -656,6 +657,11 @@ pub async fn get_proposal(
             event_type: summary.latest_event_type,
             block_height: summary.latest_block_height,
             block_timestamp: summary.latest_block_timestamp,
+            transaction_hash: decode_row_col::<Option<String>>(
+                &row,
+                "transaction_hash",
+                "proposal",
+            )?,
             receipt_id: decode_row_col::<String>(&row, "receipt_id", "proposal")?,
             execution_outcome_id: decode_row_col::<String>(
                 &row,
@@ -721,6 +727,7 @@ pub async fn list_proposal_events(
                 payload,
                 block_height,
                 block_timestamp,
+                transaction_hash,
                 receipt_id,
                 execution_outcome_id
             FROM near.near_venear_proposal_events
@@ -828,6 +835,7 @@ pub async fn list_proposal_votes(
                     event_type,
                     block_height,
                     block_timestamp,
+                    transaction_hash,
                     receipt_id,
                     execution_outcome_id
                 FROM near.near_venear_votes
@@ -842,6 +850,7 @@ pub async fn list_proposal_votes(
                 event_type,
                 block_height,
                 block_timestamp,
+                transaction_hash,
                 receipt_id,
                 execution_outcome_id
             FROM latest_votes
@@ -1114,6 +1123,7 @@ pub async fn list_delegate_voting_power(
                 vp.delta_voting_power,
                 vp.block_height,
                 vp.block_timestamp,
+                vp.transaction_hash,
                 vp.receipt_id,
                 vp.execution_outcome_id,
                 d.event_type AS delegation_event_type,
@@ -1429,6 +1439,8 @@ fn to_proposal_event_dto(row: &QueryResult) -> Result<VenearProposalEventDto, Ap
     let payload = decode_row_col::<Option<JsonValue>>(row, "payload", "proposal event")?;
     let block_height = decode_row_col::<i64>(row, "block_height", "proposal event")?;
     let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "proposal event")?;
+    let transaction_hash =
+        decode_row_col::<Option<String>>(row, "transaction_hash", "proposal event")?;
     let receipt_id = decode_row_col::<String>(row, "receipt_id", "proposal event")?;
     let execution_outcome_id =
         decode_row_col::<String>(row, "execution_outcome_id", "proposal event")?;
@@ -1463,6 +1475,7 @@ fn to_proposal_event_dto(row: &QueryResult) -> Result<VenearProposalEventDto, Ap
         snapshot_total_venear,
         block_height,
         block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
+        transaction_hash,
         receipt_id,
         execution_outcome_id,
     })
@@ -1481,6 +1494,7 @@ fn to_effective_vote_dto(
     let event_type = decode_row_col::<String>(row, "event_type", "vote")?;
     let block_height = decode_row_col::<i64>(row, "block_height", "vote")?;
     let block_timestamp_ns = decode_row_col::<i64>(row, "block_timestamp", "vote")?;
+    let transaction_hash = decode_row_col::<Option<String>>(row, "transaction_hash", "vote")?;
     let receipt_id = decode_row_col::<String>(row, "receipt_id", "vote")?;
     let execution_outcome_id = decode_row_col::<String>(row, "execution_outcome_id", "vote")?;
 
@@ -1499,6 +1513,7 @@ fn to_effective_vote_dto(
         is_effective: event_type == "add_vote",
         block_height,
         block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
+        transaction_hash,
         receipt_id,
         execution_outcome_id,
     })
@@ -1548,6 +1563,8 @@ fn to_delegate_voting_power_dto(
     let block_height = decode_row_col::<i64>(row, "block_height", "delegate voting power")?;
     let block_timestamp_ns =
         decode_row_col::<i64>(row, "block_timestamp", "delegate voting power")?;
+    let transaction_hash =
+        decode_row_col::<Option<String>>(row, "transaction_hash", "delegate voting power")?;
     let receipt_id = decode_row_col::<String>(row, "receipt_id", "delegate voting power")?;
     let execution_outcome_id =
         decode_row_col::<String>(row, "execution_outcome_id", "delegate voting power")?;
@@ -1573,6 +1590,7 @@ fn to_delegate_voting_power_dto(
         delta_voting_power,
         block_height,
         block_timestamp: ns_to_rfc3339(block_timestamp_ns)?,
+        transaction_hash,
         receipt_id,
         execution_outcome_id,
     })

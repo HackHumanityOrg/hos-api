@@ -137,12 +137,24 @@ async fn venear_endpoints_return_seeded_data() {
     assert_eq!(proposal.proposal_id, 1);
     assert_eq!(proposal.status, "approved");
     assert_eq!(proposal.reviewer_id.as_deref(), Some("reviewer.near"));
+    assert_eq!(
+        proposal.latest_event.transaction_hash.as_deref(),
+        Some("tx-p1-final")
+    );
     assert_eq!(proposal.vote_aggregates.len(), 2);
 
     let proposal_events: VenearProposalEventsListResponse =
         get_json(&router, "/api/v1/venear/proposals/1/events").await;
     assert_eq!(proposal_events.data.len(), 2);
     assert_eq!(proposal_events.data[0].event_type, "proposal_approve_finalized");
+    assert_eq!(
+        proposal_events.data[0].transaction_hash.as_deref(),
+        Some("tx-p1-final")
+    );
+    assert_eq!(
+        proposal_events.data[1].transaction_hash.as_deref(),
+        Some("tx-p1-create")
+    );
 
     let finalized_events: VenearProposalEventsListResponse = get_json(
         &router,
@@ -156,6 +168,7 @@ async fn venear_endpoints_return_seeded_data() {
     assert_eq!(votes.data.len(), 2);
     assert_eq!(votes.data[0].voter_account_id, "jane.near");
     assert_eq!(votes.data[0].voting_power, "900000000000000000000");
+    assert_eq!(votes.data[0].transaction_hash.as_deref(), Some("tx-vote-2"));
     assert!(votes.data[0].is_effective);
 
     let jane_votes: VenearVotesListResponse = get_json(
@@ -195,6 +208,18 @@ async fn venear_endpoints_return_seeded_data() {
     assert_eq!(voting_power.data[1].reason, "vote_cast");
     assert_eq!(voting_power.data[2].event_type, "ft_mint");
     assert_eq!(voting_power.data[2].reason, "balance_increase");
+    assert_eq!(
+        voting_power.data[0].transaction_hash.as_deref(),
+        Some("tx-deleg-1")
+    );
+    assert_eq!(
+        voting_power.data[1].transaction_hash.as_deref(),
+        Some("tx-vp-2")
+    );
+    assert_eq!(
+        voting_power.data[2].transaction_hash.as_deref(),
+        Some("tx-vp-1")
+    );
 
     let proposal_scoped_vp: VenearDelegateVotingPowerEventsListResponse = get_json(
         &router,
@@ -221,6 +246,10 @@ async fn venear_endpoints_return_seeded_data() {
     assert_eq!(
         delegations.data[0].delegatee_account_id.as_deref(),
         Some("jane.near")
+    );
+    assert_eq!(
+        delegations.data[0].transaction_hash.as_deref(),
+        Some("tx-deleg-1")
     );
     assert!(delegations.data[0].success);
 
@@ -257,6 +286,7 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
             proposal_id, event_type, account_id, proposer_id, reviewer_id,
             voting_start_time_sec, snapshot_block_height, snapshot_root, snapshot_total_venear,
             metadata, payload, block_height, block_timestamp, shard_id,
+            transaction_hash,
             receipt_id, execution_outcome_id, predecessor_account_id, contract_id,
             log_index, data_index
         ) VALUES
@@ -265,6 +295,7 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
                 NULL, NULL, NULL, NULL,
                 '{"title":"P1"}'::jsonb, '{"source":"intent"}'::jsonb,
                 100, 1760000000000000000, 0,
+                'tx-p1-create',
                 'rcpt-p1-create', 'exec-p1-create', 'alice.near', 'venear.dao',
                 0, 0
             ),
@@ -273,6 +304,7 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
                 1760000200, 176000050, 'root-1', '1000000000000000000',
                 '{"title":"P1","status":"Approved"}'::jsonb, '{"source":"callback"}'::jsonb,
                 102, 1760000200000000000, 0,
+                'tx-p1-final',
                 'rcpt-p1-final', 'exec-p1-final', 'vote.dao', 'vote.dao',
                 -1, 0
             ),
@@ -281,6 +313,7 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
                 NULL, NULL, NULL, NULL,
                 '{"title":"P2"}'::jsonb, '{"source":"intent"}'::jsonb,
                 120, 1760000300000000000, 1,
+                'tx-p2-create',
                 'rcpt-p2-create', 'exec-p2-create', 'bob.near', 'venear.dao',
                 0, 0
             )
@@ -294,18 +327,21 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
         INSERT INTO near.near_venear_votes (
             proposal_id, account_id, vote, account_balance, event_type, payload,
             block_height, block_timestamp, shard_id,
+            transaction_hash,
             receipt_id, execution_outcome_id, predecessor_account_id, contract_id,
             log_index, data_index
         ) VALUES
             (
                 1, 'lane.near', 1, '32279877702596545200000002', 'add_vote', '{"from":"fixture"}'::jsonb,
                 110, 1760000100000000000, 0,
+                'tx-vote-1',
                 'rcpt-vote-1', 'exec-vote-1', 'lane.near', 'vote.dao',
                 0, 0
             ),
             (
                 1, 'jane.near', 0, '900000000000000000000', 'add_vote', NULL,
                 111, 1760000110000000000, 0,
+                'tx-vote-2',
                 'rcpt-vote-2', 'exec-vote-2', 'jane.near', 'vote.dao',
                 0, 1
             )
@@ -457,30 +493,35 @@ async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
         INSERT INTO near.near_venear_account_voting_power_events (
             account_id, event_type, proposal_id, voting_power, delta_voting_power,
             block_height, block_timestamp, shard_id,
+            transaction_hash,
             receipt_id, execution_outcome_id, predecessor_account_id, contract_id,
             log_index, data_index, payload
         ) VALUES
             (
                 'lane.near', 'ft_mint', NULL, '10', '10',
                 130, 1760000400000000000, 0,
+                'tx-vp-1',
                 'rcpt-vp-1', 'exec-vp-1', 'venear.dao', 'venear.dao',
                 0, 0, '{"memo":"mint"}'::json
             ),
             (
                 'lane.near', 'add_vote', 1, '8', '-2',
                 132, 1760000420000000000, 0,
+                'tx-vp-2',
                 'rcpt-vp-2', 'exec-vp-2', 'lane.near', 'vote.dao',
                 0, 1, '{"memo":"vote"}'::json
             ),
             (
                 'lane.near', 'ft_burn', NULL, '5', '-3',
                 143, 1760000530000000000, 0,
+                'tx-deleg-1',
                 'rcpt-deleg-1', 'exec-deleg-1', 'venear.dao', 'venear.dao',
                 0, 2, '{"memo":"delegation burn"}'::json
             ),
             (
                 'jane.near', 'ft_mint', NULL, '3', '3',
                 143, 1760000530000000000, 0,
+                'tx-deleg-1',
                 'rcpt-deleg-1', 'exec-deleg-1', 'venear.dao', 'venear.dao',
                 0, 3, '{"memo":"delegation mint"}'::json
             )

@@ -36,5 +36,6 @@ pub mod near_venear_governance_actions;
 pub mod near_venear_lockup_actions;
 pub mod near_venear_lockup_events;
 pub mod near_venear_proposal_events;
+pub mod near_venear_receipt_tx_origins;
 pub mod near_venear_unhandled_events;
 pub mod near_venear_votes;

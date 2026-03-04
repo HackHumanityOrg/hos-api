@@ -96,6 +96,237 @@ impl VenearGovernanceModule {
         i32::try_from(value).unwrap_or(i32::MAX)
     }
 
+    fn collect_shard_receipt_ids(shard: &IndexerShard) -> Vec<String> {
+        let mut receipt_ids = HashSet::new();
+
+        if let Some(chunk) = &shard.chunk {
+            for tx_with_outcome in &chunk.transactions {
+                if let Some(local_receipt) = &tx_with_outcome.outcome.receipt {
+                    receipt_ids.insert(local_receipt.receipt_id.to_string());
+                }
+
+                for receipt_id in &tx_with_outcome.outcome.execution_outcome.outcome.receipt_ids {
+                    receipt_ids.insert(receipt_id.to_string());
+                }
+            }
+        }
+
+        for receipt_with_outcome in &shard.receipt_execution_outcomes {
+            receipt_ids.insert(receipt_with_outcome.receipt.receipt_id.to_string());
+
+            for receipt_id in &receipt_with_outcome.execution_outcome.outcome.receipt_ids {
+                receipt_ids.insert(receipt_id.to_string());
+            }
+        }
+
+        let mut receipt_ids = receipt_ids.into_iter().collect::<Vec<_>>();
+        receipt_ids.sort();
+        receipt_ids
+    }
+
+    async fn load_receipt_tx_origins(
+        db: &impl ConnectionTrait,
+        receipt_ids: &[String],
+    ) -> Result<HashMap<String, String>> {
+        if receipt_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut origins = HashMap::new();
+
+        for chunk in receipt_ids.chunks(500) {
+            let placeholders = (1..=chunk.len())
+                .map(|idx| format!("${idx}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let sql = format!(
+                "SELECT receipt_id, transaction_hash
+                 FROM near.near_venear_receipt_tx_origins
+                 WHERE receipt_id IN ({placeholders})"
+            );
+
+            let values = chunk
+                .iter()
+                .cloned()
+                .map(Into::into)
+                .collect::<Vec<_>>();
+
+            let rows = db
+                .query_all(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    sql,
+                    values,
+                ))
+                .await?;
+
+            for row in rows {
+                let receipt_id: String = row.try_get("", "receipt_id")?;
+                let transaction_hash: String = row.try_get("", "transaction_hash")?;
+                origins.insert(receipt_id, transaction_hash);
+            }
+        }
+
+        Ok(origins)
+    }
+
+    async fn upsert_receipt_tx_origin(
+        db: &impl ConnectionTrait,
+        receipt_id: &str,
+        transaction_hash: &str,
+        block_height: i64,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_venear_receipt_tx_origins
+                 (receipt_id, transaction_hash, first_observed_height, last_observed_height)
+             VALUES ($1, $2, $3, $3)
+             ON CONFLICT (receipt_id)
+             DO UPDATE SET
+               transaction_hash = EXCLUDED.transaction_hash,
+               last_observed_height = EXCLUDED.last_observed_height,
+               updated_at = CURRENT_TIMESTAMP",
+            vec![
+                receipt_id.to_string().into(),
+                transaction_hash.to_string().into(),
+                block_height.into(),
+            ],
+        ))
+        .await?;
+
+        Ok(())
+    }
+
+    async fn backfill_transaction_hash_for_receipt(
+        db: &impl ConnectionTrait,
+        receipt_id: &str,
+        transaction_hash: &str,
+    ) -> Result<()> {
+        let statements = [
+            "UPDATE near.near_venear_events_raw
+             SET transaction_hash = $2
+             WHERE receipt_id = $1 AND transaction_hash IS NULL",
+            "UPDATE near.near_venear_admin_events
+             SET transaction_hash = $2
+             WHERE receipt_id = $1 AND transaction_hash IS NULL",
+            "UPDATE near.near_venear_governance_actions
+             SET transaction_hash = $2
+             WHERE receipt_id = $1 AND transaction_hash IS NULL",
+            "UPDATE near.near_venear_lockup_events
+             SET transaction_hash = $2
+             WHERE receipt_id = $1 AND transaction_hash IS NULL",
+            "UPDATE near.near_venear_lockup_actions
+             SET transaction_hash = $2
+             WHERE receipt_id = $1 AND transaction_hash IS NULL",
+            "UPDATE near.near_venear_delegation_events
+             SET transaction_hash = $2
+             WHERE receipt_id = $1 AND transaction_hash IS NULL",
+            "UPDATE near.near_venear_proposal_events
+             SET transaction_hash = $2
+             WHERE receipt_id = $1 AND transaction_hash IS NULL",
+            "UPDATE near.near_venear_votes
+             SET transaction_hash = $2
+             WHERE receipt_id = $1 AND transaction_hash IS NULL",
+            "UPDATE near.near_venear_account_voting_power_events
+             SET transaction_hash = $2
+             WHERE receipt_id = $1 AND transaction_hash IS NULL",
+        ];
+
+        for statement in statements {
+            db.execute(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                statement,
+                vec![
+                    receipt_id.to_string().into(),
+                    transaction_hash.to_string().into(),
+                ],
+            ))
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn resolve_and_persist_receipt_tx_origins(
+        &self,
+        shard: &IndexerShard,
+        block_height: i64,
+        db: &impl ConnectionTrait,
+    ) -> Result<HashMap<String, String>> {
+        let receipt_ids = Self::collect_shard_receipt_ids(shard);
+        if receipt_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let existing_origins = Self::load_receipt_tx_origins(db, &receipt_ids).await?;
+        let mut receipt_tx_map = existing_origins.clone();
+
+        if let Some(chunk) = &shard.chunk {
+            for tx_with_outcome in &chunk.transactions {
+                let tx_hash = tx_with_outcome.transaction.hash.to_string();
+
+                if let Some(local_receipt) = &tx_with_outcome.outcome.receipt {
+                    receipt_tx_map
+                        .entry(local_receipt.receipt_id.to_string())
+                        .or_insert_with(|| tx_hash.clone());
+                }
+
+                for child_receipt_id in &tx_with_outcome.outcome.execution_outcome.outcome.receipt_ids
+                {
+                    receipt_tx_map
+                        .entry(child_receipt_id.to_string())
+                        .or_insert_with(|| tx_hash.clone());
+                }
+            }
+        }
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+
+            for receipt_with_outcome in &shard.receipt_execution_outcomes {
+                let parent_receipt_id = receipt_with_outcome.receipt.receipt_id.to_string();
+                let Some(parent_tx_hash) = receipt_tx_map.get(&parent_receipt_id).cloned() else {
+                    continue;
+                };
+
+                for child_receipt_id in &receipt_with_outcome.execution_outcome.outcome.receipt_ids {
+                    let child_receipt_id = child_receipt_id.to_string();
+
+                    if let Some(existing_hash) = receipt_tx_map.get(&child_receipt_id) {
+                        if existing_hash != &parent_tx_hash {
+                            warn!(
+                                receipt_id = child_receipt_id,
+                                existing_transaction_hash = existing_hash,
+                                inferred_transaction_hash = parent_tx_hash,
+                                "conflicting receipt tx origins; keeping existing mapping"
+                            );
+                        }
+                        continue;
+                    }
+
+                    receipt_tx_map.insert(child_receipt_id, parent_tx_hash.clone());
+                    changed = true;
+                }
+            }
+        }
+
+        for receipt_id in &receipt_ids {
+            let Some(transaction_hash) = receipt_tx_map.get(receipt_id) else {
+                continue;
+            };
+
+            if existing_origins.get(receipt_id) == Some(transaction_hash) {
+                continue;
+            }
+
+            Self::upsert_receipt_tx_origin(db, receipt_id, transaction_hash, block_height).await?;
+            Self::backfill_transaction_hash_for_receipt(db, receipt_id, transaction_hash).await?;
+        }
+
+        Ok(receipt_tx_map)
+    }
+
     pub fn new(config: &common::config::AppConfig) -> Self {
         let mut enabled = false;
         let mut stream_mode = NearModuleStreamMode::Shared;
@@ -536,11 +767,16 @@ impl VenearGovernanceModule {
         db: &impl ConnectionTrait,
         state: &mut ProcessState,
     ) -> Result<()> {
+        let receipt_tx_map = self
+            .resolve_and_persist_receipt_tx_origins(shard, block_height, db)
+            .await?;
+
         if let Some(chunk) = &shard.chunk {
             let shard_id_i32 = Self::shard_to_i32(shard.shard_id);
             for tx_with_outcome in &chunk.transactions {
                 let tx = &tx_with_outcome.transaction;
                 let outcome = &tx_with_outcome.outcome.execution_outcome;
+                let tx_hash = tx.hash.to_string();
                 let status_json =
                     serde_json::to_value(&outcome.outcome.status).unwrap_or(JsonValue::Null);
                 let success = is_outcome_success(&status_json);
@@ -549,7 +785,7 @@ impl VenearGovernanceModule {
                 let action_context = ActionContext {
                     predecessor_id: tx.signer_id.to_string(),
                     receiver_id: tx.receiver_id.to_string(),
-                    transaction_hash: Some(tx.hash.to_string()),
+                    transaction_hash: Some(tx_hash.clone()),
                     receipt_id: outcome.id.to_string(),
                     execution_outcome_id: outcome.id.to_string(),
                     block_height,
@@ -568,6 +804,7 @@ impl VenearGovernanceModule {
                     tx.signer_id.as_ref(),
                     &outcome.id.to_string(),
                     &outcome.id.to_string(),
+                    Some(tx_hash.as_str()),
                     shard_id_i32,
                     block_height,
                     block_timestamp,
@@ -583,6 +820,8 @@ impl VenearGovernanceModule {
             let shard_id_i32 = Self::shard_to_i32(shard.shard_id);
             let receipt = &receipt_with_outcome.receipt;
             let outcome = &receipt_with_outcome.execution_outcome;
+            let receipt_id = receipt.receipt_id.to_string();
+            let transaction_hash = receipt_tx_map.get(&receipt_id).cloned();
             let status_json =
                 serde_json::to_value(&outcome.outcome.status).unwrap_or(JsonValue::Null);
             let success = is_outcome_success(&status_json);
@@ -592,8 +831,8 @@ impl VenearGovernanceModule {
                 let action_context = ActionContext {
                     predecessor_id: receipt.predecessor_id.to_string(),
                     receiver_id: receipt.receiver_id.to_string(),
-                    transaction_hash: None,
-                    receipt_id: receipt.receipt_id.to_string(),
+                    transaction_hash: transaction_hash.clone(),
+                    receipt_id: receipt_id.clone(),
                     execution_outcome_id: outcome.id.to_string(),
                     block_height,
                     block_timestamp,
@@ -610,8 +849,9 @@ impl VenearGovernanceModule {
                 &outcome.outcome.logs,
                 receipt.receiver_id.as_ref(),
                 receipt.predecessor_id.as_ref(),
-                &receipt.receipt_id.to_string(),
+                &receipt_id,
                 &outcome.id.to_string(),
+                transaction_hash.as_deref(),
                 shard_id_i32,
                 block_height,
                 block_timestamp,
@@ -633,6 +873,7 @@ impl VenearGovernanceModule {
         predecessor_id: &str,
         receipt_id: &str,
         execution_outcome_id: &str,
+        transaction_hash: Option<&str>,
         shard_id: i32,
         block_height: i64,
         block_timestamp: i64,
@@ -651,6 +892,7 @@ impl VenearGovernanceModule {
                     block_height,
                     block_timestamp,
                     shard_id,
+                    transaction_hash,
                     receipt_id,
                     execution_outcome_id,
                     predecessor_id,
@@ -670,6 +912,7 @@ impl VenearGovernanceModule {
                     block_height,
                     block_timestamp,
                     shard_id,
+                    transaction_hash,
                     receipt_id,
                     execution_outcome_id,
                     predecessor_id,
@@ -693,6 +936,7 @@ impl VenearGovernanceModule {
                     block_height,
                     block_timestamp,
                     shard_id,
+                    transaction_hash,
                     receipt_id,
                     execution_outcome_id,
                     predecessor_id,
@@ -719,6 +963,7 @@ impl VenearGovernanceModule {
                     block_height,
                     block_timestamp,
                     shard_id,
+                    transaction_hash,
                     receipt_id,
                     execution_outcome_id,
                     predecessor_id,
@@ -771,6 +1016,7 @@ impl VenearGovernanceModule {
                         shard_id,
                         receipt_id,
                         execution_outcome_id,
+                        transaction_hash,
                         predecessor_id,
                         contract_id,
                         log_index as i32,
@@ -795,6 +1041,7 @@ impl VenearGovernanceModule {
                             block_height,
                             block_timestamp,
                             shard_id,
+                            transaction_hash,
                             receipt_id,
                             execution_outcome_id,
                             predecessor_id,
@@ -853,6 +1100,7 @@ impl VenearGovernanceModule {
         shard_id: i32,
         receipt_id: &str,
         execution_outcome_id: &str,
+        transaction_hash: Option<&str>,
         predecessor_id: &str,
         contract_id: &str,
         log_index: i32,
@@ -878,7 +1126,7 @@ impl VenearGovernanceModule {
                         json_u64(data, "timestamp").map(|v| v as i64),
                         json_u128(data, "locked_near_balance").map(|v| v.to_string()),
                         "event_json",
-                        None,
+                        transaction_hash,
                         receipt_id,
                         execution_outcome_id,
                         predecessor_id,
@@ -917,7 +1165,7 @@ impl VenearGovernanceModule {
                         json_u64(data, "timestamp").map(|v| v as i64),
                         json_u128(data, "locked_near_balance").map(|v| v.to_string()),
                         "event_json",
-                        None,
+                        transaction_hash,
                         receipt_id,
                         execution_outcome_id,
                         predecessor_id,
@@ -974,6 +1222,7 @@ impl VenearGovernanceModule {
                         block_height,
                         block_timestamp,
                         shard_id,
+                        transaction_hash,
                         receipt_id,
                         execution_outcome_id,
                         predecessor_id,
@@ -996,7 +1245,7 @@ impl VenearGovernanceModule {
                         json_u64(data, "timestamp").map(|v| v as i64),
                         locked_near_balance.map(|v| v.to_string()),
                         "event_json",
-                        None,
+                        transaction_hash,
                         receipt_id,
                         execution_outcome_id,
                         predecessor_id,
@@ -1065,6 +1314,7 @@ impl VenearGovernanceModule {
                     block_height,
                     block_timestamp,
                     shard_id,
+                    transaction_hash,
                     receipt_id,
                     execution_outcome_id,
                     predecessor_id,
@@ -1103,6 +1353,7 @@ impl VenearGovernanceModule {
                     block_height,
                     block_timestamp,
                     shard_id,
+                    transaction_hash,
                     receipt_id,
                     execution_outcome_id,
                     predecessor_id,
@@ -1147,6 +1398,7 @@ impl VenearGovernanceModule {
                     block_height,
                     block_timestamp,
                     shard_id,
+                    transaction_hash,
                     receipt_id,
                     execution_outcome_id,
                     predecessor_id,
@@ -1166,6 +1418,7 @@ impl VenearGovernanceModule {
                     block_height,
                     block_timestamp,
                     shard_id,
+                    transaction_hash,
                     receipt_id,
                     execution_outcome_id,
                     predecessor_id,
@@ -1225,6 +1478,7 @@ impl VenearGovernanceModule {
                     block_height,
                     block_timestamp,
                     shard_id,
+                    transaction_hash,
                     receipt_id,
                     execution_outcome_id,
                     predecessor_id,
@@ -1254,7 +1508,7 @@ impl VenearGovernanceModule {
                     json_u64(data, "timestamp").map(|v| v as i64),
                     json_u128(data, "locked_near_balance").map(|v| v.to_string()),
                     "event_json",
-                    None,
+                    transaction_hash,
                     receipt_id,
                     execution_outcome_id,
                     predecessor_id,
@@ -1752,6 +2006,7 @@ impl VenearGovernanceModule {
             context.block_height,
             context.block_timestamp,
             context.shard_id,
+            context.transaction_hash.as_deref(),
             &context.receipt_id,
             &context.execution_outcome_id,
             &context.predecessor_id,
@@ -1864,6 +2119,7 @@ impl VenearGovernanceModule {
         block_height: i64,
         block_timestamp: i64,
         shard_id: i32,
+        transaction_hash: Option<&str>,
         receipt_id: &str,
         execution_outcome_id: &str,
         predecessor_account_id: &str,
@@ -1880,12 +2136,13 @@ impl VenearGovernanceModule {
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO near.near_venear_events_raw (record_kind, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, standard, event_type, log_index, data_index, method_name, action_source, action_index, args_json, args_base64, attached_deposit, success_value_json, parse_error, event_data, log_text)
-            VALUES ('event_json', $1, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10, $11, $12, '', '', -1, NULL, NULL, NULL, NULL, $13, $14, $15)
+            VALUES ('event_json', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, '', '', -1, NULL, NULL, NULL, NULL, $14, $15, $16)
             ON CONFLICT (execution_outcome_id, record_kind, log_index, data_index, action_source, action_index, method_name)
             DO UPDATE SET
               block_height = EXCLUDED.block_height,
               block_timestamp = EXCLUDED.block_timestamp,
               shard_id = EXCLUDED.shard_id,
+              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_events_raw.transaction_hash),
               receipt_id = EXCLUDED.receipt_id,
               predecessor_account_id = EXCLUDED.predecessor_account_id,
               contract_id = EXCLUDED.contract_id,
@@ -1899,6 +2156,7 @@ impl VenearGovernanceModule {
                 block_height.into(),
                 block_timestamp.into(),
                 shard_id.into(),
+                transaction_hash.map(ToString::to_string).into(),
                 receipt_id.into(),
                 execution_outcome_id.into(),
                 predecessor_account_id.into(),
@@ -1989,6 +2247,7 @@ impl VenearGovernanceModule {
         block_height: i64,
         block_timestamp: i64,
         shard_id: i32,
+        transaction_hash: Option<&str>,
         receipt_id: &str,
         execution_outcome_id: &str,
         predecessor_account_id: &str,
@@ -2000,12 +2259,13 @@ impl VenearGovernanceModule {
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO near.near_venear_events_raw (record_kind, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, success, standard, event_type, log_index, data_index, method_name, action_source, action_index, args_json, args_base64, attached_deposit, success_value_json, parse_error, event_data, log_text)
-            VALUES ('plain_log', $1, $2, $3, NULL, $4, $5, $6, $7, $8, NULL, NULL, $9, -1, '', '', -1, NULL, NULL, NULL, NULL, NULL, NULL, $10)
+            VALUES ('plain_log', $1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, -1, '', '', -1, NULL, NULL, NULL, NULL, NULL, NULL, $11)
             ON CONFLICT (execution_outcome_id, record_kind, log_index, data_index, action_source, action_index, method_name)
             DO UPDATE SET
               block_height = EXCLUDED.block_height,
               block_timestamp = EXCLUDED.block_timestamp,
               shard_id = EXCLUDED.shard_id,
+              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_events_raw.transaction_hash),
               receipt_id = EXCLUDED.receipt_id,
               predecessor_account_id = EXCLUDED.predecessor_account_id,
               contract_id = EXCLUDED.contract_id,
@@ -2015,6 +2275,7 @@ impl VenearGovernanceModule {
                 block_height.into(),
                 block_timestamp.into(),
                 shard_id.into(),
+                transaction_hash.map(ToString::to_string).into(),
                 receipt_id.into(),
                 execution_outcome_id.into(),
                 predecessor_account_id.into(),
@@ -2053,7 +2314,7 @@ impl VenearGovernanceModule {
               block_height = EXCLUDED.block_height,
               block_timestamp = EXCLUDED.block_timestamp,
               shard_id = EXCLUDED.shard_id,
-              transaction_hash = EXCLUDED.transaction_hash,
+              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_events_raw.transaction_hash),
               receipt_id = EXCLUDED.receipt_id,
               predecessor_account_id = EXCLUDED.predecessor_account_id,
               contract_id = EXCLUDED.contract_id,
@@ -2132,7 +2393,7 @@ impl VenearGovernanceModule {
               lockup_timestamp_ns = EXCLUDED.lockup_timestamp_ns,
               locked_near_balance = EXCLUDED.locked_near_balance,
               action_source = EXCLUDED.action_source,
-              transaction_hash = EXCLUDED.transaction_hash,
+              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_lockup_events.transaction_hash),
               predecessor_account_id = EXCLUDED.predecessor_account_id,
               contract_id = EXCLUDED.contract_id,
               success = EXCLUDED.success,
@@ -2209,7 +2470,7 @@ impl VenearGovernanceModule {
               args_json = EXCLUDED.args_json,
               args_base64 = EXCLUDED.args_base64,
               attached_deposit = EXCLUDED.attached_deposit,
-              transaction_hash = EXCLUDED.transaction_hash,
+              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_admin_events.transaction_hash),
               execution_outcome_id = EXCLUDED.execution_outcome_id,
               success = EXCLUDED.success,
               block_height = EXCLUDED.block_height,
@@ -2279,7 +2540,7 @@ impl VenearGovernanceModule {
             ON CONFLICT (receipt_id, action_index, method_name, contract_id)
             DO UPDATE SET
               action_source = EXCLUDED.action_source,
-              transaction_hash = EXCLUDED.transaction_hash,
+              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_governance_actions.transaction_hash),
               execution_outcome_id = EXCLUDED.execution_outcome_id,
               block_height = EXCLUDED.block_height,
               block_timestamp = EXCLUDED.block_timestamp,
@@ -2357,6 +2618,7 @@ impl VenearGovernanceModule {
         block_height: i64,
         block_timestamp: i64,
         shard_id: i32,
+        transaction_hash: Option<&str>,
         receipt_id: &str,
         execution_outcome_id: &str,
         predecessor_account_id: &str,
@@ -2416,6 +2678,7 @@ impl VenearGovernanceModule {
             block_height,
             block_timestamp,
             shard_id,
+            transaction_hash,
             receipt_id,
             execution_outcome_id,
             predecessor_account_id,
@@ -2447,6 +2710,7 @@ impl VenearGovernanceModule {
         block_height: i64,
         block_timestamp: i64,
         shard_id: i32,
+        transaction_hash: Option<&str>,
         receipt_id: &str,
         execution_outcome_id: &str,
         predecessor_account_id: &str,
@@ -2457,8 +2721,8 @@ impl VenearGovernanceModule {
     ) -> Result<()> {
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_account_voting_power_events (account_id, event_type, proposal_id, voting_power, delta_voting_power, block_height, block_timestamp, shard_id, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index, payload)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            "INSERT INTO near.near_venear_account_voting_power_events (account_id, event_type, proposal_id, voting_power, delta_voting_power, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index, payload)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             ON CONFLICT (execution_outcome_id, log_index, data_index, account_id, event_type)
             DO UPDATE SET
               proposal_id = EXCLUDED.proposal_id,
@@ -2467,6 +2731,7 @@ impl VenearGovernanceModule {
               block_height = EXCLUDED.block_height,
               block_timestamp = EXCLUDED.block_timestamp,
               shard_id = EXCLUDED.shard_id,
+              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_account_voting_power_events.transaction_hash),
               receipt_id = EXCLUDED.receipt_id,
               predecessor_account_id = EXCLUDED.predecessor_account_id,
               contract_id = EXCLUDED.contract_id,
@@ -2480,6 +2745,7 @@ impl VenearGovernanceModule {
                 block_height.into(),
                 block_timestamp.into(),
                 shard_id.into(),
+                transaction_hash.map(ToString::to_string).into(),
                 receipt_id.into(),
                 execution_outcome_id.into(),
                 predecessor_account_id.into(),
@@ -2518,6 +2784,7 @@ impl VenearGovernanceModule {
         block_height: i64,
         block_timestamp: i64,
         shard_id: i32,
+        transaction_hash: Option<&str>,
         receipt_id: &str,
         execution_outcome_id: &str,
         predecessor_account_id: &str,
@@ -2538,8 +2805,8 @@ impl VenearGovernanceModule {
 
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_proposal_events (proposal_id, event_type, account_id, proposer_id, reviewer_id, voting_start_time_sec, snapshot_block_height, snapshot_root, snapshot_total_venear, metadata, payload, block_height, block_timestamp, shard_id, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+            "INSERT INTO near.near_venear_proposal_events (proposal_id, event_type, account_id, proposer_id, reviewer_id, voting_start_time_sec, snapshot_block_height, snapshot_root, snapshot_total_venear, metadata, payload, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
             ON CONFLICT (execution_outcome_id, log_index, data_index, event_type)
             DO UPDATE SET
               proposal_id = EXCLUDED.proposal_id,
@@ -2555,6 +2822,7 @@ impl VenearGovernanceModule {
               block_height = EXCLUDED.block_height,
               block_timestamp = EXCLUDED.block_timestamp,
               shard_id = EXCLUDED.shard_id,
+              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_proposal_events.transaction_hash),
               receipt_id = EXCLUDED.receipt_id,
               predecessor_account_id = EXCLUDED.predecessor_account_id,
               contract_id = EXCLUDED.contract_id",
@@ -2573,6 +2841,7 @@ impl VenearGovernanceModule {
                 block_height.into(),
                 block_timestamp.into(),
                 shard_id.into(),
+                transaction_hash.map(ToString::to_string).into(),
                 receipt_id.into(),
                 execution_outcome_id.into(),
                 predecessor_account_id.into(),
@@ -2602,6 +2871,7 @@ impl VenearGovernanceModule {
         block_height: i64,
         block_timestamp: i64,
         shard_id: i32,
+        transaction_hash: Option<&str>,
         receipt_id: &str,
         execution_outcome_id: &str,
         predecessor_account_id: &str,
@@ -2611,8 +2881,8 @@ impl VenearGovernanceModule {
     ) -> Result<()> {
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "INSERT INTO near.near_venear_votes (proposal_id, account_id, vote, account_balance, event_type, payload, block_height, block_timestamp, shard_id, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            "INSERT INTO near.near_venear_votes (proposal_id, account_id, vote, account_balance, event_type, payload, block_height, block_timestamp, shard_id, transaction_hash, receipt_id, execution_outcome_id, predecessor_account_id, contract_id, log_index, data_index)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             ON CONFLICT (execution_outcome_id, log_index, data_index, account_id, proposal_id)
             DO UPDATE SET
               vote = EXCLUDED.vote,
@@ -2622,6 +2892,7 @@ impl VenearGovernanceModule {
               block_height = EXCLUDED.block_height,
               block_timestamp = EXCLUDED.block_timestamp,
               shard_id = EXCLUDED.shard_id,
+              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_votes.transaction_hash),
               receipt_id = EXCLUDED.receipt_id,
               predecessor_account_id = EXCLUDED.predecessor_account_id,
               contract_id = EXCLUDED.contract_id",
@@ -2635,6 +2906,7 @@ impl VenearGovernanceModule {
                 block_height.into(),
                 block_timestamp.into(),
                 shard_id.into(),
+                transaction_hash.map(ToString::to_string).into(),
                 receipt_id.into(),
                 execution_outcome_id.into(),
                 predecessor_account_id.into(),
@@ -2690,7 +2962,7 @@ impl VenearGovernanceModule {
               args_json = EXCLUDED.args_json,
               args_base64 = EXCLUDED.args_base64,
               attached_deposit = EXCLUDED.attached_deposit,
-              transaction_hash = EXCLUDED.transaction_hash,
+              transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_venear_lockup_actions.transaction_hash),
               execution_outcome_id = EXCLUDED.execution_outcome_id,
               success = EXCLUDED.success,
               block_height = EXCLUDED.block_height,
@@ -3019,6 +3291,7 @@ mod tests {
                 "alice.near",
                 "rcpt-missing-data",
                 "exec-missing-data",
+                None,
                 0,
                 102,
                 1002,
@@ -3064,6 +3337,7 @@ mod tests {
                 "alice.near",
                 "rcpt-invalid-vote",
                 "exec-invalid-vote",
+                None,
                 0,
                 103,
                 1003,
@@ -3267,6 +3541,7 @@ mod tests {
                 "alice.near",
                 "rcpt-failed",
                 "exec-failed",
+                None,
                 0,
                 100,
                 1000,
@@ -3355,6 +3630,7 @@ mod tests {
                 "alice.near",
                 "rcpt-lockup-lock",
                 "exec-lockup-lock",
+                None,
                 0,
                 200,
                 2000,
@@ -3446,6 +3722,7 @@ mod tests {
                 "alice.near",
                 "rcpt-create-proposal",
                 "exec-create-proposal",
+                None,
                 0,
                 300,
                 3000,
@@ -3500,6 +3777,7 @@ mod tests {
                 "reviewer.near",
                 "rcpt-approve",
                 "exec-approve",
+                None,
                 0,
                 400,
                 4000,
@@ -3546,6 +3824,7 @@ mod tests {
                 "caller.near",
                 "rcpt-identity-upsert",
                 "exec-identity-upsert",
+                None,
                 0,
                 500,
                 5000,
@@ -3643,6 +3922,7 @@ mod tests {
                 "alice.near",
                 "rcpt-malformed",
                 "exec-malformed",
+                None,
                 0,
                 101,
                 1001,

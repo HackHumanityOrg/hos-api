@@ -34,5 +34,6 @@ pub use super::near_venear_governance_actions::Entity as NearVenearGovernanceAct
 pub use super::near_venear_lockup_actions::Entity as NearVenearLockupActions;
 pub use super::near_venear_lockup_events::Entity as NearVenearLockupEvents;
 pub use super::near_venear_proposal_events::Entity as NearVenearProposalEvents;
+pub use super::near_venear_receipt_tx_origins::Entity as NearVenearReceiptTxOrigins;
 pub use super::near_venear_unhandled_events::Entity as NearVenearUnhandledEvents;
 pub use super::near_venear_votes::Entity as NearVenearVotes;
