@@ -47,6 +47,11 @@ async fn venear_endpoints_return_seeded_data() {
     );
     assert_eq!(proposals_page_2.data[0].status, "approved");
 
+    let created_only: VenearProposalsListResponse =
+        get_json(&router, "/api/v1/venear/proposals?latest_event_type=create_proposal").await;
+    assert_eq!(created_only.data.len(), 1);
+    assert_eq!(created_only.data[0].proposal_id, 2);
+
     let proposal: VenearProposalDto = get_json(&router, "/api/v1/venear/proposals/1").await;
     assert_eq!(proposal.proposal_id, 1);
     assert_eq!(proposal.status, "approved");
@@ -58,11 +63,28 @@ async fn venear_endpoints_return_seeded_data() {
     assert_eq!(proposal_events.data.len(), 2);
     assert_eq!(proposal_events.data[0].event_type, "proposal_approve_finalized");
 
+    let finalized_events: VenearProposalEventsListResponse = get_json(
+        &router,
+        "/api/v1/venear/proposals/1/events?event_type=proposal_approve_finalized&actor_account_id=reviewer.near",
+    )
+    .await;
+    assert_eq!(finalized_events.data.len(), 1);
+    assert_eq!(finalized_events.data[0].event_type, "proposal_approve_finalized");
+
     let votes: VenearVotesListResponse = get_json(&router, "/api/v1/venear/proposals/1/votes").await;
     assert_eq!(votes.data.len(), 2);
     assert_eq!(votes.data[0].voter_account_id, "jane.near");
     assert_eq!(votes.data[0].voting_power, "900000000000000000000");
     assert!(votes.data[0].is_effective);
+
+    let jane_votes: VenearVotesListResponse = get_json(
+        &router,
+        "/api/v1/venear/proposals/1/votes?voter_account_id=jane.near&vote_option=0",
+    )
+    .await;
+    assert_eq!(jane_votes.data.len(), 1);
+    assert_eq!(jane_votes.data[0].voter_account_id, "jane.near");
+    assert_eq!(jane_votes.data[0].vote_option, 0);
 
     let delegates: VenearDelegatesListResponse =
         get_json(&router, "/api/v1/venear/delegates").await;
@@ -71,6 +93,14 @@ async fn venear_endpoints_return_seeded_data() {
     assert_eq!(delegates.data[0].delegated_voting_power, "8");
     assert_eq!(delegates.data[0].total_voting_power, "8");
     assert!(delegates.data[0].has_inbound_delegation);
+
+    let inbound_delegate: VenearDelegatesListResponse = get_json(
+        &router,
+        "/api/v1/venear/delegates?account_id_prefix=jan&has_inbound_delegation=true",
+    )
+    .await;
+    assert_eq!(inbound_delegate.data.len(), 1);
+    assert_eq!(inbound_delegate.data[0].account_id, "jane.near");
 
     let voting_power: VenearDelegateVotingPowerEventsListResponse =
         get_json(&router, "/api/v1/venear/delegates/lane.near/voting-power").await;
@@ -83,6 +113,15 @@ async fn venear_endpoints_return_seeded_data() {
     assert_eq!(voting_power.data[1].reason, "vote_cast");
     assert_eq!(voting_power.data[2].event_type, "ft_mint");
     assert_eq!(voting_power.data[2].reason, "balance_increase");
+
+    let proposal_scoped_vp: VenearDelegateVotingPowerEventsListResponse = get_json(
+        &router,
+        "/api/v1/venear/delegates/lane.near/voting-power?event_type=add_vote&proposal_id=1",
+    )
+    .await;
+    assert_eq!(proposal_scoped_vp.data.len(), 1);
+    assert_eq!(proposal_scoped_vp.data[0].event_type, "add_vote");
+    assert_eq!(proposal_scoped_vp.data[0].proposal_id, Some(1));
 
     let jane_vp: VenearDelegateVotingPowerEventsListResponse =
         get_json(&router, "/api/v1/venear/delegates/jane.near/voting-power").await;
@@ -100,6 +139,14 @@ async fn venear_endpoints_return_seeded_data() {
         Some("jane.near")
     );
     assert!(delegations.data[0].success);
+
+    let outbound_to_jane: VenearDelegationEventsListResponse = get_json(
+        &router,
+        "/api/v1/venear/delegates/lane.near/delegations?direction=outbound&counterparty_account_id=jane.near&event_type=delegate_all&success=true",
+    )
+    .await;
+    assert_eq!(outbound_to_jane.data.len(), 1);
+    assert_eq!(outbound_to_jane.data[0].delegator_account_id, "lane.near");
 }
 
 async fn get_json<T: DeserializeOwned>(router: &Router, path: &str) -> T {

@@ -35,7 +35,7 @@ struct DelegateCursor {
     path = "/api/v1/venear/proposals",
     summary = "List veNEAR proposals",
     description = "Returns one latest-state projection per proposal, ordered by proposal id descending.",
-    params(CursorPaginationQuery),
+    params(VenearProposalsQuery),
     tag = "venear",
     operation_id = "listVenearProposals",
     responses(
@@ -46,7 +46,7 @@ struct DelegateCursor {
 )]
 pub async fn list_proposals(
     State(app_state): State<AppState>,
-    Query(query): Query<CursorPaginationQuery>,
+    Query(query): Query<VenearProposalsQuery>,
 ) -> Result<Json<VenearProposalsListResponse>, ApiErrorResponse> {
     let db = require_db(&app_state)?;
     let limit = resolve_limit(query.limit);
@@ -57,6 +57,9 @@ pub async fn list_proposals(
         .map(decode_cursor::<ProposalCursor>)
         .transpose()?
         .map(|cursor| cursor.proposal_id);
+
+    let latest_event_type = normalized_event_type_filter(query.latest_event_type.as_deref());
+    let proposer_id = normalized_text_filter(query.proposer_id.as_deref());
 
     let rows = db
         .query_all(Statement::from_sql_and_values(
@@ -133,11 +136,15 @@ pub async fn list_proposals(
                 ) vv
                 WHERE vv.event_type = 'add_vote'
             ) v ON TRUE
+            WHERE ($2::text IS NULL OR l.event_type = $2::text)
+              AND ($3::text IS NULL OR COALESCE(l.proposer_id, c.proposer_id) = $3::text)
             ORDER BY l.proposal_id DESC
-            LIMIT $2
+            LIMIT $4
             ",
             vec![
                 proposal_cursor.into(),
+                latest_event_type.into(),
+                proposer_id.into(),
                 i64::try_from(limit + 1).unwrap_or(101).into(),
             ],
         ))
@@ -296,7 +303,7 @@ pub async fn get_proposal(
     description = "Returns proposal events ordered by block height and row id descending.",
     params(
         ("proposal_id" = i64, Path, description = "Proposal id"),
-        CursorPaginationQuery
+        VenearProposalEventsQuery
     ),
     tag = "venear",
     operation_id = "listVenearProposalEvents",
@@ -310,7 +317,7 @@ pub async fn get_proposal(
 pub async fn list_proposal_events(
     State(app_state): State<AppState>,
     Path(proposal_id): Path<i64>,
-    Query(query): Query<CursorPaginationQuery>,
+    Query(query): Query<VenearProposalEventsQuery>,
 ) -> Result<Json<VenearProposalEventsListResponse>, ApiErrorResponse> {
     let db = require_db(&app_state)?;
     ensure_proposal_exists(db.as_ref(), proposal_id).await?;
@@ -321,6 +328,9 @@ pub async fn list_proposal_events(
         .as_deref()
         .map(decode_cursor::<HeightIdCursor>)
         .transpose()?;
+
+    let event_type = normalized_event_type_filter(query.event_type.as_deref());
+    let actor_account_id = normalized_text_filter(query.actor_account_id.as_deref());
 
     let rows = db
         .query_all(Statement::from_sql_and_values(
@@ -350,13 +360,20 @@ pub async fn list_proposal_events(
                 OR block_height < $2::bigint
                 OR (block_height = $2::bigint AND id < $3::bigint)
               )
+              AND ($4::text IS NULL OR event_type = $4::text)
+              AND (
+                $5::text IS NULL
+                OR COALESCE(account_id, proposer_id, reviewer_id) = $5::text
+              )
             ORDER BY block_height DESC, id DESC
-            LIMIT $4
+            LIMIT $6
             ",
             vec![
                 proposal_id.into(),
                 cursor.as_ref().map(|value| value.block_height).into(),
                 cursor.as_ref().map(|value| value.id).into(),
+                event_type.into(),
+                actor_account_id.into(),
                 i64::try_from(limit + 1).unwrap_or(101).into(),
             ],
         ))
@@ -397,7 +414,7 @@ pub async fn list_proposal_events(
     description = "Returns one latest effective vote per voter for the proposal, ordered by block height and row id descending.",
     params(
         ("proposal_id" = i64, Path, description = "Proposal id"),
-        CursorPaginationQuery
+        VenearProposalVotesQuery
     ),
     tag = "venear",
     operation_id = "listVenearProposalVotes",
@@ -411,7 +428,7 @@ pub async fn list_proposal_events(
 pub async fn list_proposal_votes(
     State(app_state): State<AppState>,
     Path(proposal_id): Path<i64>,
-    Query(query): Query<CursorPaginationQuery>,
+    Query(query): Query<VenearProposalVotesQuery>,
 ) -> Result<Json<VenearVotesListResponse>, ApiErrorResponse> {
     let db = require_db(&app_state)?;
     ensure_proposal_exists(db.as_ref(), proposal_id).await?;
@@ -422,6 +439,9 @@ pub async fn list_proposal_votes(
         .as_deref()
         .map(decode_cursor::<HeightIdCursor>)
         .transpose()?;
+
+    let voter_account_id = normalized_text_filter(query.voter_account_id.as_deref());
+    let vote_option = query.vote_option;
 
     let voting_options = fetch_proposal_voting_options(db.as_ref(), proposal_id).await?;
 
@@ -461,13 +481,17 @@ pub async fn list_proposal_votes(
                 OR block_height < $2::bigint
                 OR (block_height = $2::bigint AND id < $3::bigint)
               )
+              AND ($4::text IS NULL OR account_id = $4::text)
+              AND ($5::integer IS NULL OR vote = $5::integer)
             ORDER BY block_height DESC, id DESC
-            LIMIT $4
+            LIMIT $6
             ",
             vec![
                 proposal_id.into(),
                 cursor.as_ref().map(|value| value.block_height).into(),
                 cursor.as_ref().map(|value| value.id).into(),
+                voter_account_id.into(),
+                vote_option.into(),
                 i64::try_from(limit + 1).unwrap_or(101).into(),
             ],
         ))
@@ -506,7 +530,7 @@ pub async fn list_proposal_votes(
     path = "/api/v1/venear/delegates",
     summary = "List delegates",
     description = "Returns possible voters with own, delegated, and total voting power, ordered by account id ascending.",
-    params(CursorPaginationQuery),
+    params(VenearDelegatesQuery),
     tag = "venear",
     operation_id = "listVenearDelegates",
     responses(
@@ -517,7 +541,7 @@ pub async fn list_proposal_votes(
 )]
 pub async fn list_delegates(
     State(app_state): State<AppState>,
-    Query(query): Query<CursorPaginationQuery>,
+    Query(query): Query<VenearDelegatesQuery>,
 ) -> Result<Json<VenearDelegatesListResponse>, ApiErrorResponse> {
     let db = require_db(&app_state)?;
     let limit = resolve_limit(query.limit);
@@ -528,6 +552,10 @@ pub async fn list_delegates(
         .map(decode_cursor::<DelegateCursor>)
         .transpose()?
         .map(|cursor| cursor.account_id);
+
+    let account_id_prefix = normalized_text_filter(query.account_id_prefix.as_deref());
+    let has_inbound_delegation = query.has_inbound_delegation;
+    let has_outbound_delegation = query.has_outbound_delegation;
 
     let rows = db
         .query_all(Statement::from_sql_and_values(
@@ -627,11 +655,17 @@ pub async fn list_delegates(
             FROM computed
             WHERE total_voting_power_num > 0
               AND ($1::text IS NULL OR account_id > $1::text)
+              AND ($2::text IS NULL OR account_id LIKE ($2::text || '%'))
+              AND ($3::boolean IS NULL OR has_inbound_delegation = $3::boolean)
+              AND ($4::boolean IS NULL OR has_outbound_delegation = $4::boolean)
             ORDER BY account_id ASC
-            LIMIT $2
+            LIMIT $5
             ",
             vec![
                 delegate_cursor.into(),
+                account_id_prefix.into(),
+                has_inbound_delegation.into(),
+                has_outbound_delegation.into(),
                 i64::try_from(limit + 1).unwrap_or(101).into(),
             ],
         ))
@@ -671,7 +705,7 @@ pub async fn list_delegates(
     description = "Returns voting power mutations for the given delegate/voter account.",
     params(
         ("account_id" = String, Path, description = "Delegate account id"),
-        CursorPaginationQuery
+        VenearDelegateVotingPowerQuery
     ),
     tag = "venear",
     operation_id = "listVenearDelegateVotingPower",
@@ -684,7 +718,7 @@ pub async fn list_delegates(
 pub async fn list_delegate_voting_power(
     State(app_state): State<AppState>,
     Path(account_id): Path<String>,
-    Query(query): Query<CursorPaginationQuery>,
+    Query(query): Query<VenearDelegateVotingPowerQuery>,
 ) -> Result<Json<VenearDelegateVotingPowerEventsListResponse>, ApiErrorResponse> {
     let db = require_db(&app_state)?;
     let limit = resolve_limit(query.limit);
@@ -694,6 +728,9 @@ pub async fn list_delegate_voting_power(
         .as_deref()
         .map(decode_cursor::<HeightIdCursor>)
         .transpose()?;
+
+    let event_type = normalized_event_type_filter(query.event_type.as_deref());
+    let proposal_id = query.proposal_id;
 
     let rows = db
         .query_all(Statement::from_sql_and_values(
@@ -721,13 +758,17 @@ pub async fn list_delegate_voting_power(
                 OR vp.block_height < $2::bigint
                 OR (vp.block_height = $2::bigint AND vp.id < $3::bigint)
               )
+              AND ($4::text IS NULL OR vp.event_type = $4::text)
+              AND ($5::bigint IS NULL OR vp.proposal_id = $5::bigint)
             ORDER BY vp.block_height DESC, vp.id DESC
-            LIMIT $4
+            LIMIT $6
             ",
             vec![
                 account_id.clone().into(),
                 cursor.as_ref().map(|value| value.block_height).into(),
                 cursor.as_ref().map(|value| value.id).into(),
+                event_type.into(),
+                proposal_id.into(),
                 i64::try_from(limit + 1).unwrap_or(101).into(),
             ],
         ))
@@ -768,7 +809,7 @@ pub async fn list_delegate_voting_power(
     description = "Returns delegation events where the account appears as delegator or delegatee, with delegatee inference for undelegate events when possible.",
     params(
         ("account_id" = String, Path, description = "Delegate account id"),
-        CursorPaginationQuery
+        VenearDelegateDelegationsQuery
     ),
     tag = "venear",
     operation_id = "listVenearDelegateDelegations",
@@ -781,7 +822,7 @@ pub async fn list_delegate_voting_power(
 pub async fn list_delegate_delegations(
     State(app_state): State<AppState>,
     Path(account_id): Path<String>,
-    Query(query): Query<CursorPaginationQuery>,
+    Query(query): Query<VenearDelegateDelegationsQuery>,
 ) -> Result<Json<VenearDelegationEventsListResponse>, ApiErrorResponse> {
     let db = require_db(&app_state)?;
     let limit = resolve_limit(query.limit);
@@ -791,6 +832,11 @@ pub async fn list_delegate_delegations(
         .as_deref()
         .map(decode_cursor::<HeightIdCursor>)
         .transpose()?;
+
+    let event_type = normalized_event_type_filter(query.event_type.as_deref());
+    let direction = parse_delegation_direction_filter(query.direction.as_deref())?;
+    let counterparty_account_id = normalized_text_filter(query.counterparty_account_id.as_deref());
+    let success = query.success;
 
     let rows = db
         .query_all(Statement::from_sql_and_values(
@@ -847,13 +893,38 @@ pub async fn list_delegate_delegations(
                 OR block_height < $2::bigint
                 OR (block_height = $2::bigint AND id < $3::bigint)
               )
+              AND ($4::text IS NULL OR event_type = $4::text)
+              AND (
+                $5::text IS NULL
+                OR ($5::text = 'outbound' AND delegator_account_id = $1)
+                OR (
+                    $5::text = 'inbound'
+                    AND COALESCE(delegatee_account_id, CASE WHEN event_type = 'undelegate' THEN inferred_delegatee_account_id END) = $1
+                )
+              )
+              AND (
+                $6::text IS NULL
+                OR (
+                    delegator_account_id = $1
+                    AND COALESCE(delegatee_account_id, CASE WHEN event_type = 'undelegate' THEN inferred_delegatee_account_id END) = $6::text
+                )
+                OR (
+                    COALESCE(delegatee_account_id, CASE WHEN event_type = 'undelegate' THEN inferred_delegatee_account_id END) = $1
+                    AND delegator_account_id = $6::text
+                )
+              )
+              AND ($7::boolean IS NULL OR success = $7::boolean)
             ORDER BY block_height DESC, id DESC
-            LIMIT $4
+            LIMIT $8
             ",
             vec![
                 account_id.clone().into(),
                 cursor.as_ref().map(|value| value.block_height).into(),
                 cursor.as_ref().map(|value| value.id).into(),
+                event_type.into(),
+                direction.into(),
+                counterparty_account_id.into(),
+                success.into(),
                 i64::try_from(limit + 1).unwrap_or(101).into(),
             ],
         ))
@@ -1110,11 +1181,8 @@ fn to_delegate_voting_power_dto(
     let receipt_id = decode_row_col::<String>(row, "receipt_id", "delegate voting power")?;
     let execution_outcome_id =
         decode_row_col::<String>(row, "execution_outcome_id", "delegate voting power")?;
-    let delegation_event_type = decode_row_col::<Option<String>>(
-        row,
-        "delegation_event_type",
-        "delegate voting power",
-    )?;
+    let delegation_event_type =
+        decode_row_col::<Option<String>>(row, "delegation_event_type", "delegate voting power")?;
     let delegation_delegator_account_id = decode_row_col::<Option<String>>(
         row,
         "delegation_delegator_account_id",
@@ -1494,6 +1562,34 @@ fn json_value_to_string_vec(value: &JsonValue) -> Vec<String> {
         .collect()
 }
 
+fn normalized_text_filter(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn normalized_event_type_filter(value: Option<&str>) -> Option<String> {
+    normalized_text_filter(value).map(|value| value.to_ascii_lowercase())
+}
+
+#[allow(clippy::result_large_err)]
+fn parse_delegation_direction_filter(
+    value: Option<&str>,
+) -> Result<Option<String>, ApiErrorResponse> {
+    let Some(direction) = normalized_text_filter(value) else {
+        return Ok(None);
+    };
+
+    match direction.to_ascii_lowercase().as_str() {
+        "inbound" => Ok(Some("inbound".to_string())),
+        "outbound" => Ok(Some("outbound".to_string())),
+        _ => Err(ApiErrorResponse::bad_request(
+            "Invalid direction filter. Use 'inbound' or 'outbound'.",
+        )),
+    }
+}
+
 fn resolve_limit(limit: Option<u64>) -> u64 {
     limit.unwrap_or(20).clamp(1, 100)
 }
@@ -1632,5 +1728,28 @@ mod tests {
             ns_to_rfc3339(1_760_000_000_000_000_000).expect("ns to rfc3339"),
             "2025-10-09T08:53:20+00:00"
         );
+    }
+
+    #[test]
+    fn text_filter_normalization_trims_and_ignores_empty_values() {
+        assert_eq!(normalized_text_filter(None), None);
+        assert_eq!(normalized_text_filter(Some("   ")), None);
+        assert_eq!(
+            normalized_text_filter(Some(" lane.near ")),
+            Some("lane.near".to_string())
+        );
+    }
+
+    #[test]
+    fn delegation_direction_filter_is_validated() {
+        assert_eq!(
+            parse_delegation_direction_filter(Some("inbound")).expect("inbound direction"),
+            Some("inbound".to_string())
+        );
+        assert_eq!(
+            parse_delegation_direction_filter(Some(" OUTBOUND ")).expect("outbound direction"),
+            Some("outbound".to_string())
+        );
+        assert!(parse_delegation_direction_filter(Some("sideways")).is_err());
     }
 }

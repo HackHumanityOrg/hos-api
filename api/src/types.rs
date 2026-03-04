@@ -426,6 +426,122 @@ pub struct CursorPaginationQuery {
     pub cursor: Option<String>,
 }
 
+/// Query options for listing latest veNEAR proposal states.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearProposalsQuery {
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
+    #[param(minimum = 1, maximum = 100, default = 20)]
+    pub limit: Option<u64>,
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
+    pub cursor: Option<String>,
+    /// Filter latest proposal rows by latest event type.
+    ///
+    /// Examples: `create_proposal`, `proposal_approve_finalized`, `proposal_reject`.
+    pub latest_event_type: Option<String>,
+    /// Filter by proposal creator account id.
+    ///
+    /// Matches either the latest event `proposer_id` or create event proposer id.
+    pub proposer_id: Option<String>,
+}
+
+/// Query options for listing events of a single proposal.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearProposalEventsQuery {
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
+    #[param(minimum = 1, maximum = 100, default = 20)]
+    pub limit: Option<u64>,
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
+    pub cursor: Option<String>,
+    /// Filter by proposal event type.
+    pub event_type: Option<String>,
+    /// Filter by actor account id.
+    ///
+    /// Matches `account_id` when present, otherwise proposer or reviewer id.
+    pub actor_account_id: Option<String>,
+}
+
+/// Query options for listing effective votes of a single proposal.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearProposalVotesQuery {
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
+    #[param(minimum = 1, maximum = 100, default = 20)]
+    pub limit: Option<u64>,
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
+    pub cursor: Option<String>,
+    /// Filter by voter account id.
+    pub voter_account_id: Option<String>,
+    /// Filter by selected voting option index.
+    pub vote_option: Option<i32>,
+}
+
+/// Query options for listing veNEAR delegates.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearDelegatesQuery {
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
+    #[param(minimum = 1, maximum = 100, default = 20)]
+    pub limit: Option<u64>,
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
+    pub cursor: Option<String>,
+    /// Prefix filter for delegate account id.
+    pub account_id_prefix: Option<String>,
+    /// Filter delegates by inbound delegation state.
+    pub has_inbound_delegation: Option<bool>,
+    /// Filter delegates by outbound delegation state.
+    pub has_outbound_delegation: Option<bool>,
+}
+
+/// Query options for listing voting power history of one delegate.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearDelegateVotingPowerQuery {
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
+    #[param(minimum = 1, maximum = 100, default = 20)]
+    pub limit: Option<u64>,
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
+    pub cursor: Option<String>,
+    /// Filter by voting power event type.
+    pub event_type: Option<String>,
+    /// Filter by proposal id for proposal-scoped events.
+    pub proposal_id: Option<i64>,
+}
+
+/// Query options for listing delegation events of one delegate.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearDelegateDelegationsQuery {
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
+    #[param(minimum = 1, maximum = 100, default = 20)]
+    pub limit: Option<u64>,
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
+    pub cursor: Option<String>,
+    /// Filter by delegation event type (`delegate_all` or `undelegate`).
+    pub event_type: Option<String>,
+    /// Filter relative direction (`inbound` or `outbound`) for the requested account.
+    pub direction: Option<String>,
+    /// Filter by counterparty account id.
+    ///
+    /// For outbound events this matches delegatee, for inbound events this matches delegator.
+    pub counterparty_account_id: Option<String>,
+    /// Filter by event success flag.
+    pub success: Option<bool>,
+}
+
 /// Query options for listing categories of one Discourse instance.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct CategoriesQuery {

@@ -202,6 +202,15 @@ Notes:
 | GET | `/api/v1/venear/delegates/{account_id}/voting-power` | List voting power history for a delegate |
 | GET | `/api/v1/venear/delegates/{account_id}/delegations` | List delegation events for a delegate |
 
+Notes:
+- All veNEAR list endpoints support cursor pagination via `limit` and `cursor`.
+- `GET /api/v1/venear/proposals` supports `latest_event_type` and `proposer_id`.
+- `GET /api/v1/venear/proposals/{proposal_id}/events` supports `event_type` and `actor_account_id`.
+- `GET /api/v1/venear/proposals/{proposal_id}/votes` supports `voter_account_id` and `vote_option`.
+- `GET /api/v1/venear/delegates` supports `account_id_prefix`, `has_inbound_delegation`, and `has_outbound_delegation`.
+- `GET /api/v1/venear/delegates/{account_id}/voting-power` supports `event_type` and `proposal_id`.
+- `GET /api/v1/venear/delegates/{account_id}/delegations` supports `event_type`, `direction`, `counterparty_account_id`, and `success`.
+
 ## Adding New Endpoints
 
 ### 1. Create Handler Function
