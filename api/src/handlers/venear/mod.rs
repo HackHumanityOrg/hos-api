@@ -163,7 +163,7 @@ pub async fn get_config_current(
                     config_source,
                     field_order
                 FROM expanded
-                WHERE jsonb_typeof(config_value) = 'array'
+                WHERE jsonb_typeof(config_value::jsonb) = 'array'
             )
             SELECT DISTINCT ON (contract_id, config_field)
                 id,
@@ -334,7 +334,7 @@ pub async fn list_config_history(
                     config_source,
                     field_order
                 FROM expanded
-                WHERE jsonb_typeof(config_value) = 'array'
+                WHERE jsonb_typeof(config_value::jsonb) = 'array'
                   AND ($4::text IS NULL OR contract_id = $4::text)
                   AND ($5::text IS NULL OR config_field = $5::text)
             )
