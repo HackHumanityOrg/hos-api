@@ -177,6 +177,63 @@ impl VenearGovernanceModule {
             && block_height % self.mview_refresh_interval_blocks == 0
     }
 
+    async fn upsert_near_block(
+        &self,
+        db: &impl ConnectionTrait,
+        msg: &StreamerMessage,
+    ) -> Result<()> {
+        let header = &msg.block.header;
+        let block_json = Self::serialize_json(&msg.block, "block raw_data")?;
+
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_blocks (
+                height,
+                hash,
+                prev_hash,
+                epoch_id,
+                next_epoch_id,
+                author,
+                timestamp,
+                timestamp_nanosec,
+                gas_price,
+                total_supply,
+                validator_reward,
+                protocol_version,
+                chunks_included,
+                block_ordinal,
+                prev_height,
+                raw_data
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8,
+                $9, $10, $11, $12, $13, $14, $15, $16
+            )
+            ON CONFLICT (height) DO NOTHING",
+            vec![
+                (header.height as i64).into(),
+                header.hash.to_string().into(),
+                header.prev_hash.to_string().into(),
+                header.epoch_id.to_string().into(),
+                header.next_epoch_id.to_string().into(),
+                msg.block.author.to_string().into(),
+                (header.timestamp as i64).into(),
+                (header.timestamp_nanosec as i64).into(),
+                header.gas_price.to_string().into(),
+                header.total_supply.to_string().into(),
+                header.validator_reward.to_string().into(),
+                (header.latest_protocol_version as i32).into(),
+                (header.chunks_included as i64).into(),
+                header.block_ordinal.map(|value| value as i64).into(),
+                header.prev_height.map(|value| value as i64).into(),
+                Some(block_json).into(),
+            ],
+        ))
+        .await
+        .context("failed to upsert near.near_blocks for HoS related block")?;
+
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn upsert_receipt_edge(
         &self,
@@ -498,6 +555,8 @@ impl VenearGovernanceModule {
         let default_author = msg.block.author.to_string();
 
         let mut receipt_tx_hashes: HashMap<String, String> = HashMap::new();
+        let mut has_hos_root_receipt = false;
+        let mut has_hos_related_receipt_outcome = false;
 
         for shard in &msg.shards {
             if let Some(chunk) = &shard.chunk {
@@ -510,6 +569,7 @@ impl VenearGovernanceModule {
                         let predecessor_id = receipt.predecessor_id.to_string();
                         let receiver_id = receipt.receiver_id.to_string();
                         if self.is_hos_related(&receiver_id, &predecessor_id) {
+                            has_hos_root_receipt = true;
                             upsert_relevant_receipt(
                                 db,
                                 RELEVANCE_SCOPE_HOS,
@@ -563,6 +623,8 @@ impl VenearGovernanceModule {
                 if !is_hos_related_receipt {
                     continue;
                 }
+
+                has_hos_related_receipt_outcome = true;
 
                 let transaction_hash = receipt_tx_hashes
                     .get(&receipt_id)
@@ -744,6 +806,10 @@ impl VenearGovernanceModule {
                     }
                 }
             }
+        }
+
+        if has_hos_root_receipt || has_hos_related_receipt_outcome {
+            self.upsert_near_block(db, msg).await?;
         }
 
         Ok(())

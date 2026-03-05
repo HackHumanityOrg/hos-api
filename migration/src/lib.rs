@@ -21,6 +21,8 @@ mod m20260309_000018_near_venear_raw_enrichment;
 mod m20260310_000019_near_hos_raw_refactor;
 mod m20260310_000020_near_relevant_receipts_generalization;
 mod m20260310_000021_near_hos_sql_static_config;
+mod m20260311_000022_near_hos_mv_parity_fixes;
+mod m20260311_000023_drop_hos_approved_proposals;
 
 pub struct Migrator;
 
@@ -49,6 +51,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260310_000019_near_hos_raw_refactor::Migration),
             Box::new(m20260310_000020_near_relevant_receipts_generalization::Migration),
             Box::new(m20260310_000021_near_hos_sql_static_config::Migration),
+            Box::new(m20260311_000022_near_hos_mv_parity_fixes::Migration),
+            Box::new(m20260311_000023_drop_hos_approved_proposals::Migration),
         ]
     }
 }

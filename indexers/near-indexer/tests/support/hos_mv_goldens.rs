@@ -101,19 +101,6 @@ const GOLDEN_CASE_SPECS: &[GoldenCaseSpec] = &[
         ],
     },
     GoldenCaseSpec {
-        case_name: "hos_approved_proposals_approval",
-        view: "hos_approved_proposals",
-        selector_sql: "FROM near.hos_approved_proposals t ORDER BY t.block_height ASC, t.block_timestamp ASC, t.receipt_id ASC LIMIT 1",
-        lookup_fields: &["receipt_id"],
-        expected_fields: &[
-            "proposal_id",
-            "proposal_approver_id",
-            "hos_contract_address",
-            "block_height",
-            "block_timestamp",
-        ],
-    },
-    GoldenCaseSpec {
         case_name: "hos_delegation_events_delegate_all",
         view: "hos_delegation_events",
         selector_sql: "FROM near.hos_delegation_events t WHERE t.event_type = 'delegate_all' ORDER BY t.block_height ASC, t.block_timestamp ASC, t.receipt_id ASC LIMIT 1",
@@ -189,6 +176,11 @@ const GOLDEN_CASE_SPECS: &[GoldenCaseSpec] = &[
             "voting_options",
             "block_height",
             "block_timestamp",
+            "approval_receipt_id",
+            "approval_transaction_hash",
+            "approval_execution_outcome_id",
+            "approval_block_height",
+            "approval_block_timestamp",
         ],
     },
     GoldenCaseSpec {
@@ -320,7 +312,9 @@ fn json_values_equivalent(lhs: &JsonValue, rhs: &JsonValue) -> bool {
                 && left
                     .iter()
                     .zip(right.iter())
-                    .all(|(left_value, right_value)| json_values_equivalent(left_value, right_value))
+                    .all(|(left_value, right_value)| {
+                        json_values_equivalent(left_value, right_value)
+                    })
         }
         (JsonValue::Object(left), JsonValue::Object(right)) => {
             left.len() == right.len()
@@ -570,16 +564,23 @@ pub async fn assert_hos_mv_normalized_semantics(db: &impl ConnectionTrait) -> Re
     let approval_proposal_id_mismatches = scalar_i64(
         db,
         "SELECT COUNT(*)::bigint AS value
-         FROM near.hos_approved_proposals ap
-         INNER JOIN near.near_receipt_actions ra
-           ON ra.receipt_id = ap.receipt_id
-         WHERE COALESCE(ra.args_json ->> 'proposal_id', '') ~ '^[0-9]+$'
-           AND ap.proposal_id IS DISTINCT FROM (ra.args_json ->> 'proposal_id')::NUMERIC",
+         FROM near.hos_proposals p
+         LEFT JOIN near.near_receipt_actions ra
+           ON ra.receipt_id = p.approval_receipt_id
+         WHERE p.is_approved = TRUE
+           AND (
+               p.approval_receipt_id IS NULL
+               OR p.approval_block_height IS NULL
+               OR p.approval_block_timestamp IS NULL
+               OR p.approval_execution_outcome_id IS NULL
+               OR COALESCE(ra.args_json ->> 'proposal_id', '') !~ '^[0-9]+$'
+               OR p.proposal_id IS DISTINCT FROM (ra.args_json ->> 'proposal_id')::NUMERIC
+           )",
     )
     .await?;
     if approval_proposal_id_mismatches != 0 {
         bail!(
-            "hos_approved_proposals proposal_id normalization mismatch count: {}",
+            "hos_proposals approval normalization mismatch count: {}",
             approval_proposal_id_mismatches
         );
     }
@@ -645,11 +646,19 @@ pub async fn assert_hos_mv_normalized_semantics(db: &impl ConnectionTrait) -> Re
          FROM near.hos_registered_voters rv
          WHERE rv.current_voting_power IS DISTINCT FROM
              CASE
-                 WHEN rv.has_outbound_delegation THEN COALESCE(rv.voting_power_from_delegations, 0)
-                 ELSE COALESCE(rv.principal_balance, 0) + COALESCE(rv.voting_power_from_delegations, 0)
+                 WHEN rv.has_outbound_delegation THEN 0::NUMERIC
+                 ELSE
+                     COALESCE(rv.principal_balance, 0)
+                     + COALESCE(rv.extra_venear_on_principal, 0)
+                     + COALESCE(rv.voting_power_from_delegations, 0)
+                     + COALESCE(rv.delegated_extra_venear, 0)
              END
-            OR rv.own_voting_power IS DISTINCT FROM rv.principal_balance::TEXT
-            OR rv.delegated_voting_power IS DISTINCT FROM COALESCE(rv.voting_power_from_delegations, 0)::TEXT
+            OR rv.own_voting_power IS DISTINCT FROM (
+                COALESCE(rv.principal_balance, 0) + COALESCE(rv.extra_venear_on_principal, 0)
+            )::TEXT
+            OR rv.delegated_voting_power IS DISTINCT FROM (
+                COALESCE(rv.voting_power_from_delegations, 0) + COALESCE(rv.delegated_extra_venear, 0)
+            )::TEXT
             OR rv.total_voting_power IS DISTINCT FROM rv.current_voting_power::TEXT",
     )
     .await?;

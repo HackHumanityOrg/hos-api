@@ -46,15 +46,52 @@ fn parse_bool_env(name: &str, default: bool) -> bool {
 }
 
 fn load_fixture_range(name: &str) -> Vec<StreamerMessage> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/venear_governance/ranges")
-        .join(format!("{name}.json"));
+    let ranges_dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/venear_governance/ranges");
+    let single_path = ranges_dir.join(format!("{name}.json"));
 
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
+    let mut paths = Vec::new();
+    if single_path.exists() {
+        paths.push(single_path);
+    } else {
+        let part_prefix = format!("{name}.part");
+        let mut part_paths: Vec<_> = std::fs::read_dir(&ranges_dir)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to read fixture directory {}: {err}",
+                    ranges_dir.display()
+                )
+            })
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.starts_with(&part_prefix) && name.ends_with(".json"))
+                    .unwrap_or(false)
+            })
+            .collect();
 
-    serde_json::from_slice(&bytes)
-        .unwrap_or_else(|err| panic!("failed to deserialize fixture {}: {err}", path.display()))
+        part_paths.sort();
+        assert!(
+            !part_paths.is_empty(),
+            "failed to find fixture range file or parts for {name} in {}",
+            ranges_dir.display()
+        );
+        paths.extend(part_paths);
+    }
+
+    let mut messages = Vec::new();
+    for path in paths {
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
+        let mut parsed: Vec<StreamerMessage> =
+            serde_json::from_slice(&bytes).unwrap_or_else(|err| {
+                panic!("failed to deserialize fixture {}: {err}", path.display())
+            });
+        messages.append(&mut parsed);
+    }
+
+    messages
 }
 
 fn load_all_fixture_messages() -> Vec<StreamerMessage> {

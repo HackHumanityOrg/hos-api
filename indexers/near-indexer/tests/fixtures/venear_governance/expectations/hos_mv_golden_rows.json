@@ -130,20 +130,6 @@
       }
     },
     {
-      "case_name": "hos_approved_proposals_approval",
-      "view": "hos_approved_proposals",
-      "lookup": {
-        "receipt_id": "94SuRmTkV7J6LsycGNwFyrLz34d2t5ephwb5tK2Ppqxr"
-      },
-      "expected": {
-        "block_height": 168368828,
-        "block_timestamp": 1760517268281800450,
-        "hos_contract_address": "vote.dao",
-        "proposal_approver_id": "lane.near",
-        "proposal_id": 2
-      }
-    },
-    {
       "case_name": "hos_delegation_events_delegate_all",
       "view": "hos_delegation_events",
       "lookup": {
@@ -157,7 +143,7 @@
         "delegator_account_id": "horbarr.near",
         "event_type": "delegate_all",
         "is_latest_delegator_event": true,
-        "near_amount": 5.36332661138119e+24,
+        "near_amount": 5.100010940196189e+24,
         "owner_id": "sabrinanear.near",
         "success": true
       }
@@ -190,10 +176,10 @@
         "block_height": 167957476,
         "block_timestamp": 1760265747940719394,
         "event_status": "succeeded",
-        "event_type": "on_lockup_update_lockup_update",
+        "event_type": "on_lockup_update_ft_mint",
         "locked_near_balance": 2.0000164097063284e+24,
         "method_name": "on_lockup_update",
-        "near_amount": null,
+        "near_amount": 2.0000164287263283e+24,
         "voting_power": null
       }
     },
@@ -206,6 +192,11 @@
       "expected": {
         "abstain_voting_power": 0,
         "against_voting_power": 0,
+        "approval_block_height": null,
+        "approval_block_timestamp": null,
+        "approval_execution_outcome_id": null,
+        "approval_receipt_id": null,
+        "approval_transaction_hash": null,
         "approver_id": null,
         "block_height": 167957516,
         "block_timestamp": 1760265771951800354,

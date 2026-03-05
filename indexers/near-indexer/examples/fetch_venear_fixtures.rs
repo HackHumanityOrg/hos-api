@@ -1,17 +1,19 @@
 //! Fixture fetcher for veNEAR governance integration tests.
 //!
-//! Streams fixed scenario ranges from mainnet FastNEAR and stores each range as a
-//! JSON array (`Vec<StreamerMessage>`). Scenarios are intentionally bounded to
-//! provide meaningful multi-block integration fixtures without unbounded growth.
+//! Streams fixed scenario ranges from mainnet FastNEAR and stores each range in
+//! sharded JSON files (`<scenario>.partNN.json`). Scenarios are intentionally
+//! bounded to provide meaningful multi-block integration fixtures without
+//! unbounded growth.
 //!
 //! Output default:
-//! `tests/fixtures/venear_governance/ranges/<scenario>.json`
+//! `tests/fixtures/venear_governance/ranges/<scenario>.partNN.json`
 //!
 //! Optional environment variables:
 //! - `FASTNEAR_API_KEY`: FastNEAR bearer token.
 //! - `SCENARIOS`: comma-separated scenario names to fetch.
 //! - `OVERWRITE_EXISTING`: `true`/`false`, default `false`.
 //! - `FIXTURES_DIR`: custom output directory.
+//! - `MAX_BLOCKS_PER_FILE`: max blocks per shard file, default `10`.
 
 use anyhow::{anyhow, bail, Context, Result};
 use near_indexer::core::lake_stream::{create_fastnear_stream, LakeStreamConfig};
@@ -125,13 +127,73 @@ fn parse_bool_env(name: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
+fn parse_u64_env(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+fn scenario_output_exists(fixtures_dir: &Path, scenario_name: &str) -> Result<bool> {
+    let single_path = fixtures_dir.join(format!("{scenario_name}.json"));
+    if single_path.exists() {
+        return Ok(true);
+    }
+
+    let part_prefix = format!("{scenario_name}.part");
+    let has_parts = std::fs::read_dir(fixtures_dir)
+        .with_context(|| format!("failed to read fixtures dir {}", fixtures_dir.display()))?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .any(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with(&part_prefix) && name.ends_with(".json"))
+                .unwrap_or(false)
+        });
+
+    Ok(has_parts)
+}
+
+fn remove_scenario_outputs(fixtures_dir: &Path, scenario_name: &str) -> Result<()> {
+    let single_path = fixtures_dir.join(format!("{scenario_name}.json"));
+    if single_path.exists() {
+        std::fs::remove_file(&single_path)
+            .with_context(|| format!("failed to remove {}", single_path.display()))?;
+    }
+
+    let part_prefix = format!("{scenario_name}.part");
+    for entry in std::fs::read_dir(fixtures_dir)
+        .with_context(|| format!("failed to read {}", fixtures_dir.display()))?
+    {
+        let entry = entry.with_context(|| {
+            format!(
+                "failed to read fixture directory entry under {}",
+                fixtures_dir.display()
+            )
+        })?;
+        let path = entry.path();
+        let should_remove = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.starts_with(&part_prefix) && name.ends_with(".json"))
+            .unwrap_or(false);
+        if should_remove {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("failed to remove {}", path.display()))?;
+        }
+    }
+
+    Ok(())
+}
+
 async fn capture_scenario(
     scenario: ScenarioSpec,
     fixtures_dir: &Path,
     api_key: Option<String>,
+    max_blocks_per_file: u64,
 ) -> Result<()> {
-    let scenario_path = fixtures_dir.join(format!("{}.json", scenario.name));
-
     info!(
         scenario = scenario.name,
         start_height = scenario.start_height,
@@ -203,18 +265,34 @@ async fn capture_scenario(
         .map(|msg| msg.block.header.height)
         .unwrap_or_default();
 
-    let json = serde_json::to_string_pretty(&messages)
-        .with_context(|| format!("failed to serialize scenario '{}'", scenario.name))?;
-    tokio::fs::write(&scenario_path, json)
-        .await
-        .with_context(|| format!("failed to write fixture {}", scenario_path.display()))?;
+    let chunk_size = usize::try_from(max_blocks_per_file)
+        .ok()
+        .filter(|value| *value > 0)
+        .unwrap_or(1);
+    let part_count = messages.len().div_ceil(chunk_size);
+
+    for (index, chunk) in messages.chunks(chunk_size).enumerate() {
+        let part_path = fixtures_dir.join(format!("{}.part{:02}.json", scenario.name, index + 1));
+        let part_json = serde_json::to_string_pretty(chunk).with_context(|| {
+            format!(
+                "failed to serialize scenario '{}' part {}",
+                scenario.name,
+                index + 1
+            )
+        })?;
+        tokio::fs::write(&part_path, part_json)
+            .await
+            .with_context(|| format!("failed to write fixture {}", part_path.display()))?;
+    }
 
     info!(
         scenario = scenario.name,
-        path = %scenario_path.display(),
+        first_part = %fixtures_dir.join(format!("{}.part01.json", scenario.name)).display(),
         first_height,
         last_height,
         captured_blocks = messages.len(),
+        part_count,
+        max_blocks_per_file = chunk_size,
         found_event_types = ?found_event_types,
         "Scenario fixture range saved"
     );
@@ -235,6 +313,7 @@ async fn main() -> Result<()> {
     let api_key = std::env::var("FASTNEAR_API_KEY").ok();
     let selected_scenarios = resolve_scenarios(parse_csv_env("SCENARIOS"))?;
     let overwrite_existing = parse_bool_env("OVERWRITE_EXISTING", false);
+    let max_blocks_per_file = parse_u64_env("MAX_BLOCKS_PER_FILE", 10);
 
     let fixtures_dir = std::env::var("FIXTURES_DIR")
         .map(PathBuf::from)
@@ -250,21 +329,31 @@ async fn main() -> Result<()> {
     info!(
         scenarios = ?selected_scenarios.iter().map(|spec| spec.name).collect::<Vec<_>>(),
         overwrite_existing = overwrite_existing,
+        max_blocks_per_file,
         fixtures_dir = %fixtures_dir.display(),
         "Starting veNEAR fixture range fetcher"
     );
 
     for scenario in selected_scenarios {
-        let scenario_path = fixtures_dir.join(format!("{}.json", scenario.name));
-        if scenario_path.exists() && !overwrite_existing {
+        let exists = scenario_output_exists(&fixtures_dir, scenario.name)?;
+        if exists && !overwrite_existing {
             info!(
                 scenario = scenario.name,
-                path = %scenario_path.display(),
+                fixtures_dir = %fixtures_dir.display(),
                 "Fixture scenario already exists, skipping"
             );
             continue;
         }
-        capture_scenario(scenario, &fixtures_dir, api_key.clone()).await?;
+        if exists && overwrite_existing {
+            remove_scenario_outputs(&fixtures_dir, scenario.name)?;
+        }
+        capture_scenario(
+            scenario,
+            &fixtures_dir,
+            api_key.clone(),
+            max_blocks_per_file,
+        )
+        .await?;
     }
 
     info!(

@@ -514,9 +514,9 @@ pub async fn list_proposal_events(
                 SELECT
                     bp.proposal_id::bigint AS proposal_id,
                     'proposal_approve'::text AS event_type,
-                    COALESCE(ap.proposal_approver_id, bp.approver_id) AS account_id,
+                    bp.approver_id AS account_id,
                     bp.creator_id AS proposer_id,
-                    COALESCE(ap.proposal_approver_id, bp.approver_id) AS reviewer_id,
+                    bp.approver_id AS reviewer_id,
                     CASE
                         WHEN bp.voting_start_at IS NULL THEN NULL
                         ELSE EXTRACT(EPOCH FROM bp.voting_start_at)::bigint
@@ -526,30 +526,17 @@ pub async fn list_proposal_events(
                     bp.total_venear_at_approval::text AS snapshot_total_venear,
                     bp.proposal_metadata AS metadata,
                     bp.proposal_payload AS payload,
-                    COALESCE(ap.block_height, bp.block_height) AS block_height,
+                    COALESCE(bp.approval_block_height, bp.block_height) AS block_height,
                     COALESCE(
-                        ap.block_timestamp,
+                        bp.approval_block_timestamp,
                         (EXTRACT(EPOCH FROM bp.approved_at) * 1000000000)::bigint,
                         bp.block_timestamp
                     ) AS block_timestamp,
-                    COALESCE(ap.transaction_hash, bp.transaction_hash) AS transaction_hash,
-                    COALESCE(ap.receipt_id, bp.receipt_id) AS receipt_id,
-                    COALESCE(ap.execution_outcome_id, bp.execution_outcome_id) AS execution_outcome_id,
+                    COALESCE(bp.approval_transaction_hash, bp.transaction_hash) AS transaction_hash,
+                    COALESCE(bp.approval_receipt_id, bp.receipt_id) AS receipt_id,
+                    COALESCE(bp.approval_execution_outcome_id, bp.execution_outcome_id) AS execution_outcome_id,
                     1::integer AS event_order
                 FROM base_proposal bp
-                LEFT JOIN LATERAL (
-                    SELECT
-                        ap.proposal_approver_id,
-                        ap.block_height,
-                        ap.block_timestamp,
-                        ap.transaction_hash,
-                        ap.receipt_id,
-                        ap.execution_outcome_id
-                    FROM near.hos_approved_proposals ap
-                    WHERE ap.proposal_id = bp.proposal_id
-                    ORDER BY ap.block_timestamp DESC, ap.receipt_id DESC
-                    LIMIT 1
-                ) ap ON TRUE
                 WHERE bp.is_approved = true
 
                 UNION ALL
@@ -948,6 +935,14 @@ pub async fn list_delegate_voting_power(
                 LEFT JOIN near.hos_delegation_events d
                     ON d.receipt_id = ua.receipt_id
                 WHERE ua.account_id = $1
+                  AND (
+                    ua.voting_power IS NOT NULL
+                    OR ua.near_amount IS NOT NULL
+                    OR ua.locked_near_balance IS NOT NULL
+                  )
+                  AND ua.event_type NOT IN ('add_vote', 'remove_vote')
+                  AND ua.event_type NOT LIKE 'delegate_all%'
+                  AND ua.event_type NOT LIKE 'undelegate%'
             ),
             vote_events AS (
                 SELECT

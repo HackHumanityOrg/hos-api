@@ -30,7 +30,6 @@ const HOS_MATERIALIZED_VIEWS: &[&str] = &[
     "hos_function_calls",
     "hos_event_logs",
     "hos_proposal_voting_history",
-    "hos_approved_proposals",
     "hos_delegation_events",
     "hos_user_activities",
     "hos_proposals",
@@ -40,15 +39,52 @@ const HOS_MATERIALIZED_VIEWS: &[&str] = &[
 ];
 
 fn load_fixture_range(name: &str) -> Vec<StreamerMessage> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/venear_governance/ranges")
-        .join(format!("{name}.json"));
+    let ranges_dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/venear_governance/ranges");
+    let single_path = ranges_dir.join(format!("{name}.json"));
 
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|err| panic!("Failed to read fixture {}: {err}", path.display()));
+    let mut paths = Vec::new();
+    if single_path.exists() {
+        paths.push(single_path);
+    } else {
+        let part_prefix = format!("{name}.part");
+        let mut part_paths: Vec<_> = std::fs::read_dir(&ranges_dir)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "Failed to read fixture directory {}: {err}",
+                    ranges_dir.display()
+                )
+            })
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.starts_with(&part_prefix) && name.ends_with(".json"))
+                    .unwrap_or(false)
+            })
+            .collect();
 
-    serde_json::from_slice(&bytes)
-        .unwrap_or_else(|err| panic!("Failed to deserialize fixture {}: {err}", path.display()))
+        part_paths.sort();
+        assert!(
+            !part_paths.is_empty(),
+            "Failed to find fixture range file or parts for {name} in {}",
+            ranges_dir.display()
+        );
+        paths.extend(part_paths);
+    }
+
+    let mut messages = Vec::new();
+    for path in paths {
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|err| panic!("Failed to read fixture {}: {err}", path.display()));
+        let mut parsed: Vec<StreamerMessage> =
+            serde_json::from_slice(&bytes).unwrap_or_else(|err| {
+                panic!("Failed to deserialize fixture {}: {err}", path.display())
+            });
+        messages.append(&mut parsed);
+    }
+
+    messages
 }
 
 fn load_all_fixture_messages() -> Vec<StreamerMessage> {
@@ -206,6 +242,29 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "SELECT COUNT(*)::bigint AS value FROM near.near_blocks",
     )
     .await?;
+    let blocks_without_hos_relevance = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_blocks b
+         WHERE NOT EXISTS (
+             SELECT 1
+             FROM near.near_execution_outcomes eo
+             WHERE eo.block_height = b.height
+         )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM near.relevant_receipts rr
+             WHERE rr.scope = 'hos'
+               AND rr.discovered_at_block_height = b.height
+         )",
+    )
+    .await?;
+    let distinct_outcome_blocks = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(DISTINCT block_height)::bigint AS value
+         FROM near.near_execution_outcomes",
+    )
+    .await?;
     let chunks_written = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value FROM near.near_chunks",
@@ -217,9 +276,17 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     )
     .await?;
 
+    assert!(
+        blocks_written > 0,
+        "venear_governance should write HoS-related near_blocks rows"
+    );
     assert_eq!(
-        blocks_written, 0,
-        "venear_governance should not write near_blocks rows"
+        blocks_without_hos_relevance, 0,
+        "venear_governance should not write non-HoS near_blocks rows"
+    );
+    assert!(
+        blocks_written >= distinct_outcome_blocks,
+        "near_blocks should cover all HoS execution outcome blocks"
     );
     assert_eq!(
         chunks_written, 0,
@@ -478,7 +545,6 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
              'hos_function_calls',
              'hos_event_logs',
              'hos_proposal_voting_history',
-             'hos_approved_proposals',
              'hos_delegation_events',
              'hos_user_activities',
              'hos_proposals',
@@ -511,7 +577,6 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "SELECT COUNT(*)::bigint AS value FROM near.hos_function_calls WHERE action_id = 'nonhos-action'",
         "SELECT COUNT(*)::bigint AS value FROM near.hos_event_logs WHERE execution_outcome_id = 'nonhos-outcome'",
         "SELECT COUNT(*)::bigint AS value FROM near.hos_proposal_voting_history WHERE receipt_id = 'nonhos-receipt'",
-        "SELECT COUNT(*)::bigint AS value FROM near.hos_approved_proposals WHERE receipt_id = 'nonhos-receipt'",
         "SELECT COUNT(*)::bigint AS value FROM near.hos_delegation_events WHERE receipt_id = 'nonhos-receipt'",
         "SELECT COUNT(*)::bigint AS value FROM near.hos_user_activities WHERE receipt_id = 'nonhos-receipt'",
         "SELECT COUNT(*)::bigint AS value FROM near.hos_proposals WHERE receipt_id = 'nonhos-receipt'",
@@ -527,7 +592,6 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "SELECT COUNT(*)::bigint AS value FROM near.hos_function_calls WHERE near.is_hos_action(receiver_id, predecessor_id, signer_account_id) = FALSE",
         "SELECT COUNT(*)::bigint AS value FROM near.hos_event_logs WHERE near.is_hos_contract(contract_id) = FALSE",
         "SELECT COUNT(*)::bigint AS value FROM near.hos_proposal_voting_history WHERE near.is_hos_contract(hos_contract_address) = FALSE",
-        "SELECT COUNT(*)::bigint AS value FROM near.hos_approved_proposals WHERE near.is_hos_contract(hos_contract_address) = FALSE",
         "SELECT COUNT(*)::bigint AS value FROM near.hos_delegation_events WHERE near.is_hos_contract(hos_contract_address) = FALSE",
         "SELECT COUNT(*)::bigint AS value FROM near.hos_proposals WHERE near.is_hos_contract(hos_contract_address) = FALSE",
         "SELECT COUNT(*)::bigint AS value FROM near.hos_registered_voters WHERE near.is_hos_contract(hos_contract_address) = FALSE",
