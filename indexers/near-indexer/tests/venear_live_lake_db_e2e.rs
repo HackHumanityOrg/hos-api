@@ -76,7 +76,9 @@ async fn venear_governance_live_lake_ingests_into_postgres() -> Result<()> {
 
     let tracked_relevant_receipts = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.venear_governance_relevant_receipts",
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.relevant_receipts
+         WHERE scope = 'hos'",
     )
     .await?;
     let relevant_actions = scalar_i64(
@@ -85,8 +87,9 @@ async fn venear_governance_live_lake_ingests_into_postgres() -> Result<()> {
          FROM near.near_receipt_actions ra
          WHERE EXISTS (
              SELECT 1
-             FROM near.venear_governance_relevant_receipts rr
-             WHERE rr.receipt_id = ra.receipt_id
+             FROM near.relevant_receipts rr
+             WHERE rr.scope = 'hos'
+               AND rr.receipt_id = ra.receipt_id
          )",
     )
     .await?;
@@ -96,8 +99,9 @@ async fn venear_governance_live_lake_ingests_into_postgres() -> Result<()> {
          FROM near.near_execution_outcomes eo
          WHERE EXISTS (
              SELECT 1
-             FROM near.venear_governance_relevant_receipts rr
-             WHERE rr.receipt_id = eo.receipt_id
+             FROM near.relevant_receipts rr
+             WHERE rr.scope = 'hos'
+               AND rr.receipt_id = eo.receipt_id
          )",
     )
     .await?;

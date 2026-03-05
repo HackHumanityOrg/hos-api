@@ -8,17 +8,19 @@ use near_lake_framework::near_indexer_primitives::views::{
 use near_lake_framework::near_indexer_primitives::StreamerMessage;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::{json, Value as JsonValue};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::Instant;
 use tracing::{info, instrument, warn};
 
 use crate::core::cursor;
+use crate::core::relevance_tracker::{
+    load_relevant_receipts_for_scope, upsert_relevant_receipt, RELEVANCE_REASON_DESCENDANT,
+    RELEVANCE_REASON_ROOT, RELEVANCE_SCOPE_HOS,
+};
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "venear_governance";
 const HOS_CONTRACT: &str = "dao";
-const VENEAR_CONTRACT_PREFIX: &str = "venear";
-const VOTING_CONTRACT_PREFIX: &str = "vote";
 const VENEAR_CONTRACT_ID: &str = "venear.dao";
 const VOTING_CONTRACT_ID: &str = "vote.dao";
 const DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS: i64 = 100;
@@ -157,28 +159,6 @@ impl VenearGovernanceModule {
         self.is_hos_contract(receiver_id) || self.is_hos_contract(predecessor_id)
     }
 
-    async fn upsert_hos_config(&self, db: &DatabaseConnection) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.hos_config (id, hos_contract, venear_contract_prefix, voting_contract_prefix)
-             VALUES (1, $1, $2, $3)
-             ON CONFLICT (id) DO UPDATE SET
-               hos_contract = EXCLUDED.hos_contract,
-               venear_contract_prefix = EXCLUDED.venear_contract_prefix,
-               voting_contract_prefix = EXCLUDED.voting_contract_prefix,
-               updated_at = NOW()",
-            vec![
-                HOS_CONTRACT.to_string().into(),
-                VENEAR_CONTRACT_PREFIX.to_string().into(),
-                VOTING_CONTRACT_PREFIX.to_string().into(),
-            ],
-        ))
-        .await
-        .context("failed to upsert near.hos_config")?;
-
-        Ok(())
-    }
-
     async fn refresh_hos_materialized_views(&self, db: &DatabaseConnection) {
         if let Err(err) = db
             .execute(Statement::from_sql_and_values(
@@ -195,115 +175,6 @@ impl VenearGovernanceModule {
     fn should_refresh_mviews(&self, block_height: i64) -> bool {
         self.mview_refresh_interval_blocks > 0
             && block_height % self.mview_refresh_interval_blocks == 0
-    }
-
-    async fn load_relevant_receipts_for_block(
-        &self,
-        db: &impl ConnectionTrait,
-        receipt_ids: &[String],
-    ) -> Result<HashMap<String, Option<String>>> {
-        let mut seen = HashSet::new();
-        let mut ids = Vec::new();
-        for receipt_id in receipt_ids {
-            if seen.insert(receipt_id.clone()) {
-                ids.push(receipt_id.clone());
-            }
-        }
-
-        if ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let mut placeholders = String::new();
-        for idx in 0..ids.len() {
-            if idx > 0 {
-                placeholders.push_str(", ");
-            }
-            placeholders.push_str(&format!("${}", idx + 1));
-        }
-
-        let sql = format!(
-            "SELECT receipt_id, transaction_hash FROM near.venear_governance_relevant_receipts WHERE receipt_id IN ({placeholders})"
-        );
-        let values = ids.into_iter().map(Into::into).collect::<Vec<_>>();
-        let rows = db
-            .query_all(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                &sql,
-                values,
-            ))
-            .await
-            .context("failed to load relevant receipt ids")?;
-
-        let mut result = HashMap::new();
-        for row in rows {
-            let receipt_id: String = row
-                .try_get("", "receipt_id")
-                .context("failed to read relevant receipt_id")?;
-            let transaction_hash: Option<String> = row
-                .try_get("", "transaction_hash")
-                .context("failed to read relevant transaction_hash")?;
-            result.insert(receipt_id, transaction_hash);
-        }
-
-        Ok(result)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn upsert_relevant_receipt(
-        &self,
-        db: &impl ConnectionTrait,
-        receipt_id: &str,
-        reason: &str,
-        discovered_by_receipt_id: Option<&str>,
-        transaction_hash: Option<&str>,
-        discovered_at_block_height: i64,
-        executed: bool,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.venear_governance_relevant_receipts (
-                receipt_id,
-                reason,
-                discovered_by_receipt_id,
-                transaction_hash,
-                discovered_at_block_height,
-                executed,
-                created_at,
-                updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-            ON CONFLICT (receipt_id) DO UPDATE SET
-                reason = CASE
-                    WHEN near.venear_governance_relevant_receipts.reason = 'root' THEN near.venear_governance_relevant_receipts.reason
-                    ELSE EXCLUDED.reason
-                END,
-                discovered_by_receipt_id = COALESCE(
-                    near.venear_governance_relevant_receipts.discovered_by_receipt_id,
-                    EXCLUDED.discovered_by_receipt_id
-                ),
-                transaction_hash = COALESCE(
-                    near.venear_governance_relevant_receipts.transaction_hash,
-                    EXCLUDED.transaction_hash
-                ),
-                discovered_at_block_height = LEAST(
-                    near.venear_governance_relevant_receipts.discovered_at_block_height,
-                    EXCLUDED.discovered_at_block_height
-                ),
-                executed = near.venear_governance_relevant_receipts.executed OR EXCLUDED.executed,
-                updated_at = NOW()",
-            vec![
-                receipt_id.into(),
-                reason.into(),
-                discovered_by_receipt_id.map(ToString::to_string).into(),
-                transaction_hash.map(ToString::to_string).into(),
-                discovered_at_block_height.into(),
-                executed.into(),
-            ],
-        ))
-        .await
-        .context("failed to upsert near.venear_governance_relevant_receipts")?;
-
-        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -639,10 +510,11 @@ impl VenearGovernanceModule {
                         let predecessor_id = receipt.predecessor_id.to_string();
                         let receiver_id = receipt.receiver_id.to_string();
                         if self.is_hos_related(&receiver_id, &predecessor_id) {
-                            self.upsert_relevant_receipt(
+                            upsert_relevant_receipt(
                                 db,
+                                RELEVANCE_SCOPE_HOS,
                                 &receipt_id,
-                                "root",
+                                RELEVANCE_REASON_ROOT,
                                 None,
                                 Some(&transaction_hash),
                                 block_height,
@@ -662,9 +534,8 @@ impl VenearGovernanceModule {
             }
         }
 
-        let mut tracked_relevant = self
-            .load_relevant_receipts_for_block(db, &block_receipt_ids)
-            .await?;
+        let mut tracked_relevant =
+            load_relevant_receipts_for_scope(db, RELEVANCE_SCOPE_HOS, &block_receipt_ids).await?;
 
         for shard in &msg.shards {
             let chunk_hash = shard
@@ -698,13 +569,14 @@ impl VenearGovernanceModule {
                     .cloned()
                     .or(tracked_transaction_hash);
 
-                self.upsert_relevant_receipt(
+                upsert_relevant_receipt(
                     db,
+                    RELEVANCE_SCOPE_HOS,
                     &receipt_id,
                     if is_hos_root_related {
-                        "root"
+                        RELEVANCE_REASON_ROOT
                     } else {
-                        "descendant"
+                        RELEVANCE_REASON_DESCENDANT
                     },
                     None,
                     transaction_hash.as_deref(),
@@ -772,10 +644,11 @@ impl VenearGovernanceModule {
                     )
                     .await?;
 
-                    self.upsert_relevant_receipt(
+                    upsert_relevant_receipt(
                         db,
+                        RELEVANCE_SCOPE_HOS,
                         &child_receipt_id,
-                        "descendant",
+                        RELEVANCE_REASON_DESCENDANT,
                         Some(&receipt_id),
                         transaction_hash.as_deref(),
                         block_height,
@@ -930,8 +803,8 @@ impl IndexerModule for VenearGovernanceModule {
         self.stream_mode
     }
 
-    async fn initialize(&self, db: &DatabaseConnection) -> Result<()> {
-        self.upsert_hos_config(db).await
+    async fn initialize(&self, _db: &DatabaseConnection) -> Result<()> {
+        Ok(())
     }
 
     #[instrument(skip(self, msg, db), fields(module = "venear_governance", height = %msg.block.header.height))]

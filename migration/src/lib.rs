@@ -19,6 +19,8 @@ mod m20260307_000016_near_venear_coverage_expansion;
 mod m20260308_000017_near_venear_transaction_hashes;
 mod m20260309_000018_near_venear_raw_enrichment;
 mod m20260310_000019_near_hos_raw_refactor;
+mod m20260310_000020_near_relevant_receipts_generalization;
+mod m20260310_000021_near_hos_sql_static_config;
 
 pub struct Migrator;
 
@@ -45,6 +47,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260308_000017_near_venear_transaction_hashes::Migration),
             Box::new(m20260309_000018_near_venear_raw_enrichment::Migration),
             Box::new(m20260310_000019_near_hos_raw_refactor::Migration),
+            Box::new(m20260310_000020_near_relevant_receipts_generalization::Migration),
+            Box::new(m20260310_000021_near_hos_sql_static_config::Migration),
         ]
     }
 }

@@ -17,6 +17,10 @@ use std::time::Instant;
 use tracing::{info, instrument};
 
 use crate::core::cursor;
+use crate::core::relevance_tracker::{
+    upsert_relevant_receipt, RELEVANCE_REASON_DESCENDANT, RELEVANCE_REASON_OBSERVED,
+    RELEVANCE_REASON_ROOT, RELEVANCE_SCOPE_ALL,
+};
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "raw";
@@ -127,6 +131,25 @@ impl RawModule {
     fn shard_to_i64(shard_id: near_lake_framework::near_indexer_primitives::types::ShardId) -> i64 {
         let value: u64 = shard_id.into();
         i64::try_from(value).unwrap_or(i64::MAX)
+    }
+
+    fn build_receipt_tx_hashes(shards: &[IndexerShard]) -> HashMap<String, String> {
+        let mut receipt_tx_hashes: HashMap<String, String> = HashMap::new();
+
+        for shard in shards {
+            if let Some(chunk) = &shard.chunk {
+                for tx_with_outcome in &chunk.transactions {
+                    if let Some(receipt) = &tx_with_outcome.outcome.receipt {
+                        receipt_tx_hashes.insert(
+                            receipt.receipt_id.to_string(),
+                            tx_with_outcome.transaction.hash.to_string(),
+                        );
+                    }
+                }
+            }
+        }
+
+        receipt_tx_hashes
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -497,14 +520,17 @@ impl RawModule {
         &self,
         shards: &[IndexerShard],
         block_height: i64,
+        receipt_tx_hashes: &HashMap<String, String>,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         for shard in shards {
             if let Some(chunk) = &shard.chunk {
                 for tx_with_outcome in &chunk.transactions {
                     if let Some(receipt) = &tx_with_outcome.outcome.receipt {
+                        let receipt_id = receipt.receipt_id.to_string();
+                        let transaction_hash = tx_with_outcome.transaction.hash.to_string();
                         let receipt_record = near_receipts::ActiveModel {
-                            receipt_id: Set(receipt.receipt_id.to_string()),
+                            receipt_id: Set(receipt_id.clone()),
                             block_height: Set(block_height),
                             shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                             predecessor_id: Set(receipt.predecessor_id.to_string()),
@@ -524,12 +550,25 @@ impl RawModule {
                             .exec(db)
                             .await
                             .context("Failed to insert tx receipt record")?;
+
+                        upsert_relevant_receipt(
+                            db,
+                            RELEVANCE_SCOPE_ALL,
+                            &receipt_id,
+                            RELEVANCE_REASON_ROOT,
+                            None,
+                            Some(&transaction_hash),
+                            block_height,
+                            false,
+                        )
+                        .await?;
                     }
                 }
 
                 for receipt in &chunk.receipts {
+                    let receipt_id = receipt.receipt_id.to_string();
                     let receipt_record = near_receipts::ActiveModel {
-                        receipt_id: Set(receipt.receipt_id.to_string()),
+                        receipt_id: Set(receipt_id.clone()),
                         block_height: Set(block_height),
                         shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                         predecessor_id: Set(receipt.predecessor_id.to_string()),
@@ -549,11 +588,24 @@ impl RawModule {
                         .exec(db)
                         .await
                         .context("Failed to insert chunk receipt record")?;
+
+                    upsert_relevant_receipt(
+                        db,
+                        RELEVANCE_SCOPE_ALL,
+                        &receipt_id,
+                        RELEVANCE_REASON_OBSERVED,
+                        None,
+                        receipt_tx_hashes.get(&receipt_id).map(String::as_str),
+                        block_height,
+                        false,
+                    )
+                    .await?;
                 }
 
                 for receipt in &chunk.local_receipts {
+                    let receipt_id = receipt.receipt_id.to_string();
                     let receipt_record = near_receipts::ActiveModel {
-                        receipt_id: Set(receipt.receipt_id.to_string()),
+                        receipt_id: Set(receipt_id.clone()),
                         block_height: Set(block_height),
                         shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                         predecessor_id: Set(receipt.predecessor_id.to_string()),
@@ -573,14 +625,27 @@ impl RawModule {
                         .exec(db)
                         .await
                         .context("Failed to insert local receipt record")?;
+
+                    upsert_relevant_receipt(
+                        db,
+                        RELEVANCE_SCOPE_ALL,
+                        &receipt_id,
+                        RELEVANCE_REASON_OBSERVED,
+                        None,
+                        receipt_tx_hashes.get(&receipt_id).map(String::as_str),
+                        block_height,
+                        false,
+                    )
+                    .await?;
                 }
             }
 
             for outcome_with_receipt in &shard.receipt_execution_outcomes {
                 let receipt = &outcome_with_receipt.receipt;
+                let receipt_id = receipt.receipt_id.to_string();
 
                 let receipt_record = near_receipts::ActiveModel {
-                    receipt_id: Set(receipt.receipt_id.to_string()),
+                    receipt_id: Set(receipt_id.clone()),
                     block_height: Set(block_height),
                     shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                     predecessor_id: Set(receipt.predecessor_id.to_string()),
@@ -600,12 +665,25 @@ impl RawModule {
                     .exec(db)
                     .await
                     .context("Failed to insert shard receipt record")?;
+
+                upsert_relevant_receipt(
+                    db,
+                    RELEVANCE_SCOPE_ALL,
+                    &receipt_id,
+                    RELEVANCE_REASON_OBSERVED,
+                    None,
+                    receipt_tx_hashes.get(&receipt_id).map(String::as_str),
+                    block_height,
+                    false,
+                )
+                .await?;
             }
         }
 
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn store_execution_outcomes(
         &self,
         shards: &[IndexerShard],
@@ -613,23 +691,9 @@ impl RawModule {
         block_hash: &str,
         block_timestamp: i64,
         default_author: &str,
+        receipt_tx_hashes: &HashMap<String, String>,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
-        let mut receipt_tx_hashes: HashMap<String, String> = HashMap::new();
-
-        for shard in shards {
-            if let Some(chunk) = &shard.chunk {
-                for tx_with_outcome in &chunk.transactions {
-                    if let Some(receipt) = &tx_with_outcome.outcome.receipt {
-                        receipt_tx_hashes.insert(
-                            receipt.receipt_id.to_string(),
-                            tx_with_outcome.transaction.hash.to_string(),
-                        );
-                    }
-                }
-            }
-        }
-
         for shard in shards {
             let shard_id = Self::shard_to_i64(shard.shard_id);
             let chunk_hash = shard
@@ -699,16 +763,41 @@ impl RawModule {
                     .await?;
 
                     if let Some(parent_receipt_id) = receipt_id.as_deref() {
+                        upsert_relevant_receipt(
+                            db,
+                            RELEVANCE_SCOPE_ALL,
+                            parent_receipt_id,
+                            RELEVANCE_REASON_ROOT,
+                            None,
+                            Some(&transaction_hash),
+                            block_height,
+                            true,
+                        )
+                        .await?;
+
                         for child_receipt_id in &outcome.receipt_ids {
+                            let child_receipt_id_str = child_receipt_id.to_string();
                             self.upsert_near_receipt_edge(
                                 db,
                                 parent_receipt_id,
-                                &child_receipt_id.to_string(),
+                                &child_receipt_id_str,
                                 &execution_outcome_id,
                                 block_height,
                                 block_hash,
                                 block_timestamp,
                                 Some(&transaction_hash),
+                            )
+                            .await?;
+
+                            upsert_relevant_receipt(
+                                db,
+                                RELEVANCE_SCOPE_ALL,
+                                &child_receipt_id_str,
+                                RELEVANCE_REASON_DESCENDANT,
+                                Some(parent_receipt_id),
+                                Some(&transaction_hash),
+                                block_height,
+                                false,
                             )
                             .await?;
                         }
@@ -764,16 +853,41 @@ impl RawModule {
                 )
                 .await?;
 
+                upsert_relevant_receipt(
+                    db,
+                    RELEVANCE_SCOPE_ALL,
+                    &receipt_id,
+                    RELEVANCE_REASON_OBSERVED,
+                    None,
+                    transaction_hash.as_deref(),
+                    block_height,
+                    true,
+                )
+                .await?;
+
                 for child_receipt_id in &outcome.receipt_ids {
+                    let child_receipt_id_str = child_receipt_id.to_string();
                     self.upsert_near_receipt_edge(
                         db,
                         &receipt_id,
-                        &child_receipt_id.to_string(),
+                        &child_receipt_id_str,
                         &execution_outcome_id,
                         block_height,
                         block_hash,
                         block_timestamp,
                         transaction_hash.as_deref(),
+                    )
+                    .await?;
+
+                    upsert_relevant_receipt(
+                        db,
+                        RELEVANCE_SCOPE_ALL,
+                        &child_receipt_id_str,
+                        RELEVANCE_REASON_DESCENDANT,
+                        Some(&receipt_id),
+                        transaction_hash.as_deref(),
+                        block_height,
+                        false,
                     )
                     .await?;
                 }
@@ -909,6 +1023,7 @@ impl RawModule {
         let block_hash = msg.block.header.hash.to_string();
         let block_timestamp = msg.block.header.timestamp as i64;
         let block_author = msg.block.author.to_string();
+        let receipt_tx_hashes = Self::build_receipt_tx_hashes(&msg.shards);
 
         let txn = db.begin().await?;
 
@@ -924,7 +1039,7 @@ impl RawModule {
             .await
             .context("Failed to store transaction data")?;
 
-        self.store_receipts(&msg.shards, block_height, &txn)
+        self.store_receipts(&msg.shards, block_height, &receipt_tx_hashes, &txn)
             .await
             .context("Failed to store receipt data")?;
 
@@ -934,6 +1049,7 @@ impl RawModule {
             &block_hash,
             block_timestamp,
             &block_author,
+            &receipt_tx_hashes,
             &txn,
         )
         .await

@@ -5,13 +5,16 @@ mod support;
 use anyhow::Result;
 use common::config::{
     AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig, NearModuleStreamMode,
-    NearModulesConfig, NearStreamProvider, TelemetryConfig, VenearGovernanceModuleConfig,
+    NearModulesConfig, NearStreamProvider, RawModuleConfig, TelemetryConfig,
+    VenearGovernanceModuleConfig,
 };
+use near_indexer::modules::raw::RawModule;
 use near_indexer::modules::venear_governance::VenearGovernanceModule;
 use near_indexer::IndexerModule;
 use near_lake_framework::near_indexer_primitives::StreamerMessage;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use std::path::Path;
+use support::hos_mv_goldens::{assert_hos_mv_golden_rows, assert_hos_mv_normalized_semantics};
 use support::{init_test_tracing, TestDatabase};
 
 const RANGE_SCENARIOS: &[&str] = &[
@@ -64,7 +67,7 @@ fn load_all_fixture_messages() -> Vec<StreamerMessage> {
     messages
 }
 
-fn build_test_config() -> AppConfig {
+fn build_venear_only_config() -> AppConfig {
     let db = DatabaseConfig {
         url: "postgres://unused".to_string(),
         ..DatabaseConfig::default()
@@ -86,6 +89,45 @@ fn build_test_config() -> AppConfig {
             fastnear_num_threads: None,
             modules: Some(NearModulesConfig {
                 raw: None,
+                venear_governance: Some(VenearGovernanceModuleConfig {
+                    enabled: true,
+                    stream_mode: NearModuleStreamMode::Shared,
+                    start_height: None,
+                    mview_refresh_interval_blocks: 0,
+                }),
+            }),
+        }),
+    };
+
+    AppConfig::Indexer(Box::new(cfg))
+}
+
+fn build_raw_and_venear_config() -> AppConfig {
+    let db = DatabaseConfig {
+        url: "postgres://unused".to_string(),
+        ..DatabaseConfig::default()
+    };
+
+    let cfg = IndexerConfig {
+        database: db,
+        logging: LoggingConfig::default(),
+        telemetry: TelemetryConfig::default(),
+        discourse: None,
+        telegram: None,
+        near: Some(NearLakeConfig {
+            provider: NearStreamProvider::Lake,
+            chain: "mainnet".to_string(),
+            start_height: 0,
+            concurrency: Some(1),
+            preload_pool_size: Some(1),
+            fastnear_api_key: None,
+            fastnear_num_threads: None,
+            modules: Some(NearModulesConfig {
+                raw: Some(RawModuleConfig {
+                    enabled: true,
+                    stream_mode: NearModuleStreamMode::Shared,
+                    start_height: None,
+                }),
                 venear_governance: Some(VenearGovernanceModuleConfig {
                     enabled: true,
                     stream_mode: NearModuleStreamMode::Shared,
@@ -140,7 +182,7 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
 
     let db = TestDatabase::new().await;
     let conn = db.db();
-    let module = VenearGovernanceModule::new(&build_test_config());
+    let module = VenearGovernanceModule::new(&build_venear_only_config());
     module.initialize(conn.as_ref()).await?;
 
     for fixture in &fixtures {
@@ -149,7 +191,9 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
 
     let tracked_relevant_receipts = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.venear_governance_relevant_receipts",
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.relevant_receipts
+         WHERE scope = 'hos'",
     )
     .await?;
     assert!(
@@ -204,9 +248,17 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          FROM near.near_execution_outcomes eo
          WHERE EXISTS (
              SELECT 1
-             FROM near.venear_governance_relevant_receipts rr
-             WHERE rr.receipt_id = eo.receipt_id
+             FROM near.relevant_receipts rr
+             WHERE rr.scope = 'hos'
+               AND rr.receipt_id = eo.receipt_id
          )",
+    )
+    .await?;
+    let non_hos_scope_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.relevant_receipts
+         WHERE scope <> 'hos'",
     )
     .await?;
     assert!(
@@ -216,6 +268,10 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     assert_eq!(
         outcomes_total, outcomes_on_relevant_receipts,
         "venear_governance should only write outcomes for tracked relevant receipts"
+    );
+    assert_eq!(
+        non_hos_scope_rows, 0,
+        "venear-only run should not create non-hos relevance rows"
     );
     assert!(
         outcomes_total < fixture_receipt_outcomes,
@@ -233,8 +289,9 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          FROM near.near_receipt_actions ra
          WHERE EXISTS (
              SELECT 1
-             FROM near.venear_governance_relevant_receipts rr
-             WHERE rr.receipt_id = ra.receipt_id
+             FROM near.relevant_receipts rr
+             WHERE rr.scope = 'hos'
+               AND rr.receipt_id = ra.receipt_id
          )",
     )
     .await?;
@@ -258,13 +315,15 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          FROM near.near_receipt_edges re
          WHERE EXISTS (
              SELECT 1
-             FROM near.venear_governance_relevant_receipts rr_parent
-             WHERE rr_parent.receipt_id = re.parent_receipt_id
+             FROM near.relevant_receipts rr_parent
+             WHERE rr_parent.scope = 'hos'
+               AND rr_parent.receipt_id = re.parent_receipt_id
          )
            AND EXISTS (
              SELECT 1
-             FROM near.venear_governance_relevant_receipts rr_child
-             WHERE rr_child.receipt_id = re.child_receipt_id
+             FROM near.relevant_receipts rr_child
+             WHERE rr_child.scope = 'hos'
+               AND rr_child.receipt_id = re.child_receipt_id
          )",
     )
     .await?;
@@ -284,6 +343,19 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     assert_eq!(
         legacy_hos_raw_views, 0,
         "raw compatibility views should not exist anymore"
+    );
+
+    let hos_config_table_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM information_schema.tables
+         WHERE table_schema = 'near'
+           AND table_name = 'hos_config'",
+    )
+    .await?;
+    assert_eq!(
+        hos_config_table_count, 0,
+        "hos_config should not exist as a table"
     );
 
     // Inject one explicit non-HoS raw action/outcome pair. HoS MVs must still
@@ -465,6 +537,9 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         assert_eq!(count, 0, "HoS MV contract/action filter broken: {sql}");
     }
 
+    assert_hos_mv_golden_rows(conn.as_ref()).await?;
+    assert_hos_mv_normalized_semantics(conn.as_ref()).await?;
+
     let non_voter_overlap = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
@@ -477,6 +552,83 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     assert_eq!(
         non_voter_overlap, 0,
         "proposal_non_voters must not include accounts that actually voted"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn raw_and_venear_modules_can_share_relevant_receipts_by_scope() -> Result<()> {
+    init_test_tracing();
+
+    let fixtures = load_all_fixture_messages();
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let config = build_raw_and_venear_config();
+    let raw_module = RawModule::new(&config);
+    let venear_module = VenearGovernanceModule::new(&config);
+
+    raw_module.initialize(conn.as_ref()).await?;
+    venear_module.initialize(conn.as_ref()).await?;
+
+    for fixture in &fixtures {
+        raw_module.process_block(fixture, conn.as_ref()).await?;
+        venear_module.process_block(fixture, conn.as_ref()).await?;
+    }
+
+    let all_scope_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.relevant_receipts
+         WHERE scope = 'all'",
+    )
+    .await?;
+    let hos_scope_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.relevant_receipts
+         WHERE scope = 'hos'",
+    )
+    .await?;
+    let overlap_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.relevant_receipts all_scope
+         INNER JOIN near.relevant_receipts hos_scope
+           ON hos_scope.receipt_id = all_scope.receipt_id
+         WHERE all_scope.scope = 'all'
+           AND hos_scope.scope = 'hos'",
+    )
+    .await?;
+    let hos_missing_from_all = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.relevant_receipts hos_scope
+         WHERE hos_scope.scope = 'hos'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM near.relevant_receipts all_scope
+             WHERE all_scope.scope = 'all'
+               AND all_scope.receipt_id = hos_scope.receipt_id
+           )",
+    )
+    .await?;
+
+    assert!(
+        all_scope_count > 0,
+        "expected relevant receipts for scope=all"
+    );
+    assert!(
+        hos_scope_count > 0,
+        "expected relevant receipts for scope=hos"
+    );
+    assert!(
+        overlap_count > 0,
+        "expected at least one receipt tracked in both scopes"
+    );
+    assert_eq!(
+        hos_missing_from_all, 0,
+        "all-scope rows should cover hos-scope rows when raw is enabled"
     );
 
     Ok(())

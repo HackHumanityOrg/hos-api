@@ -13,6 +13,7 @@ use near_lake_framework::near_indexer_primitives::{views::ReceiptEnumView, Strea
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use support::hos_mv_goldens::{assert_hos_mv_golden_rows, assert_hos_mv_normalized_semantics};
 use support::{init_test_tracing, TestDatabase};
 
 const RANGE_SCENARIOS: &[&str] = &[
@@ -290,6 +291,16 @@ async fn scalar_string(db: &impl ConnectionTrait, sql: &str, values: Vec<Value>)
     Ok(row.try_get("", "value")?)
 }
 
+async fn execute_sql(db: &impl ConnectionTrait, sql: &str) -> Result<()> {
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        sql,
+        vec![],
+    ))
+    .await?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
     init_test_tracing();
@@ -377,6 +388,57 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
     )
     .await?;
     assert_eq!(edge_count, expectations.receipt_edge_keys.len() as i64);
+
+    let relevant_all_count = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.relevant_receipts
+         WHERE scope = 'all'",
+        vec![],
+    )
+    .await?;
+    assert!(
+        relevant_all_count >= expectations.receipt_shards.len() as i64,
+        "scope=all relevance should cover at least all persisted near_receipts rows"
+    );
+
+    let receipts_missing_relevance = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipts r
+         WHERE NOT EXISTS (
+             SELECT 1
+             FROM near.relevant_receipts rr
+             WHERE rr.scope = 'all'
+               AND rr.receipt_id = r.receipt_id
+         )",
+        vec![],
+    )
+    .await?;
+    assert_eq!(
+        receipts_missing_relevance, 0,
+        "each near_receipts row should have a scope=all relevance row"
+    );
+
+    let executed_outcomes_without_executed_relevance = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_execution_outcomes eo
+         WHERE eo.receipt_id IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1
+             FROM near.relevant_receipts rr
+             WHERE rr.scope = 'all'
+               AND rr.receipt_id = eo.receipt_id
+               AND rr.executed = TRUE
+         )",
+        vec![],
+    )
+    .await?;
+    assert_eq!(
+        executed_outcomes_without_executed_relevance, 0,
+        "each execution outcome receipt should be marked executed in scope=all relevance"
+    );
 
     let block_raw_nulls = scalar_i64(
         db.connection.as_ref(),
@@ -559,6 +621,33 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
 }
 
 #[tokio::test]
+async fn raw_module_materialized_views_match_hos_golden_rows() -> Result<()> {
+    init_test_tracing();
+
+    let fixtures = load_all_fixture_messages();
+    let db = TestDatabase::new().await;
+    let module = RawModule::new(&build_test_config());
+
+    module.initialize(db.connection.as_ref()).await?;
+    for fixture in &fixtures {
+        module
+            .process_block(fixture, db.connection.as_ref())
+            .await?;
+    }
+
+    execute_sql(
+        db.connection.as_ref(),
+        "SELECT near.refresh_hos_materialized_views()",
+    )
+    .await?;
+
+    assert_hos_mv_golden_rows(db.connection.as_ref()).await?;
+    assert_hos_mv_normalized_semantics(db.connection.as_ref()).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn raw_module_is_replay_idempotent() -> Result<()> {
     init_test_tracing();
 
@@ -634,6 +723,14 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
         vec![],
     )
     .await?;
+    let relevant_before = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.relevant_receipts
+         WHERE scope = 'all'",
+        vec![],
+    )
+    .await?;
     let tx_fingerprint_before = scalar_string(
         db.connection.as_ref(),
         "SELECT signer_id::text || '|' || receiver_id::text || '|' || nonce::text || '|' || shard_id::text AS value
@@ -697,6 +794,14 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
         vec![],
     )
     .await?;
+    let relevant_after = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.relevant_receipts
+         WHERE scope = 'all'",
+        vec![],
+    )
+    .await?;
     let tx_fingerprint_after = scalar_string(
         db.connection.as_ref(),
         "SELECT signer_id::text || '|' || receiver_id::text || '|' || nonce::text || '|' || shard_id::text AS value
@@ -714,6 +819,7 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
     assert_eq!(state_changes_before, state_changes_after);
     assert_eq!(actions_before, actions_after);
     assert_eq!(edges_before, edges_after);
+    assert_eq!(relevant_before, relevant_after);
     assert_eq!(tx_fingerprint_before, tx_fingerprint_after);
 
     Ok(())
