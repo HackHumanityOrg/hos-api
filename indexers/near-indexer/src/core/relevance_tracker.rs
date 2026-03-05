@@ -36,7 +36,7 @@ pub async fn load_relevant_receipts_for_scope(
 
     let sql = format!(
         "SELECT receipt_id, transaction_hash
-         FROM near.relevant_receipts
+         FROM near.near_relevant_receipts
          WHERE scope = $1
            AND receipt_id IN ({placeholders})"
     );
@@ -81,7 +81,7 @@ pub async fn upsert_relevant_receipt(
 ) -> Result<()> {
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "INSERT INTO near.relevant_receipts (
+        "INSERT INTO near.near_relevant_receipts (
             scope,
             receipt_id,
             reason,
@@ -94,7 +94,7 @@ pub async fn upsert_relevant_receipt(
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
         ON CONFLICT (scope, receipt_id) DO UPDATE SET
             reason = CASE
-                WHEN CASE near.relevant_receipts.reason
+                WHEN CASE near.near_relevant_receipts.reason
                         WHEN 'root' THEN 3
                         WHEN 'descendant' THEN 2
                         WHEN 'observed' THEN 1
@@ -107,22 +107,22 @@ pub async fn upsert_relevant_receipt(
                         WHEN 'observed' THEN 1
                         ELSE 0
                      END
-                THEN near.relevant_receipts.reason
+                THEN near.near_relevant_receipts.reason
                 ELSE EXCLUDED.reason
             END,
             discovered_by_receipt_id = COALESCE(
-                near.relevant_receipts.discovered_by_receipt_id,
+                near.near_relevant_receipts.discovered_by_receipt_id,
                 EXCLUDED.discovered_by_receipt_id
             ),
             transaction_hash = COALESCE(
-                near.relevant_receipts.transaction_hash,
+                near.near_relevant_receipts.transaction_hash,
                 EXCLUDED.transaction_hash
             ),
             discovered_at_block_height = LEAST(
-                near.relevant_receipts.discovered_at_block_height,
+                near.near_relevant_receipts.discovered_at_block_height,
                 EXCLUDED.discovered_at_block_height
             ),
-            executed = near.relevant_receipts.executed OR EXCLUDED.executed,
+            executed = near.near_relevant_receipts.executed OR EXCLUDED.executed,
             updated_at = NOW()",
         vec![
             scope.into(),
@@ -135,7 +135,7 @@ pub async fn upsert_relevant_receipt(
         ],
     ))
     .await
-    .context("failed to upsert near.relevant_receipts")?;
+    .context("failed to upsert near.near_relevant_receipts")?;
 
     Ok(())
 }

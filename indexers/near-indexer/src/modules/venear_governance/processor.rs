@@ -354,7 +354,17 @@ impl VenearGovernanceModule {
                 raw_data,
                 shard_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT (hash) DO NOTHING",
+            ON CONFLICT (hash) DO UPDATE SET
+                block_height = EXCLUDED.block_height,
+                signer_id = EXCLUDED.signer_id,
+                receiver_id = EXCLUDED.receiver_id,
+                nonce = EXCLUDED.nonce,
+                priority_fee = EXCLUDED.priority_fee,
+                public_key = EXCLUDED.public_key,
+                signature = EXCLUDED.signature,
+                actions = EXCLUDED.actions,
+                raw_data = COALESCE(EXCLUDED.raw_data, near.near_transactions.raw_data),
+                shard_id = EXCLUDED.shard_id",
             vec![
                 hash.into(),
                 block_height.into(),
@@ -371,6 +381,45 @@ impl VenearGovernanceModule {
         ))
         .await
         .context("failed to upsert near.near_transactions for HoS related transaction")?;
+
+        Ok(())
+    }
+
+    async fn upsert_near_transaction_placeholder(
+        &self,
+        db: &impl ConnectionTrait,
+        hash: &str,
+        block_height: i64,
+        shard_id: i64,
+        signer_id: &str,
+        receiver_id: &str,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_transactions (
+                hash,
+                block_height,
+                signer_id,
+                receiver_id,
+                nonce,
+                priority_fee,
+                public_key,
+                signature,
+                actions,
+                raw_data,
+                shard_id
+            ) VALUES ($1, $2, $3, $4, 0, 0, '', '', '[]'::jsonb, NULL, $5)
+            ON CONFLICT (hash) DO NOTHING",
+            vec![
+                hash.into(),
+                block_height.into(),
+                signer_id.into(),
+                receiver_id.into(),
+                shard_id.into(),
+            ],
+        ))
+        .await
+        .context("failed to insert placeholder near.near_transactions row for HoS transaction")?;
 
         Ok(())
     }
@@ -700,6 +749,7 @@ impl VenearGovernanceModule {
         let mut has_hos_root_receipt = false;
         let mut has_hos_related_receipt_outcome = false;
         let mut hos_transaction_hashes: HashSet<String> = HashSet::new();
+        let mut hos_transaction_fallbacks: HashMap<String, (String, String, i64)> = HashMap::new();
 
         for shard in &msg.shards {
             if let Some(chunk) = &shard.chunk {
@@ -824,6 +874,9 @@ impl VenearGovernanceModule {
                     .or(tracked_transaction_hash);
                 if let Some(transaction_hash) = &transaction_hash {
                     hos_transaction_hashes.insert(transaction_hash.clone());
+                    hos_transaction_fallbacks
+                        .entry(transaction_hash.clone())
+                        .or_insert_with(|| (predecessor_id.clone(), receiver_id.clone(), shard_id));
                 }
 
                 upsert_relevant_receipt(
@@ -1016,6 +1069,7 @@ impl VenearGovernanceModule {
             .keys()
             .filter_map(|receipt_id| receipt_tx_hashes.get(receipt_id).cloned())
             .collect::<HashSet<_>>();
+        let mut persisted_ho_s_transaction_hashes: HashSet<String> = HashSet::new();
 
         for shard in &msg.shards {
             if let Some(chunk) = &shard.chunk {
@@ -1075,8 +1129,36 @@ impl VenearGovernanceModule {
                         )?,
                     )
                     .await?;
+                    persisted_ho_s_transaction_hashes.insert(tx_hash);
                 }
             }
+        }
+
+        for transaction_hash in hos_transaction_hashes
+            .union(&hos_transaction_hashes_from_relevant)
+            .cloned()
+            .collect::<HashSet<_>>()
+        {
+            if persisted_ho_s_transaction_hashes.contains(&transaction_hash) {
+                continue;
+            }
+
+            let (signer_id, receiver_id, shard_id) = hos_transaction_fallbacks
+                .get(&transaction_hash)
+                .map(|(signer_id, receiver_id, shard_id)| {
+                    (signer_id.as_str(), receiver_id.as_str(), *shard_id)
+                })
+                .unwrap_or(("unknown", "unknown", 0));
+
+            self.upsert_near_transaction_placeholder(
+                db,
+                &transaction_hash,
+                block_height,
+                shard_id,
+                signer_id,
+                receiver_id,
+            )
+            .await?;
         }
 
         if has_hos_root_receipt || has_hos_related_receipt_outcome {

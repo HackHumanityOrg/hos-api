@@ -459,7 +459,7 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
     let relevant_all_count = scalar_i64(
         db.connection.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.relevant_receipts
+         FROM near.near_relevant_receipts
          WHERE scope = 'all'",
         vec![],
     )
@@ -475,7 +475,7 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
          FROM near.near_receipts r
          WHERE NOT EXISTS (
              SELECT 1
-             FROM near.relevant_receipts rr
+             FROM near.near_relevant_receipts rr
              WHERE rr.scope = 'all'
                AND rr.receipt_id = r.receipt_id
          )",
@@ -494,7 +494,7 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
          WHERE eo.receipt_id IS NOT NULL
            AND NOT EXISTS (
              SELECT 1
-             FROM near.relevant_receipts rr
+             FROM near.near_relevant_receipts rr
              WHERE rr.scope = 'all'
                AND rr.receipt_id = eo.receipt_id
                AND rr.executed = TRUE
@@ -793,7 +793,7 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
     let relevant_before = scalar_i64(
         db.connection.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.relevant_receipts
+         FROM near.near_relevant_receipts
          WHERE scope = 'all'",
         vec![],
     )
@@ -864,7 +864,7 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
     let relevant_after = scalar_i64(
         db.connection.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.relevant_receipts
+         FROM near.near_relevant_receipts
          WHERE scope = 'all'",
         vec![],
     )

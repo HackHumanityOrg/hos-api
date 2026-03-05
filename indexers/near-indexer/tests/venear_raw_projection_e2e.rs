@@ -258,7 +258,7 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     let tracked_relevant_receipts = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.relevant_receipts
+         FROM near.near_relevant_receipts
          WHERE scope = 'hos'",
     )
     .await?;
@@ -283,7 +283,7 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          )
            AND NOT EXISTS (
              SELECT 1
-             FROM near.relevant_receipts rr
+             FROM near.near_relevant_receipts rr
              WHERE rr.scope = 'hos'
                AND rr.discovered_at_block_height = b.height
          )",
@@ -345,7 +345,7 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          FROM near.near_execution_outcomes eo
          WHERE EXISTS (
              SELECT 1
-             FROM near.relevant_receipts rr
+             FROM near.near_relevant_receipts rr
              WHERE rr.scope = 'hos'
                AND rr.receipt_id = eo.receipt_id
          )",
@@ -354,7 +354,7 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     let non_hos_scope_rows = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.relevant_receipts
+         FROM near.near_relevant_receipts
          WHERE scope <> 'hos'",
     )
     .await?;
@@ -386,7 +386,7 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          FROM near.near_receipt_actions ra
          WHERE EXISTS (
              SELECT 1
-             FROM near.relevant_receipts rr
+             FROM near.near_relevant_receipts rr
              WHERE rr.scope = 'hos'
                AND rr.receipt_id = ra.receipt_id
          )",
@@ -412,13 +412,13 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          FROM near.near_receipt_edges re
          WHERE EXISTS (
              SELECT 1
-             FROM near.relevant_receipts rr_parent
+             FROM near.near_relevant_receipts rr_parent
              WHERE rr_parent.scope = 'hos'
                AND rr_parent.receipt_id = re.parent_receipt_id
          )
            AND EXISTS (
              SELECT 1
-             FROM near.relevant_receipts rr_child
+             FROM near.near_relevant_receipts rr_child
              WHERE rr_child.scope = 'hos'
                AND rr_child.receipt_id = re.child_receipt_id
          )",
@@ -453,7 +453,7 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     let relevant_with_tx_hash = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.relevant_receipts
+         FROM near.near_relevant_receipts
          WHERE scope = 'hos' AND transaction_hash IS NOT NULL",
     )
     .await?;
@@ -472,6 +472,49 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     assert!(
         relevant_with_tx_hash > 0,
         "HoS relevant_receipts should include non-null transaction_hash values"
+    );
+    let orphaned_hos_transaction_hashes = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM (
+           SELECT DISTINCT transaction_hash AS hash
+           FROM near.near_execution_outcomes
+           WHERE transaction_hash IS NOT NULL
+           UNION
+           SELECT DISTINCT transaction_hash AS hash
+           FROM near.near_receipt_actions
+           WHERE transaction_hash IS NOT NULL
+           UNION
+           SELECT DISTINCT transaction_hash AS hash
+           FROM near.near_receipt_edges
+           WHERE transaction_hash IS NOT NULL
+           UNION
+           SELECT DISTINCT transaction_hash AS hash
+           FROM near.near_relevant_receipts
+           WHERE scope = 'hos' AND transaction_hash IS NOT NULL
+         ) canonical_hashes
+         WHERE NOT EXISTS (
+           SELECT 1
+           FROM near.near_transactions nt
+           WHERE nt.hash = canonical_hashes.hash
+         )",
+    )
+    .await?;
+    assert_eq!(
+        orphaned_hos_transaction_hashes, 0,
+        "all HoS canonical transaction_hash values must resolve to near_transactions rows"
+    );
+
+    let placeholder_transactions = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_transactions
+         WHERE raw_data IS NULL",
+    )
+    .await?;
+    assert!(
+        placeholder_transactions > 0,
+        "fixture regression: expected at least one HoS fallback near_transactions placeholder row"
     );
 
     let legacy_hos_raw_views = scalar_i64(
@@ -793,22 +836,22 @@ async fn raw_and_venear_modules_can_share_relevant_receipts_by_scope() -> Result
     let all_scope_count = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.relevant_receipts
+         FROM near.near_relevant_receipts
          WHERE scope = 'all'",
     )
     .await?;
     let hos_scope_count = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.relevant_receipts
+         FROM near.near_relevant_receipts
          WHERE scope = 'hos'",
     )
     .await?;
     let overlap_count = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.relevant_receipts all_scope
-         INNER JOIN near.relevant_receipts hos_scope
+         FROM near.near_relevant_receipts all_scope
+         INNER JOIN near.near_relevant_receipts hos_scope
            ON hos_scope.receipt_id = all_scope.receipt_id
          WHERE all_scope.scope = 'all'
            AND hos_scope.scope = 'hos'",
@@ -817,11 +860,11 @@ async fn raw_and_venear_modules_can_share_relevant_receipts_by_scope() -> Result
     let hos_missing_from_all = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.relevant_receipts hos_scope
+         FROM near.near_relevant_receipts hos_scope
          WHERE hos_scope.scope = 'hos'
            AND NOT EXISTS (
              SELECT 1
-             FROM near.relevant_receipts all_scope
+             FROM near.near_relevant_receipts all_scope
              WHERE all_scope.scope = 'all'
                AND all_scope.receipt_id = hos_scope.receipt_id
            )",
