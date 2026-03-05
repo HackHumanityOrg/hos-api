@@ -300,9 +300,19 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "SELECT COUNT(*)::bigint AS value FROM near.near_chunks",
     )
     .await?;
+    let state_changes_written = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_state_changes",
+    )
+    .await?;
     let transactions_written = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value FROM near.near_transactions",
+    )
+    .await?;
+    let origins_written = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_receipt_tx_origins",
     )
     .await?;
 
@@ -322,9 +332,17 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         chunks_written, 0,
         "venear_governance should not write near_chunks rows"
     );
+    assert_eq!(
+        state_changes_written, 0,
+        "venear_governance should not write near_state_changes rows"
+    );
     assert!(
         transactions_written > 0,
         "venear_governance should write HoS-related near_transactions rows"
+    );
+    assert!(
+        origins_written > 0,
+        "venear_governance should persist receipt->transaction resolver origins"
     );
 
     let receipts_total = scalar_i64(
@@ -503,6 +521,37 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     assert_eq!(
         orphaned_hos_transaction_hashes, 0,
         "all HoS canonical transaction_hash values must resolve to near_transactions rows"
+    );
+    let transactions_outside_hos_graph = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_transactions nt
+         WHERE NOT EXISTS (
+           SELECT 1
+           FROM (
+             SELECT DISTINCT transaction_hash AS hash
+             FROM near.near_execution_outcomes
+             WHERE transaction_hash IS NOT NULL
+             UNION
+             SELECT DISTINCT transaction_hash AS hash
+             FROM near.near_receipt_actions
+             WHERE transaction_hash IS NOT NULL
+             UNION
+             SELECT DISTINCT transaction_hash AS hash
+             FROM near.near_receipt_edges
+             WHERE transaction_hash IS NOT NULL
+             UNION
+             SELECT DISTINCT transaction_hash AS hash
+             FROM near.near_relevant_receipts
+             WHERE scope = 'hos' AND transaction_hash IS NOT NULL
+           ) hos_hashes
+           WHERE hos_hashes.hash = nt.hash
+         )",
+    )
+    .await?;
+    assert_eq!(
+        transactions_outside_hos_graph, 0,
+        "venear_governance should not write near_transactions rows outside HoS graph hashes"
     );
 
     let placeholder_transactions = scalar_i64(
@@ -870,6 +919,19 @@ async fn raw_and_venear_modules_can_share_relevant_receipts_by_scope() -> Result
            )",
     )
     .await?;
+    let all_scope_not_hos_scope = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_relevant_receipts all_scope
+         WHERE all_scope.scope = 'all'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM near.near_relevant_receipts hos_scope
+             WHERE hos_scope.scope = 'hos'
+               AND hos_scope.receipt_id = all_scope.receipt_id
+           )",
+    )
+    .await?;
 
     assert!(
         all_scope_count > 0,
@@ -886,6 +948,10 @@ async fn raw_and_venear_modules_can_share_relevant_receipts_by_scope() -> Result
     assert_eq!(
         hos_missing_from_all, 0,
         "all-scope rows should cover hos-scope rows when raw is enabled"
+    );
+    assert!(
+        all_scope_not_hos_scope > 0,
+        "raw scope should contain non-HoS receipts beyond venear_governance scope"
     );
 
     Ok(())

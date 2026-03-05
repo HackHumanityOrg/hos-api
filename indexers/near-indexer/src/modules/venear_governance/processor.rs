@@ -244,8 +244,35 @@ impl VenearGovernanceModule {
                 || account.ends_with(&format!(".{VOTING_CONTRACT_ID}")))
     }
 
-    fn is_hos_related(&self, receiver_id: &str, predecessor_id: &str) -> bool {
-        self.is_hos_contract(receiver_id) || self.is_hos_contract(predecessor_id)
+    fn is_hos_related_with_signer(
+        &self,
+        receiver_id: &str,
+        predecessor_id: &str,
+        signer_account_id: Option<&str>,
+    ) -> bool {
+        self.is_hos_contract(receiver_id)
+            || self.is_hos_contract(predecessor_id)
+            || signer_account_id
+                .map(|signer| self.is_hos_contract(signer))
+                .unwrap_or(false)
+    }
+
+    fn is_hos_related_receipt(
+        &self,
+        receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
+    ) -> bool {
+        self.is_hos_related_with_signer(
+            receipt.receiver_id.as_ref(),
+            receipt.predecessor_id.as_ref(),
+            Self::signer_account_id(&receipt.receipt),
+        )
+    }
+
+    fn signer_account_id(receipt: &ReceiptEnumView) -> Option<&str> {
+        match receipt {
+            ReceiptEnumView::Action { signer_id, .. } => Some(signer_id.as_ref()),
+            _ => None,
+        }
     }
 
     async fn refresh_hos_materialized_views(&self, db: &DatabaseConnection) {
@@ -745,8 +772,8 @@ impl VenearGovernanceModule {
         let default_author = msg.block.author.to_string();
 
         let mut receipt_tx_hashes = build_receipt_tx_hashes(&msg.shards);
-        let mut receipt_relations: HashMap<String, (String, String)> = HashMap::new();
-        let mut has_hos_root_receipt = false;
+        let mut receipt_relations: HashMap<String, (String, String, Option<String>)> =
+            HashMap::new();
         let mut has_hos_related_receipt_outcome = false;
         let mut hos_transaction_hashes: HashSet<String> = HashSet::new();
         let mut hos_transaction_fallbacks: HashMap<String, (String, String, i64)> = HashMap::new();
@@ -760,6 +787,7 @@ impl VenearGovernanceModule {
                             .or_insert((
                                 receipt.predecessor_id.to_string(),
                                 receipt.receiver_id.to_string(),
+                                Self::signer_account_id(&receipt.receipt).map(ToString::to_string),
                             ));
                     }
                 }
@@ -770,6 +798,7 @@ impl VenearGovernanceModule {
                         .or_insert((
                             receipt.predecessor_id.to_string(),
                             receipt.receiver_id.to_string(),
+                            Self::signer_account_id(&receipt.receipt).map(ToString::to_string),
                         ));
                 }
 
@@ -779,6 +808,7 @@ impl VenearGovernanceModule {
                         .or_insert((
                             receipt.predecessor_id.to_string(),
                             receipt.receiver_id.to_string(),
+                            Self::signer_account_id(&receipt.receipt).map(ToString::to_string),
                         ));
                 }
             }
@@ -790,6 +820,7 @@ impl VenearGovernanceModule {
                     .or_insert((
                         receipt.predecessor_id.to_string(),
                         receipt.receiver_id.to_string(),
+                        Self::signer_account_id(&receipt.receipt).map(ToString::to_string),
                     ));
             }
         }
@@ -854,7 +885,7 @@ impl VenearGovernanceModule {
                 let receipt_id = receipt.receipt_id.to_string();
                 let predecessor_id = receipt.predecessor_id.to_string();
                 let receiver_id = receipt.receiver_id.to_string();
-                let is_hos_root_related = self.is_hos_related(&receiver_id, &predecessor_id);
+                let is_hos_root_related = self.is_hos_related_receipt(receipt);
                 let tracked_transaction_hash = tracked_relevant.get(&receipt_id).cloned().flatten();
                 let is_hos_related_receipt =
                     is_hos_root_related || tracked_relevant.contains_key(&receipt_id);
@@ -864,9 +895,6 @@ impl VenearGovernanceModule {
                 }
 
                 has_hos_related_receipt_outcome = true;
-                if is_hos_root_related {
-                    has_hos_root_receipt = true;
-                }
 
                 let transaction_hash = receipt_tx_hashes
                     .get(&receipt_id)
@@ -1061,6 +1089,8 @@ impl VenearGovernanceModule {
             }
         }
 
+        // Keep a global resolver cache of receipt -> transaction hash so future HoS descendants
+        // can recover lineage even when roots were non-HoS at creation time.
         for (receipt_id, transaction_hash) in &receipt_tx_hashes {
             Self::upsert_receipt_tx_origin(db, receipt_id, transaction_hash, block_height).await?;
         }
@@ -1096,13 +1126,15 @@ impl VenearGovernanceModule {
                         || root_receipt_ids.iter().any(|receipt_id| {
                             receipt_relations
                                 .get(receipt_id)
-                                .map(|(predecessor_id, receiver_id)| {
-                                    self.is_hos_related(receiver_id, predecessor_id)
+                                .map(|(predecessor_id, receiver_id, signer_account_id)| {
+                                    self.is_hos_related_with_signer(
+                                        receiver_id,
+                                        predecessor_id,
+                                        signer_account_id.as_deref(),
+                                    )
                                 })
                                 .unwrap_or(false)
-                        })
-                        || has_hos_related_receipt_outcome
-                        || has_hos_root_receipt;
+                        });
 
                     if !is_hos_transaction {
                         continue;
@@ -1161,7 +1193,7 @@ impl VenearGovernanceModule {
             .await?;
         }
 
-        if has_hos_root_receipt || has_hos_related_receipt_outcome {
+        if has_hos_related_receipt_outcome || !persisted_ho_s_transaction_hashes.is_empty() {
             self.upsert_near_block(db, msg).await?;
         }
 
