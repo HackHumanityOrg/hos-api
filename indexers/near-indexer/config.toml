@@ -67,3 +67,11 @@ stream_mode = "shared"
 start_height = 167673600
 # Refresh HoS materialized views every N blocks (0 disables auto-refresh).
 mview_refresh_interval_blocks = 100
+# Finalize pending HoS tx graphs after N blocks with no new receipts.
+tx_finalize_timeout_blocks = 43200
+# Garbage-collect finalized/pruned staging tx rows every N blocks.
+staging_gc_interval_blocks = 600
+# Max rows deleted per staging table per cleanup batch.
+staging_gc_batch_size = 5000
+# Max cleanup batches per run (caps delete work during a single block).
+staging_gc_max_batches_per_run = 50

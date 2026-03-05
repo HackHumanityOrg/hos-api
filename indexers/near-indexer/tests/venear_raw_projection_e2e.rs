@@ -130,6 +130,10 @@ fn build_venear_only_config() -> AppConfig {
                     stream_mode: NearModuleStreamMode::Shared,
                     start_height: None,
                     mview_refresh_interval_blocks: 0,
+                    tx_finalize_timeout_blocks: 100_000_000,
+                    staging_gc_interval_blocks: 600,
+                    staging_gc_batch_size: 5_000,
+                    staging_gc_max_batches_per_run: 50,
                 }),
             }),
         }),
@@ -169,6 +173,10 @@ fn build_raw_and_venear_config() -> AppConfig {
                     stream_mode: NearModuleStreamMode::Shared,
                     start_height: None,
                     mview_refresh_interval_blocks: 0,
+                    tx_finalize_timeout_blocks: 100_000_000,
+                    staging_gc_interval_blocks: 600,
+                    staging_gc_batch_size: 5_000,
+                    staging_gc_max_batches_per_run: 50,
                 }),
             }),
         }),
@@ -310,9 +318,9 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "SELECT COUNT(*)::bigint AS value FROM near.near_transactions",
     )
     .await?;
-    let origins_written = scalar_i64(
+    let tx_state_rows = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value FROM near.near_venear_receipt_tx_origins",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_hos_tx_state",
     )
     .await?;
 
@@ -341,8 +349,8 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "venear_governance should write HoS-related near_transactions rows"
     );
     assert!(
-        origins_written > 0,
-        "venear_governance should persist receipt->transaction resolver origins"
+        tx_state_rows > 0,
+        "venear_governance should persist HoS tx-state rows"
     );
 
     let receipts_total = scalar_i64(
@@ -369,6 +377,13 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          )",
     )
     .await?;
+    let outcomes_without_receipt_id = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_execution_outcomes
+         WHERE receipt_id IS NULL",
+    )
+    .await?;
     let non_hos_scope_rows = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
@@ -381,8 +396,9 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "expected canonical near_execution_outcomes rows"
     );
     assert_eq!(
-        outcomes_total, outcomes_on_relevant_receipts,
-        "venear_governance should only write outcomes for tracked relevant receipts"
+        outcomes_total,
+        outcomes_on_relevant_receipts + outcomes_without_receipt_id,
+        "venear_governance should only write HoS-relevant receipt outcomes plus tx-level outcomes"
     );
     assert_eq!(
         non_hos_scope_rows, 0,
@@ -561,9 +577,9 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          WHERE raw_data IS NULL",
     )
     .await?;
-    assert!(
-        placeholder_transactions > 0,
-        "fixture regression: expected at least one HoS fallback near_transactions placeholder row"
+    assert_eq!(
+        placeholder_transactions, 0,
+        "venear_governance should not use placeholder near_transactions rows anymore"
     );
 
     let legacy_hos_raw_views = scalar_i64(

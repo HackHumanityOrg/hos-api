@@ -462,6 +462,14 @@ pub struct VenearGovernanceModuleConfig {
     pub start_height: Option<u64>,
     #[serde(default = "default_hos_mview_refresh_interval_blocks")]
     pub mview_refresh_interval_blocks: u64,
+    #[serde(default = "default_hos_tx_finalize_timeout_blocks")]
+    pub tx_finalize_timeout_blocks: u64,
+    #[serde(default = "default_hos_staging_gc_interval_blocks")]
+    pub staging_gc_interval_blocks: u64,
+    #[serde(default = "default_hos_staging_gc_batch_size")]
+    pub staging_gc_batch_size: u64,
+    #[serde(default = "default_hos_staging_gc_max_batches_per_run")]
+    pub staging_gc_max_batches_per_run: u64,
 }
 
 fn default_chain() -> String {
@@ -474,6 +482,22 @@ fn default_false() -> bool {
 
 fn default_hos_mview_refresh_interval_blocks() -> u64 {
     100
+}
+
+fn default_hos_tx_finalize_timeout_blocks() -> u64 {
+    43_200
+}
+
+fn default_hos_staging_gc_interval_blocks() -> u64 {
+    600
+}
+
+fn default_hos_staging_gc_batch_size() -> u64 {
+    5_000
+}
+
+fn default_hos_staging_gc_max_batches_per_run() -> u64 {
+    50
 }
 
 impl ToLog for NearLakeConfig {
@@ -517,6 +541,10 @@ impl ToLog for VenearGovernanceModuleConfig {
             "stream_mode": self.stream_mode.as_str(),
             "start_height": self.start_height,
             "mview_refresh_interval_blocks": self.mview_refresh_interval_blocks,
+            "tx_finalize_timeout_blocks": self.tx_finalize_timeout_blocks,
+            "staging_gc_interval_blocks": self.staging_gc_interval_blocks,
+            "staging_gc_batch_size": self.staging_gc_batch_size,
+            "staging_gc_max_batches_per_run": self.staging_gc_max_batches_per_run,
         })
     }
 }
@@ -1089,6 +1117,10 @@ mod tests {
         assert_eq!(raw.start_height, None);
         assert_eq!(venear_governance.start_height, None);
         assert_eq!(venear_governance.mview_refresh_interval_blocks, 100);
+        assert_eq!(venear_governance.tx_finalize_timeout_blocks, 43_200);
+        assert_eq!(venear_governance.staging_gc_interval_blocks, 600);
+        assert_eq!(venear_governance.staging_gc_batch_size, 5_000);
+        assert_eq!(venear_governance.staging_gc_max_batches_per_run, 50);
     }
 
     #[test]
@@ -1132,5 +1164,22 @@ mod tests {
         .expect("refresh interval should deserialize");
 
         assert_eq!(cfg.mview_refresh_interval_blocks, 250);
+    }
+
+    #[test]
+    fn near_module_finalize_and_gc_config_deserializes() {
+        let cfg: VenearGovernanceModuleConfig = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "tx_finalize_timeout_blocks": 86400,
+            "staging_gc_interval_blocks": 900,
+            "staging_gc_batch_size": 1000,
+            "staging_gc_max_batches_per_run": 10
+        }))
+        .expect("finalize/gc config should deserialize");
+
+        assert_eq!(cfg.tx_finalize_timeout_blocks, 86_400);
+        assert_eq!(cfg.staging_gc_interval_blocks, 900);
+        assert_eq!(cfg.staging_gc_batch_size, 1_000);
+        assert_eq!(cfg.staging_gc_max_batches_per_run, 10);
     }
 }

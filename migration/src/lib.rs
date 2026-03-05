@@ -25,6 +25,7 @@ mod m20260311_000022_near_hos_mv_parity_fixes;
 mod m20260311_000023_drop_hos_approved_proposals;
 mod m20260312_000024_restore_venear_receipt_tx_origins;
 mod m20260312_000025_rename_near_relevant_receipts_table;
+mod m20260313_000026_hos_whole_tx_finalization;
 
 pub struct Migrator;
 
@@ -57,6 +58,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260311_000023_drop_hos_approved_proposals::Migration),
             Box::new(m20260312_000024_restore_venear_receipt_tx_origins::Migration),
             Box::new(m20260312_000025_rename_near_relevant_receipts_table::Migration),
+            Box::new(m20260313_000026_hos_whole_tx_finalization::Migration),
         ]
     }
 }
