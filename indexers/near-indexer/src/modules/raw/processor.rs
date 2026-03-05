@@ -17,9 +17,10 @@ use std::time::Instant;
 use tracing::{info, instrument};
 
 use crate::core::cursor;
+use crate::core::receipt_tx_resolver::build_receipt_tx_hashes;
 use crate::core::relevance_tracker::{
-    upsert_relevant_receipt, RELEVANCE_REASON_DESCENDANT, RELEVANCE_REASON_OBSERVED,
-    RELEVANCE_REASON_ROOT, RELEVANCE_SCOPE_ALL,
+    load_relevant_receipts_for_scope, upsert_relevant_receipt, RELEVANCE_REASON_DESCENDANT,
+    RELEVANCE_REASON_OBSERVED, RELEVANCE_REASON_ROOT, RELEVANCE_SCOPE_ALL,
 };
 use crate::IndexerModule;
 
@@ -131,25 +132,6 @@ impl RawModule {
     fn shard_to_i64(shard_id: near_lake_framework::near_indexer_primitives::types::ShardId) -> i64 {
         let value: u64 = shard_id.into();
         i64::try_from(value).unwrap_or(i64::MAX)
-    }
-
-    fn build_receipt_tx_hashes(shards: &[IndexerShard]) -> HashMap<String, String> {
-        let mut receipt_tx_hashes: HashMap<String, String> = HashMap::new();
-
-        for shard in shards {
-            if let Some(chunk) = &shard.chunk {
-                for tx_with_outcome in &chunk.transactions {
-                    if let Some(receipt) = &tx_with_outcome.outcome.receipt {
-                        receipt_tx_hashes.insert(
-                            receipt.receipt_id.to_string(),
-                            tx_with_outcome.transaction.hash.to_string(),
-                        );
-                    }
-                }
-            }
-        }
-
-        receipt_tx_hashes
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -694,6 +676,26 @@ impl RawModule {
         receipt_tx_hashes: &HashMap<String, String>,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
+        let mut receipt_tx_hashes = receipt_tx_hashes.clone();
+        let block_receipt_ids: Vec<String> = shards
+            .iter()
+            .flat_map(|shard| {
+                shard
+                    .receipt_execution_outcomes
+                    .iter()
+                    .map(|outcome| outcome.receipt.receipt_id.to_string())
+            })
+            .collect();
+        let mut tracked_relevant =
+            load_relevant_receipts_for_scope(db, RELEVANCE_SCOPE_ALL, &block_receipt_ids).await?;
+        for (receipt_id, transaction_hash) in &tracked_relevant {
+            if let Some(transaction_hash) = transaction_hash {
+                receipt_tx_hashes
+                    .entry(receipt_id.clone())
+                    .or_insert_with(|| transaction_hash.clone());
+            }
+        }
+
         for shard in shards {
             let shard_id = Self::shard_to_i64(shard.shard_id);
             let chunk_hash = shard
@@ -763,6 +765,9 @@ impl RawModule {
                     .await?;
 
                     if let Some(parent_receipt_id) = receipt_id.as_deref() {
+                        receipt_tx_hashes
+                            .entry(parent_receipt_id.to_string())
+                            .or_insert_with(|| transaction_hash.clone());
                         upsert_relevant_receipt(
                             db,
                             RELEVANCE_SCOPE_ALL,
@@ -774,6 +779,14 @@ impl RawModule {
                             true,
                         )
                         .await?;
+                        tracked_relevant
+                            .entry(parent_receipt_id.to_string())
+                            .and_modify(|existing| {
+                                if existing.is_none() {
+                                    *existing = Some(transaction_hash.clone());
+                                }
+                            })
+                            .or_insert(Some(transaction_hash.clone()));
 
                         for child_receipt_id in &outcome.receipt_ids {
                             let child_receipt_id_str = child_receipt_id.to_string();
@@ -800,6 +813,45 @@ impl RawModule {
                                 false,
                             )
                             .await?;
+
+                            receipt_tx_hashes
+                                .entry(child_receipt_id_str.clone())
+                                .or_insert_with(|| transaction_hash.clone());
+                            tracked_relevant
+                                .entry(child_receipt_id_str)
+                                .and_modify(|existing| {
+                                    if existing.is_none() {
+                                        *existing = Some(transaction_hash.clone());
+                                    }
+                                })
+                                .or_insert(Some(transaction_hash.clone()));
+                        }
+                    } else {
+                        for child_receipt_id in &outcome.receipt_ids {
+                            let child_receipt_id_str = child_receipt_id.to_string();
+                            upsert_relevant_receipt(
+                                db,
+                                RELEVANCE_SCOPE_ALL,
+                                &child_receipt_id_str,
+                                RELEVANCE_REASON_ROOT,
+                                None,
+                                Some(&transaction_hash),
+                                block_height,
+                                false,
+                            )
+                            .await?;
+
+                            receipt_tx_hashes
+                                .entry(child_receipt_id_str.clone())
+                                .or_insert_with(|| transaction_hash.clone());
+                            tracked_relevant
+                                .entry(child_receipt_id_str)
+                                .and_modify(|existing| {
+                                    if existing.is_none() {
+                                        *existing = Some(transaction_hash.clone());
+                                    }
+                                })
+                                .or_insert(Some(transaction_hash.clone()));
                         }
                     }
                 }
@@ -808,7 +860,11 @@ impl RawModule {
             for outcome_with_receipt in &shard.receipt_execution_outcomes {
                 let receipt = &outcome_with_receipt.receipt;
                 let receipt_id = receipt.receipt_id.to_string();
-                let transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
+                let tracked_transaction_hash = tracked_relevant.get(&receipt_id).cloned().flatten();
+                let transaction_hash = receipt_tx_hashes
+                    .get(&receipt_id)
+                    .cloned()
+                    .or(tracked_transaction_hash);
                 let outcome_view = &outcome_with_receipt.execution_outcome;
                 let outcome = &outcome_view.outcome;
                 let outcome_receipt_ids = JsonValue::Array(
@@ -864,6 +920,7 @@ impl RawModule {
                     true,
                 )
                 .await?;
+                tracked_relevant.insert(receipt_id.clone(), transaction_hash.clone());
 
                 for child_receipt_id in &outcome.receipt_ids {
                     let child_receipt_id_str = child_receipt_id.to_string();
@@ -890,6 +947,20 @@ impl RawModule {
                         false,
                     )
                     .await?;
+
+                    if let Some(transaction_hash) = &transaction_hash {
+                        receipt_tx_hashes
+                            .entry(child_receipt_id_str.clone())
+                            .or_insert_with(|| transaction_hash.clone());
+                    }
+                    tracked_relevant
+                        .entry(child_receipt_id_str)
+                        .and_modify(|existing| {
+                            if existing.is_none() {
+                                *existing = transaction_hash.clone();
+                            }
+                        })
+                        .or_insert(transaction_hash.clone());
                 }
 
                 if let ReceiptEnumView::Action {
@@ -1023,7 +1094,7 @@ impl RawModule {
         let block_hash = msg.block.header.hash.to_string();
         let block_timestamp = msg.block.header.timestamp as i64;
         let block_author = msg.block.author.to_string();
-        let receipt_tx_hashes = Self::build_receipt_tx_hashes(&msg.shards);
+        let receipt_tx_hashes = build_receipt_tx_hashes(&msg.shards);
 
         let txn = db.begin().await?;
 

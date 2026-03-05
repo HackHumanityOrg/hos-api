@@ -8,11 +8,12 @@ use near_lake_framework::near_indexer_primitives::views::{
 use near_lake_framework::near_indexer_primitives::StreamerMessage;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::{json, Value as JsonValue};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use tracing::{info, instrument, warn};
 
 use crate::core::cursor;
+use crate::core::receipt_tx_resolver::build_receipt_tx_hashes;
 use crate::core::relevance_tracker::{
     load_relevant_receipts_for_scope, upsert_relevant_receipt, RELEVANCE_REASON_DESCENDANT,
     RELEVANCE_REASON_ROOT, RELEVANCE_SCOPE_HOS,
@@ -143,6 +144,94 @@ impl VenearGovernanceModule {
         i64::try_from(value).unwrap_or(i64::MAX)
     }
 
+    async fn load_receipt_tx_origins(
+        db: &impl ConnectionTrait,
+        receipt_ids: &[String],
+    ) -> Result<HashMap<String, String>> {
+        let mut deduped = Vec::new();
+        let mut seen = HashSet::new();
+        for receipt_id in receipt_ids {
+            if seen.insert(receipt_id.clone()) {
+                deduped.push(receipt_id.clone());
+            }
+        }
+
+        if deduped.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut placeholders = String::new();
+        for idx in 0..deduped.len() {
+            if idx > 0 {
+                placeholders.push_str(", ");
+            }
+            placeholders.push_str(&format!("${}", idx + 1));
+        }
+
+        let sql = format!(
+            "SELECT receipt_id, transaction_hash
+             FROM near.near_venear_receipt_tx_origins
+             WHERE receipt_id IN ({placeholders})"
+        );
+
+        let rows = db
+            .query_all(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                &sql,
+                deduped.into_iter().map(Into::into).collect::<Vec<_>>(),
+            ))
+            .await
+            .context("failed to load near_venear_receipt_tx_origins")?;
+
+        let mut result = HashMap::new();
+        for row in rows {
+            let receipt_id: String = row
+                .try_get("", "receipt_id")
+                .context("failed to read near_venear_receipt_tx_origins.receipt_id")?;
+            let transaction_hash: String = row
+                .try_get("", "transaction_hash")
+                .context("failed to read near_venear_receipt_tx_origins.transaction_hash")?;
+            result.insert(receipt_id, transaction_hash);
+        }
+
+        Ok(result)
+    }
+
+    async fn upsert_receipt_tx_origin(
+        db: &impl ConnectionTrait,
+        receipt_id: &str,
+        transaction_hash: &str,
+        block_height: i64,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_venear_receipt_tx_origins (
+                receipt_id,
+                transaction_hash,
+                first_observed_height,
+                last_observed_height,
+                created_at,
+                updated_at
+            ) VALUES ($1, $2, $3, $3, NOW(), NOW())
+            ON CONFLICT (receipt_id) DO UPDATE SET
+                transaction_hash = EXCLUDED.transaction_hash,
+                last_observed_height = GREATEST(
+                    near.near_venear_receipt_tx_origins.last_observed_height,
+                    EXCLUDED.last_observed_height
+                ),
+                updated_at = NOW()",
+            vec![
+                receipt_id.into(),
+                transaction_hash.into(),
+                block_height.into(),
+            ],
+        ))
+        .await
+        .context("failed to upsert near_venear_receipt_tx_origins")?;
+
+        Ok(())
+    }
+
     fn is_hos_contract(&self, account_id: &str) -> bool {
         let account = account_id.to_ascii_lowercase();
         if account == HOS_CONTRACT || account == VENEAR_CONTRACT_ID || account == VOTING_CONTRACT_ID
@@ -230,6 +319,58 @@ impl VenearGovernanceModule {
         ))
         .await
         .context("failed to upsert near.near_blocks for HoS related block")?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_near_transaction(
+        &self,
+        db: &impl ConnectionTrait,
+        hash: &str,
+        block_height: i64,
+        shard_id: i64,
+        signer_id: &str,
+        receiver_id: &str,
+        nonce: i64,
+        priority_fee: i64,
+        public_key: &str,
+        signature: &str,
+        actions_json: JsonValue,
+        raw_data_json: JsonValue,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_transactions (
+                hash,
+                block_height,
+                signer_id,
+                receiver_id,
+                nonce,
+                priority_fee,
+                public_key,
+                signature,
+                actions,
+                raw_data,
+                shard_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ON CONFLICT (hash) DO NOTHING",
+            vec![
+                hash.into(),
+                block_height.into(),
+                signer_id.into(),
+                receiver_id.into(),
+                nonce.into(),
+                priority_fee.into(),
+                public_key.into(),
+                signature.into(),
+                actions_json.into(),
+                raw_data_json.into(),
+                shard_id.into(),
+            ],
+        ))
+        .await
+        .context("failed to upsert near.near_transactions for HoS related transaction")?;
 
         Ok(())
     }
@@ -554,48 +695,96 @@ impl VenearGovernanceModule {
         let block_timestamp = msg.block.header.timestamp as i64;
         let default_author = msg.block.author.to_string();
 
-        let mut receipt_tx_hashes: HashMap<String, String> = HashMap::new();
+        let mut receipt_tx_hashes = build_receipt_tx_hashes(&msg.shards);
+        let mut receipt_relations: HashMap<String, (String, String)> = HashMap::new();
         let mut has_hos_root_receipt = false;
         let mut has_hos_related_receipt_outcome = false;
+        let mut hos_transaction_hashes: HashSet<String> = HashSet::new();
 
         for shard in &msg.shards {
             if let Some(chunk) = &shard.chunk {
                 for tx_with_outcome in &chunk.transactions {
                     if let Some(receipt) = &tx_with_outcome.outcome.receipt {
-                        let receipt_id = receipt.receipt_id.to_string();
-                        let transaction_hash = tx_with_outcome.transaction.hash.to_string();
-                        receipt_tx_hashes.insert(receipt_id.clone(), transaction_hash.clone());
-
-                        let predecessor_id = receipt.predecessor_id.to_string();
-                        let receiver_id = receipt.receiver_id.to_string();
-                        if self.is_hos_related(&receiver_id, &predecessor_id) {
-                            has_hos_root_receipt = true;
-                            upsert_relevant_receipt(
-                                db,
-                                RELEVANCE_SCOPE_HOS,
-                                &receipt_id,
-                                RELEVANCE_REASON_ROOT,
-                                None,
-                                Some(&transaction_hash),
-                                block_height,
-                                false,
-                            )
-                            .await?;
-                        }
+                        receipt_relations
+                            .entry(receipt.receipt_id.to_string())
+                            .or_insert((
+                                receipt.predecessor_id.to_string(),
+                                receipt.receiver_id.to_string(),
+                            ));
                     }
                 }
+
+                for receipt in &chunk.receipts {
+                    receipt_relations
+                        .entry(receipt.receipt_id.to_string())
+                        .or_insert((
+                            receipt.predecessor_id.to_string(),
+                            receipt.receiver_id.to_string(),
+                        ));
+                }
+
+                for receipt in &chunk.local_receipts {
+                    receipt_relations
+                        .entry(receipt.receipt_id.to_string())
+                        .or_insert((
+                            receipt.predecessor_id.to_string(),
+                            receipt.receiver_id.to_string(),
+                        ));
+                }
+            }
+
+            for outcome_with_receipt in &shard.receipt_execution_outcomes {
+                let receipt = &outcome_with_receipt.receipt;
+                receipt_relations
+                    .entry(receipt.receipt_id.to_string())
+                    .or_insert((
+                        receipt.predecessor_id.to_string(),
+                        receipt.receiver_id.to_string(),
+                    ));
             }
         }
 
         let mut block_receipt_ids = Vec::new();
+        let mut origin_lookup_ids = Vec::new();
         for shard in &msg.shards {
-            for outcome_with_receipt in &shard.receipt_execution_outcomes {
-                block_receipt_ids.push(outcome_with_receipt.receipt.receipt_id.to_string());
+            if let Some(chunk) = &shard.chunk {
+                for tx_with_outcome in &chunk.transactions {
+                    if let Some(receipt) = &tx_with_outcome.outcome.receipt {
+                        origin_lookup_ids.push(receipt.receipt_id.to_string());
+                    }
+                    for child_receipt_id in &tx_with_outcome
+                        .outcome
+                        .execution_outcome
+                        .outcome
+                        .receipt_ids
+                    {
+                        origin_lookup_ids.push(child_receipt_id.to_string());
+                    }
+                }
             }
+            for outcome_with_receipt in &shard.receipt_execution_outcomes {
+                let receipt_id = outcome_with_receipt.receipt.receipt_id.to_string();
+                block_receipt_ids.push(receipt_id.clone());
+                origin_lookup_ids.push(receipt_id);
+            }
+        }
+
+        let existing_origins = Self::load_receipt_tx_origins(db, &origin_lookup_ids).await?;
+        for (receipt_id, transaction_hash) in existing_origins {
+            receipt_tx_hashes
+                .entry(receipt_id)
+                .or_insert_with(|| transaction_hash);
         }
 
         let mut tracked_relevant =
             load_relevant_receipts_for_scope(db, RELEVANCE_SCOPE_HOS, &block_receipt_ids).await?;
+        for (receipt_id, transaction_hash) in &tracked_relevant {
+            if let Some(transaction_hash) = transaction_hash {
+                receipt_tx_hashes
+                    .entry(receipt_id.clone())
+                    .or_insert_with(|| transaction_hash.clone());
+            }
+        }
 
         for shard in &msg.shards {
             let chunk_hash = shard
@@ -625,11 +814,17 @@ impl VenearGovernanceModule {
                 }
 
                 has_hos_related_receipt_outcome = true;
+                if is_hos_root_related {
+                    has_hos_root_receipt = true;
+                }
 
                 let transaction_hash = receipt_tx_hashes
                     .get(&receipt_id)
                     .cloned()
                     .or(tracked_transaction_hash);
+                if let Some(transaction_hash) = &transaction_hash {
+                    hos_transaction_hashes.insert(transaction_hash.clone());
+                }
 
                 upsert_relevant_receipt(
                     db,
@@ -719,13 +914,18 @@ impl VenearGovernanceModule {
                     .await?;
 
                     tracked_relevant
-                        .entry(child_receipt_id)
+                        .entry(child_receipt_id.clone())
                         .and_modify(|existing| {
                             if existing.is_none() {
                                 *existing = transaction_hash.clone();
                             }
                         })
                         .or_insert(transaction_hash.clone());
+                    if let Some(transaction_hash) = &transaction_hash {
+                        receipt_tx_hashes
+                            .entry(child_receipt_id.to_string())
+                            .or_insert_with(|| transaction_hash.clone());
+                    }
                 }
 
                 self.upsert_near_receipt(
@@ -804,6 +1004,77 @@ impl VenearGovernanceModule {
                         )
                         .await?;
                     }
+                }
+            }
+        }
+
+        for (receipt_id, transaction_hash) in &receipt_tx_hashes {
+            Self::upsert_receipt_tx_origin(db, receipt_id, transaction_hash, block_height).await?;
+        }
+
+        let hos_transaction_hashes_from_relevant = tracked_relevant
+            .keys()
+            .filter_map(|receipt_id| receipt_tx_hashes.get(receipt_id).cloned())
+            .collect::<HashSet<_>>();
+
+        for shard in &msg.shards {
+            if let Some(chunk) = &shard.chunk {
+                let shard_id = Self::shard_to_i64(shard.shard_id);
+                for tx_with_outcome in &chunk.transactions {
+                    let tx_hash = tx_with_outcome.transaction.hash.to_string();
+                    let mut root_receipt_ids = tx_with_outcome
+                        .outcome
+                        .execution_outcome
+                        .outcome
+                        .receipt_ids
+                        .iter()
+                        .map(|receipt_id| receipt_id.to_string())
+                        .collect::<Vec<_>>();
+                    if let Some(receipt) = &tx_with_outcome.outcome.receipt {
+                        root_receipt_ids.push(receipt.receipt_id.to_string());
+                    }
+
+                    let is_hos_transaction = hos_transaction_hashes.contains(&tx_hash)
+                        || hos_transaction_hashes_from_relevant.contains(&tx_hash)
+                        || root_receipt_ids
+                            .iter()
+                            .any(|receipt_id| tracked_relevant.contains_key(receipt_id))
+                        || root_receipt_ids.iter().any(|receipt_id| {
+                            receipt_relations
+                                .get(receipt_id)
+                                .map(|(predecessor_id, receiver_id)| {
+                                    self.is_hos_related(receiver_id, predecessor_id)
+                                })
+                                .unwrap_or(false)
+                        })
+                        || has_hos_related_receipt_outcome
+                        || has_hos_root_receipt;
+
+                    if !is_hos_transaction {
+                        continue;
+                    }
+
+                    self.upsert_near_transaction(
+                        db,
+                        &tx_hash,
+                        block_height,
+                        shard_id,
+                        tx_with_outcome.transaction.signer_id.as_ref(),
+                        tx_with_outcome.transaction.receiver_id.as_ref(),
+                        tx_with_outcome.transaction.nonce as i64,
+                        tx_with_outcome.transaction.priority_fee as i64,
+                        &tx_with_outcome.transaction.public_key.to_string(),
+                        &tx_with_outcome.transaction.signature.to_string(),
+                        Self::serialize_json(
+                            &tx_with_outcome.transaction.actions,
+                            "HoS transaction actions",
+                        )?,
+                        Self::serialize_json(
+                            &tx_with_outcome.transaction,
+                            "HoS transaction raw_data",
+                        )?,
+                    )
+                    .await?;
                 }
             }
         }

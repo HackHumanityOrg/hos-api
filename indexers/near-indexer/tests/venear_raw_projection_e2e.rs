@@ -205,6 +205,36 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     init_test_tracing();
 
     let fixtures = load_all_fixture_messages();
+    let fixture_transactions_with_null_outcome_receipt: i64 = fixtures
+        .iter()
+        .flat_map(|fixture| fixture.shards.iter())
+        .filter_map(|shard| shard.chunk.as_ref())
+        .flat_map(|chunk| chunk.transactions.iter())
+        .filter(|tx_with_outcome| tx_with_outcome.outcome.receipt.is_none())
+        .count() as i64;
+    let fixture_transactions_with_receipt_ids: i64 = fixtures
+        .iter()
+        .flat_map(|fixture| fixture.shards.iter())
+        .filter_map(|shard| shard.chunk.as_ref())
+        .flat_map(|chunk| chunk.transactions.iter())
+        .filter(|tx_with_outcome| {
+            !tx_with_outcome
+                .outcome
+                .execution_outcome
+                .outcome
+                .receipt_ids
+                .is_empty()
+        })
+        .count() as i64;
+    assert!(
+        fixture_transactions_with_null_outcome_receipt > 0,
+        "fixture regression: expected transactions where tx_with_outcome.outcome.receipt is null"
+    );
+    assert!(
+        fixture_transactions_with_receipt_ids > 0,
+        "fixture regression: expected transaction outcomes with non-empty receipt_ids"
+    );
+
     let fixture_receipt_outcomes: i64 = fixtures
         .iter()
         .map(|fixture| {
@@ -292,9 +322,9 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         chunks_written, 0,
         "venear_governance should not write near_chunks rows"
     );
-    assert_eq!(
-        transactions_written, 0,
-        "venear_governance should not write near_transactions rows"
+    assert!(
+        transactions_written > 0,
+        "venear_governance should write HoS-related near_transactions rows"
     );
 
     let receipts_total = scalar_i64(
@@ -397,6 +427,51 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     assert_eq!(
         edges_total, edges_between_relevant_receipts,
         "venear_governance should only write edges between tracked relevant receipts"
+    );
+
+    let outcomes_with_tx_hash = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_execution_outcomes
+         WHERE transaction_hash IS NOT NULL",
+    )
+    .await?;
+    let actions_with_tx_hash = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_actions
+         WHERE transaction_hash IS NOT NULL",
+    )
+    .await?;
+    let edges_with_tx_hash = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_edges
+         WHERE transaction_hash IS NOT NULL",
+    )
+    .await?;
+    let relevant_with_tx_hash = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.relevant_receipts
+         WHERE scope = 'hos' AND transaction_hash IS NOT NULL",
+    )
+    .await?;
+    assert!(
+        outcomes_with_tx_hash > 0,
+        "HoS near_execution_outcomes should include non-null transaction_hash values"
+    );
+    assert!(
+        actions_with_tx_hash > 0,
+        "HoS near_receipt_actions should include non-null transaction_hash values"
+    );
+    assert!(
+        edges_with_tx_hash > 0,
+        "HoS near_receipt_edges should include non-null transaction_hash values"
+    );
+    assert!(
+        relevant_with_tx_hash > 0,
+        "HoS relevant_receipts should include non-null transaction_hash values"
     );
 
     let legacy_hos_raw_views = scalar_i64(
@@ -571,6 +646,81 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
             assert!(count > 0, "expected {view} to be non-empty");
         }
     }
+
+    let function_calls_with_tx_hash = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.hos_function_calls
+         WHERE transaction_hash IS NOT NULL",
+    )
+    .await?;
+    let event_logs_with_tx_hash = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.hos_event_logs
+         WHERE transaction_hash IS NOT NULL",
+    )
+    .await?;
+    let voting_history_with_tx_hash = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.hos_proposal_voting_history
+         WHERE transaction_hash IS NOT NULL",
+    )
+    .await?;
+    let delegation_with_tx_hash = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.hos_delegation_events
+         WHERE transaction_hash IS NOT NULL",
+    )
+    .await?;
+    let activities_with_tx_hash = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.hos_user_activities
+         WHERE transaction_hash IS NOT NULL",
+    )
+    .await?;
+    let approved_proposals_with_approval_tx_hash = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.hos_proposals
+         WHERE is_approved = TRUE
+           AND approval_transaction_hash IS NOT NULL",
+    )
+    .await?;
+    let approved_proposals_total = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.hos_proposals
+         WHERE is_approved = TRUE",
+    )
+    .await?;
+    assert!(
+        function_calls_with_tx_hash > 0,
+        "hos_function_calls should include non-null transaction_hash values"
+    );
+    assert!(
+        event_logs_with_tx_hash > 0,
+        "hos_event_logs should include non-null transaction_hash values"
+    );
+    assert!(
+        voting_history_with_tx_hash > 0,
+        "hos_proposal_voting_history should include non-null transaction_hash values"
+    );
+    assert!(
+        delegation_with_tx_hash > 0,
+        "hos_delegation_events should include non-null transaction_hash values"
+    );
+    assert!(
+        activities_with_tx_hash > 0,
+        "hos_user_activities should include non-null transaction_hash values"
+    );
+    assert!(
+        approved_proposals_total == 0 || approved_proposals_with_approval_tx_hash > 0,
+        "approved hos_proposals rows should include non-null approval_transaction_hash values"
+    );
 
     // Explicitly verify the injected non-HoS rows are excluded from HoS MVs.
     for sql in [

@@ -343,6 +343,36 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
     init_test_tracing();
 
     let fixtures = load_all_fixture_messages();
+    let fixture_transactions_with_null_outcome_receipt: i64 = fixtures
+        .iter()
+        .flat_map(|fixture| fixture.shards.iter())
+        .filter_map(|shard| shard.chunk.as_ref())
+        .flat_map(|chunk| chunk.transactions.iter())
+        .filter(|tx_with_outcome| tx_with_outcome.outcome.receipt.is_none())
+        .count() as i64;
+    let fixture_transactions_with_receipt_ids: i64 = fixtures
+        .iter()
+        .flat_map(|fixture| fixture.shards.iter())
+        .filter_map(|shard| shard.chunk.as_ref())
+        .flat_map(|chunk| chunk.transactions.iter())
+        .filter(|tx_with_outcome| {
+            !tx_with_outcome
+                .outcome
+                .execution_outcome
+                .outcome
+                .receipt_ids
+                .is_empty()
+        })
+        .count() as i64;
+    assert!(
+        fixture_transactions_with_null_outcome_receipt > 0,
+        "fixture regression: expected transactions where tx_with_outcome.outcome.receipt is null"
+    );
+    assert!(
+        fixture_transactions_with_receipt_ids > 0,
+        "fixture regression: expected transaction outcomes with non-empty receipt_ids"
+    );
+
     let expectations = collect_expectations(&fixtures);
     assert!(
         !expectations.local_receipt_ids.is_empty(),
