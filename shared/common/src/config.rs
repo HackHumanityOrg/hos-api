@@ -388,6 +388,22 @@ pub struct NearLakeConfig {
     pub modules: Option<NearModulesConfig>,
 }
 
+impl NearLakeConfig {
+    pub fn raw_enabled_or_default(&self) -> bool {
+        self.modules
+            .as_ref()
+            .map(NearModulesConfig::raw_enabled_or_default)
+            .unwrap_or(true)
+    }
+
+    pub fn raw_stream_mode_or_default(&self) -> NearModuleStreamMode {
+        self.modules
+            .as_ref()
+            .map(NearModulesConfig::raw_stream_mode_or_default)
+            .unwrap_or_default()
+    }
+}
+
 /// Stream provider for NEAR indexers.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -440,6 +456,19 @@ pub struct NearModulesConfig {
     pub venear_governance: Option<VenearGovernanceModuleConfig>,
 }
 
+impl NearModulesConfig {
+    pub fn raw_enabled_or_default(&self) -> bool {
+        self.raw.as_ref().map(|cfg| cfg.enabled).unwrap_or(true)
+    }
+
+    pub fn raw_stream_mode_or_default(&self) -> NearModuleStreamMode {
+        self.raw
+            .as_ref()
+            .map(|cfg| cfg.stream_mode)
+            .unwrap_or_default()
+    }
+}
+
 /// Raw data module configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RawModuleConfig {
@@ -452,7 +481,7 @@ pub struct RawModuleConfig {
 }
 
 /// veNEAR governance filtered raw module configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VenearGovernanceModuleConfig {
     #[serde(default = "default_false")]
     pub enabled: bool,
@@ -462,14 +491,40 @@ pub struct VenearGovernanceModuleConfig {
     pub start_height: Option<u64>,
     #[serde(default = "default_hos_mview_refresh_interval_blocks")]
     pub mview_refresh_interval_blocks: u64,
-    #[serde(default = "default_hos_tx_finalize_timeout_blocks")]
-    pub tx_finalize_timeout_blocks: u64,
     #[serde(default = "default_hos_staging_gc_interval_blocks")]
     pub staging_gc_interval_blocks: u64,
     #[serde(default = "default_hos_staging_gc_batch_size")]
     pub staging_gc_batch_size: u64,
     #[serde(default = "default_hos_staging_gc_max_batches_per_run")]
     pub staging_gc_max_batches_per_run: u64,
+    #[serde(default = "default_receipt_tx_map_cleanup_interval_blocks")]
+    pub receipt_tx_map_cleanup_interval_blocks: u64,
+    #[serde(default = "default_receipt_tx_map_retention_blocks")]
+    pub receipt_tx_map_retention_blocks: u64,
+    #[serde(default = "default_receipt_tx_map_cleanup_batch_size")]
+    pub receipt_tx_map_cleanup_batch_size: u64,
+    #[serde(default = "default_receipt_tx_map_cleanup_max_batches_per_run")]
+    pub receipt_tx_map_cleanup_max_batches_per_run: u64,
+}
+
+impl Default for VenearGovernanceModuleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_false(),
+            stream_mode: NearModuleStreamMode::default(),
+            start_height: None,
+            mview_refresh_interval_blocks: default_hos_mview_refresh_interval_blocks(),
+            staging_gc_interval_blocks: default_hos_staging_gc_interval_blocks(),
+            staging_gc_batch_size: default_hos_staging_gc_batch_size(),
+            staging_gc_max_batches_per_run: default_hos_staging_gc_max_batches_per_run(),
+            receipt_tx_map_cleanup_interval_blocks: default_receipt_tx_map_cleanup_interval_blocks(
+            ),
+            receipt_tx_map_retention_blocks: default_receipt_tx_map_retention_blocks(),
+            receipt_tx_map_cleanup_batch_size: default_receipt_tx_map_cleanup_batch_size(),
+            receipt_tx_map_cleanup_max_batches_per_run:
+                default_receipt_tx_map_cleanup_max_batches_per_run(),
+        }
+    }
 }
 
 fn default_chain() -> String {
@@ -484,10 +539,6 @@ fn default_hos_mview_refresh_interval_blocks() -> u64 {
     100
 }
 
-fn default_hos_tx_finalize_timeout_blocks() -> u64 {
-    43_200
-}
-
 fn default_hos_staging_gc_interval_blocks() -> u64 {
     600
 }
@@ -497,6 +548,22 @@ fn default_hos_staging_gc_batch_size() -> u64 {
 }
 
 fn default_hos_staging_gc_max_batches_per_run() -> u64 {
+    50
+}
+
+fn default_receipt_tx_map_cleanup_interval_blocks() -> u64 {
+    600
+}
+
+fn default_receipt_tx_map_retention_blocks() -> u64 {
+    86_400
+}
+
+fn default_receipt_tx_map_cleanup_batch_size() -> u64 {
+    5_000
+}
+
+fn default_receipt_tx_map_cleanup_max_batches_per_run() -> u64 {
     50
 }
 
@@ -541,10 +608,13 @@ impl ToLog for VenearGovernanceModuleConfig {
             "stream_mode": self.stream_mode.as_str(),
             "start_height": self.start_height,
             "mview_refresh_interval_blocks": self.mview_refresh_interval_blocks,
-            "tx_finalize_timeout_blocks": self.tx_finalize_timeout_blocks,
             "staging_gc_interval_blocks": self.staging_gc_interval_blocks,
             "staging_gc_batch_size": self.staging_gc_batch_size,
             "staging_gc_max_batches_per_run": self.staging_gc_max_batches_per_run,
+            "receipt_tx_map_cleanup_interval_blocks": self.receipt_tx_map_cleanup_interval_blocks,
+            "receipt_tx_map_retention_blocks": self.receipt_tx_map_retention_blocks,
+            "receipt_tx_map_cleanup_batch_size": self.receipt_tx_map_cleanup_batch_size,
+            "receipt_tx_map_cleanup_max_batches_per_run": self.receipt_tx_map_cleanup_max_batches_per_run,
         })
     }
 }
@@ -1117,10 +1187,75 @@ mod tests {
         assert_eq!(raw.start_height, None);
         assert_eq!(venear_governance.start_height, None);
         assert_eq!(venear_governance.mview_refresh_interval_blocks, 100);
-        assert_eq!(venear_governance.tx_finalize_timeout_blocks, 43_200);
         assert_eq!(venear_governance.staging_gc_interval_blocks, 600);
         assert_eq!(venear_governance.staging_gc_batch_size, 5_000);
         assert_eq!(venear_governance.staging_gc_max_batches_per_run, 50);
+        assert_eq!(
+            venear_governance.receipt_tx_map_cleanup_interval_blocks,
+            600
+        );
+        assert_eq!(venear_governance.receipt_tx_map_retention_blocks, 86_400);
+        assert_eq!(venear_governance.receipt_tx_map_cleanup_batch_size, 5_000);
+        assert_eq!(
+            venear_governance.receipt_tx_map_cleanup_max_batches_per_run,
+            50
+        );
+        assert!(near_cfg.raw_enabled_or_default());
+        assert_eq!(
+            near_cfg.raw_stream_mode_or_default(),
+            NearModuleStreamMode::Shared
+        );
+    }
+
+    #[test]
+    fn near_raw_defaults_to_enabled_when_omitted() {
+        let near_cfg = NearLakeConfig {
+            modules: Some(NearModulesConfig::default()),
+            ..NearLakeConfig::default()
+        };
+
+        assert!(near_cfg.raw_enabled_or_default());
+        assert_eq!(
+            near_cfg.raw_stream_mode_or_default(),
+            NearModuleStreamMode::Shared
+        );
+    }
+
+    #[test]
+    fn near_raw_explicit_enablement_overrides_defaults() {
+        let disabled_raw = NearLakeConfig {
+            modules: Some(NearModulesConfig {
+                raw: Some(RawModuleConfig {
+                    enabled: false,
+                    stream_mode: NearModuleStreamMode::Independent,
+                    start_height: None,
+                }),
+                venear_governance: None,
+            }),
+            ..NearLakeConfig::default()
+        };
+        assert!(!disabled_raw.raw_enabled_or_default());
+        assert_eq!(
+            disabled_raw.raw_stream_mode_or_default(),
+            NearModuleStreamMode::Independent
+        );
+
+        let enabled_raw = NearLakeConfig {
+            modules: Some(NearModulesConfig {
+                raw: Some(RawModuleConfig {
+                    enabled: true,
+                    stream_mode: NearModuleStreamMode::Shared,
+                    start_height: None,
+                }),
+                venear_governance: None,
+            }),
+            ..NearLakeConfig::default()
+        };
+        assert!(enabled_raw.raw_enabled_or_default());
+        assert_eq!(
+            enabled_raw.raw_stream_mode_or_default(),
+            NearModuleStreamMode::Shared
+        );
     }
 
     #[test]
@@ -1167,19 +1302,25 @@ mod tests {
     }
 
     #[test]
-    fn near_module_finalize_and_gc_config_deserializes() {
+    fn near_module_gc_config_deserializes() {
         let cfg: VenearGovernanceModuleConfig = serde_json::from_value(serde_json::json!({
             "enabled": true,
-            "tx_finalize_timeout_blocks": 86400,
             "staging_gc_interval_blocks": 900,
             "staging_gc_batch_size": 1000,
-            "staging_gc_max_batches_per_run": 10
+            "staging_gc_max_batches_per_run": 10,
+            "receipt_tx_map_cleanup_interval_blocks": 1200,
+            "receipt_tx_map_retention_blocks": 172800,
+            "receipt_tx_map_cleanup_batch_size": 2000,
+            "receipt_tx_map_cleanup_max_batches_per_run": 20
         }))
-        .expect("finalize/gc config should deserialize");
+        .expect("gc config should deserialize");
 
-        assert_eq!(cfg.tx_finalize_timeout_blocks, 86_400);
         assert_eq!(cfg.staging_gc_interval_blocks, 900);
         assert_eq!(cfg.staging_gc_batch_size, 1_000);
         assert_eq!(cfg.staging_gc_max_batches_per_run, 10);
+        assert_eq!(cfg.receipt_tx_map_cleanup_interval_blocks, 1_200);
+        assert_eq!(cfg.receipt_tx_map_retention_blocks, 172_800);
+        assert_eq!(cfg.receipt_tx_map_cleanup_batch_size, 2_000);
+        assert_eq!(cfg.receipt_tx_map_cleanup_max_batches_per_run, 20);
     }
 }

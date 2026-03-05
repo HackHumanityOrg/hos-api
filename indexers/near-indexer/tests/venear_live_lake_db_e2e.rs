@@ -5,7 +5,8 @@ mod support;
 use anyhow::{Context, Result};
 use common::config::{
     AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig, NearModuleStreamMode,
-    NearModulesConfig, NearStreamProvider, TelemetryConfig, VenearGovernanceModuleConfig,
+    NearModulesConfig, NearStreamProvider, RawModuleConfig, TelemetryConfig,
+    VenearGovernanceModuleConfig,
 };
 use near_indexer::core::lake_stream::{create_lake_stream, LakeStreamConfig};
 use near_indexer::modules::venear_governance::VenearGovernanceModule;
@@ -74,40 +75,43 @@ async fn venear_governance_live_lake_ingests_into_postgres() -> Result<()> {
 
     assert!(processed > 0, "expected to process at least one block");
 
-    let tracked_relevant_receipts = scalar_i64(
+    let finalized_hos_transactions = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts
-         WHERE scope = 'hos'",
+         FROM near.near_hos_tx_state
+         WHERE status = 'finalized'
+           AND has_hos_touch = TRUE",
     )
     .await?;
-    let relevant_actions = scalar_i64(
+    let hos_actions = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
          FROM near.near_receipt_actions ra
          WHERE EXISTS (
              SELECT 1
-             FROM near.near_relevant_receipts rr
-             WHERE rr.scope = 'hos'
-               AND rr.receipt_id = ra.receipt_id
+             FROM near.near_hos_tx_state ts
+             WHERE ts.transaction_hash = ra.transaction_hash
+               AND ts.status = 'finalized'
+               AND ts.has_hos_touch = TRUE
          )",
     )
     .await?;
-    let relevant_outcomes = scalar_i64(
+    let hos_outcomes = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
          FROM near.near_execution_outcomes eo
          WHERE EXISTS (
              SELECT 1
-             FROM near.near_relevant_receipts rr
-             WHERE rr.scope = 'hos'
-               AND rr.receipt_id = eo.receipt_id
+             FROM near.near_hos_tx_state ts
+             WHERE ts.transaction_hash = eo.transaction_hash
+               AND ts.status = 'finalized'
+               AND ts.has_hos_touch = TRUE
          )",
     )
     .await?;
 
     assert!(
-        tracked_relevant_receipts > 0 && relevant_actions > 0 && relevant_outcomes > 0,
+        finalized_hos_transactions > 0 && hos_actions > 0 && hos_outcomes > 0,
         "expected HoS-related canonical raw rows in sampled live window; increase NEAR_LIVE_TEST_BLOCKS or adjust start height"
     );
 
@@ -133,16 +137,23 @@ fn build_live_test_config(start_height: u64) -> AppConfig {
             fastnear_api_key: None,
             fastnear_num_threads: None,
             modules: Some(NearModulesConfig {
-                raw: None,
+                raw: Some(RawModuleConfig {
+                    enabled: false,
+                    stream_mode: NearModuleStreamMode::Shared,
+                    start_height: None,
+                }),
                 venear_governance: Some(VenearGovernanceModuleConfig {
                     enabled: true,
                     stream_mode: NearModuleStreamMode::Shared,
                     start_height: None,
                     mview_refresh_interval_blocks: 100,
-                    tx_finalize_timeout_blocks: 43_200,
                     staging_gc_interval_blocks: 600,
                     staging_gc_batch_size: 5_000,
                     staging_gc_max_batches_per_run: 50,
+                    receipt_tx_map_cleanup_interval_blocks: 600,
+                    receipt_tx_map_retention_blocks: 86_400,
+                    receipt_tx_map_cleanup_batch_size: 5_000,
+                    receipt_tx_map_cleanup_max_batches_per_run: 50,
                 }),
             }),
         }),

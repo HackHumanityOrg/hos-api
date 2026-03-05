@@ -456,55 +456,58 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
     .await?;
     assert_eq!(edge_count, expectations.receipt_edge_keys.len() as i64);
 
-    let relevant_all_count = scalar_i64(
+    let mapped_receipts_count = scalar_i64(
         db.connection.as_ref(),
-        "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts
-         WHERE scope = 'all'",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_receipt_tx_hash_map",
         vec![],
     )
     .await?;
     assert!(
-        relevant_all_count >= expectations.receipt_shards.len() as i64,
-        "scope=all relevance should cover at least all persisted near_receipts rows"
+        mapped_receipts_count > 0,
+        "receipt->tx hash map should not be empty after fixture replay"
     );
 
-    let receipts_missing_relevance = scalar_i64(
+    let receipts_missing_tx_map = scalar_i64(
         db.connection.as_ref(),
         "SELECT COUNT(*)::bigint AS value
          FROM near.near_receipts r
-         WHERE NOT EXISTS (
+         WHERE EXISTS (
              SELECT 1
-             FROM near.near_relevant_receipts rr
-             WHERE rr.scope = 'all'
-               AND rr.receipt_id = r.receipt_id
+             FROM near.near_execution_outcomes eo
+             WHERE eo.receipt_id = r.receipt_id
+               AND eo.transaction_hash IS NOT NULL
+         )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM near.near_receipt_tx_hash_map map
+             WHERE map.receipt_id = r.receipt_id
          )",
         vec![],
     )
     .await?;
     assert_eq!(
-        receipts_missing_relevance, 0,
-        "each near_receipts row should have a scope=all relevance row"
+        receipts_missing_tx_map, 0,
+        "each executed receipt with known tx hash should have a lineage-map row"
     );
 
-    let executed_outcomes_without_executed_relevance = scalar_i64(
+    let outcomes_without_tx_map = scalar_i64(
         db.connection.as_ref(),
         "SELECT COUNT(*)::bigint AS value
          FROM near.near_execution_outcomes eo
          WHERE eo.receipt_id IS NOT NULL
+           AND eo.transaction_hash IS NOT NULL
            AND NOT EXISTS (
              SELECT 1
-             FROM near.near_relevant_receipts rr
-             WHERE rr.scope = 'all'
-               AND rr.receipt_id = eo.receipt_id
-               AND rr.executed = TRUE
+             FROM near.near_receipt_tx_hash_map map
+             WHERE map.receipt_id = eo.receipt_id
+               AND map.transaction_hash = eo.transaction_hash
          )",
         vec![],
     )
     .await?;
     assert_eq!(
-        executed_outcomes_without_executed_relevance, 0,
-        "each execution outcome receipt should be marked executed in scope=all relevance"
+        outcomes_without_tx_map, 0,
+        "each execution outcome receipt with tx hash should be represented in lineage map"
     );
 
     let block_raw_nulls = scalar_i64(
@@ -790,11 +793,9 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
         vec![],
     )
     .await?;
-    let relevant_before = scalar_i64(
+    let tx_map_before = scalar_i64(
         db.connection.as_ref(),
-        "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts
-         WHERE scope = 'all'",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_receipt_tx_hash_map",
         vec![],
     )
     .await?;
@@ -861,11 +862,9 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
         vec![],
     )
     .await?;
-    let relevant_after = scalar_i64(
+    let tx_map_after = scalar_i64(
         db.connection.as_ref(),
-        "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts
-         WHERE scope = 'all'",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_receipt_tx_hash_map",
         vec![],
     )
     .await?;
@@ -886,7 +885,7 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
     assert_eq!(state_changes_before, state_changes_after);
     assert_eq!(actions_before, actions_after);
     assert_eq!(edges_before, edges_after);
-    assert_eq!(relevant_before, relevant_after);
+    assert_eq!(tx_map_before, tx_map_after);
     assert_eq!(tx_fingerprint_before, tx_fingerprint_after);
 
     Ok(())

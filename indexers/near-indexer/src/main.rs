@@ -84,6 +84,53 @@ fn configured_module_start_heights(config: &AppConfig) -> HashMap<String, u64> {
     start_heights
 }
 
+fn validate_near_runtime_constraints(config: &AppConfig) -> Result<()> {
+    let AppConfig::Indexer(idx) = config else {
+        return Ok(());
+    };
+
+    let Some(near) = idx.near.as_ref() else {
+        return Ok(());
+    };
+
+    let venear_cfg = near
+        .modules
+        .as_ref()
+        .and_then(|modules| modules.venear_governance.as_ref());
+    let venear_enabled = venear_cfg.map(|cfg| cfg.enabled).unwrap_or(false);
+    if !venear_enabled {
+        return Ok(());
+    }
+
+    let configured_concurrency = near.concurrency.unwrap_or(6);
+    if configured_concurrency != 1 {
+        return Err(anyhow::anyhow!(
+            "Invalid NEAR indexer config: venear_governance requires near.concurrency=1 (got {})",
+            configured_concurrency
+        ));
+    }
+
+    let raw_enabled = near.raw_enabled_or_default();
+    if raw_enabled {
+        let raw_stream_mode = near.raw_stream_mode_or_default();
+        let venear_stream_mode = venear_cfg
+            .map(|cfg| cfg.stream_mode)
+            .unwrap_or(NearModuleStreamMode::Shared);
+
+        if raw_stream_mode != NearModuleStreamMode::Shared
+            || venear_stream_mode != NearModuleStreamMode::Shared
+        {
+            return Err(anyhow::anyhow!(
+                "Invalid NEAR indexer config: when raw and venear_governance are both enabled, both modules must use stream_mode='shared' (got raw='{}', venear_governance='{}')",
+                raw_stream_mode.as_str(),
+                venear_stream_mode.as_str()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 async fn resolve_stream_start_height(
     db: &sea_orm::DatabaseConnection,
     stream_id: &str,
@@ -352,6 +399,8 @@ async fn run(config: AppConfig) -> Result<()> {
         "Starting NEAR indexer"
     );
 
+    validate_near_runtime_constraints(&config)?;
+
     let db = Arc::new(
         db_from_config(config.database())
             .await
@@ -514,7 +563,42 @@ async fn run(config: AppConfig) -> Result<()> {
 mod tests {
     use std::collections::HashMap;
 
-    use super::{plan_stream_assignments_from_modes, NearModuleStreamMode, StreamAssignment};
+    use common::config::{
+        AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig, NearModulesConfig,
+        NearStreamProvider, RawModuleConfig, TelemetryConfig, VenearGovernanceModuleConfig,
+    };
+
+    use super::{
+        plan_stream_assignments_from_modes, validate_near_runtime_constraints,
+        NearModuleStreamMode, StreamAssignment,
+    };
+
+    fn build_indexer_app_config(
+        near_concurrency: Option<usize>,
+        raw: Option<RawModuleConfig>,
+        venear: Option<VenearGovernanceModuleConfig>,
+    ) -> AppConfig {
+        AppConfig::Indexer(Box::new(IndexerConfig {
+            database: DatabaseConfig::default(),
+            logging: LoggingConfig::default(),
+            telemetry: TelemetryConfig::default(),
+            discourse: None,
+            telegram: None,
+            near: Some(NearLakeConfig {
+                provider: NearStreamProvider::Lake,
+                chain: "mainnet".to_string(),
+                start_height: 0,
+                concurrency: near_concurrency,
+                preload_pool_size: Some(1),
+                fastnear_api_key: None,
+                fastnear_num_threads: None,
+                modules: Some(NearModulesConfig {
+                    raw,
+                    venear_governance: venear,
+                }),
+            }),
+        }))
+    }
 
     fn resolve_stream_start_height_for_test(
         configured_start_height: u64,
@@ -543,6 +627,88 @@ mod tests {
         }
 
         stream_start_height.unwrap_or(configured_start_height)
+    }
+
+    #[test]
+    fn runtime_constraints_require_concurrency_one_for_venear() {
+        let cfg = build_indexer_app_config(
+            Some(2),
+            Some(RawModuleConfig::default()),
+            Some(VenearGovernanceModuleConfig {
+                enabled: true,
+                ..VenearGovernanceModuleConfig::default()
+            }),
+        );
+
+        assert!(validate_near_runtime_constraints(&cfg).is_err());
+    }
+
+    #[test]
+    fn runtime_constraints_require_shared_stream_mode_when_raw_and_venear_enabled() {
+        let cfg = build_indexer_app_config(
+            Some(1),
+            Some(RawModuleConfig {
+                enabled: true,
+                stream_mode: NearModuleStreamMode::Independent,
+                start_height: None,
+            }),
+            Some(VenearGovernanceModuleConfig {
+                enabled: true,
+                stream_mode: NearModuleStreamMode::Shared,
+                ..VenearGovernanceModuleConfig::default()
+            }),
+        );
+
+        assert!(validate_near_runtime_constraints(&cfg).is_err());
+    }
+
+    #[test]
+    fn runtime_constraints_allow_valid_raw_venear_shared_configuration() {
+        let cfg = build_indexer_app_config(
+            Some(1),
+            Some(RawModuleConfig {
+                enabled: true,
+                stream_mode: NearModuleStreamMode::Shared,
+                start_height: None,
+            }),
+            Some(VenearGovernanceModuleConfig {
+                enabled: true,
+                stream_mode: NearModuleStreamMode::Shared,
+                ..VenearGovernanceModuleConfig::default()
+            }),
+        );
+
+        assert!(validate_near_runtime_constraints(&cfg).is_ok());
+    }
+
+    #[test]
+    fn runtime_constraints_treat_omitted_raw_config_as_enabled() {
+        let cfg = build_indexer_app_config(
+            Some(1),
+            None,
+            Some(VenearGovernanceModuleConfig {
+                enabled: true,
+                stream_mode: NearModuleStreamMode::Shared,
+                ..VenearGovernanceModuleConfig::default()
+            }),
+        );
+
+        assert!(validate_near_runtime_constraints(&cfg).is_ok());
+    }
+
+    #[test]
+    fn runtime_constraints_reject_independent_venear_when_raw_is_implicitly_enabled() {
+        let cfg = build_indexer_app_config(
+            Some(1),
+            None,
+            Some(VenearGovernanceModuleConfig {
+                enabled: true,
+                stream_mode: NearModuleStreamMode::Independent,
+                ..VenearGovernanceModuleConfig::default()
+            }),
+        );
+
+        assert!(validate_near_runtime_constraints(&cfg).is_err());
     }
 
     fn resolve_assignment_start_for_test(

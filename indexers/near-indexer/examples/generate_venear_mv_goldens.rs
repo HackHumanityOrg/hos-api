@@ -14,7 +14,8 @@ mod hos_mv_goldens;
 use anyhow::{bail, Context, Result};
 use common::config::{
     AppConfig, DatabaseConfig, IndexerConfig, LoggingConfig, NearLakeConfig, NearModuleStreamMode,
-    NearModulesConfig, NearStreamProvider, TelemetryConfig, VenearGovernanceModuleConfig,
+    NearModulesConfig, NearStreamProvider, RawModuleConfig, TelemetryConfig,
+    VenearGovernanceModuleConfig,
 };
 use hos_mv_goldens::{capture_hos_mv_goldens, expected_fixture_path, write_hos_mv_golden_fixture};
 use near_indexer::modules::venear_governance::VenearGovernanceModule;
@@ -130,16 +131,23 @@ fn build_venear_only_config() -> AppConfig {
             fastnear_api_key: None,
             fastnear_num_threads: None,
             modules: Some(NearModulesConfig {
-                raw: None,
+                raw: Some(RawModuleConfig {
+                    enabled: false,
+                    stream_mode: NearModuleStreamMode::Shared,
+                    start_height: None,
+                }),
                 venear_governance: Some(VenearGovernanceModuleConfig {
                     enabled: true,
                     stream_mode: NearModuleStreamMode::Shared,
                     start_height: None,
                     mview_refresh_interval_blocks: 0,
-                    tx_finalize_timeout_blocks: 43_200,
                     staging_gc_interval_blocks: 600,
                     staging_gc_batch_size: 5_000,
                     staging_gc_max_batches_per_run: 50,
+                    receipt_tx_map_cleanup_interval_blocks: 600,
+                    receipt_tx_map_retention_blocks: 86_400,
+                    receipt_tx_map_cleanup_batch_size: 5_000,
+                    receipt_tx_map_cleanup_max_batches_per_run: 50,
                 }),
             }),
         }),

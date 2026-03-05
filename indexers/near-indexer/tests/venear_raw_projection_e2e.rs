@@ -103,7 +103,10 @@ fn load_all_fixture_messages() -> Vec<StreamerMessage> {
     messages
 }
 
-fn build_venear_only_config() -> AppConfig {
+fn build_test_app_config(
+    raw: Option<RawModuleConfig>,
+    venear_governance: Option<VenearGovernanceModuleConfig>,
+) -> AppConfig {
     let db = DatabaseConfig {
         url: "postgres://unused".to_string(),
         ..DatabaseConfig::default()
@@ -124,17 +127,8 @@ fn build_venear_only_config() -> AppConfig {
             fastnear_api_key: None,
             fastnear_num_threads: None,
             modules: Some(NearModulesConfig {
-                raw: None,
-                venear_governance: Some(VenearGovernanceModuleConfig {
-                    enabled: true,
-                    stream_mode: NearModuleStreamMode::Shared,
-                    start_height: None,
-                    mview_refresh_interval_blocks: 0,
-                    tx_finalize_timeout_blocks: 100_000_000,
-                    staging_gc_interval_blocks: 600,
-                    staging_gc_batch_size: 5_000,
-                    staging_gc_max_batches_per_run: 50,
-                }),
+                raw,
+                venear_governance,
             }),
         }),
     };
@@ -142,47 +136,67 @@ fn build_venear_only_config() -> AppConfig {
     AppConfig::Indexer(Box::new(cfg))
 }
 
+fn raw_config(enabled: bool) -> RawModuleConfig {
+    RawModuleConfig {
+        enabled,
+        stream_mode: NearModuleStreamMode::Shared,
+        start_height: None,
+    }
+}
+
+fn venear_test_config() -> VenearGovernanceModuleConfig {
+    VenearGovernanceModuleConfig {
+        enabled: true,
+        stream_mode: NearModuleStreamMode::Shared,
+        start_height: None,
+        mview_refresh_interval_blocks: 0,
+        ..VenearGovernanceModuleConfig::default()
+    }
+}
+
+fn build_venear_only_config() -> AppConfig {
+    build_test_app_config(Some(raw_config(false)), Some(venear_test_config()))
+}
+
+fn build_default_raw_and_venear_config() -> AppConfig {
+    build_test_app_config(None, Some(venear_test_config()))
+}
+
 fn build_raw_and_venear_config() -> AppConfig {
-    let db = DatabaseConfig {
-        url: "postgres://unused".to_string(),
-        ..DatabaseConfig::default()
-    };
+    build_test_app_config(Some(raw_config(true)), Some(venear_test_config()))
+}
 
-    let cfg = IndexerConfig {
-        database: db,
-        logging: LoggingConfig::default(),
-        telemetry: TelemetryConfig::default(),
-        discourse: None,
-        telegram: None,
-        near: Some(NearLakeConfig {
-            provider: NearStreamProvider::Lake,
-            chain: "mainnet".to_string(),
-            start_height: 0,
-            concurrency: Some(1),
-            preload_pool_size: Some(1),
-            fastnear_api_key: None,
-            fastnear_num_threads: None,
-            modules: Some(NearModulesConfig {
-                raw: Some(RawModuleConfig {
-                    enabled: true,
-                    stream_mode: NearModuleStreamMode::Shared,
-                    start_height: None,
-                }),
-                venear_governance: Some(VenearGovernanceModuleConfig {
-                    enabled: true,
-                    stream_mode: NearModuleStreamMode::Shared,
-                    start_height: None,
-                    mview_refresh_interval_blocks: 0,
-                    tx_finalize_timeout_blocks: 100_000_000,
-                    staging_gc_interval_blocks: 600,
-                    staging_gc_batch_size: 5_000,
-                    staging_gc_max_batches_per_run: 50,
-                }),
-            }),
-        }),
-    };
+fn message_transaction_hashes_with_descendants(msg: &StreamerMessage) -> Vec<String> {
+    msg.shards
+        .iter()
+        .filter_map(|shard| shard.chunk.as_ref())
+        .flat_map(|chunk| {
+            chunk
+                .transactions
+                .iter()
+                .filter(|tx_with_outcome| {
+                    !tx_with_outcome
+                        .outcome
+                        .execution_outcome
+                        .outcome
+                        .receipt_ids
+                        .is_empty()
+                })
+                .map(|tx_with_outcome| tx_with_outcome.transaction.hash.to_string())
+        })
+        .collect()
+}
 
-    AppConfig::Indexer(Box::new(cfg))
+fn descendant_transaction_blocks(fixtures: &[StreamerMessage]) -> Vec<(u64, String)> {
+    fixtures
+        .iter()
+        .flat_map(|msg| {
+            let block_height = msg.block.header.height;
+            message_transaction_hashes_with_descendants(msg)
+                .into_iter()
+                .map(move |tx_hash| (block_height, tx_hash))
+        })
+        .collect()
 }
 
 async fn scalar_i64(db: &impl ConnectionTrait, sql: &str) -> Result<i64> {
@@ -197,11 +211,209 @@ async fn scalar_i64(db: &impl ConnectionTrait, sql: &str) -> Result<i64> {
     Ok(row.try_get("", "value")?)
 }
 
+async fn scalar_bool_param(db: &impl ConnectionTrait, sql: &str, value: &str) -> Result<bool> {
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            sql,
+            vec![value.into()],
+        ))
+        .await?
+        .expect("expected one row from scalar bool query");
+    Ok(row.try_get("", "value")?)
+}
+
 async fn execute_sql(db: &impl ConnectionTrait, sql: &str) -> Result<()> {
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         sql,
         vec![],
+    ))
+    .await?;
+    Ok(())
+}
+
+fn cleanup_trigger_message(block_height: u64) -> StreamerMessage {
+    let mut msg = load_all_fixture_messages()
+        .into_iter()
+        .next()
+        .expect("fixture suite must include at least one block");
+    msg.block.header.height = block_height;
+    msg.block.header.prev_height = Some(block_height.saturating_sub(1));
+    msg.shards.clear();
+    msg
+}
+
+fn live_fixture_message() -> StreamerMessage {
+    load_all_fixture_messages()
+        .into_iter()
+        .next()
+        .expect("fixture suite must include at least one block")
+}
+
+async fn insert_receipt_tx_map_row(
+    db: &impl ConnectionTrait,
+    receipt_id: &str,
+    transaction_hash: &str,
+    first_seen_height: i64,
+    last_seen_height: i64,
+) -> Result<()> {
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO near.near_receipt_tx_hash_map (
+            receipt_id,
+            transaction_hash,
+            first_seen_height,
+            last_seen_height,
+            created_at,
+            updated_at
+        ) VALUES ($1, $2, $3, $4, NOW(), NOW())",
+        vec![
+            receipt_id.into(),
+            transaction_hash.into(),
+            first_seen_height.into(),
+            last_seen_height.into(),
+        ],
+    ))
+    .await?;
+    Ok(())
+}
+
+async fn insert_tx_state_row(
+    db: &impl ConnectionTrait,
+    transaction_hash: &str,
+    status: &str,
+    last_seen_height: i64,
+    pending_receipt_count: i64,
+    has_hos_touch: bool,
+) -> Result<()> {
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO near.near_hos_tx_state (
+            graph_key,
+            transaction_hash,
+            status,
+            pending_receipt_count,
+            has_hos_touch,
+            first_seen_height,
+            last_seen_height,
+            created_at,
+            updated_at
+        ) VALUES ($1, $1, $2, $4, $5, $3, $3, NOW(), NOW())",
+        vec![
+            transaction_hash.into(),
+            status.into(),
+            last_seen_height.into(),
+            pending_receipt_count.into(),
+            has_hos_touch.into(),
+        ],
+    ))
+    .await?;
+    Ok(())
+}
+
+async fn insert_canonical_transaction_row(
+    db: &impl ConnectionTrait,
+    transaction_hash: &str,
+    block_height: i64,
+) -> Result<()> {
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO near.near_transactions (
+            hash,
+            block_height,
+            signer_id,
+            receiver_id,
+            nonce,
+            priority_fee,
+            public_key,
+            signature,
+            actions,
+            raw_data,
+            shard_id
+        ) VALUES (
+            $1,
+            $2,
+            'signer.test.near',
+            'receiver.test.near',
+            1,
+            0,
+            'ed25519:test',
+            'signature',
+            '[]'::jsonb,
+            '{}'::jsonb,
+            0
+        )",
+        vec![transaction_hash.into(), block_height.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+async fn insert_staging_transaction_row(
+    db: &impl ConnectionTrait,
+    transaction_hash: &str,
+    block_height: i64,
+) -> Result<()> {
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO near.near_hos_staging_transactions (
+            hash,
+            block_height,
+            signer_id,
+            receiver_id,
+            nonce,
+            priority_fee,
+            public_key,
+            signature,
+            actions,
+            raw_data,
+            shard_id,
+            first_seen_height,
+            last_seen_height
+        ) VALUES (
+            $1,
+            $2,
+            'signer.test.near',
+            'receiver.test.near',
+            1,
+            0,
+            'ed25519:test',
+            'signature',
+            '[]'::jsonb,
+            '{}'::jsonb,
+            0,
+            $2,
+            $2
+        )",
+        vec![transaction_hash.into(), block_height.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+async fn insert_staging_receipt_status_row(
+    db: &impl ConnectionTrait,
+    receipt_id: &str,
+    transaction_hash: &str,
+    first_seen_height: i64,
+    last_seen_height: i64,
+) -> Result<()> {
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO near.near_hos_staging_receipt_status (
+            receipt_id,
+            transaction_hash,
+            executed,
+            first_seen_height,
+            last_seen_height
+        ) VALUES ($1, $2, FALSE, $3, $4)",
+        vec![
+            receipt_id.into(),
+            transaction_hash.into(),
+            first_seen_height.into(),
+            last_seen_height.into(),
+        ],
     ))
     .await?;
     Ok(())
@@ -263,16 +475,17 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         module.process_block(fixture, conn.as_ref()).await?;
     }
 
-    let tracked_relevant_receipts = scalar_i64(
+    let finalized_hos_transactions = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts
-         WHERE scope = 'hos'",
+         FROM near.near_hos_tx_state
+         WHERE status = 'finalized'
+           AND has_hos_touch = TRUE",
     )
     .await?;
     assert!(
-        tracked_relevant_receipts > 0,
-        "expected tracked HoS relevant receipts"
+        finalized_hos_transactions > 0,
+        "expected finalized HoS transaction graphs"
     );
 
     let blocks_written = scalar_i64(
@@ -291,9 +504,8 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          )
            AND NOT EXISTS (
              SELECT 1
-             FROM near.near_relevant_receipts rr
-             WHERE rr.scope = 'hos'
-               AND rr.discovered_at_block_height = b.height
+             FROM near.near_transactions nt
+             WHERE nt.block_height = b.height
          )",
     )
     .await?;
@@ -336,13 +548,13 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         blocks_written >= distinct_outcome_blocks,
         "near_blocks should cover all HoS execution outcome blocks"
     );
-    assert_eq!(
-        chunks_written, 0,
-        "venear_governance should not write near_chunks rows"
+    assert!(
+        chunks_written > 0,
+        "venear_governance should write HoS-related near_chunks rows"
     );
-    assert_eq!(
-        state_changes_written, 0,
-        "venear_governance should not write near_state_changes rows"
+    assert!(
+        state_changes_written > 0,
+        "venear_governance should write HoS-related near_state_changes rows"
     );
     assert!(
         transactions_written > 0,
@@ -365,30 +577,17 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "SELECT COUNT(*)::bigint AS value FROM near.near_execution_outcomes",
     )
     .await?;
-    let outcomes_on_relevant_receipts = scalar_i64(
+    let outcomes_on_hos_transactions = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
          FROM near.near_execution_outcomes eo
          WHERE EXISTS (
              SELECT 1
-             FROM near.near_relevant_receipts rr
-             WHERE rr.scope = 'hos'
-               AND rr.receipt_id = eo.receipt_id
+             FROM near.near_hos_tx_state ts
+             WHERE ts.transaction_hash = eo.transaction_hash
+               AND ts.status = 'finalized'
+               AND ts.has_hos_touch = TRUE
          )",
-    )
-    .await?;
-    let outcomes_without_receipt_id = scalar_i64(
-        conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value
-         FROM near.near_execution_outcomes
-         WHERE receipt_id IS NULL",
-    )
-    .await?;
-    let non_hos_scope_rows = scalar_i64(
-        conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts
-         WHERE scope <> 'hos'",
     )
     .await?;
     assert!(
@@ -396,13 +595,8 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "expected canonical near_execution_outcomes rows"
     );
     assert_eq!(
-        outcomes_total,
-        outcomes_on_relevant_receipts + outcomes_without_receipt_id,
-        "venear_governance should only write HoS-relevant receipt outcomes plus tx-level outcomes"
-    );
-    assert_eq!(
-        non_hos_scope_rows, 0,
-        "venear-only run should not create non-hos relevance rows"
+        outcomes_total, outcomes_on_hos_transactions,
+        "venear_governance should only write outcomes linked to finalized HoS transactions"
     );
     assert!(
         outcomes_total < fixture_receipt_outcomes,
@@ -414,15 +608,16 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "SELECT COUNT(*)::bigint AS value FROM near.near_receipt_actions",
     )
     .await?;
-    let actions_on_relevant_receipts = scalar_i64(
+    let actions_on_hos_transactions = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
          FROM near.near_receipt_actions ra
          WHERE EXISTS (
              SELECT 1
-             FROM near.near_relevant_receipts rr
-             WHERE rr.scope = 'hos'
-               AND rr.receipt_id = ra.receipt_id
+             FROM near.near_hos_tx_state ts
+             WHERE ts.transaction_hash = ra.transaction_hash
+               AND ts.status = 'finalized'
+               AND ts.has_hos_touch = TRUE
          )",
     )
     .await?;
@@ -431,8 +626,8 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "expected canonical near_receipt_actions rows"
     );
     assert_eq!(
-        actions_total, actions_on_relevant_receipts,
-        "venear_governance should only write actions for tracked relevant receipts"
+        actions_total, actions_on_hos_transactions,
+        "venear_governance should only write actions for finalized HoS transactions"
     );
 
     let edges_total = scalar_i64(
@@ -440,27 +635,22 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "SELECT COUNT(*)::bigint AS value FROM near.near_receipt_edges",
     )
     .await?;
-    let edges_between_relevant_receipts = scalar_i64(
+    let edges_on_hos_transactions = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
          FROM near.near_receipt_edges re
          WHERE EXISTS (
              SELECT 1
-             FROM near.near_relevant_receipts rr_parent
-             WHERE rr_parent.scope = 'hos'
-               AND rr_parent.receipt_id = re.parent_receipt_id
-         )
-           AND EXISTS (
-             SELECT 1
-             FROM near.near_relevant_receipts rr_child
-             WHERE rr_child.scope = 'hos'
-               AND rr_child.receipt_id = re.child_receipt_id
+             FROM near.near_hos_tx_state ts
+             WHERE ts.transaction_hash = re.transaction_hash
+               AND ts.status = 'finalized'
+               AND ts.has_hos_touch = TRUE
          )",
     )
     .await?;
     assert_eq!(
-        edges_total, edges_between_relevant_receipts,
-        "venear_governance should only write edges between tracked relevant receipts"
+        edges_total, edges_on_hos_transactions,
+        "venear_governance should only write edges for finalized HoS transactions"
     );
 
     let outcomes_with_tx_hash = scalar_i64(
@@ -484,11 +674,17 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          WHERE transaction_hash IS NOT NULL",
     )
     .await?;
-    let relevant_with_tx_hash = scalar_i64(
+    let mapped_hos_receipts = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts
-         WHERE scope = 'hos' AND transaction_hash IS NOT NULL",
+         FROM near.near_receipt_tx_hash_map map
+         WHERE EXISTS (
+             SELECT 1
+             FROM near.near_hos_tx_state ts
+             WHERE ts.transaction_hash = map.transaction_hash
+               AND ts.status = 'finalized'
+               AND ts.has_hos_touch = TRUE
+         )",
     )
     .await?;
     assert!(
@@ -504,8 +700,8 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         "HoS near_receipt_edges should include non-null transaction_hash values"
     );
     assert!(
-        relevant_with_tx_hash > 0,
-        "HoS relevant_receipts should include non-null transaction_hash values"
+        mapped_hos_receipts > 0,
+        "HoS lineage map should include non-null transaction_hash values"
     );
     let orphaned_hos_transaction_hashes = scalar_i64(
         conn.as_ref(),
@@ -523,9 +719,12 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
            FROM near.near_receipt_edges
            WHERE transaction_hash IS NOT NULL
            UNION
-           SELECT DISTINCT transaction_hash AS hash
-           FROM near.near_relevant_receipts
-           WHERE scope = 'hos' AND transaction_hash IS NOT NULL
+           SELECT DISTINCT map.transaction_hash AS hash
+           FROM near.near_receipt_tx_hash_map map
+           INNER JOIN near.near_hos_tx_state ts
+             ON ts.transaction_hash = map.transaction_hash
+           WHERE ts.status = 'finalized'
+             AND ts.has_hos_touch = TRUE
          ) canonical_hashes
          WHERE NOT EXISTS (
            SELECT 1
@@ -544,24 +743,10 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
          FROM near.near_transactions nt
          WHERE NOT EXISTS (
            SELECT 1
-           FROM (
-             SELECT DISTINCT transaction_hash AS hash
-             FROM near.near_execution_outcomes
-             WHERE transaction_hash IS NOT NULL
-             UNION
-             SELECT DISTINCT transaction_hash AS hash
-             FROM near.near_receipt_actions
-             WHERE transaction_hash IS NOT NULL
-             UNION
-             SELECT DISTINCT transaction_hash AS hash
-             FROM near.near_receipt_edges
-             WHERE transaction_hash IS NOT NULL
-             UNION
-             SELECT DISTINCT transaction_hash AS hash
-             FROM near.near_relevant_receipts
-             WHERE scope = 'hos' AND transaction_hash IS NOT NULL
-           ) hos_hashes
-           WHERE hos_hashes.hash = nt.hash
+           FROM near.near_hos_tx_state ts
+           WHERE ts.transaction_hash = nt.hash
+             AND ts.status = 'finalized'
+             AND ts.has_hos_touch = TRUE
          )",
     )
     .await?;
@@ -880,7 +1065,423 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
 }
 
 #[tokio::test]
-async fn raw_and_venear_modules_can_share_relevant_receipts_by_scope() -> Result<()> {
+async fn omitted_raw_config_still_disables_receipt_tx_map_cleanup() -> Result<()> {
+    init_test_tracing();
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let mut venear_cfg = venear_test_config();
+    venear_cfg.receipt_tx_map_cleanup_interval_blocks = 1;
+    venear_cfg.receipt_tx_map_retention_blocks = 0;
+    let mut config = build_default_raw_and_venear_config();
+    if let AppConfig::Indexer(indexer) = &mut config {
+        let near = indexer
+            .near
+            .as_mut()
+            .expect("test config should include near settings");
+        let modules = near
+            .modules
+            .as_mut()
+            .expect("test config should include module settings");
+        modules.venear_governance = Some(venear_cfg);
+    }
+    let raw_module = RawModule::new(&config);
+    let venear_module = VenearGovernanceModule::new(&config);
+
+    raw_module.initialize(conn.as_ref()).await?;
+    venear_module.initialize(conn.as_ref()).await?;
+
+    insert_receipt_tx_map_row(conn.as_ref(), "receipt-legacy", "tx-legacy", 0, 0).await?;
+
+    let fixture = live_fixture_message();
+    raw_module.process_block(&fixture, conn.as_ref()).await?;
+    venear_module.process_block(&fixture, conn.as_ref()).await?;
+
+    let canonical_transactions = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value FROM near.near_transactions",
+    )
+    .await?;
+    assert!(
+        canonical_transactions > 0,
+        "omitted raw config should still run the raw module"
+    );
+
+    let legacy_map_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_tx_hash_map
+         WHERE receipt_id = 'receipt-legacy'
+           AND transaction_hash = 'tx-legacy'",
+    )
+    .await?;
+    assert_eq!(
+        legacy_map_rows, 1,
+        "venear cleanup must stay disabled when raw is implicitly enabled"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn sql_hos_contract_matcher_matches_verified_accounts() -> Result<()> {
+    init_test_tracing();
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+
+    for account_id in [
+        "venear.dao",
+        "vote.dao",
+        "hos-root.sputnik-dao.near",
+        "rewards.hos-dao.near",
+        "0887fe221cafb6810909c83393e23585c439fe99.venear.dao",
+    ] {
+        assert!(
+            scalar_bool_param(
+                conn.as_ref(),
+                "SELECT near.is_hos_contract($1) AS value",
+                account_id,
+            )
+            .await?,
+            "expected {account_id} to match near.is_hos_contract"
+        );
+    }
+
+    for account_id in [
+        "dao",
+        "foo.vote.dao",
+        "lockup.alice.venear.dao",
+        "random.dao",
+    ] {
+        assert!(
+            !scalar_bool_param(
+                conn.as_ref(),
+                "SELECT near.is_hos_contract($1) AS value",
+                account_id,
+            )
+            .await?,
+            "expected {account_id} to be excluded from near.is_hos_contract"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn stalled_pending_graphs_remain_in_staging() -> Result<()> {
+    init_test_tracing();
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let mut venear_cfg = venear_test_config();
+    venear_cfg.staging_gc_interval_blocks = 3;
+    venear_cfg.staging_gc_batch_size = 10;
+    venear_cfg.staging_gc_max_batches_per_run = 1;
+    venear_cfg.receipt_tx_map_cleanup_interval_blocks = 0;
+    let module = VenearGovernanceModule::new(&build_test_app_config(
+        Some(raw_config(false)),
+        Some(venear_cfg),
+    ));
+
+    module.initialize(conn.as_ref()).await?;
+    insert_staging_transaction_row(conn.as_ref(), "tx-pending", 1).await?;
+    insert_staging_receipt_status_row(conn.as_ref(), "receipt-pending", "tx-pending", 1, 1).await?;
+    insert_tx_state_row(conn.as_ref(), "tx-pending", "pending", 1, 1, true).await?;
+
+    let gc_only_block = cleanup_trigger_message(43_203);
+    module.process_block(&gc_only_block, conn.as_ref()).await?;
+
+    let pending_tx_state_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_hos_tx_state
+         WHERE transaction_hash = 'tx-pending'
+           AND status = 'pending'
+           AND pending_receipt_count = 1",
+    )
+    .await?;
+    assert_eq!(
+        pending_tx_state_rows, 1,
+        "stalled pending graphs must remain pending"
+    );
+
+    let staging_tx_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_hos_staging_transactions
+         WHERE hash = 'tx-pending'",
+    )
+    .await?;
+    assert_eq!(
+        staging_tx_rows, 1,
+        "stalled pending graphs must keep staging transaction rows"
+    );
+
+    let staging_status_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_hos_staging_receipt_status
+         WHERE receipt_id = 'receipt-pending'
+           AND transaction_hash = 'tx-pending'",
+    )
+    .await?;
+    assert_eq!(
+        staging_status_rows, 1,
+        "stalled pending graphs must keep staging receipt-status rows"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn receipt_tx_map_cleanup_deletes_orphans_after_tx_state_gc() -> Result<()> {
+    init_test_tracing();
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let mut venear_cfg = venear_test_config();
+    venear_cfg.staging_gc_interval_blocks = 3;
+    venear_cfg.staging_gc_batch_size = 10;
+    venear_cfg.staging_gc_max_batches_per_run = 1;
+    venear_cfg.receipt_tx_map_cleanup_interval_blocks = 5;
+    venear_cfg.receipt_tx_map_retention_blocks = 1;
+    venear_cfg.receipt_tx_map_cleanup_batch_size = 10;
+    venear_cfg.receipt_tx_map_cleanup_max_batches_per_run = 1;
+    let module = VenearGovernanceModule::new(&build_test_app_config(
+        Some(raw_config(false)),
+        Some(venear_cfg),
+    ));
+
+    module.initialize(conn.as_ref()).await?;
+    insert_receipt_tx_map_row(conn.as_ref(), "receipt-orphan", "tx-orphan", 1, 1).await?;
+    insert_tx_state_row(conn.as_ref(), "tx-orphan", "pruned_non_hos", 1, 0, false).await?;
+
+    let gc_only_block = cleanup_trigger_message(43_203);
+    module.process_block(&gc_only_block, conn.as_ref()).await?;
+
+    let tx_state_rows_after_gc = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_hos_tx_state
+         WHERE transaction_hash = 'tx-orphan'",
+    )
+    .await?;
+    assert_eq!(
+        tx_state_rows_after_gc, 0,
+        "staging GC should remove stale tx-state rows"
+    );
+
+    let map_rows_after_gc = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_tx_hash_map
+         WHERE receipt_id = 'receipt-orphan'",
+    )
+    .await?;
+    assert_eq!(
+        map_rows_after_gc, 1,
+        "map cleanup should not have run on the GC-only block"
+    );
+
+    let cleanup_block = cleanup_trigger_message(43_205);
+    module.process_block(&cleanup_block, conn.as_ref()).await?;
+
+    let map_rows_after_cleanup = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_tx_hash_map
+         WHERE receipt_id = 'receipt-orphan'",
+    )
+    .await?;
+    assert_eq!(
+        map_rows_after_cleanup, 0,
+        "cleanup must still remove stale lineage rows after tx_state GC has already run"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn receipt_tx_map_cleanup_preserves_canonical_and_active_staging_rows() -> Result<()> {
+    init_test_tracing();
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let mut venear_cfg = venear_test_config();
+    venear_cfg.staging_gc_interval_blocks = 0;
+    venear_cfg.receipt_tx_map_cleanup_interval_blocks = 1;
+    venear_cfg.receipt_tx_map_retention_blocks = 1;
+    venear_cfg.receipt_tx_map_cleanup_batch_size = 10;
+    venear_cfg.receipt_tx_map_cleanup_max_batches_per_run = 1;
+    let module = VenearGovernanceModule::new(&build_test_app_config(
+        Some(raw_config(false)),
+        Some(venear_cfg),
+    ));
+
+    module.initialize(conn.as_ref()).await?;
+
+    insert_receipt_tx_map_row(conn.as_ref(), "receipt-delete", "tx-delete", 0, 0).await?;
+    insert_receipt_tx_map_row(conn.as_ref(), "receipt-canonical", "tx-canonical", 0, 0).await?;
+    insert_receipt_tx_map_row(conn.as_ref(), "receipt-staging-tx", "tx-staging-tx", 0, 0).await?;
+    insert_receipt_tx_map_row(
+        conn.as_ref(),
+        "receipt-staging-status",
+        "tx-staging-status",
+        0,
+        0,
+    )
+    .await?;
+    insert_canonical_transaction_row(conn.as_ref(), "tx-canonical", 0).await?;
+    insert_staging_transaction_row(conn.as_ref(), "tx-staging-tx", 0).await?;
+    insert_staging_receipt_status_row(
+        conn.as_ref(),
+        "receipt-staging-status",
+        "tx-staging-status",
+        0,
+        0,
+    )
+    .await?;
+
+    let cleanup_block = cleanup_trigger_message(2);
+    module.process_block(&cleanup_block, conn.as_ref()).await?;
+
+    let deleted_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_tx_hash_map
+         WHERE receipt_id = 'receipt-delete'",
+    )
+    .await?;
+    assert_eq!(
+        deleted_rows, 0,
+        "stale orphaned lineage rows should be deleted"
+    );
+
+    let canonical_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_tx_hash_map
+         WHERE receipt_id = 'receipt-canonical'",
+    )
+    .await?;
+    assert_eq!(
+        canonical_rows, 1,
+        "canonical lineage rows must be preserved"
+    );
+
+    let staging_tx_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_tx_hash_map
+         WHERE receipt_id = 'receipt-staging-tx'",
+    )
+    .await?;
+    assert_eq!(
+        staging_tx_rows, 1,
+        "active staging transaction graphs must be preserved"
+    );
+
+    let staging_status_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_tx_hash_map
+         WHERE receipt_id = 'receipt-staging-status'",
+    )
+    .await?;
+    assert_eq!(
+        staging_status_rows, 1,
+        "active staging receipt graphs must be preserved"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn late_related_receipts_reopen_finalized_graphs() -> Result<()> {
+    init_test_tracing();
+
+    let fixtures = load_all_fixture_messages();
+    let candidate_tx_blocks = descendant_transaction_blocks(&fixtures);
+    assert!(
+        !candidate_tx_blocks.is_empty(),
+        "expected fixture blocks with descendant receipts"
+    );
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let module = VenearGovernanceModule::new(&build_venear_only_config());
+
+    module.initialize(conn.as_ref()).await?;
+    for fixture in &fixtures {
+        module.process_block(fixture, conn.as_ref()).await?;
+    }
+
+    let mut reopened_target = None;
+    for (block_height, tx_hash) in &candidate_tx_blocks {
+        let finalized_count = scalar_i64(
+            conn.as_ref(),
+            &format!(
+                "SELECT COUNT(*)::bigint AS value
+                 FROM near.near_hos_tx_state
+                 WHERE transaction_hash = '{tx_hash}'
+                   AND status = 'finalized'
+                   AND has_hos_touch = TRUE"
+            ),
+        )
+        .await?;
+        if finalized_count > 0 {
+            reopened_target = Some((*block_height, tx_hash.clone()));
+            break;
+        }
+    }
+
+    let (replay_block_height, reopened_tx_hash) =
+        reopened_target.expect("expected at least one descendant-producing fixture tx to finalize");
+    let replay_block = fixtures
+        .iter()
+        .find(|msg| msg.block.header.height == replay_block_height)
+        .cloned()
+        .expect("expected to find replay block for finalized descendant-producing tx");
+
+    module.process_block(&replay_block, conn.as_ref()).await?;
+
+    let reopened_pending_rows = scalar_i64(
+        conn.as_ref(),
+        &format!(
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_hos_tx_state
+             WHERE transaction_hash = '{reopened_tx_hash}'
+               AND status = 'pending'
+               AND pending_receipt_count > 0"
+        ),
+    )
+    .await?;
+    assert_eq!(
+        reopened_pending_rows, 1,
+        "a late descendant should reopen a finalized graph back to pending"
+    );
+
+    let reopened_staging_rows = scalar_i64(
+        conn.as_ref(),
+        &format!(
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_hos_staging_receipt_status
+             WHERE transaction_hash = '{reopened_tx_hash}'
+               AND executed = FALSE"
+        ),
+    )
+    .await?;
+    assert!(
+        reopened_staging_rows > 0,
+        "reopened graphs should restore pending staging receipt-status rows"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn raw_and_venear_modules_share_receipt_tx_lineage_map() -> Result<()> {
     init_test_tracing();
 
     let fixtures = load_all_fixture_messages();
@@ -898,77 +1499,80 @@ async fn raw_and_venear_modules_can_share_relevant_receipts_by_scope() -> Result
         venear_module.process_block(fixture, conn.as_ref()).await?;
     }
 
-    let all_scope_count = scalar_i64(
+    let tx_map_count = scalar_i64(
         conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts
-         WHERE scope = 'all'",
+        "SELECT COUNT(*)::bigint AS value FROM near.near_receipt_tx_hash_map",
     )
     .await?;
-    let hos_scope_count = scalar_i64(
+    let finalized_hos_tx_count = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts
-         WHERE scope = 'hos'",
+         FROM near.near_hos_tx_state
+         WHERE status = 'finalized'
+           AND has_hos_touch = TRUE",
     )
     .await?;
-    let overlap_count = scalar_i64(
+    let mapped_hos_receipts = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts all_scope
-         INNER JOIN near.near_relevant_receipts hos_scope
-           ON hos_scope.receipt_id = all_scope.receipt_id
-         WHERE all_scope.scope = 'all'
-           AND hos_scope.scope = 'hos'",
-    )
-    .await?;
-    let hos_missing_from_all = scalar_i64(
-        conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts hos_scope
-         WHERE hos_scope.scope = 'hos'
-           AND NOT EXISTS (
+         FROM near.near_receipt_tx_hash_map map
+         WHERE EXISTS (
              SELECT 1
-             FROM near.near_relevant_receipts all_scope
-             WHERE all_scope.scope = 'all'
-               AND all_scope.receipt_id = hos_scope.receipt_id
+             FROM near.near_hos_tx_state ts
+             WHERE ts.transaction_hash = map.transaction_hash
+               AND ts.status = 'finalized'
+               AND ts.has_hos_touch = TRUE
+         )",
+    )
+    .await?;
+    let mapped_non_hos_receipts = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_tx_hash_map map
+         WHERE NOT EXISTS (
+             SELECT 1
+             FROM near.near_hos_tx_state ts
+             WHERE ts.transaction_hash = map.transaction_hash
+               AND ts.status = 'finalized'
+               AND ts.has_hos_touch = TRUE
            )",
     )
     .await?;
-    let all_scope_not_hos_scope = scalar_i64(
+    let hos_receipts_missing_map = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
-         FROM near.near_relevant_receipts all_scope
-         WHERE all_scope.scope = 'all'
+         FROM near.near_execution_outcomes eo
+         WHERE eo.receipt_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1
+             FROM near.near_hos_tx_state ts
+             WHERE ts.transaction_hash = eo.transaction_hash
+               AND ts.status = 'finalized'
+               AND ts.has_hos_touch = TRUE
+           )
            AND NOT EXISTS (
              SELECT 1
-             FROM near.near_relevant_receipts hos_scope
-             WHERE hos_scope.scope = 'hos'
-               AND hos_scope.receipt_id = all_scope.receipt_id
+             FROM near.near_receipt_tx_hash_map map
+             WHERE map.receipt_id = eo.receipt_id
+               AND map.transaction_hash = eo.transaction_hash
            )",
     )
     .await?;
 
+    assert!(tx_map_count > 0, "expected receipt->tx lineage rows");
     assert!(
-        all_scope_count > 0,
-        "expected relevant receipts for scope=all"
-    );
-    assert!(
-        hos_scope_count > 0,
-        "expected relevant receipts for scope=hos"
+        finalized_hos_tx_count > 0,
+        "expected finalized HoS transaction graphs"
     );
     assert!(
-        overlap_count > 0,
-        "expected at least one receipt tracked in both scopes"
-    );
-    assert_eq!(
-        hos_missing_from_all, 0,
-        "all-scope rows should cover hos-scope rows when raw is enabled"
+        mapped_hos_receipts > 0,
+        "expected lineage rows for HoS transactions"
     );
     assert!(
-        all_scope_not_hos_scope > 0,
-        "raw scope should contain non-HoS receipts beyond venear_governance scope"
+        mapped_non_hos_receipts > 0,
+        "raw should contribute lineage rows beyond HoS-only scope"
     );
+    assert_eq!(hos_receipts_missing_map, 0);
 
     Ok(())
 }

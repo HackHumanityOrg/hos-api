@@ -12,16 +12,13 @@ use sea_orm::{
     Statement, TransactionTrait,
 };
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
-use tracing::{info, instrument};
+use tracing::{error, info, instrument};
 
 use crate::core::cursor;
+use crate::core::receipt_tx_hash_map::{load_receipt_tx_hash_map, upsert_receipt_tx_hash};
 use crate::core::receipt_tx_resolver::build_receipt_tx_hashes;
-use crate::core::relevance_tracker::{
-    load_relevant_receipts_for_scope, upsert_relevant_receipt, RELEVANCE_REASON_DESCENDANT,
-    RELEVANCE_REASON_OBSERVED, RELEVANCE_REASON_ROOT, RELEVANCE_SCOPE_ALL,
-};
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "raw";
@@ -41,12 +38,8 @@ impl RawModule {
             if let Some(near) = idx.near.as_ref() {
                 let near_enabled = near.chain != "disabled";
                 if near_enabled {
-                    if let Some(module_cfg) = near.modules.as_ref().and_then(|m| m.raw.as_ref()) {
-                        enabled = module_cfg.enabled;
-                        stream_mode = module_cfg.stream_mode;
-                    } else {
-                        enabled = true;
-                    }
+                    enabled = near.raw_enabled_or_default();
+                    stream_mode = near.raw_stream_mode_or_default();
                 }
             }
         }
@@ -132,6 +125,321 @@ impl RawModule {
     fn shard_to_i64(shard_id: near_lake_framework::near_indexer_primitives::types::ShardId) -> i64 {
         let value: u64 = shard_id.into();
         i64::try_from(value).unwrap_or(i64::MAX)
+    }
+
+    async fn persist_receipt_tx_mapping(
+        db: &impl ConnectionTrait,
+        receipt_id: &str,
+        transaction_hash: &str,
+        block_height: i64,
+    ) -> Result<()> {
+        let persisted_tx_hash =
+            upsert_receipt_tx_hash(db, receipt_id, transaction_hash, block_height).await?;
+        if persisted_tx_hash != transaction_hash {
+            error!(
+                module = MODULE_NAME,
+                receipt_id = %receipt_id,
+                incoming_transaction_hash = %transaction_hash,
+                persisted_transaction_hash = %persisted_tx_hash,
+                "receipt->tx hash conflict detected; preserving first-seen mapping"
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn load_receipt_tx_hashes_from_execution_outcomes(
+        db: &impl ConnectionTrait,
+        receipt_ids: &[String],
+    ) -> Result<HashMap<String, String>> {
+        if receipt_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut placeholders = String::new();
+        for idx in 0..receipt_ids.len() {
+            if idx > 0 {
+                placeholders.push_str(", ");
+            }
+            placeholders.push_str(&format!("${}", idx + 1));
+        }
+
+        let sql = format!(
+            "SELECT receipt_id, transaction_hash
+             FROM near.near_execution_outcomes
+             WHERE receipt_id IN ({placeholders})
+               AND transaction_hash IS NOT NULL"
+        );
+
+        let rows = db
+            .query_all(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                &sql,
+                receipt_ids
+                    .iter()
+                    .cloned()
+                    .map(Into::into)
+                    .collect::<Vec<_>>(),
+            ))
+            .await
+            .context("failed loading transaction hashes from near_execution_outcomes")?;
+
+        let mut resolved = HashMap::new();
+        for row in rows {
+            let receipt_id: String = row
+                .try_get("", "receipt_id")
+                .context("failed reading near_execution_outcomes.receipt_id")?;
+            let transaction_hash: String = row
+                .try_get("", "transaction_hash")
+                .context("failed reading near_execution_outcomes.transaction_hash")?;
+            resolved.insert(receipt_id, transaction_hash);
+        }
+
+        Ok(resolved)
+    }
+
+    async fn load_receipt_tx_hashes_from_receipt_actions(
+        db: &impl ConnectionTrait,
+        receipt_ids: &[String],
+    ) -> Result<HashMap<String, String>> {
+        if receipt_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut placeholders = String::new();
+        for idx in 0..receipt_ids.len() {
+            if idx > 0 {
+                placeholders.push_str(", ");
+            }
+            placeholders.push_str(&format!("${}", idx + 1));
+        }
+
+        let sql = format!(
+            "SELECT receipt_id, transaction_hash
+             FROM near.near_receipt_actions
+             WHERE receipt_id IN ({placeholders})
+               AND transaction_hash IS NOT NULL"
+        );
+
+        let rows = db
+            .query_all(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                &sql,
+                receipt_ids
+                    .iter()
+                    .cloned()
+                    .map(Into::into)
+                    .collect::<Vec<_>>(),
+            ))
+            .await
+            .context("failed loading transaction hashes from near_receipt_actions")?;
+
+        let mut resolved = HashMap::new();
+        for row in rows {
+            let receipt_id: String = row
+                .try_get("", "receipt_id")
+                .context("failed reading near_receipt_actions.receipt_id")?;
+            let transaction_hash: String = row
+                .try_get("", "transaction_hash")
+                .context("failed reading near_receipt_actions.transaction_hash")?;
+            resolved.insert(receipt_id, transaction_hash);
+        }
+
+        Ok(resolved)
+    }
+
+    async fn load_receipt_tx_hashes_from_receipt_edges(
+        db: &impl ConnectionTrait,
+        receipt_ids: &[String],
+    ) -> Result<HashMap<String, String>> {
+        if receipt_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut placeholders = String::new();
+        for idx in 0..receipt_ids.len() {
+            if idx > 0 {
+                placeholders.push_str(", ");
+            }
+            placeholders.push_str(&format!("${}", idx + 1));
+        }
+
+        let sql = format!(
+            "SELECT child_receipt_id AS receipt_id, transaction_hash
+             FROM near.near_receipt_edges
+             WHERE child_receipt_id IN ({placeholders})
+               AND transaction_hash IS NOT NULL
+             UNION ALL
+             SELECT parent_receipt_id AS receipt_id, transaction_hash
+             FROM near.near_receipt_edges
+             WHERE parent_receipt_id IN ({placeholders})
+               AND transaction_hash IS NOT NULL"
+        );
+
+        let mut values = receipt_ids
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .collect::<Vec<_>>();
+        values.extend(receipt_ids.iter().cloned().map(Into::into));
+
+        let rows = db
+            .query_all(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                &sql,
+                values,
+            ))
+            .await
+            .context("failed loading transaction hashes from near_receipt_edges")?;
+
+        let mut resolved = HashMap::new();
+        for row in rows {
+            let receipt_id: String = row
+                .try_get("", "receipt_id")
+                .context("failed reading near_receipt_edges.receipt_id")?;
+            let transaction_hash: String = row
+                .try_get("", "transaction_hash")
+                .context("failed reading near_receipt_edges.transaction_hash")?;
+            resolved.entry(receipt_id).or_insert(transaction_hash);
+        }
+
+        Ok(resolved)
+    }
+
+    async fn load_receipt_tx_hashes_from_parent_outcomes(
+        db: &impl ConnectionTrait,
+        receipt_ids: &[String],
+    ) -> Result<HashMap<String, String>> {
+        if receipt_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut placeholders = String::new();
+        for idx in 0..receipt_ids.len() {
+            if idx > 0 {
+                placeholders.push_str(", ");
+            }
+            placeholders.push_str(&format!("${}", idx + 1));
+        }
+
+        let sql = format!(
+            "SELECT re.child_receipt_id AS receipt_id, eo.transaction_hash
+             FROM near.near_receipt_edges re
+             INNER JOIN near.near_execution_outcomes eo
+                ON eo.id = re.parent_execution_outcome_id
+             WHERE re.child_receipt_id IN ({placeholders})
+               AND eo.transaction_hash IS NOT NULL"
+        );
+
+        let rows = db
+            .query_all(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                &sql,
+                receipt_ids
+                    .iter()
+                    .cloned()
+                    .map(Into::into)
+                    .collect::<Vec<_>>(),
+            ))
+            .await
+            .context("failed loading transaction hashes from parent execution outcomes")?;
+
+        let mut resolved = HashMap::new();
+        for row in rows {
+            let receipt_id: String = row
+                .try_get("", "receipt_id")
+                .context("failed reading parent-outcome receipt_id")?;
+            let transaction_hash: String = row
+                .try_get("", "transaction_hash")
+                .context("failed reading parent-outcome transaction_hash")?;
+            resolved.entry(receipt_id).or_insert(transaction_hash);
+        }
+
+        Ok(resolved)
+    }
+
+    async fn resolve_receipt_tx_hashes_from_canonical_graph(
+        db: &impl ConnectionTrait,
+        receipt_ids: &[String],
+    ) -> Result<HashMap<String, String>> {
+        let mut unresolved = receipt_ids.to_vec();
+        let mut resolved = HashMap::new();
+
+        let apply_stage = |resolved: &mut HashMap<String, String>,
+                           unresolved: &mut Vec<String>,
+                           stage_rows: HashMap<String, String>| {
+            for (receipt_id, tx_hash) in stage_rows {
+                resolved.entry(receipt_id).or_insert(tx_hash);
+            }
+
+            if !resolved.is_empty() {
+                let unresolved_set: HashSet<String> = unresolved.drain(..).collect();
+                *unresolved = unresolved_set
+                    .into_iter()
+                    .filter(|receipt_id| !resolved.contains_key(receipt_id))
+                    .collect();
+            }
+        };
+
+        if !unresolved.is_empty() {
+            let stage_rows =
+                Self::load_receipt_tx_hashes_from_execution_outcomes(db, &unresolved).await?;
+            apply_stage(&mut resolved, &mut unresolved, stage_rows);
+        }
+        if !unresolved.is_empty() {
+            let stage_rows =
+                Self::load_receipt_tx_hashes_from_receipt_actions(db, &unresolved).await?;
+            apply_stage(&mut resolved, &mut unresolved, stage_rows);
+        }
+        if !unresolved.is_empty() {
+            let stage_rows =
+                Self::load_receipt_tx_hashes_from_receipt_edges(db, &unresolved).await?;
+            apply_stage(&mut resolved, &mut unresolved, stage_rows);
+        }
+        if !unresolved.is_empty() {
+            let stage_rows =
+                Self::load_receipt_tx_hashes_from_parent_outcomes(db, &unresolved).await?;
+            apply_stage(&mut resolved, &mut unresolved, stage_rows);
+        }
+
+        Ok(resolved)
+    }
+
+    fn collect_candidate_receipt_ids(shards: &[IndexerShard]) -> Vec<String> {
+        let mut ids = Vec::new();
+        for shard in shards {
+            if let Some(chunk) = &shard.chunk {
+                for tx_with_outcome in &chunk.transactions {
+                    if let Some(receipt) = &tx_with_outcome.outcome.receipt {
+                        ids.push(receipt.receipt_id.to_string());
+                    }
+                    for child_receipt_id in &tx_with_outcome
+                        .outcome
+                        .execution_outcome
+                        .outcome
+                        .receipt_ids
+                    {
+                        ids.push(child_receipt_id.to_string());
+                    }
+                }
+
+                for receipt in &chunk.receipts {
+                    ids.push(receipt.receipt_id.to_string());
+                }
+                for receipt in &chunk.local_receipts {
+                    ids.push(receipt.receipt_id.to_string());
+                }
+            }
+
+            for outcome_with_receipt in &shard.receipt_execution_outcomes {
+                ids.push(outcome_with_receipt.receipt.receipt_id.to_string());
+                for child_receipt_id in &outcome_with_receipt.execution_outcome.outcome.receipt_ids
+                {
+                    ids.push(child_receipt_id.to_string());
+                }
+            }
+        }
+        ids
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -502,17 +810,14 @@ impl RawModule {
         &self,
         shards: &[IndexerShard],
         block_height: i64,
-        receipt_tx_hashes: &HashMap<String, String>,
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         for shard in shards {
             if let Some(chunk) = &shard.chunk {
                 for tx_with_outcome in &chunk.transactions {
                     if let Some(receipt) = &tx_with_outcome.outcome.receipt {
-                        let receipt_id = receipt.receipt_id.to_string();
-                        let transaction_hash = tx_with_outcome.transaction.hash.to_string();
                         let receipt_record = near_receipts::ActiveModel {
-                            receipt_id: Set(receipt_id.clone()),
+                            receipt_id: Set(receipt.receipt_id.to_string()),
                             block_height: Set(block_height),
                             shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                             predecessor_id: Set(receipt.predecessor_id.to_string()),
@@ -532,25 +837,12 @@ impl RawModule {
                             .exec(db)
                             .await
                             .context("Failed to insert tx receipt record")?;
-
-                        upsert_relevant_receipt(
-                            db,
-                            RELEVANCE_SCOPE_ALL,
-                            &receipt_id,
-                            RELEVANCE_REASON_ROOT,
-                            None,
-                            Some(&transaction_hash),
-                            block_height,
-                            false,
-                        )
-                        .await?;
                     }
                 }
 
                 for receipt in &chunk.receipts {
-                    let receipt_id = receipt.receipt_id.to_string();
                     let receipt_record = near_receipts::ActiveModel {
-                        receipt_id: Set(receipt_id.clone()),
+                        receipt_id: Set(receipt.receipt_id.to_string()),
                         block_height: Set(block_height),
                         shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                         predecessor_id: Set(receipt.predecessor_id.to_string()),
@@ -570,24 +862,11 @@ impl RawModule {
                         .exec(db)
                         .await
                         .context("Failed to insert chunk receipt record")?;
-
-                    upsert_relevant_receipt(
-                        db,
-                        RELEVANCE_SCOPE_ALL,
-                        &receipt_id,
-                        RELEVANCE_REASON_OBSERVED,
-                        None,
-                        receipt_tx_hashes.get(&receipt_id).map(String::as_str),
-                        block_height,
-                        false,
-                    )
-                    .await?;
                 }
 
                 for receipt in &chunk.local_receipts {
-                    let receipt_id = receipt.receipt_id.to_string();
                     let receipt_record = near_receipts::ActiveModel {
-                        receipt_id: Set(receipt_id.clone()),
+                        receipt_id: Set(receipt.receipt_id.to_string()),
                         block_height: Set(block_height),
                         shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                         predecessor_id: Set(receipt.predecessor_id.to_string()),
@@ -607,27 +886,14 @@ impl RawModule {
                         .exec(db)
                         .await
                         .context("Failed to insert local receipt record")?;
-
-                    upsert_relevant_receipt(
-                        db,
-                        RELEVANCE_SCOPE_ALL,
-                        &receipt_id,
-                        RELEVANCE_REASON_OBSERVED,
-                        None,
-                        receipt_tx_hashes.get(&receipt_id).map(String::as_str),
-                        block_height,
-                        false,
-                    )
-                    .await?;
                 }
             }
 
             for outcome_with_receipt in &shard.receipt_execution_outcomes {
                 let receipt = &outcome_with_receipt.receipt;
-                let receipt_id = receipt.receipt_id.to_string();
 
                 let receipt_record = near_receipts::ActiveModel {
-                    receipt_id: Set(receipt_id.clone()),
+                    receipt_id: Set(receipt.receipt_id.to_string()),
                     block_height: Set(block_height),
                     shard_id: Set(Self::shard_to_i64(shard.shard_id)),
                     predecessor_id: Set(receipt.predecessor_id.to_string()),
@@ -647,18 +913,6 @@ impl RawModule {
                     .exec(db)
                     .await
                     .context("Failed to insert shard receipt record")?;
-
-                upsert_relevant_receipt(
-                    db,
-                    RELEVANCE_SCOPE_ALL,
-                    &receipt_id,
-                    RELEVANCE_REASON_OBSERVED,
-                    None,
-                    receipt_tx_hashes.get(&receipt_id).map(String::as_str),
-                    block_height,
-                    false,
-                )
-                .await?;
             }
         }
 
@@ -677,22 +931,29 @@ impl RawModule {
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         let mut receipt_tx_hashes = receipt_tx_hashes.clone();
-        let block_receipt_ids: Vec<String> = shards
+        let candidate_receipt_ids = Self::collect_candidate_receipt_ids(shards);
+        let mapped_receipts = load_receipt_tx_hash_map(db, &candidate_receipt_ids).await?;
+        for (receipt_id, transaction_hash) in mapped_receipts {
+            receipt_tx_hashes
+                .entry(receipt_id)
+                .or_insert_with(|| transaction_hash);
+        }
+
+        let unresolved_receipt_ids = candidate_receipt_ids
             .iter()
-            .flat_map(|shard| {
-                shard
-                    .receipt_execution_outcomes
-                    .iter()
-                    .map(|outcome| outcome.receipt.receipt_id.to_string())
-            })
-            .collect();
-        let mut tracked_relevant =
-            load_relevant_receipts_for_scope(db, RELEVANCE_SCOPE_ALL, &block_receipt_ids).await?;
-        for (receipt_id, transaction_hash) in &tracked_relevant {
-            if let Some(transaction_hash) = transaction_hash {
+            .filter(|receipt_id| !receipt_tx_hashes.contains_key(*receipt_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !unresolved_receipt_ids.is_empty() {
+            let resolved_from_canonical =
+                Self::resolve_receipt_tx_hashes_from_canonical_graph(db, &unresolved_receipt_ids)
+                    .await?;
+            for (receipt_id, transaction_hash) in resolved_from_canonical {
+                Self::persist_receipt_tx_mapping(db, &receipt_id, &transaction_hash, block_height)
+                    .await?;
                 receipt_tx_hashes
-                    .entry(receipt_id.clone())
-                    .or_insert_with(|| transaction_hash.clone());
+                    .entry(receipt_id)
+                    .or_insert_with(|| transaction_hash);
             }
         }
 
@@ -768,25 +1029,13 @@ impl RawModule {
                         receipt_tx_hashes
                             .entry(parent_receipt_id.to_string())
                             .or_insert_with(|| transaction_hash.clone());
-                        upsert_relevant_receipt(
+                        Self::persist_receipt_tx_mapping(
                             db,
-                            RELEVANCE_SCOPE_ALL,
                             parent_receipt_id,
-                            RELEVANCE_REASON_ROOT,
-                            None,
-                            Some(&transaction_hash),
+                            &transaction_hash,
                             block_height,
-                            true,
                         )
                         .await?;
-                        tracked_relevant
-                            .entry(parent_receipt_id.to_string())
-                            .and_modify(|existing| {
-                                if existing.is_none() {
-                                    *existing = Some(transaction_hash.clone());
-                                }
-                            })
-                            .or_insert(Some(transaction_hash.clone()));
 
                         for child_receipt_id in &outcome.receipt_ids {
                             let child_receipt_id_str = child_receipt_id.to_string();
@@ -802,56 +1051,30 @@ impl RawModule {
                             )
                             .await?;
 
-                            upsert_relevant_receipt(
-                                db,
-                                RELEVANCE_SCOPE_ALL,
-                                &child_receipt_id_str,
-                                RELEVANCE_REASON_DESCENDANT,
-                                Some(parent_receipt_id),
-                                Some(&transaction_hash),
-                                block_height,
-                                false,
-                            )
-                            .await?;
-
                             receipt_tx_hashes
                                 .entry(child_receipt_id_str.clone())
                                 .or_insert_with(|| transaction_hash.clone());
-                            tracked_relevant
-                                .entry(child_receipt_id_str)
-                                .and_modify(|existing| {
-                                    if existing.is_none() {
-                                        *existing = Some(transaction_hash.clone());
-                                    }
-                                })
-                                .or_insert(Some(transaction_hash.clone()));
+                            Self::persist_receipt_tx_mapping(
+                                db,
+                                &child_receipt_id_str,
+                                &transaction_hash,
+                                block_height,
+                            )
+                            .await?;
                         }
                     } else {
                         for child_receipt_id in &outcome.receipt_ids {
                             let child_receipt_id_str = child_receipt_id.to_string();
-                            upsert_relevant_receipt(
-                                db,
-                                RELEVANCE_SCOPE_ALL,
-                                &child_receipt_id_str,
-                                RELEVANCE_REASON_ROOT,
-                                None,
-                                Some(&transaction_hash),
-                                block_height,
-                                false,
-                            )
-                            .await?;
-
                             receipt_tx_hashes
                                 .entry(child_receipt_id_str.clone())
                                 .or_insert_with(|| transaction_hash.clone());
-                            tracked_relevant
-                                .entry(child_receipt_id_str)
-                                .and_modify(|existing| {
-                                    if existing.is_none() {
-                                        *existing = Some(transaction_hash.clone());
-                                    }
-                                })
-                                .or_insert(Some(transaction_hash.clone()));
+                            Self::persist_receipt_tx_mapping(
+                                db,
+                                &child_receipt_id_str,
+                                &transaction_hash,
+                                block_height,
+                            )
+                            .await?;
                         }
                     }
                 }
@@ -860,11 +1083,7 @@ impl RawModule {
             for outcome_with_receipt in &shard.receipt_execution_outcomes {
                 let receipt = &outcome_with_receipt.receipt;
                 let receipt_id = receipt.receipt_id.to_string();
-                let tracked_transaction_hash = tracked_relevant.get(&receipt_id).cloned().flatten();
-                let transaction_hash = receipt_tx_hashes
-                    .get(&receipt_id)
-                    .cloned()
-                    .or(tracked_transaction_hash);
+                let transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
                 let outcome_view = &outcome_with_receipt.execution_outcome;
                 let outcome = &outcome_view.outcome;
                 let outcome_receipt_ids = JsonValue::Array(
@@ -909,18 +1128,15 @@ impl RawModule {
                 )
                 .await?;
 
-                upsert_relevant_receipt(
-                    db,
-                    RELEVANCE_SCOPE_ALL,
-                    &receipt_id,
-                    RELEVANCE_REASON_OBSERVED,
-                    None,
-                    transaction_hash.as_deref(),
-                    block_height,
-                    true,
-                )
-                .await?;
-                tracked_relevant.insert(receipt_id.clone(), transaction_hash.clone());
+                if let Some(transaction_hash) = &transaction_hash {
+                    Self::persist_receipt_tx_mapping(
+                        db,
+                        &receipt_id,
+                        transaction_hash,
+                        block_height,
+                    )
+                    .await?;
+                }
 
                 for child_receipt_id in &outcome.receipt_ids {
                     let child_receipt_id_str = child_receipt_id.to_string();
@@ -936,31 +1152,18 @@ impl RawModule {
                     )
                     .await?;
 
-                    upsert_relevant_receipt(
-                        db,
-                        RELEVANCE_SCOPE_ALL,
-                        &child_receipt_id_str,
-                        RELEVANCE_REASON_DESCENDANT,
-                        Some(&receipt_id),
-                        transaction_hash.as_deref(),
-                        block_height,
-                        false,
-                    )
-                    .await?;
-
                     if let Some(transaction_hash) = &transaction_hash {
                         receipt_tx_hashes
                             .entry(child_receipt_id_str.clone())
                             .or_insert_with(|| transaction_hash.clone());
+                        Self::persist_receipt_tx_mapping(
+                            db,
+                            &child_receipt_id_str,
+                            transaction_hash,
+                            block_height,
+                        )
+                        .await?;
                     }
-                    tracked_relevant
-                        .entry(child_receipt_id_str)
-                        .and_modify(|existing| {
-                            if existing.is_none() {
-                                *existing = transaction_hash.clone();
-                            }
-                        })
-                        .or_insert(transaction_hash.clone());
                 }
 
                 if let ReceiptEnumView::Action {
@@ -1110,7 +1313,7 @@ impl RawModule {
             .await
             .context("Failed to store transaction data")?;
 
-        self.store_receipts(&msg.shards, block_height, &receipt_tx_hashes, &txn)
+        self.store_receipts(&msg.shards, block_height, &txn)
             .await
             .context("Failed to store receipt data")?;
 

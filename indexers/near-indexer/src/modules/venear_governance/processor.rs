@@ -13,22 +13,26 @@ use std::time::Instant;
 use tracing::{error, info, instrument, warn};
 
 use crate::core::cursor;
+use crate::core::receipt_tx_hash_map::{load_receipt_tx_hash_map, upsert_receipt_tx_hash};
 use crate::core::receipt_tx_resolver::build_receipt_tx_hashes;
-use crate::core::relevance_tracker::{
-    load_relevant_receipts_for_scope, upsert_relevant_receipt, RELEVANCE_REASON_DESCENDANT,
-    RELEVANCE_REASON_ROOT, RELEVANCE_SCOPE_ALL, RELEVANCE_SCOPE_HOS,
-};
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "venear_governance";
-const HOS_CONTRACT: &str = "dao";
 const VENEAR_CONTRACT_ID: &str = "venear.dao";
 const VOTING_CONTRACT_ID: &str = "vote.dao";
+const HOS_ROOT_CONTRACT_ID: &str = "hos-root.sputnik-dao.near";
+const HOS_REWARDS_CONTRACT_ID: &str = "rewards.hos-dao.near";
+const VENEAR_LOCKUP_SUFFIX: &str = ".venear.dao";
 const DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS: i64 = 100;
-const DEFAULT_TX_FINALIZE_TIMEOUT_BLOCKS: i64 = 43_200;
 const DEFAULT_STAGING_GC_INTERVAL_BLOCKS: i64 = 600;
 const DEFAULT_STAGING_GC_BATCH_SIZE: i64 = 5_000;
 const DEFAULT_STAGING_GC_MAX_BATCHES: i64 = 50;
+const DEFAULT_TX_MAP_CLEANUP_INTERVAL_BLOCKS: i64 = 600;
+const DEFAULT_TX_MAP_RETENTION_BLOCKS: i64 = 86_400;
+const DEFAULT_TX_MAP_CLEANUP_BATCH_SIZE: i64 = 5_000;
+const DEFAULT_TX_MAP_CLEANUP_MAX_BATCHES: i64 = 50;
+const STALLED_PENDING_GRAPH_WARNING_BLOCKS: i64 = 43_200;
+const TX_STATE_GC_RETENTION_BLOCKS: i64 = 43_200;
 const TX_STATUS_PENDING: &str = "pending";
 const TX_STATUS_FINALIZED: &str = "finalized";
 const TX_STATUS_PRUNED_NON_HOS: &str = "pruned_non_hos";
@@ -38,10 +42,13 @@ pub struct VenearGovernanceModule {
     enabled: bool,
     stream_mode: NearModuleStreamMode,
     mview_refresh_interval_blocks: i64,
-    tx_finalize_timeout_blocks: i64,
     staging_gc_interval_blocks: i64,
     staging_gc_batch_size: i64,
     staging_gc_max_batches_per_run: i64,
+    receipt_tx_map_cleanup_interval_blocks: i64,
+    receipt_tx_map_retention_blocks: i64,
+    receipt_tx_map_cleanup_batch_size: i64,
+    receipt_tx_map_cleanup_max_batches_per_run: i64,
     raw_enabled: bool,
 }
 
@@ -50,10 +57,13 @@ impl VenearGovernanceModule {
         let mut enabled = false;
         let mut stream_mode = NearModuleStreamMode::Shared;
         let mut mview_refresh_interval_blocks = DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS;
-        let mut tx_finalize_timeout_blocks = DEFAULT_TX_FINALIZE_TIMEOUT_BLOCKS;
         let mut staging_gc_interval_blocks = DEFAULT_STAGING_GC_INTERVAL_BLOCKS;
         let mut staging_gc_batch_size = DEFAULT_STAGING_GC_BATCH_SIZE;
         let mut staging_gc_max_batches_per_run = DEFAULT_STAGING_GC_MAX_BATCHES;
+        let mut receipt_tx_map_cleanup_interval_blocks = DEFAULT_TX_MAP_CLEANUP_INTERVAL_BLOCKS;
+        let mut receipt_tx_map_retention_blocks = DEFAULT_TX_MAP_RETENTION_BLOCKS;
+        let mut receipt_tx_map_cleanup_batch_size = DEFAULT_TX_MAP_CLEANUP_BATCH_SIZE;
+        let mut receipt_tx_map_cleanup_max_batches_per_run = DEFAULT_TX_MAP_CLEANUP_MAX_BATCHES;
         let mut raw_enabled = false;
 
         if let common::config::AppConfig::Indexer(idx) = config {
@@ -61,12 +71,7 @@ impl VenearGovernanceModule {
             if let Some(near) = idx.near.as_ref() {
                 let near_enabled = near.chain != "disabled";
                 if near_enabled {
-                    raw_enabled = near
-                        .modules
-                        .as_ref()
-                        .and_then(|m| m.raw.as_ref())
-                        .map(|module| module.enabled)
-                        .unwrap_or(false);
+                    raw_enabled = near.raw_enabled_or_default();
                     if let Some(module_cfg) = near
                         .modules
                         .as_ref()
@@ -77,9 +82,6 @@ impl VenearGovernanceModule {
                         mview_refresh_interval_blocks =
                             i64::try_from(module_cfg.mview_refresh_interval_blocks)
                                 .unwrap_or(i64::MAX);
-                        tx_finalize_timeout_blocks =
-                            i64::try_from(module_cfg.tx_finalize_timeout_blocks)
-                                .unwrap_or(i64::MAX);
                         staging_gc_interval_blocks =
                             i64::try_from(module_cfg.staging_gc_interval_blocks)
                                 .unwrap_or(i64::MAX);
@@ -87,6 +89,18 @@ impl VenearGovernanceModule {
                             i64::try_from(module_cfg.staging_gc_batch_size).unwrap_or(i64::MAX);
                         staging_gc_max_batches_per_run =
                             i64::try_from(module_cfg.staging_gc_max_batches_per_run)
+                                .unwrap_or(i64::MAX);
+                        receipt_tx_map_cleanup_interval_blocks =
+                            i64::try_from(module_cfg.receipt_tx_map_cleanup_interval_blocks)
+                                .unwrap_or(i64::MAX);
+                        receipt_tx_map_retention_blocks =
+                            i64::try_from(module_cfg.receipt_tx_map_retention_blocks)
+                                .unwrap_or(i64::MAX);
+                        receipt_tx_map_cleanup_batch_size =
+                            i64::try_from(module_cfg.receipt_tx_map_cleanup_batch_size)
+                                .unwrap_or(i64::MAX);
+                        receipt_tx_map_cleanup_max_batches_per_run =
+                            i64::try_from(module_cfg.receipt_tx_map_cleanup_max_batches_per_run)
                                 .unwrap_or(i64::MAX);
                     }
                 }
@@ -97,10 +111,13 @@ impl VenearGovernanceModule {
             enabled,
             stream_mode,
             mview_refresh_interval_blocks,
-            tx_finalize_timeout_blocks,
             staging_gc_interval_blocks,
             staging_gc_batch_size,
             staging_gc_max_batches_per_run,
+            receipt_tx_map_cleanup_interval_blocks,
+            receipt_tx_map_retention_blocks,
+            receipt_tx_map_cleanup_batch_size,
+            receipt_tx_map_cleanup_max_batches_per_run,
             raw_enabled,
         }
     }
@@ -237,6 +254,27 @@ impl VenearGovernanceModule {
         Ok(result)
     }
 
+    async fn persist_receipt_tx_mapping(
+        db: &impl ConnectionTrait,
+        receipt_id: &str,
+        transaction_hash: &str,
+        block_height: i64,
+    ) -> Result<()> {
+        let persisted_tx_hash =
+            upsert_receipt_tx_hash(db, receipt_id, transaction_hash, block_height).await?;
+        if persisted_tx_hash != transaction_hash {
+            error!(
+                module = MODULE_NAME,
+                receipt_id = %receipt_id,
+                incoming_transaction_hash = %transaction_hash,
+                persisted_transaction_hash = %persisted_tx_hash,
+                "receipt->tx hash conflict detected; preserving first-seen mapping"
+            );
+        }
+
+        Ok(())
+    }
+
     async fn upsert_tx_state(
         db: &impl ConnectionTrait,
         transaction_hash: &str,
@@ -262,6 +300,11 @@ impl VenearGovernanceModule {
                     EXCLUDED.last_seen_height
                 ),
                 has_hos_touch = near.near_hos_tx_state.has_hos_touch OR EXCLUDED.has_hos_touch,
+                status = EXCLUDED.status,
+                finalized_at = NULL,
+                representative_receipt_id = NULL,
+                incomplete = FALSE,
+                error_reason = NULL,
                 updated_at = NOW()",
             vec![
                 transaction_hash.into(),
@@ -302,7 +345,10 @@ impl VenearGovernanceModule {
                     near.near_hos_tx_state.last_seen_height,
                     EXCLUDED.last_seen_height
                 ),
+                pending_receipt_count = EXCLUDED.pending_receipt_count,
+                has_hos_touch = TRUE,
                 representative_receipt_id = EXCLUDED.representative_receipt_id,
+                finalized_at = NULL,
                 incomplete = TRUE,
                 error_reason = EXCLUDED.error_reason,
                 status = EXCLUDED.status,
@@ -321,16 +367,28 @@ impl VenearGovernanceModule {
         Ok(())
     }
 
-    fn is_hos_contract(&self, account_id: &str) -> bool {
-        let account = account_id.to_ascii_lowercase();
-        if account == HOS_CONTRACT || account == VENEAR_CONTRACT_ID || account == VOTING_CONTRACT_ID
-        {
-            return true;
-        }
+    fn is_hos_lockup_contract(account_id: &str) -> bool {
+        account_id
+            .strip_suffix(VENEAR_LOCKUP_SUFFIX)
+            .map(|prefix| {
+                prefix.len() == 40
+                    && prefix
+                        .as_bytes()
+                        .iter()
+                        .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+            })
+            .unwrap_or(false)
+    }
 
-        account.starts_with("lockup.")
-            && (account.ends_with(&format!(".{VENEAR_CONTRACT_ID}"))
-                || account.ends_with(&format!(".{VOTING_CONTRACT_ID}")))
+    fn is_hos_contract(account_id: &str) -> bool {
+        let account = account_id.to_ascii_lowercase();
+        matches!(
+            account.as_str(),
+            VENEAR_CONTRACT_ID
+                | VOTING_CONTRACT_ID
+                | HOS_ROOT_CONTRACT_ID
+                | HOS_REWARDS_CONTRACT_ID
+        ) || Self::is_hos_lockup_contract(&account)
     }
 
     fn is_hos_related_with_signer(
@@ -339,10 +397,10 @@ impl VenearGovernanceModule {
         predecessor_id: &str,
         signer_account_id: Option<&str>,
     ) -> bool {
-        self.is_hos_contract(receiver_id)
-            || self.is_hos_contract(predecessor_id)
+        Self::is_hos_contract(receiver_id)
+            || Self::is_hos_contract(predecessor_id)
             || signer_account_id
-                .map(|signer| self.is_hos_contract(signer))
+                .map(Self::is_hos_contract)
                 .unwrap_or(false)
     }
 
@@ -447,6 +505,116 @@ impl VenearGovernanceModule {
         ))
         .await
         .context("failed to upsert near_hos_staging_blocks")?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_staging_chunk_for_tx(
+        &self,
+        db: &impl ConnectionTrait,
+        transaction_hash: &str,
+        chunk_hash: &str,
+        block_height: i64,
+        shard_id: i64,
+        author: &str,
+        height_created: i64,
+        height_included: i64,
+        gas_used: i64,
+        gas_limit: i64,
+        validator_reward: &str,
+        raw_data_json: JsonValue,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_hos_staging_chunks (
+                transaction_hash,
+                chunk_hash,
+                block_height,
+                shard_id,
+                author,
+                height_created,
+                height_included,
+                gas_used,
+                gas_limit,
+                validator_reward,
+                raw_data,
+                first_seen_height,
+                last_seen_height
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7,
+                $8, $9, $10, $11, $3, $3
+            )
+            ON CONFLICT (transaction_hash, chunk_hash) DO UPDATE SET
+                block_height = EXCLUDED.block_height,
+                shard_id = EXCLUDED.shard_id,
+                author = EXCLUDED.author,
+                height_created = EXCLUDED.height_created,
+                height_included = EXCLUDED.height_included,
+                gas_used = EXCLUDED.gas_used,
+                gas_limit = EXCLUDED.gas_limit,
+                validator_reward = EXCLUDED.validator_reward,
+                raw_data = COALESCE(
+                    EXCLUDED.raw_data,
+                    near.near_hos_staging_chunks.raw_data
+                ),
+                last_seen_height = GREATEST(
+                    near.near_hos_staging_chunks.last_seen_height,
+                    EXCLUDED.last_seen_height
+                )",
+            vec![
+                transaction_hash.into(),
+                chunk_hash.into(),
+                block_height.into(),
+                shard_id.into(),
+                author.into(),
+                height_created.into(),
+                height_included.into(),
+                gas_used.into(),
+                gas_limit.into(),
+                validator_reward.into(),
+                raw_data_json.into(),
+            ],
+        ))
+        .await
+        .context("failed to upsert near_hos_staging_chunks")?;
+
+        Ok(())
+    }
+
+    async fn upsert_staging_state_changes_for_tx(
+        &self,
+        db: &impl ConnectionTrait,
+        transaction_hash: &str,
+        block_height: i64,
+        shard_id: i64,
+        state_changes_json: JsonValue,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO near.near_hos_staging_state_changes (
+                transaction_hash,
+                block_height,
+                shard_id,
+                state_changes,
+                first_seen_height,
+                last_seen_height
+            ) VALUES ($1, $2, $3, $4, $2, $2)
+            ON CONFLICT (transaction_hash, block_height, shard_id) DO UPDATE SET
+                state_changes = EXCLUDED.state_changes,
+                last_seen_height = GREATEST(
+                    near.near_hos_staging_state_changes.last_seen_height,
+                    EXCLUDED.last_seen_height
+                )",
+            vec![
+                transaction_hash.into(),
+                block_height.into(),
+                shard_id.into(),
+                state_changes_json.into(),
+            ],
+        ))
+        .await
+        .context("failed to upsert near_hos_staging_state_changes")?;
 
         Ok(())
     }
@@ -939,8 +1107,6 @@ impl VenearGovernanceModule {
 
     async fn load_finalize_candidates(
         db: &impl ConnectionTrait,
-        block_height: i64,
-        timeout_blocks: i64,
     ) -> Result<Vec<(String, bool, i64, i64)>> {
         let rows = db
             .query_all(Statement::from_sql_and_values(
@@ -949,17 +1115,10 @@ impl VenearGovernanceModule {
                  FROM near.near_hos_tx_state
                  WHERE status = $1
                    AND transaction_hash IS NOT NULL
-                   AND (
-                        pending_receipt_count = 0
-                        OR ($2 - last_seen_height) >= $3
-                   )
+                   AND pending_receipt_count = 0
                  ORDER BY first_seen_height ASC
                  LIMIT 5000",
-                vec![
-                    TX_STATUS_PENDING.into(),
-                    block_height.into(),
-                    timeout_blocks.into(),
-                ],
+                vec![TX_STATUS_PENDING.into()],
             ))
             .await
             .context("failed to load finalize candidates from near_hos_tx_state")?;
@@ -1041,9 +1200,40 @@ impl VenearGovernanceModule {
         Ok(())
     }
 
+    async fn mark_tx_state_incomplete(
+        db: &impl ConnectionTrait,
+        transaction_hash: &str,
+        pending_receipt_count: i64,
+        error_reason: &str,
+    ) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE near.near_hos_tx_state
+             SET status = $2,
+                 pending_receipt_count = $3,
+                 finalized_at = NULL,
+                 incomplete = TRUE,
+                 error_reason = $4,
+                 updated_at = NOW()
+             WHERE graph_key = $1",
+            vec![
+                transaction_hash.into(),
+                TX_STATUS_INCOMPLETE_MISSING_TX_HASH.into(),
+                pending_receipt_count.into(),
+                error_reason.into(),
+            ],
+        ))
+        .await
+        .context("failed to mark near_hos_tx_state incomplete")?;
+
+        Ok(())
+    }
+
     async fn purge_staging_for_tx(db: &impl ConnectionTrait, transaction_hash: &str) -> Result<()> {
         let statements: &[&str] = &[
             "DELETE FROM near.near_hos_staging_blocks WHERE transaction_hash = $1",
+            "DELETE FROM near.near_hos_staging_chunks WHERE transaction_hash = $1",
+            "DELETE FROM near.near_hos_staging_state_changes WHERE transaction_hash = $1",
             "DELETE FROM near.near_hos_staging_receipt_actions WHERE transaction_hash = $1",
             "DELETE FROM near.near_hos_staging_receipt_edges WHERE transaction_hash = $1",
             "DELETE FROM near.near_hos_staging_execution_outcomes WHERE transaction_hash = $1",
@@ -1204,6 +1394,24 @@ impl VenearGovernanceModule {
             FROM near.near_hos_staging_blocks
             WHERE transaction_hash = $1
             ON CONFLICT (height) DO NOTHING",
+            "INSERT INTO near.near_chunks (
+                chunk_hash, block_height, shard_id, author, height_created,
+                height_included, gas_used, gas_limit, validator_reward, raw_data
+            )
+            SELECT DISTINCT
+                chunk_hash, block_height, shard_id, author, height_created,
+                height_included, gas_used, gas_limit, validator_reward, raw_data
+            FROM near.near_hos_staging_chunks
+            WHERE transaction_hash = $1
+            ON CONFLICT (chunk_hash) DO NOTHING",
+            "INSERT INTO near.near_state_changes (
+                block_height, shard_id, state_changes
+            )
+            SELECT DISTINCT
+                block_height, shard_id, state_changes
+            FROM near.near_hos_staging_state_changes
+            WHERE transaction_hash = $1
+            ON CONFLICT (block_height, shard_id) DO NOTHING",
         ];
 
         for statement in statements {
@@ -1219,69 +1427,139 @@ impl VenearGovernanceModule {
         Ok(())
     }
 
-    async fn upsert_hos_relevant_receipts_for_tx(
+    async fn run_receipt_tx_map_cleanup(
         &self,
         db: &impl ConnectionTrait,
-        transaction_hash: &str,
-        discovered_at_block_height: i64,
+        block_height: i64,
     ) -> Result<()> {
+        if self.raw_enabled
+            || self.receipt_tx_map_cleanup_interval_blocks <= 0
+            || self.receipt_tx_map_cleanup_batch_size <= 0
+        {
+            return Ok(());
+        }
+
+        if block_height % self.receipt_tx_map_cleanup_interval_blocks != 0 {
+            return Ok(());
+        }
+
+        let cutoff_height =
+            block_height.saturating_sub(self.receipt_tx_map_retention_blocks.max(0));
+        let batch_size = self.receipt_tx_map_cleanup_batch_size.max(1);
+        let max_batches = self.receipt_tx_map_cleanup_max_batches_per_run.max(1);
+
+        for _ in 0..max_batches {
+            let result = db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "WITH deletable AS (
+                        SELECT m.receipt_id
+                        FROM near.near_receipt_tx_hash_map m
+                        WHERE m.last_seen_height < $1
+                          AND NOT EXISTS (
+                                SELECT 1
+                                FROM near.near_transactions nt
+                                WHERE nt.hash = m.transaction_hash
+                          )
+                          AND NOT EXISTS (
+                                SELECT 1
+                                FROM near.near_hos_staging_transactions st
+                                WHERE st.hash = m.transaction_hash
+                          )
+                          AND NOT EXISTS (
+                                SELECT 1
+                                FROM near.near_hos_staging_receipt_status rs
+                                WHERE rs.transaction_hash = m.transaction_hash
+                          )
+                          AND NOT EXISTS (
+                                SELECT 1
+                                FROM near.near_hos_tx_state ts
+                                WHERE ts.transaction_hash = m.transaction_hash
+                                  AND ts.status IN ($3, $4)
+                          )
+                        ORDER BY m.last_seen_height ASC
+                        LIMIT $2
+                     )
+                     DELETE FROM near.near_receipt_tx_hash_map m
+                     USING deletable d
+                     WHERE m.receipt_id = d.receipt_id",
+                    vec![
+                        cutoff_height.into(),
+                        batch_size.into(),
+                        TX_STATUS_PENDING.into(),
+                        TX_STATUS_INCOMPLETE_MISSING_TX_HASH.into(),
+                    ],
+                ))
+                .await
+                .context("failed running near_receipt_tx_hash_map cleanup")?;
+
+            if result.rows_affected() == 0 {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn warn_on_stalled_pending_graphs(
+        &self,
+        db: &impl ConnectionTrait,
+        block_height: i64,
+    ) -> Result<()> {
+        let warning_threshold_height =
+            block_height.saturating_sub(STALLED_PENDING_GRAPH_WARNING_BLOCKS.max(0));
+        let limit = self.staging_gc_batch_size.clamp(1, 100);
         let rows = db
             .query_all(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT
-                    rs.receipt_id,
-                    rs.executed,
-                    sr.predecessor_id,
-                    sr.receiver_id
-                 FROM near.near_hos_staging_receipt_status rs
-                 LEFT JOIN near.near_hos_staging_receipts sr
-                    ON sr.receipt_id = rs.receipt_id
-                 WHERE rs.transaction_hash = $1",
-                vec![transaction_hash.into()],
+                "SELECT transaction_hash, has_hos_touch, pending_receipt_count, last_seen_height
+                 FROM near.near_hos_tx_state
+                 WHERE status = $1
+                   AND transaction_hash IS NOT NULL
+                   AND pending_receipt_count > 0
+                   AND last_seen_height <= $2
+                 ORDER BY last_seen_height ASC
+                 LIMIT $3",
+                vec![
+                    TX_STATUS_PENDING.into(),
+                    warning_threshold_height.into(),
+                    limit.into(),
+                ],
             ))
             .await
-            .context("failed to load staged receipts for hos relevance upsert")?;
+            .context("failed to load stalled pending near_hos_tx_state rows")?;
 
         for row in rows {
-            let receipt_id: String = row
-                .try_get("", "receipt_id")
-                .context("failed reading staged relevance receipt_id")?;
-            let executed: bool = row
-                .try_get("", "executed")
-                .context("failed reading staged relevance executed")?;
-            let predecessor_id: Option<String> = row
-                .try_get("", "predecessor_id")
-                .context("failed reading staged relevance predecessor_id")?;
-            let receiver_id: Option<String> = row
-                .try_get("", "receiver_id")
-                .context("failed reading staged relevance receiver_id")?;
+            let transaction_hash: String = row
+                .try_get("", "transaction_hash")
+                .context("failed to read stalled near_hos_tx_state.transaction_hash")?;
+            let has_hos_touch: bool = row
+                .try_get("", "has_hos_touch")
+                .context("failed to read stalled near_hos_tx_state.has_hos_touch")?;
+            let pending_receipt_count: i64 = row
+                .try_get("", "pending_receipt_count")
+                .context("failed to read stalled near_hos_tx_state.pending_receipt_count")?;
+            let last_seen_height: i64 = row
+                .try_get("", "last_seen_height")
+                .context("failed to read stalled near_hos_tx_state.last_seen_height")?;
 
-            let reason = match (receiver_id.as_deref(), predecessor_id.as_deref()) {
-                (Some(receiver), Some(predecessor))
-                    if self.is_hos_related_with_signer(receiver, predecessor, None) =>
-                {
-                    RELEVANCE_REASON_ROOT
-                }
-                _ => RELEVANCE_REASON_DESCENDANT,
-            };
-
-            upsert_relevant_receipt(
-                db,
-                RELEVANCE_SCOPE_HOS,
-                &receipt_id,
-                reason,
-                None,
-                Some(transaction_hash),
-                discovered_at_block_height,
-                executed,
-            )
-            .await?;
+            warn!(
+                module = MODULE_NAME,
+                tx_hash = %transaction_hash,
+                pending_receipt_count,
+                has_hos_touch,
+                last_seen_height,
+                age_blocks = block_height.saturating_sub(last_seen_height),
+                "Pending tx graph remains unresolved; preserving staging rows"
+            );
         }
 
         Ok(())
     }
 
     async fn run_staging_gc(&self, db: &impl ConnectionTrait, block_height: i64) -> Result<()> {
+        self.run_receipt_tx_map_cleanup(db, block_height).await?;
+
         if self.staging_gc_interval_blocks <= 0 || self.staging_gc_batch_size <= 0 {
             return Ok(());
         }
@@ -1290,7 +1568,10 @@ impl VenearGovernanceModule {
             return Ok(());
         }
 
-        let cutoff_height = block_height.saturating_sub(self.tx_finalize_timeout_blocks.max(0));
+        self.warn_on_stalled_pending_graphs(db, block_height)
+            .await?;
+
+        let cutoff_height = block_height.saturating_sub(TX_STATE_GC_RETENTION_BLOCKS.max(0));
         let batch_size = self.staging_gc_batch_size.max(1);
         let max_batches = self.staging_gc_max_batches_per_run.max(1);
 
@@ -1301,10 +1582,10 @@ impl VenearGovernanceModule {
                     "WITH deletable AS (
                         SELECT graph_key
                         FROM near.near_hos_tx_state
-                        WHERE status IN ($1, $2, $3)
-                          AND last_seen_height < $4
+                        WHERE status IN ($1, $2)
+                          AND last_seen_height < $3
                         ORDER BY last_seen_height ASC
-                        LIMIT $5
+                        LIMIT $4
                      )
                      DELETE FROM near.near_hos_tx_state ts
                      USING deletable d
@@ -1312,7 +1593,6 @@ impl VenearGovernanceModule {
                     vec![
                         TX_STATUS_FINALIZED.into(),
                         TX_STATUS_PRUNED_NON_HOS.into(),
-                        TX_STATUS_INCOMPLETE_MISSING_TX_HASH.into(),
                         cutoff_height.into(),
                         batch_size.into(),
                     ],
@@ -1384,20 +1664,15 @@ impl VenearGovernanceModule {
                 .or_insert_with(|| transaction_hash);
         }
 
-        if self.raw_enabled {
-            let tracked_all =
-                load_relevant_receipts_for_scope(db, RELEVANCE_SCOPE_ALL, &lookup_receipt_ids)
-                    .await?;
-            for (receipt_id, transaction_hash) in tracked_all {
-                if let Some(transaction_hash) = transaction_hash {
-                    receipt_tx_hashes
-                        .entry(receipt_id)
-                        .or_insert_with(|| transaction_hash);
-                }
-            }
+        let mapped_receipts = load_receipt_tx_hash_map(db, &lookup_receipt_ids).await?;
+        for (receipt_id, transaction_hash) in mapped_receipts {
+            receipt_tx_hashes
+                .entry(receipt_id)
+                .or_insert_with(|| transaction_hash);
         }
 
         for shard in &msg.shards {
+            let mut shard_touched_tx_hashes: HashSet<String> = HashSet::new();
             let chunk_hash = shard
                 .chunk
                 .as_ref()
@@ -1414,6 +1689,7 @@ impl VenearGovernanceModule {
                 for tx_with_outcome in &chunk.transactions {
                     let tx_hash = tx_with_outcome.transaction.hash.to_string();
                     touched_tx_hashes.insert(tx_hash.clone());
+                    shard_touched_tx_hashes.insert(tx_hash.clone());
 
                     let tx_root_related = self.is_hos_related_with_signer(
                         tx_with_outcome.transaction.receiver_id.as_ref(),
@@ -1453,6 +1729,8 @@ impl VenearGovernanceModule {
                     if let Some(receipt) = &tx_with_outcome.outcome.receipt {
                         let receipt_id = receipt.receipt_id.to_string();
                         receipt_tx_hashes.insert(receipt_id.clone(), tx_hash.clone());
+                        Self::persist_receipt_tx_mapping(db, &receipt_id, &tx_hash, block_height)
+                            .await?;
 
                         let is_hos_root_related = self.is_hos_related_receipt(receipt);
                         if is_hos_root_related {
@@ -1526,6 +1804,13 @@ impl VenearGovernanceModule {
                         for child_receipt_id in &tx_outcome.receipt_ids {
                             let child_receipt_id = child_receipt_id.to_string();
                             receipt_tx_hashes.insert(child_receipt_id.clone(), tx_hash.clone());
+                            Self::persist_receipt_tx_mapping(
+                                db,
+                                &child_receipt_id,
+                                &tx_hash,
+                                block_height,
+                            )
+                            .await?;
                             self.upsert_staging_receipt_edge(
                                 db,
                                 &tx_hash,
@@ -1550,6 +1835,13 @@ impl VenearGovernanceModule {
                         for child_receipt_id in &tx_outcome.receipt_ids {
                             let child_receipt_id = child_receipt_id.to_string();
                             receipt_tx_hashes.insert(child_receipt_id.clone(), tx_hash.clone());
+                            Self::persist_receipt_tx_mapping(
+                                db,
+                                &child_receipt_id,
+                                &tx_hash,
+                                block_height,
+                            )
+                            .await?;
                             self.upsert_staging_receipt_status(
                                 db,
                                 &tx_hash,
@@ -1584,8 +1876,16 @@ impl VenearGovernanceModule {
                     };
 
                     touched_tx_hashes.insert(transaction_hash.clone());
+                    shard_touched_tx_hashes.insert(transaction_hash.clone());
                     Self::upsert_tx_state(db, &transaction_hash, block_height, is_hos_root_related)
                         .await?;
+                    Self::persist_receipt_tx_mapping(
+                        db,
+                        &receipt_id,
+                        &transaction_hash,
+                        block_height,
+                    )
+                    .await?;
                     self.upsert_staging_block_for_tx(db, &transaction_hash, msg, block_height)
                         .await?;
                     self.upsert_staging_receipt(
@@ -1633,7 +1933,10 @@ impl VenearGovernanceModule {
 
                 receipt_tx_hashes.insert(receipt_id.clone(), transaction_hash.clone());
                 touched_tx_hashes.insert(transaction_hash.clone());
+                shard_touched_tx_hashes.insert(transaction_hash.clone());
                 Self::upsert_tx_state(db, &transaction_hash, block_height, is_hos_root_related)
+                    .await?;
+                Self::persist_receipt_tx_mapping(db, &receipt_id, &transaction_hash, block_height)
                     .await?;
                 self.upsert_staging_block_for_tx(db, &transaction_hash, msg, block_height)
                     .await?;
@@ -1705,6 +2008,13 @@ impl VenearGovernanceModule {
                 for child_receipt_id in &outcome.receipt_ids {
                     let child_receipt_id = child_receipt_id.to_string();
                     receipt_tx_hashes.insert(child_receipt_id.clone(), transaction_hash.clone());
+                    Self::persist_receipt_tx_mapping(
+                        db,
+                        &child_receipt_id,
+                        &transaction_hash,
+                        block_height,
+                    )
+                    .await?;
                     self.upsert_staging_receipt_edge(
                         db,
                         &transaction_hash,
@@ -1792,32 +2102,54 @@ impl VenearGovernanceModule {
                     }
                 }
             }
+
+            if let Some(chunk) = &shard.chunk {
+                let header = &chunk.header;
+                let chunk_raw_data = Self::serialize_json(chunk, "chunk raw_data")?;
+                for transaction_hash in &shard_touched_tx_hashes {
+                    self.upsert_staging_chunk_for_tx(
+                        db,
+                        transaction_hash,
+                        &header.chunk_hash.to_string(),
+                        block_height,
+                        shard_id,
+                        chunk.author.as_ref(),
+                        header.height_created as i64,
+                        header.height_included as i64,
+                        header.gas_used.as_gas() as i64,
+                        header.gas_limit.as_gas() as i64,
+                        &header.validator_reward.to_string(),
+                        chunk_raw_data.clone(),
+                    )
+                    .await?;
+                }
+            }
+
+            if !shard.state_changes.is_empty() && !shard_touched_tx_hashes.is_empty() {
+                let state_changes_json =
+                    Self::serialize_json(&shard.state_changes, "state changes payload")?;
+                for transaction_hash in &shard_touched_tx_hashes {
+                    self.upsert_staging_state_changes_for_tx(
+                        db,
+                        transaction_hash,
+                        block_height,
+                        shard_id,
+                        state_changes_json.clone(),
+                    )
+                    .await?;
+                }
+            }
         }
 
         let touched_tx_hashes: Vec<String> = touched_tx_hashes.into_iter().collect();
         Self::refresh_pending_counts_for_txs(db, &touched_tx_hashes).await?;
 
-        let finalize_candidates = Self::load_finalize_candidates(
-            db,
-            block_height,
-            self.tx_finalize_timeout_blocks.max(0),
-        )
-        .await?;
+        let finalize_candidates = Self::load_finalize_candidates(db).await?;
 
-        for (transaction_hash, has_hos_touch, pending_receipt_count, first_seen_height) in
+        for (transaction_hash, has_hos_touch, pending_receipt_count, _first_seen_height) in
             finalize_candidates
         {
             if has_hos_touch {
-                if pending_receipt_count > 0 {
-                    warn!(
-                        module = MODULE_NAME,
-                        tx_hash = %transaction_hash,
-                        pending_receipt_count,
-                        block_height,
-                        "HoS tx finalized via timeout with pending receipts"
-                    );
-                }
-
                 if !self.raw_enabled
                     && !Self::staging_transaction_exists(db, &transaction_hash).await?
                 {
@@ -1828,60 +2160,37 @@ impl VenearGovernanceModule {
                         block_height,
                         "HoS tx missing staged transaction row; marking incomplete and skipping promotion"
                     );
-                    Self::mark_tx_state_finished(
+                    Self::mark_tx_state_incomplete(
                         db,
                         &transaction_hash,
-                        TX_STATUS_INCOMPLETE_MISSING_TX_HASH,
                         pending_receipt_count,
-                        true,
-                        Some("missing_staging_transaction_row"),
+                        "missing_staging_transaction_row",
                     )
                     .await?;
-                    Self::purge_staging_for_tx(db, &transaction_hash).await?;
                     continue;
                 }
 
                 if !self.raw_enabled {
                     Self::promote_staged_tx_graph(db, &transaction_hash).await?;
                 }
-                self.upsert_hos_relevant_receipts_for_tx(db, &transaction_hash, first_seen_height)
-                    .await?;
 
                 Self::mark_tx_state_finished(
                     db,
                     &transaction_hash,
                     TX_STATUS_FINALIZED,
                     pending_receipt_count,
-                    pending_receipt_count > 0,
-                    if pending_receipt_count > 0 {
-                        Some("timeout_pending_receipts")
-                    } else {
-                        None
-                    },
+                    false,
+                    None,
                 )
                 .await?;
             } else {
-                if pending_receipt_count > 0 {
-                    warn!(
-                        module = MODULE_NAME,
-                        tx_hash = %transaction_hash,
-                        pending_receipt_count,
-                        block_height,
-                        "Non-HoS tx pruned via timeout with pending receipts"
-                    );
-                }
-
                 Self::mark_tx_state_finished(
                     db,
                     &transaction_hash,
                     TX_STATUS_PRUNED_NON_HOS,
                     pending_receipt_count,
-                    pending_receipt_count > 0,
-                    if pending_receipt_count > 0 {
-                        Some("timeout_pending_receipts")
-                    } else {
-                        None
-                    },
+                    false,
+                    None,
                 )
                 .await?;
             }
@@ -1967,5 +2276,43 @@ impl IndexerModule for VenearGovernanceModule {
         prev_height: Option<i64>,
     ) -> Result<()> {
         cursor::upsert_module_cursor(db, MODULE_NAME, height, prev_height).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::VenearGovernanceModule;
+
+    #[test]
+    fn hos_contract_matcher_accepts_verified_contracts_and_lockups() {
+        for account_id in [
+            "venear.dao",
+            "vote.dao",
+            "hos-root.sputnik-dao.near",
+            "rewards.hos-dao.near",
+            "0887fe221cafb6810909c83393e23585c439fe99.venear.dao",
+            "0887FE221CAFB6810909C83393E23585C439FE99.VENEAR.DAO",
+        ] {
+            assert!(
+                VenearGovernanceModule::is_hos_contract(account_id),
+                "expected {account_id} to match HoS contract matcher"
+            );
+        }
+    }
+
+    #[test]
+    fn hos_contract_matcher_rejects_legacy_and_unrelated_accounts() {
+        for account_id in [
+            "dao",
+            "foo.vote.dao",
+            "lockup.alice.venear.dao",
+            "random.dao",
+            "0887fe221cafb6810909c83393e23585c439fe9.venear.dao",
+        ] {
+            assert!(
+                !VenearGovernanceModule::is_hos_contract(account_id),
+                "expected {account_id} to be excluded from HoS contract matcher"
+            );
+        }
     }
 }
