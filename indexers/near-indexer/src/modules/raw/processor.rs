@@ -12,7 +12,8 @@ use sea_orm::{
     TransactionTrait, Value,
 };
 use serde_json::Value as JsonValue;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Mutex;
 use tracing::{error, info, instrument};
 
 use crate::core::cursor;
@@ -24,6 +25,7 @@ use crate::IndexerModule;
 const MODULE_NAME: &str = "raw";
 const MAX_BULK_INSERT_PARAMS: usize = 65_535;
 const MAX_BULK_INSERT_ROWS: usize = 250;
+const DATA_RECEIPT_LINK_RETENTION_BLOCKS: i64 = 256;
 
 #[derive(Clone)]
 struct ReceiptTxHashMapRow {
@@ -140,9 +142,76 @@ struct NearReceiptEdgeRow {
     transaction_hash: Option<String>,
 }
 
+#[derive(Clone)]
+struct DataReceiptParentLink {
+    transaction_hash: Option<String>,
+    parent_receipt_id: String,
+    parent_execution_outcome_id: String,
+    block_height: i64,
+    block_hash: String,
+    block_timestamp: i64,
+}
+
+#[derive(Default)]
+struct RawRuntimeState {
+    data_receipt_links: HashMap<String, DataReceiptParentLink>,
+    data_receipt_link_heights: BTreeMap<i64, Vec<String>>,
+}
+
+impl RawRuntimeState {
+    fn remember_data_receipt_links(
+        &mut self,
+        block_height: i64,
+        links: HashMap<String, DataReceiptParentLink>,
+    ) {
+        if links.is_empty() {
+            self.evict_data_receipt_links(block_height);
+            return;
+        }
+
+        let height_bucket = self
+            .data_receipt_link_heights
+            .entry(block_height)
+            .or_default();
+
+        for (data_id, link) in links {
+            height_bucket.push(data_id.clone());
+            self.data_receipt_links.insert(data_id, link);
+        }
+
+        self.evict_data_receipt_links(block_height);
+    }
+
+    fn evict_data_receipt_links(&mut self, block_height: i64) {
+        let cutoff_height = block_height.saturating_sub(DATA_RECEIPT_LINK_RETENTION_BLOCKS);
+        let stale_heights = self
+            .data_receipt_link_heights
+            .keys()
+            .copied()
+            .take_while(|height| *height <= cutoff_height)
+            .collect::<Vec<_>>();
+
+        for height in stale_heights {
+            if let Some(data_ids) = self.data_receipt_link_heights.remove(&height) {
+                for data_id in data_ids {
+                    let remove = self
+                        .data_receipt_links
+                        .get(&data_id)
+                        .map(|link| link.block_height <= cutoff_height)
+                        .unwrap_or(false);
+                    if remove {
+                        self.data_receipt_links.remove(&data_id);
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub struct RawModule {
     enabled: bool,
     stream_mode: NearModuleStreamMode,
+    state: Mutex<RawRuntimeState>,
 }
 
 impl RawModule {
@@ -164,6 +233,7 @@ impl RawModule {
         Self {
             enabled,
             stream_mode,
+            state: Mutex::new(RawRuntimeState::default()),
         }
     }
 
@@ -376,6 +446,47 @@ impl RawModule {
                 transaction_hash: transaction_hash.to_string(),
                 block_height,
             });
+    }
+
+    fn note_output_data_receivers(
+        links: &mut HashMap<String, DataReceiptParentLink>,
+        receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
+        transaction_hash: Option<&str>,
+        parent_execution_outcome_id: &str,
+        block_height: i64,
+        block_hash: &str,
+        block_timestamp: i64,
+    ) {
+        let ReceiptEnumView::Action {
+            output_data_receivers,
+            ..
+        } = &receipt.receipt
+        else {
+            return;
+        };
+
+        for data_receiver in output_data_receivers {
+            links
+                .entry(data_receiver.data_id.to_string())
+                .or_insert_with(|| DataReceiptParentLink {
+                    transaction_hash: transaction_hash.map(str::to_string),
+                    parent_receipt_id: receipt.receipt_id.to_string(),
+                    parent_execution_outcome_id: parent_execution_outcome_id.to_string(),
+                    block_height,
+                    block_hash: block_hash.to_string(),
+                    block_timestamp,
+                });
+        }
+    }
+
+    fn data_receipt_link<'a>(
+        links: &'a HashMap<String, DataReceiptParentLink>,
+        receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
+    ) -> Option<&'a DataReceiptParentLink> {
+        let ReceiptEnumView::Data { data_id, .. } = &receipt.receipt else {
+            return None;
+        };
+        links.get(&data_id.to_string())
     }
 
     async fn load_receipt_tx_hashes_from_execution_outcomes(
@@ -1527,6 +1638,11 @@ impl RawModule {
         db: &impl ConnectionTrait,
     ) -> Result<()> {
         let mut receipt_tx_hashes = receipt_tx_hashes.clone();
+        let mut data_receipt_links = {
+            let state = self.state.lock().unwrap();
+            state.data_receipt_links.clone()
+        };
+        let mut new_data_receipt_links = HashMap::new();
         let mut outcome_rows = HashMap::new();
         let mut edge_rows = HashMap::new();
         let mut action_rows = HashMap::new();
@@ -1558,6 +1674,70 @@ impl RawModule {
                 receipt_tx_hashes
                     .entry(receipt_id)
                     .or_insert_with(|| transaction_hash);
+            }
+        }
+
+        for shard in shards {
+            if let Some(chunk) = &shard.chunk {
+                for tx_with_outcome in &chunk.transactions {
+                    let Some(receipt) = &tx_with_outcome.outcome.receipt else {
+                        continue;
+                    };
+                    let transaction_hash = tx_with_outcome.transaction.hash.to_string();
+                    let execution_outcome_id =
+                        tx_with_outcome.outcome.execution_outcome.id.to_string();
+                    Self::note_output_data_receivers(
+                        &mut data_receipt_links,
+                        receipt,
+                        Some(&transaction_hash),
+                        &execution_outcome_id,
+                        block_height,
+                        block_hash,
+                        block_timestamp,
+                    );
+                    Self::note_output_data_receivers(
+                        &mut new_data_receipt_links,
+                        receipt,
+                        Some(&transaction_hash),
+                        &execution_outcome_id,
+                        block_height,
+                        block_hash,
+                        block_timestamp,
+                    );
+                }
+            }
+
+            for outcome_with_receipt in &shard.receipt_execution_outcomes {
+                let receipt = &outcome_with_receipt.receipt;
+                let receipt_id = receipt.receipt_id.to_string();
+                let data_receipt_link =
+                    Self::data_receipt_link(&data_receipt_links, receipt).cloned();
+                let mut transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
+                if transaction_hash.is_none() {
+                    transaction_hash = data_receipt_link
+                        .as_ref()
+                        .and_then(|link| link.transaction_hash.clone());
+                }
+                let execution_outcome_id = outcome_with_receipt.execution_outcome.id.to_string();
+
+                Self::note_output_data_receivers(
+                    &mut data_receipt_links,
+                    receipt,
+                    transaction_hash.as_deref(),
+                    &execution_outcome_id,
+                    block_height,
+                    block_hash,
+                    block_timestamp,
+                );
+                Self::note_output_data_receivers(
+                    &mut new_data_receipt_links,
+                    receipt,
+                    transaction_hash.as_deref(),
+                    &execution_outcome_id,
+                    block_height,
+                    block_hash,
+                    block_timestamp,
+                );
             }
         }
 
@@ -1670,6 +1850,27 @@ impl RawModule {
                                 block_height,
                             );
                         }
+
+                        if let Some(receipt) = &tx_with_outcome.outcome.receipt {
+                            Self::note_output_data_receivers(
+                                &mut data_receipt_links,
+                                receipt,
+                                Some(&transaction_hash),
+                                &execution_outcome_id,
+                                block_height,
+                                block_hash,
+                                block_timestamp,
+                            );
+                            Self::note_output_data_receivers(
+                                &mut new_data_receipt_links,
+                                receipt,
+                                Some(&transaction_hash),
+                                &execution_outcome_id,
+                                block_height,
+                                block_hash,
+                                block_timestamp,
+                            );
+                        }
                     } else {
                         for child_receipt_id in &outcome.receipt_ids {
                             let child_receipt_id_str = child_receipt_id.to_string();
@@ -1685,12 +1886,60 @@ impl RawModule {
                         }
                     }
                 }
+
+                for receipt in chunk.receipts.iter().chain(chunk.local_receipts.iter()) {
+                    let receipt_id = receipt.receipt_id.to_string();
+                    let data_receipt_link =
+                        Self::data_receipt_link(&data_receipt_links, receipt).cloned();
+                    let mut transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
+                    if transaction_hash.is_none() {
+                        transaction_hash = data_receipt_link
+                            .as_ref()
+                            .and_then(|link| link.transaction_hash.clone());
+                    }
+
+                    if let Some(transaction_hash) = &transaction_hash {
+                        receipt_tx_hashes
+                            .entry(receipt_id.clone())
+                            .or_insert_with(|| transaction_hash.clone());
+                        Self::note_receipt_tx_hash_mapping(
+                            &mut receipt_tx_rows,
+                            &receipt_id,
+                            transaction_hash,
+                            block_height,
+                        );
+                    }
+
+                    if let Some(link) = data_receipt_link.as_ref() {
+                        edge_rows.insert(
+                            (link.parent_receipt_id.clone(), receipt_id.clone()),
+                            NearReceiptEdgeRow {
+                                parent_receipt_id: link.parent_receipt_id.clone(),
+                                child_receipt_id: receipt_id.clone(),
+                                parent_execution_outcome_id: link
+                                    .parent_execution_outcome_id
+                                    .clone(),
+                                block_height: link.block_height,
+                                block_hash: link.block_hash.clone(),
+                                block_timestamp: link.block_timestamp,
+                                transaction_hash: transaction_hash.clone(),
+                            },
+                        );
+                    }
+                }
             }
 
             for outcome_with_receipt in &shard.receipt_execution_outcomes {
                 let receipt = &outcome_with_receipt.receipt;
                 let receipt_id = receipt.receipt_id.to_string();
-                let transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
+                let data_receipt_link =
+                    Self::data_receipt_link(&data_receipt_links, receipt).cloned();
+                let mut transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
+                if transaction_hash.is_none() {
+                    transaction_hash = data_receipt_link
+                        .as_ref()
+                        .and_then(|link| link.transaction_hash.clone());
+                }
                 let outcome_view = &outcome_with_receipt.execution_outcome;
                 let outcome = &outcome_view.outcome;
                 let outcome_receipt_ids = JsonValue::Array(
@@ -1744,11 +1993,29 @@ impl RawModule {
                 );
 
                 if let Some(transaction_hash) = &transaction_hash {
+                    receipt_tx_hashes
+                        .entry(receipt_id.clone())
+                        .or_insert_with(|| transaction_hash.clone());
                     Self::note_receipt_tx_hash_mapping(
                         &mut receipt_tx_rows,
                         &receipt_id,
                         transaction_hash,
                         block_height,
+                    );
+                }
+
+                if let Some(link) = data_receipt_link.as_ref() {
+                    edge_rows.insert(
+                        (link.parent_receipt_id.clone(), receipt_id.clone()),
+                        NearReceiptEdgeRow {
+                            parent_receipt_id: link.parent_receipt_id.clone(),
+                            child_receipt_id: receipt_id.clone(),
+                            parent_execution_outcome_id: link.parent_execution_outcome_id.clone(),
+                            block_height: link.block_height,
+                            block_hash: link.block_hash.clone(),
+                            block_timestamp: link.block_timestamp,
+                            transaction_hash: transaction_hash.clone(),
+                        },
                     );
                 }
 
@@ -1861,6 +2128,11 @@ impl RawModule {
         Self::flush_near_receipt_edges(db, &edge_rows).await?;
         Self::flush_near_receipt_actions(db, &action_rows).await?;
         Self::flush_receipt_tx_hash_map_upserts(db, &receipt_tx_rows).await?;
+
+        {
+            let mut state = self.state.lock().unwrap();
+            state.remember_data_receipt_links(block_height, new_data_receipt_links);
+        }
 
         Ok(())
     }
@@ -2056,5 +2328,88 @@ impl IndexerModule for RawModule {
         prev_height: Option<i64>,
     ) -> Result<()> {
         cursor::upsert_module_cursor(db, MODULE_NAME, height, prev_height).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RawModule, RawRuntimeState};
+    use near_lake_framework::near_indexer_primitives::types::Balance;
+    use near_lake_framework::near_indexer_primitives::views::{
+        DataReceiverView, ReceiptEnumView, ReceiptView,
+    };
+    use near_lake_framework::near_indexer_primitives::CryptoHash;
+
+    fn crypto_hash(byte: u8) -> CryptoHash {
+        CryptoHash([byte; 32])
+    }
+
+    fn action_receipt_with_data_outputs(data_ids: &[u8]) -> ReceiptView {
+        ReceiptView {
+            predecessor_id: "sputnik-dao.near".parse().unwrap(),
+            receiver_id: "hos-root.sputnik-dao.near".parse().unwrap(),
+            receipt_id: crypto_hash(1),
+            receipt: ReceiptEnumView::Action {
+                signer_id: "lane.near".parse().unwrap(),
+                signer_public_key: "ed25519:2duQfvJJJRuhknFFcSqPsQcxCeMt8UsoLqQ9mzmyrYHz"
+                    .parse()
+                    .unwrap(),
+                gas_price: Balance::from_yoctonear(0),
+                output_data_receivers: data_ids
+                    .iter()
+                    .map(|byte| DataReceiverView {
+                        data_id: crypto_hash(*byte),
+                        receiver_id: "sputnik-dao.near".parse().unwrap(),
+                    })
+                    .collect(),
+                input_data_ids: Vec::new(),
+                actions: Vec::new(),
+                is_promise_yield: false,
+                refund_to: None,
+            },
+            priority: 0,
+        }
+    }
+
+    fn data_receipt(data_id: u8) -> ReceiptView {
+        ReceiptView {
+            predecessor_id: "hos-root.sputnik-dao.near".parse().unwrap(),
+            receiver_id: "sputnik-dao.near".parse().unwrap(),
+            receipt_id: crypto_hash(2),
+            receipt: ReceiptEnumView::Data {
+                data_id: crypto_hash(data_id),
+                data: Some(Vec::new()),
+                is_promise_resume: false,
+            },
+            priority: 0,
+        }
+    }
+
+    #[test]
+    fn raw_runtime_retains_data_receipt_links_across_blocks() {
+        let parent_receipt = action_receipt_with_data_outputs(&[7]);
+        let mut links = std::collections::HashMap::new();
+        RawModule::note_output_data_receivers(
+            &mut links,
+            &parent_receipt,
+            Some("tx-1"),
+            "outcome-1",
+            100,
+            "block-100",
+            1_000,
+        );
+
+        let mut state = RawRuntimeState::default();
+        state.remember_data_receipt_links(100, links);
+
+        let link = RawModule::data_receipt_link(&state.data_receipt_links, &data_receipt(7))
+            .expect("expected cached data receipt link");
+        assert_eq!(link.transaction_hash.as_deref(), Some("tx-1"));
+        assert_eq!(
+            link.parent_receipt_id,
+            parent_receipt.receipt_id.to_string()
+        );
+        assert_eq!(link.parent_execution_outcome_id, "outcome-1");
+        assert_eq!(link.block_height, 100);
     }
 }

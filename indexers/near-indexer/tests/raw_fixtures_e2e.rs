@@ -9,7 +9,10 @@ use common::config::{
 };
 use near_indexer::modules::raw::RawModule;
 use near_indexer::IndexerModule;
-use near_lake_framework::near_indexer_primitives::{views::ReceiptEnumView, StreamerMessage};
+use near_lake_framework::near_indexer_primitives::{
+    views::{ReceiptEnumView, ReceiptView},
+    StreamerMessage,
+};
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -145,8 +148,17 @@ fn build_test_config() -> AppConfig {
 
 fn collect_expectations(messages: &[StreamerMessage]) -> RawFixtureExpectations {
     let mut expectations = RawFixtureExpectations::default();
+    let mut persisted_data_receipt_parent_ids: HashMap<String, String> = HashMap::new();
 
     for msg in messages {
+        let mut available_data_receipt_parent_ids = persisted_data_receipt_parent_ids.clone();
+        let mut block_data_receipt_parent_ids = HashMap::new();
+        seed_block_data_receipt_parent_ids(
+            &mut available_data_receipt_parent_ids,
+            &mut block_data_receipt_parent_ids,
+            msg,
+        );
+
         let block_height = msg.block.header.height as i64;
         expectations.block_heights.insert(block_height);
 
@@ -226,6 +238,11 @@ fn collect_expectations(messages: &[StreamerMessage]) -> RawFixtureExpectations 
                 }
 
                 for receipt in &chunk.receipts {
+                    note_data_receipt_edge(
+                        &mut expectations.receipt_edge_keys,
+                        &available_data_receipt_parent_ids,
+                        receipt,
+                    );
                     expectations
                         .receipt_shards
                         .entry(receipt.receipt_id.to_string())
@@ -241,6 +258,11 @@ fn collect_expectations(messages: &[StreamerMessage]) -> RawFixtureExpectations 
                 }
 
                 for receipt in &chunk.local_receipts {
+                    note_data_receipt_edge(
+                        &mut expectations.receipt_edge_keys,
+                        &available_data_receipt_parent_ids,
+                        receipt,
+                    );
                     let receipt_id = receipt.receipt_id.to_string();
                     expectations
                         .receipt_shards
@@ -259,6 +281,11 @@ fn collect_expectations(messages: &[StreamerMessage]) -> RawFixtureExpectations 
             }
 
             for outcome_with_receipt in &shard.receipt_execution_outcomes {
+                note_data_receipt_edge(
+                    &mut expectations.receipt_edge_keys,
+                    &available_data_receipt_parent_ids,
+                    &outcome_with_receipt.receipt,
+                );
                 let receipt_id = outcome_with_receipt.receipt.receipt_id.to_string();
 
                 expectations
@@ -287,7 +314,6 @@ fn collect_expectations(messages: &[StreamerMessage]) -> RawFixtureExpectations 
                         .receipt_edge_keys
                         .insert((receipt_id.clone(), child.to_string()));
                 }
-
                 if let ReceiptEnumView::Action { actions, .. } =
                     &outcome_with_receipt.receipt.receipt
                 {
@@ -299,9 +325,78 @@ fn collect_expectations(messages: &[StreamerMessage]) -> RawFixtureExpectations 
                 }
             }
         }
+
+        for (data_id, parent_receipt_id) in block_data_receipt_parent_ids {
+            persisted_data_receipt_parent_ids.insert(data_id, parent_receipt_id);
+        }
     }
 
     expectations
+}
+
+fn seed_block_data_receipt_parent_ids(
+    available_data_receipt_parent_ids: &mut HashMap<String, String>,
+    block_data_receipt_parent_ids: &mut HashMap<String, String>,
+    message: &StreamerMessage,
+) {
+    for shard in &message.shards {
+        if let Some(chunk) = &shard.chunk {
+            for tx_with_outcome in &chunk.transactions {
+                let Some(receipt) = &tx_with_outcome.outcome.receipt else {
+                    continue;
+                };
+                note_output_data_receipt_parent_ids(available_data_receipt_parent_ids, receipt);
+                note_output_data_receipt_parent_ids(block_data_receipt_parent_ids, receipt);
+            }
+        }
+
+        for outcome_with_receipt in &shard.receipt_execution_outcomes {
+            note_output_data_receipt_parent_ids(
+                available_data_receipt_parent_ids,
+                &outcome_with_receipt.receipt,
+            );
+            note_output_data_receipt_parent_ids(
+                block_data_receipt_parent_ids,
+                &outcome_with_receipt.receipt,
+            );
+        }
+    }
+}
+
+fn note_data_receipt_edge(
+    receipt_edge_keys: &mut HashSet<(String, String)>,
+    available_data_receipt_parent_ids: &HashMap<String, String>,
+    receipt: &ReceiptView,
+) {
+    let ReceiptEnumView::Data { data_id, .. } = &receipt.receipt else {
+        return;
+    };
+
+    let Some(parent_receipt_id) = available_data_receipt_parent_ids.get(&data_id.to_string())
+    else {
+        return;
+    };
+
+    receipt_edge_keys.insert((parent_receipt_id.clone(), receipt.receipt_id.to_string()));
+}
+
+fn note_output_data_receipt_parent_ids(
+    data_receipt_parent_ids_by_data_id: &mut HashMap<String, String>,
+    receipt: &ReceiptView,
+) {
+    let ReceiptEnumView::Action {
+        output_data_receivers,
+        ..
+    } = &receipt.receipt
+    else {
+        return;
+    };
+
+    for data_receiver in output_data_receivers {
+        data_receipt_parent_ids_by_data_id
+            .entry(data_receiver.data_id.to_string())
+            .or_insert_with(|| receipt.receipt_id.to_string());
+    }
 }
 
 async fn scalar_i64(db: &impl ConnectionTrait, sql: &str, values: Vec<Value>) -> Result<i64> {

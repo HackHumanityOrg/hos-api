@@ -27,6 +27,7 @@ const EVENT_JSON_PREFIX: &str = "EVENT_JSON:";
 const LOCKUP_SUFFIX: &str = ".venear.dao";
 const VENEAR_CONTRACT: &str = "venear.dao";
 const VOTING_CONTRACT: &str = "vote.dao";
+const REWARDS_CONTRACT: &str = "rewards.hos-dao.near";
 
 #[derive(Debug, Clone, Copy)]
 struct ScenarioSpec {
@@ -72,6 +73,18 @@ const DEFAULT_SCENARIOS: &[ScenarioSpec] = &[
         start_height: 185_721_110,
         block_count: 40,
         required_event_types: &["admin_set_guardians", "admin_set_reviewer_ids"],
+    },
+    ScenarioSpec {
+        name: "hos_rewards_deploy_176767",
+        start_height: 176_767_290,
+        block_count: 2,
+        required_event_types: &["rewards_deploy", "rewards_init"],
+    },
+    ScenarioSpec {
+        name: "hos_rewards_claim_179510",
+        start_height: 179_510_973,
+        block_count: 3,
+        required_event_types: &["rewards_claim"],
     },
 ];
 
@@ -407,6 +420,15 @@ fn classify_block_with_targets(
                     );
                 }
 
+                if is_rewards_contract(receiver) {
+                    check_rewards_actions(
+                        &tx_with_outcome.transaction.actions,
+                        &mut new_types,
+                        already_found,
+                        target_event_set,
+                    );
+                }
+
                 if is_venear_contract(receiver) {
                     let success = is_status_success(
                         &tx_with_outcome.outcome.execution_outcome.outcome.status,
@@ -469,6 +491,15 @@ fn classify_block_with_targets(
                 check_delegation_receipt_actions(
                     receipt,
                     success,
+                    &mut new_types,
+                    already_found,
+                    target_event_set,
+                );
+            }
+
+            if is_rewards_contract(receiver) {
+                check_rewards_receipt_actions(
+                    receipt,
                     &mut new_types,
                     already_found,
                     target_event_set,
@@ -627,6 +658,45 @@ fn check_admin_receipt_actions(
     }
 }
 
+fn check_rewards_actions(
+    actions: &[near_lake_framework::near_indexer_primitives::views::ActionView],
+    new_types: &mut Vec<String>,
+    already_found: &HashSet<String>,
+    target_event_set: &HashSet<String>,
+) {
+    use near_lake_framework::near_indexer_primitives::views::ActionView;
+
+    for action in actions {
+        let key = match action {
+            ActionView::DeployContract { .. } => Some("rewards_deploy"),
+            ActionView::FunctionCall { method_name, .. } if method_name == "new" => {
+                Some("rewards_init")
+            }
+            ActionView::FunctionCall { method_name, .. } if method_name == "claim" => {
+                Some("rewards_claim")
+            }
+            _ => None,
+        };
+
+        if let Some(key) = key {
+            push_key_if_target(key, new_types, already_found, target_event_set);
+        }
+    }
+}
+
+fn check_rewards_receipt_actions(
+    receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
+    new_types: &mut Vec<String>,
+    already_found: &HashSet<String>,
+    target_event_set: &HashSet<String>,
+) {
+    use near_lake_framework::near_indexer_primitives::views::ReceiptEnumView;
+
+    if let ReceiptEnumView::Action { actions, .. } = &receipt.receipt {
+        check_rewards_actions(actions, new_types, already_found, target_event_set);
+    }
+}
+
 fn check_logs_for_events(
     logs: &[String],
     receiver: &str,
@@ -771,6 +841,10 @@ fn is_venear_contract(id: &str) -> bool {
 
 fn is_voting_contract(id: &str) -> bool {
     id == VOTING_CONTRACT
+}
+
+fn is_rewards_contract(id: &str) -> bool {
+    id == REWARDS_CONTRACT
 }
 
 /// Map a raw event name (from EVENT_JSON log) to a fixture file key.

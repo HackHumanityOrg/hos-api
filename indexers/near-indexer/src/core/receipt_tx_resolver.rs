@@ -1,3 +1,4 @@
+use near_lake_framework::near_indexer_primitives::views::ReceiptEnumView;
 use near_lake_framework::near_indexer_primitives::IndexerShard;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -10,6 +11,7 @@ use std::collections::HashMap;
 /// parent->child receipt graph from `receipt_execution_outcomes`.
 pub fn build_receipt_tx_hashes(shards: &[IndexerShard]) -> HashMap<String, String> {
     let mut receipt_tx_hashes: HashMap<String, String> = HashMap::new();
+    let mut data_tx_hashes: HashMap<String, String> = HashMap::new();
 
     for shard in shards {
         if let Some(chunk) = &shard.chunk {
@@ -20,6 +22,7 @@ pub fn build_receipt_tx_hashes(shards: &[IndexerShard]) -> HashMap<String, Strin
                     receipt_tx_hashes
                         .entry(receipt.receipt_id.to_string())
                         .or_insert_with(|| tx_hash.clone());
+                    note_output_data_receivers(&mut data_tx_hashes, &tx_hash, &receipt.receipt);
                 }
 
                 for child_receipt_id in &tx_with_outcome
@@ -41,12 +44,35 @@ pub fn build_receipt_tx_hashes(shards: &[IndexerShard]) -> HashMap<String, Strin
         changed = false;
 
         for shard in shards {
+            if let Some(chunk) = &shard.chunk {
+                for receipt in chunk.receipts.iter().chain(chunk.local_receipts.iter()) {
+                    let Some(data_id) = data_receipt_data_id(&receipt.receipt) else {
+                        continue;
+                    };
+                    let Some(tx_hash) = data_tx_hashes.get(&data_id).cloned() else {
+                        continue;
+                    };
+                    if let Entry::Vacant(entry) =
+                        receipt_tx_hashes.entry(receipt.receipt_id.to_string())
+                    {
+                        entry.insert(tx_hash);
+                        changed = true;
+                    }
+                }
+            }
+
             for outcome_with_receipt in &shard.receipt_execution_outcomes {
                 let parent_receipt_id = outcome_with_receipt.receipt.receipt_id.to_string();
                 let Some(parent_tx_hash) = receipt_tx_hashes.get(&parent_receipt_id).cloned()
                 else {
                     continue;
                 };
+
+                note_output_data_receivers(
+                    &mut data_tx_hashes,
+                    &parent_tx_hash,
+                    &outcome_with_receipt.receipt.receipt,
+                );
 
                 for child_receipt_id in &outcome_with_receipt.execution_outcome.outcome.receipt_ids
                 {
@@ -61,4 +87,31 @@ pub fn build_receipt_tx_hashes(shards: &[IndexerShard]) -> HashMap<String, Strin
     }
 
     receipt_tx_hashes
+}
+
+fn note_output_data_receivers(
+    data_tx_hashes: &mut HashMap<String, String>,
+    tx_hash: &str,
+    receipt: &ReceiptEnumView,
+) {
+    let ReceiptEnumView::Action {
+        output_data_receivers,
+        ..
+    } = receipt
+    else {
+        return;
+    };
+
+    for data_receiver in output_data_receivers {
+        data_tx_hashes
+            .entry(data_receiver.data_id.to_string())
+            .or_insert_with(|| tx_hash.to_string());
+    }
+}
+
+fn data_receipt_data_id(receipt: &ReceiptEnumView) -> Option<String> {
+    match receipt {
+        ReceiptEnumView::Data { data_id, .. } => Some(data_id.to_string()),
+        _ => None,
+    }
 }

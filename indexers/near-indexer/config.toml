@@ -58,7 +58,7 @@ fastnear_num_threads = 8
 enabled = false
 # Stream mode: "shared" (default) or "independent"
 stream_mode = "shared"
-start_height = 0
+start_height = 158320040
 
 # veNEAR governance raw module - stores only HOS-related rows in shared raw projection tables.
 [near.modules.venear_governance]

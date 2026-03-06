@@ -33,6 +33,7 @@ const DEFAULT_FINALIZATION_INTERVAL_BLOCKS: i64 = 100;
 const DEFAULT_RECENT_RAW_CACHE_BLOCKS: i64 = 32;
 const DEFAULT_TX_MAP_RETENTION_BLOCKS: i64 = 86_400;
 const DEFAULT_YIELD_TIMEOUT_BLOCKS: i64 = 200;
+const DATA_RECEIPT_LINK_RETENTION_BLOCKS: i64 = 256;
 const STALLED_PENDING_GRAPH_WARNING_BLOCKS: i64 = 43_200;
 const RECEIPT_TX_MAP_CLEANUP_BATCH_SIZE: usize = 5_000;
 const RECEIPT_TX_MAP_CLEANUP_MAX_BATCHES: usize = 50;
@@ -174,6 +175,16 @@ struct NearReceiptEdgeRow {
     block_timestamp: i64,
 }
 
+#[derive(Clone)]
+struct DataReceiptParentLink {
+    transaction_hash: String,
+    parent_receipt_id: String,
+    parent_execution_outcome_id: String,
+    block_height: i64,
+    block_hash: String,
+    block_timestamp: i64,
+}
+
 #[derive(Default, Clone)]
 struct HosGraphBundle {
     blocks: HashMap<i64, NearBlockRow>,
@@ -288,6 +299,7 @@ struct GraphBlockUpdate {
 #[derive(Default)]
 struct HosBlockUpdates {
     receipt_tx_hash_map: HashMap<String, ReceiptTxHashMapRow>,
+    data_receipt_links: HashMap<String, DataReceiptParentLink>,
     graph_updates: HashMap<String, GraphBlockUpdate>,
     shared_bundle: HosGraphBundle,
 }
@@ -324,6 +336,37 @@ impl HosBlockUpdates {
                 transaction_hash: transaction_hash.to_string(),
                 block_height,
             });
+    }
+
+    fn note_output_data_receivers(
+        &mut self,
+        receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
+        transaction_hash: &str,
+        parent_execution_outcome_id: &str,
+        block_height: i64,
+        block_hash: &str,
+        block_timestamp: i64,
+    ) {
+        let ReceiptEnumView::Action {
+            output_data_receivers,
+            ..
+        } = &receipt.receipt
+        else {
+            return;
+        };
+
+        for data_receiver in output_data_receivers {
+            self.data_receipt_links
+                .entry(data_receiver.data_id.to_string())
+                .or_insert_with(|| DataReceiptParentLink {
+                    transaction_hash: transaction_hash.to_string(),
+                    parent_receipt_id: receipt.receipt_id.to_string(),
+                    parent_execution_outcome_id: parent_execution_outcome_id.to_string(),
+                    block_height,
+                    block_hash: block_hash.to_string(),
+                    block_timestamp,
+                });
+        }
     }
 
     fn note_tx_metadata(
@@ -512,6 +555,8 @@ impl GraphState {
 struct HosRuntimeState {
     graphs: HashMap<String, GraphState>,
     recent_blocks: BTreeMap<i64, RecentBlockCache>,
+    data_receipt_links: HashMap<String, DataReceiptParentLink>,
+    data_receipt_link_heights: BTreeMap<i64, Vec<String>>,
     closed_hos_since_refresh: usize,
 }
 
@@ -560,6 +605,52 @@ struct MaintenancePlan {
 }
 
 impl HosRuntimeState {
+    fn remember_data_receipt_links(
+        &mut self,
+        block_height: i64,
+        links: HashMap<String, DataReceiptParentLink>,
+    ) {
+        if links.is_empty() {
+            self.evict_data_receipt_links(block_height);
+            return;
+        }
+
+        let height_bucket = self
+            .data_receipt_link_heights
+            .entry(block_height)
+            .or_default();
+        for (data_id, link) in links {
+            height_bucket.push(data_id.clone());
+            self.data_receipt_links.insert(data_id, link);
+        }
+        self.evict_data_receipt_links(block_height);
+    }
+
+    fn evict_data_receipt_links(&mut self, block_height: i64) {
+        let cutoff_height = block_height.saturating_sub(DATA_RECEIPT_LINK_RETENTION_BLOCKS);
+        let stale_heights = self
+            .data_receipt_link_heights
+            .keys()
+            .copied()
+            .take_while(|height| *height <= cutoff_height)
+            .collect::<Vec<_>>();
+
+        for height in stale_heights {
+            if let Some(data_ids) = self.data_receipt_link_heights.remove(&height) {
+                for data_id in data_ids {
+                    let remove = self
+                        .data_receipt_links
+                        .get(&data_id)
+                        .map(|link| link.block_height <= cutoff_height)
+                        .unwrap_or(false);
+                    if remove {
+                        self.data_receipt_links.remove(&data_id);
+                    }
+                }
+            }
+        }
+    }
+
     fn merge_block_updates(
         &mut self,
         block_height: i64,
@@ -571,9 +662,12 @@ impl HosRuntimeState {
         stats.record_count("block_write_rows", updates.row_count());
         let HosBlockUpdates {
             receipt_tx_hash_map: _,
+            data_receipt_links,
             graph_updates,
             shared_bundle,
         } = updates;
+
+        self.remember_data_receipt_links(block_height, data_receipt_links);
 
         for (transaction_hash, update) in graph_updates {
             let prior_hos_touch = self
@@ -1345,6 +1439,47 @@ impl VenearGovernanceModule {
         )
     }
 
+    fn data_receipt_link(
+        links: &HashMap<String, DataReceiptParentLink>,
+        receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
+    ) -> Option<DataReceiptParentLink> {
+        let ReceiptEnumView::Data { data_id, .. } = &receipt.receipt else {
+            return None;
+        };
+        links.get(&data_id.to_string()).cloned()
+    }
+
+    fn cache_output_data_receivers(
+        links: &mut HashMap<String, DataReceiptParentLink>,
+        receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
+        transaction_hash: &str,
+        parent_execution_outcome_id: &str,
+        block_height: i64,
+        block_hash: &str,
+        block_timestamp: i64,
+    ) {
+        let ReceiptEnumView::Action {
+            output_data_receivers,
+            ..
+        } = &receipt.receipt
+        else {
+            return;
+        };
+
+        for data_receiver in output_data_receivers {
+            links
+                .entry(data_receiver.data_id.to_string())
+                .or_insert_with(|| DataReceiptParentLink {
+                    transaction_hash: transaction_hash.to_string(),
+                    parent_receipt_id: receipt.receipt_id.to_string(),
+                    parent_execution_outcome_id: parent_execution_outcome_id.to_string(),
+                    block_height,
+                    block_hash: block_hash.to_string(),
+                    block_timestamp,
+                });
+        }
+    }
+
     async fn refresh_hos_materialized_views(&self, db: &DatabaseConnection) -> Result<()> {
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -1962,6 +2097,10 @@ impl VenearGovernanceModule {
         };
 
         let mut receipt_tx_hashes = build_receipt_tx_hashes(&msg.shards);
+        let mut data_receipt_links = {
+            let state = self.state.lock().unwrap();
+            state.data_receipt_links.clone()
+        };
         let mut lookup_receipt_ids = Vec::new();
 
         for shard in &msg.shards {
@@ -2013,6 +2152,69 @@ impl VenearGovernanceModule {
         let mut updates = HosBlockUpdates::default();
         let mut touched_tx_hashes = HashSet::new();
         let mut unresolved_hos_receipts = Vec::new();
+
+        for shard in &msg.shards {
+            if let Some(chunk) = &shard.chunk {
+                for tx_with_outcome in &chunk.transactions {
+                    let Some(receipt) = &tx_with_outcome.outcome.receipt else {
+                        continue;
+                    };
+                    let tx_hash = tx_with_outcome.transaction.hash.to_string();
+                    let tx_outcome_id = tx_with_outcome.outcome.execution_outcome.id.to_string();
+                    updates.note_output_data_receivers(
+                        receipt,
+                        &tx_hash,
+                        &tx_outcome_id,
+                        block_height,
+                        &block_hash,
+                        block_timestamp,
+                    );
+                    Self::cache_output_data_receivers(
+                        &mut data_receipt_links,
+                        receipt,
+                        &tx_hash,
+                        &tx_outcome_id,
+                        block_height,
+                        &block_hash,
+                        block_timestamp,
+                    );
+                }
+            }
+
+            for outcome_with_receipt in &shard.receipt_execution_outcomes {
+                let receipt = &outcome_with_receipt.receipt;
+                let receipt_id = receipt.receipt_id.to_string();
+                let data_receipt_link = Self::data_receipt_link(&data_receipt_links, receipt);
+                let mut transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
+                if transaction_hash.is_none() {
+                    transaction_hash = data_receipt_link
+                        .as_ref()
+                        .map(|link| link.transaction_hash.clone());
+                }
+                let Some(transaction_hash) = transaction_hash else {
+                    continue;
+                };
+                let outcome_id = outcome_with_receipt.execution_outcome.id.to_string();
+
+                updates.note_output_data_receivers(
+                    receipt,
+                    &transaction_hash,
+                    &outcome_id,
+                    block_height,
+                    &block_hash,
+                    block_timestamp,
+                );
+                Self::cache_output_data_receivers(
+                    &mut data_receipt_links,
+                    receipt,
+                    &transaction_hash,
+                    &outcome_id,
+                    block_height,
+                    &block_hash,
+                    block_timestamp,
+                );
+            }
+        }
 
         for shard in &msg.shards {
             let mut shard_touched_tx_hashes = HashSet::new();
@@ -2069,6 +2271,9 @@ impl VenearGovernanceModule {
                         .receipt
                         .as_ref()
                         .map(|receipt| receipt.receipt_id.to_string());
+                    let tx_outcome_view = &tx_with_outcome.outcome.execution_outcome;
+                    let tx_outcome = &tx_outcome_view.outcome;
+                    let tx_outcome_id = tx_outcome_view.id.to_string();
                     if let Some(receipt) = &tx_with_outcome.outcome.receipt {
                         let receipt_id = receipt.receipt_id.to_string();
                         receipt_tx_hashes.insert(receipt_id.clone(), tx_hash.clone());
@@ -2099,11 +2304,24 @@ impl VenearGovernanceModule {
                                 block_height.saturating_add(DEFAULT_YIELD_TIMEOUT_BLOCKS),
                             );
                         }
+                        updates.note_output_data_receivers(
+                            receipt,
+                            &tx_hash,
+                            &tx_outcome_id,
+                            block_height,
+                            &block_hash,
+                            block_timestamp,
+                        );
+                        Self::cache_output_data_receivers(
+                            &mut data_receipt_links,
+                            receipt,
+                            &tx_hash,
+                            &tx_outcome_id,
+                            block_height,
+                            &block_hash,
+                            block_timestamp,
+                        );
                     }
-
-                    let tx_outcome_view = &tx_with_outcome.outcome.execution_outcome;
-                    let tx_outcome = &tx_outcome_view.outcome;
-                    let tx_outcome_id = tx_outcome_view.id.to_string();
                     let tx_outcome_receipt_ids = JsonValue::Array(
                         tx_outcome
                             .receipt_ids
@@ -2192,7 +2410,13 @@ impl VenearGovernanceModule {
             if let Some(chunk) = &shard.chunk {
                 for receipt in chunk.receipts.iter().chain(chunk.local_receipts.iter()) {
                     let receipt_id = receipt.receipt_id.to_string();
-                    let transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
+                    let data_receipt_link = Self::data_receipt_link(&data_receipt_links, receipt);
+                    let mut transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
+                    if transaction_hash.is_none() {
+                        transaction_hash = data_receipt_link
+                            .as_ref()
+                            .map(|link| link.transaction_hash.clone());
+                    }
                     let is_hos_root_related = self.is_hos_related_receipt(receipt);
 
                     let Some(transaction_hash) = transaction_hash else {
@@ -2205,11 +2429,28 @@ impl VenearGovernanceModule {
                     touched_tx_hashes.insert(transaction_hash.clone());
                     shard_touched_tx_hashes.insert(transaction_hash.clone());
                     updates.note_tx_metadata(&transaction_hash, is_hos_root_related, false);
+                    receipt_tx_hashes.insert(receipt_id.clone(), transaction_hash.clone());
                     updates.note_receipt_tx_hash_mapping(
                         &receipt_id,
                         &transaction_hash,
                         block_height,
                     );
+                    if let Some(link) = data_receipt_link.as_ref() {
+                        updates.note_receipt_edge(
+                            &transaction_hash,
+                            NearReceiptEdgeRow {
+                                parent_receipt_id: link.parent_receipt_id.clone(),
+                                child_receipt_id: receipt_id.clone(),
+                                transaction_hash: transaction_hash.clone(),
+                                parent_execution_outcome_id: link
+                                    .parent_execution_outcome_id
+                                    .clone(),
+                                block_height: link.block_height,
+                                block_hash: link.block_hash.clone(),
+                                block_timestamp: link.block_timestamp,
+                            },
+                        );
+                    }
                     Self::note_common_block_data(&mut updates, &transaction_hash, &block_row);
                     updates.note_receipt(
                         &transaction_hash,
@@ -2226,7 +2467,9 @@ impl VenearGovernanceModule {
                             raw_data: Self::serialize_json(receipt, "observed receipt row")?,
                         },
                     );
-                    updates.note_pending_receipt(&transaction_hash, &receipt_id);
+                    if !matches!(receipt.receipt, ReceiptEnumView::Data { .. }) {
+                        updates.note_pending_receipt(&transaction_hash, &receipt_id);
+                    }
                     if Self::is_promise_yield(&receipt.receipt) {
                         updates.note_yielded_receipt(
                             &transaction_hash,
@@ -2243,7 +2486,13 @@ impl VenearGovernanceModule {
             for outcome_with_receipt in &shard.receipt_execution_outcomes {
                 let receipt = &outcome_with_receipt.receipt;
                 let receipt_id = receipt.receipt_id.to_string();
-                let transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
+                let data_receipt_link = Self::data_receipt_link(&data_receipt_links, receipt);
+                let mut transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
+                if transaction_hash.is_none() {
+                    transaction_hash = data_receipt_link
+                        .as_ref()
+                        .map(|link| link.transaction_hash.clone());
+                }
                 let is_hos_root_related = self.is_hos_related_receipt(receipt);
 
                 let Some(transaction_hash) = transaction_hash else {
@@ -2258,6 +2507,20 @@ impl VenearGovernanceModule {
                 shard_touched_tx_hashes.insert(transaction_hash.clone());
                 updates.note_tx_metadata(&transaction_hash, is_hos_root_related, false);
                 updates.note_receipt_tx_hash_mapping(&receipt_id, &transaction_hash, block_height);
+                if let Some(link) = data_receipt_link.as_ref() {
+                    updates.note_receipt_edge(
+                        &transaction_hash,
+                        NearReceiptEdgeRow {
+                            parent_receipt_id: link.parent_receipt_id.clone(),
+                            child_receipt_id: receipt_id.clone(),
+                            transaction_hash: transaction_hash.clone(),
+                            parent_execution_outcome_id: link.parent_execution_outcome_id.clone(),
+                            block_height: link.block_height,
+                            block_hash: link.block_hash.clone(),
+                            block_timestamp: link.block_timestamp,
+                        },
+                    );
+                }
                 Self::note_common_block_data(&mut updates, &transaction_hash, &block_row);
 
                 updates.note_receipt(
@@ -2725,7 +2988,57 @@ mod tests {
         HosBlockUpdates, HosRuntimeState, NearBlockRow, NearTransactionRow, StageMetrics,
         VenearGovernanceModule,
     };
+    use near_lake_framework::near_indexer_primitives::types::Balance;
+    use near_lake_framework::near_indexer_primitives::views::{
+        DataReceiverView, ReceiptEnumView, ReceiptView,
+    };
+    use near_lake_framework::near_indexer_primitives::CryptoHash;
     use serde_json::json;
+
+    fn crypto_hash(byte: u8) -> CryptoHash {
+        CryptoHash([byte; 32])
+    }
+
+    fn action_receipt_with_data_outputs(data_ids: &[u8]) -> ReceiptView {
+        ReceiptView {
+            predecessor_id: "sputnik-dao.near".parse().unwrap(),
+            receiver_id: "hos-root.sputnik-dao.near".parse().unwrap(),
+            receipt_id: crypto_hash(1),
+            receipt: ReceiptEnumView::Action {
+                signer_id: "lane.near".parse().unwrap(),
+                signer_public_key: "ed25519:2duQfvJJJRuhknFFcSqPsQcxCeMt8UsoLqQ9mzmyrYHz"
+                    .parse()
+                    .unwrap(),
+                gas_price: Balance::from_yoctonear(0),
+                output_data_receivers: data_ids
+                    .iter()
+                    .map(|byte| DataReceiverView {
+                        data_id: crypto_hash(*byte),
+                        receiver_id: "sputnik-dao.near".parse().unwrap(),
+                    })
+                    .collect(),
+                input_data_ids: Vec::new(),
+                actions: Vec::new(),
+                is_promise_yield: false,
+                refund_to: None,
+            },
+            priority: 0,
+        }
+    }
+
+    fn data_receipt(data_id: u8) -> ReceiptView {
+        ReceiptView {
+            predecessor_id: "hos-root.sputnik-dao.near".parse().unwrap(),
+            receiver_id: "sputnik-dao.near".parse().unwrap(),
+            receipt_id: crypto_hash(2),
+            receipt: ReceiptEnumView::Data {
+                data_id: crypto_hash(data_id),
+                data: Some(Vec::new()),
+                is_promise_resume: false,
+            },
+            priority: 0,
+        }
+    }
 
     #[test]
     fn hos_contract_matcher_accepts_verified_contracts_and_lockups() {
@@ -2842,5 +3155,35 @@ mod tests {
 
         assert_eq!(plan.pruned_non_hos, vec!["tx-1".to_string()]);
         assert!(state.graphs.is_empty());
+    }
+
+    #[test]
+    fn data_receipt_links_survive_across_blocks() {
+        let parent_receipt = action_receipt_with_data_outputs(&[9]);
+        let mut updates = HosBlockUpdates::default();
+        updates.note_output_data_receivers(
+            &parent_receipt,
+            "tx-1",
+            "outcome-1",
+            100,
+            "block-100",
+            1_000,
+        );
+
+        let mut state = HosRuntimeState::default();
+        let mut stats = StageMetrics::new();
+        state.merge_block_updates(100, updates, false, 32, &mut stats);
+
+        let link =
+            VenearGovernanceModule::data_receipt_link(&state.data_receipt_links, &data_receipt(9))
+                .expect("expected cached data receipt link");
+
+        assert_eq!(link.transaction_hash, "tx-1");
+        assert_eq!(
+            link.parent_receipt_id,
+            parent_receipt.receipt_id.to_string()
+        );
+        assert_eq!(link.parent_execution_outcome_id, "outcome-1");
+        assert_eq!(link.block_height, 100);
     }
 }

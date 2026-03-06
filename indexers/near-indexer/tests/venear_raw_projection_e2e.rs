@@ -120,6 +120,17 @@ fn core_hos_fixture_messages() -> &'static [StreamerMessage] {
         .as_slice()
 }
 
+fn rewards_fixture_messages() -> &'static [StreamerMessage] {
+    static FIXTURES: OnceLock<Vec<StreamerMessage>> = OnceLock::new();
+    FIXTURES
+        .get_or_init(|| {
+            let mut messages = load_fixture_range("hos_rewards_claim_179510");
+            messages.sort_by_key(|msg| msg.block.header.height);
+            messages
+        })
+        .as_slice()
+}
+
 fn base_fixture_message() -> StreamerMessage {
     static BASE_FIXTURE: OnceLock<StreamerMessage> = OnceLock::new();
     BASE_FIXTURE
@@ -1030,6 +1041,126 @@ async fn sql_hos_contract_matcher_matches_verified_accounts() -> Result<()> {
             "expected {account_id} to be excluded from near.is_hos_contract"
         );
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn venear_governance_includes_rewards_contract_activity() -> Result<()> {
+    init_test_tracing();
+
+    let fixtures = rewards_fixture_messages();
+    let rewards_tx_hash = fixtures
+        .iter()
+        .flat_map(|fixture| fixture.shards.iter())
+        .filter_map(|shard| shard.chunk.as_ref())
+        .flat_map(|chunk| chunk.transactions.iter())
+        .find(|tx_with_outcome| {
+            tx_with_outcome.transaction.signer_id.as_str() == "rewards.hos-dao.near"
+                || tx_with_outcome.transaction.receiver_id.as_str() == "rewards.hos-dao.near"
+        })
+        .map(|tx_with_outcome| tx_with_outcome.transaction.hash.to_string())
+        .expect("expected rewards fixture to contain a rewards.hos-dao.near transaction");
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let mut venear_cfg = venear_test_config();
+    venear_cfg.finalization_interval_blocks = 1;
+    let module = VenearGovernanceModule::new(&build_test_app_config(
+        Some(raw_config(false)),
+        Some(venear_cfg),
+    ));
+
+    module.initialize(conn.as_ref()).await?;
+    for fixture in fixtures {
+        module.process_block(fixture, conn.as_ref()).await?;
+    }
+
+    let rewards_tx_rows = scalar_i64(
+        conn.as_ref(),
+        &format!(
+            "SELECT COUNT(*)::bigint AS value
+             FROM near.near_transactions
+             WHERE hash = '{rewards_tx_hash}'"
+        ),
+    )
+    .await?;
+    assert_eq!(rewards_tx_rows, 1);
+
+    let rewards_receipt_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipts
+         WHERE predecessor_id = 'rewards.hos-dao.near'
+            OR receiver_id = 'rewards.hos-dao.near'",
+    )
+    .await?;
+    assert!(
+        rewards_receipt_rows >= 2,
+        "expected rewards contract flow receipts to be promoted"
+    );
+
+    let rewards_to_lockup_receipts = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipts
+         WHERE predecessor_id = 'rewards.hos-dao.near'
+           AND receiver_id LIKE '%.venear.dao'",
+    )
+    .await?;
+    assert!(
+        rewards_to_lockup_receipts > 0,
+        "expected rewards claim flow to include a lockup transfer child receipt"
+    );
+
+    let system_refund_receipts = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipts
+         WHERE predecessor_id = 'system'
+           AND receiver_id = 'hos-governance.near'",
+    )
+    .await?;
+    assert!(
+        system_refund_receipts > 0,
+        "expected claim flow to retain the sibling system refund receipt"
+    );
+
+    let rewards_outcomes = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_execution_outcomes eo
+         WHERE EXISTS (
+             SELECT 1
+             FROM near.near_receipts r
+             WHERE r.receipt_id = eo.receipt_id
+               AND (r.predecessor_id = 'rewards.hos-dao.near'
+                    OR r.receiver_id = 'rewards.hos-dao.near')
+         )",
+    )
+    .await?;
+    assert!(
+        rewards_outcomes > 0,
+        "expected rewards contract execution outcomes to be promoted"
+    );
+
+    let rewards_chunks = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_chunks
+         WHERE block_height BETWEEN 179510973 AND 179510975",
+    )
+    .await?;
+    assert!(rewards_chunks > 0);
+
+    let rewards_state_changes = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_state_changes
+         WHERE block_height BETWEEN 179510973 AND 179510975",
+    )
+    .await?;
+    assert!(rewards_state_changes > 0);
 
     Ok(())
 }
