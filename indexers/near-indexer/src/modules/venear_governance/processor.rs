@@ -42,7 +42,10 @@ const TX_STATUS_FINALIZED: &str = "finalized";
 const TX_STATUS_PRUNED_NON_HOS: &str = "pruned_non_hos";
 const TX_STATUS_INCOMPLETE_MISSING_TX_HASH: &str = "incomplete_missing_tx_hash";
 const MAX_BULK_INSERT_PARAMS: usize = 65_535;
-const MAX_BULK_INSERT_ROWS: usize = 250;
+// Bulk statements repeat large JSON payloads per row, especially for staged
+// block/chunk/state-change raw_data. Keep row batches small enough to avoid
+// oversized Postgres statements while still reducing round trips materially.
+const MAX_BULK_INSERT_ROWS: usize = 25;
 
 #[derive(Clone)]
 struct TxStateUpsertRow {
