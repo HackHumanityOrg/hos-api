@@ -34,6 +34,7 @@ const DEFAULT_TX_MAP_RETENTION_BLOCKS: i64 = 1_024;
 const DEFAULT_YIELD_TIMEOUT_BLOCKS: i64 = 200;
 const DATA_RECEIPT_LINK_RETENTION_BLOCKS: i64 = 256;
 const STALLED_PENDING_GRAPH_WARNING_BLOCKS: i64 = 43_200;
+const RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS: i64 = 128;
 const RECEIPT_TX_MAP_CLEANUP_BATCH_SIZE: usize = 5_000;
 const RECEIPT_TX_MAP_CLEANUP_MAX_BATCHES: usize = 50;
 const MAX_BULK_INSERT_PARAMS: usize = 65_535;
@@ -299,9 +300,6 @@ impl HosGraphBundle {
 
 #[derive(Default, Clone)]
 struct TxSliceRefs {
-    block_heights: HashSet<i64>,
-    chunk_hashes: HashSet<String>,
-    state_change_keys: HashSet<(i64, i64)>,
     transaction_hashes: HashSet<String>,
     receipt_ids: HashSet<String>,
     execution_outcome_ids: HashSet<String>,
@@ -310,9 +308,6 @@ struct TxSliceRefs {
 
 impl TxSliceRefs {
     fn merge(&mut self, other: TxSliceRefs) {
-        self.block_heights.extend(other.block_heights);
-        self.chunk_hashes.extend(other.chunk_hashes);
-        self.state_change_keys.extend(other.state_change_keys);
         self.transaction_hashes.extend(other.transaction_hashes);
         self.receipt_ids.extend(other.receipt_ids);
         self.execution_outcome_ids
@@ -321,14 +316,35 @@ impl TxSliceRefs {
     }
 
     fn is_empty(&self) -> bool {
-        self.block_heights.is_empty()
-            && self.chunk_hashes.is_empty()
-            && self.state_change_keys.is_empty()
-            && self.transaction_hashes.is_empty()
+        self.transaction_hashes.is_empty()
             && self.receipt_ids.is_empty()
             && self.execution_outcome_ids.is_empty()
             && self.receipt_edge_keys.is_empty()
     }
+}
+
+#[derive(Clone)]
+struct ReceiptTxHotCacheEntry {
+    transaction_hash: String,
+    last_seen_height: i64,
+    last_persisted_height: i64,
+}
+
+#[derive(Default)]
+struct ReceiptTxHotCacheLookupStats {
+    candidate_count: usize,
+    local_resolved_count: usize,
+    hot_cache_hit_count: usize,
+    db_query_count: usize,
+    db_hit_count: usize,
+    db_miss_count: usize,
+}
+
+#[derive(Default)]
+struct ReceiptTxHotCacheWriteStats {
+    new_count: usize,
+    refresh_count: usize,
+    skipped_count: usize,
 }
 
 #[derive(Default)]
@@ -483,29 +499,14 @@ impl HosBlockUpdates {
         }
     }
 
-    fn note_block_ref(&mut self, transaction_hash: &str, block_height: i64) {
-        self.graph_update_mut(transaction_hash)
-            .refs
-            .block_heights
-            .insert(block_height);
-    }
-
-    fn note_chunk(&mut self, transaction_hash: &str, row: ChunkSource) {
+    fn remember_chunk_source(&mut self, row: ChunkSource) {
         let key = row.chunk.header.chunk_hash.to_string();
-        self.shared_bundle.chunks.entry(key.clone()).or_insert(row);
-        self.graph_update_mut(transaction_hash)
-            .refs
-            .chunk_hashes
-            .insert(key);
+        self.shared_bundle.chunks.entry(key).or_insert(row);
     }
 
-    fn note_state_changes(&mut self, transaction_hash: &str, row: StateChangesSource) {
+    fn remember_state_changes_source(&mut self, row: StateChangesSource) {
         let key = (row.block_height, row.shard_id);
         self.shared_bundle.state_changes.entry(key).or_insert(row);
-        self.graph_update_mut(transaction_hash)
-            .refs
-            .state_change_keys
-            .insert(key);
     }
 
     fn note_transaction(&mut self, transaction_hash: &str, row: TransactionSource) {
@@ -612,6 +613,7 @@ struct HosRuntimeState {
     recent_blocks: BTreeMap<i64, RecentBlockCache>,
     data_receipt_links: HashMap<String, DataReceiptParentLink>,
     data_receipt_link_heights: BTreeMap<i64, Vec<String>>,
+    receipt_tx_hot_cache: HashMap<String, ReceiptTxHotCacheEntry>,
     closed_hos_since_refresh: usize,
     cleanup_resume_height: Option<i64>,
 }
@@ -727,6 +729,114 @@ impl HosRuntimeState {
                 }
             }
         }
+    }
+
+    fn resolve_receipt_tx_hashes_from_hot_cache(
+        &mut self,
+        block_height: i64,
+        receipt_ids: &[String],
+        receipt_tx_hashes: &mut HashMap<String, String>,
+    ) -> ReceiptTxHotCacheLookupStats {
+        let mut stats = ReceiptTxHotCacheLookupStats {
+            candidate_count: receipt_ids.len(),
+            ..ReceiptTxHotCacheLookupStats::default()
+        };
+
+        for receipt_id in receipt_ids {
+            if receipt_tx_hashes.contains_key(receipt_id) {
+                stats.local_resolved_count += 1;
+                continue;
+            }
+
+            if let Some(entry) = self.receipt_tx_hot_cache.get_mut(receipt_id) {
+                entry.last_seen_height = entry.last_seen_height.max(block_height);
+                receipt_tx_hashes
+                    .entry(receipt_id.clone())
+                    .or_insert_with(|| entry.transaction_hash.clone());
+                stats.hot_cache_hit_count += 1;
+            }
+        }
+
+        stats
+    }
+
+    fn plan_receipt_tx_hash_map_writes(
+        &self,
+        rows: &[ReceiptTxHashMapRow],
+        block_height: i64,
+    ) -> (Vec<ReceiptTxHashMapRow>, ReceiptTxHotCacheWriteStats) {
+        let mut planned = Vec::new();
+        let mut stats = ReceiptTxHotCacheWriteStats::default();
+
+        for row in rows {
+            let Some(entry) = self.receipt_tx_hot_cache.get(&row.receipt_id) else {
+                planned.push(row.clone());
+                stats.new_count += 1;
+                continue;
+            };
+
+            if entry.transaction_hash != row.transaction_hash {
+                planned.push(row.clone());
+                stats.refresh_count += 1;
+                continue;
+            }
+
+            if block_height.saturating_sub(entry.last_persisted_height)
+                >= RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS
+            {
+                planned.push(row.clone());
+                stats.refresh_count += 1;
+            } else {
+                stats.skipped_count += 1;
+            }
+        }
+
+        (planned, stats)
+    }
+
+    fn remember_receipt_tx_hashes(
+        &mut self,
+        block_height: i64,
+        rows: &[ReceiptTxHashMapRow],
+        persisted_rows: &[ReceiptTxHashMapRow],
+    ) {
+        let mut persisted_by_receipt = HashMap::new();
+        for row in persisted_rows {
+            persisted_by_receipt.insert(row.receipt_id.as_str(), row.transaction_hash.as_str());
+        }
+
+        for row in rows {
+            let persisted_tx_hash = persisted_by_receipt
+                .get(row.receipt_id.as_str())
+                .copied()
+                .unwrap_or(row.transaction_hash.as_str());
+            let entry = self
+                .receipt_tx_hot_cache
+                .entry(row.receipt_id.clone())
+                .or_insert_with(|| ReceiptTxHotCacheEntry {
+                    transaction_hash: persisted_tx_hash.to_string(),
+                    last_seen_height: block_height,
+                    last_persisted_height: block_height,
+                });
+            entry.transaction_hash = persisted_tx_hash.to_string();
+            entry.last_seen_height = entry.last_seen_height.max(block_height);
+            if persisted_by_receipt.contains_key(row.receipt_id.as_str()) {
+                entry.last_persisted_height = block_height;
+            }
+        }
+    }
+
+    fn evict_receipt_tx_hot_cache(
+        &mut self,
+        block_height: i64,
+        retention_blocks: i64,
+        active_graph_tx_hashes: &HashSet<String>,
+    ) {
+        let cutoff_height = block_height.saturating_sub(retention_blocks);
+        self.receipt_tx_hot_cache.retain(|_, entry| {
+            entry.last_seen_height >= cutoff_height
+                || active_graph_tx_hashes.contains(&entry.transaction_hash)
+        });
     }
 
     fn merge_block_updates(
@@ -979,31 +1089,19 @@ impl HosRuntimeState {
         refs: &TxSliceRefs,
     ) -> HosGraphBundle {
         let mut bundle = HosGraphBundle::default();
+        let mut shard_keys = HashSet::new();
 
-        if let Some(block_source) = shared_bundle.block.as_ref() {
-            let block_height = block_source.block.header.height as i64;
-            if refs.block_heights.contains(&block_height) {
+        if !refs.is_empty() {
+            if let Some(block_source) = shared_bundle.block.as_ref() {
+                let block_height = block_source.block.header.height as i64;
                 if let Ok(row) = VenearGovernanceModule::block_source_to_row(block_source) {
                     bundle.blocks.insert(block_height, row);
                 }
             }
         }
-        for chunk_hash in &refs.chunk_hashes {
-            if let Some(row) = shared_bundle.chunks.get(chunk_hash) {
-                if let Ok(materialized) = VenearGovernanceModule::chunk_source_to_row(row) {
-                    bundle.chunks.insert(chunk_hash.clone(), materialized);
-                }
-            }
-        }
-        for key in &refs.state_change_keys {
-            if let Some(row) = shared_bundle.state_changes.get(key) {
-                if let Ok(materialized) = VenearGovernanceModule::state_changes_source_to_row(row) {
-                    bundle.state_changes.insert(*key, materialized);
-                }
-            }
-        }
         for hash in &refs.transaction_hashes {
             if let Some(row) = shared_bundle.transactions.get(hash) {
+                shard_keys.insert((row.block_height, row.shard_id));
                 if let Ok(materialized) = VenearGovernanceModule::transaction_source_to_row(row) {
                     bundle.transactions.insert(hash.clone(), materialized);
                 }
@@ -1011,6 +1109,7 @@ impl HosRuntimeState {
         }
         for receipt_id in &refs.receipt_ids {
             if let Some(row) = shared_bundle.receipts.get(receipt_id) {
+                shard_keys.insert((row.block_height, row.shard_id));
                 if let Ok(materialized) = VenearGovernanceModule::receipt_source_to_row(row) {
                     bundle.receipts.insert(receipt_id.clone(), materialized);
                 }
@@ -1018,6 +1117,7 @@ impl HosRuntimeState {
         }
         for outcome_id in &refs.execution_outcome_ids {
             if let Some(row) = shared_bundle.execution_outcomes.get(outcome_id) {
+                shard_keys.insert((row.block_height, row.shard_id));
                 if let Ok(materialized) =
                     VenearGovernanceModule::execution_outcome_source_to_row(row)
                 {
@@ -1039,6 +1139,20 @@ impl HosRuntimeState {
         for edge_key in &refs.receipt_edge_keys {
             if let Some(row) = shared_bundle.receipt_edges.get(edge_key) {
                 bundle.receipt_edges.insert(edge_key.clone(), row.clone());
+            }
+        }
+        for (chunk_hash, row) in &shared_bundle.chunks {
+            if shard_keys.contains(&(row.block_height, row.shard_id)) {
+                if let Ok(materialized) = VenearGovernanceModule::chunk_source_to_row(row) {
+                    bundle.chunks.insert(chunk_hash.clone(), materialized);
+                }
+            }
+        }
+        for (key, row) in &shared_bundle.state_changes {
+            if shard_keys.contains(key) {
+                if let Ok(materialized) = VenearGovernanceModule::state_changes_source_to_row(row) {
+                    bundle.state_changes.insert(*key, materialized);
+                }
             }
         }
 
@@ -1665,7 +1779,7 @@ impl VenearGovernanceModule {
     async fn flush_receipt_tx_hash_map_upserts(
         db: &impl ConnectionTrait,
         rows: &[ReceiptTxHashMapRow],
-    ) -> Result<()> {
+    ) -> Result<Vec<ReceiptTxHashMapRow>> {
         let query_rows = Self::query_chunked(
             db,
             rows,
@@ -1705,6 +1819,7 @@ impl VenearGovernanceModule {
         .await?;
 
         let mut persisted = HashMap::new();
+        let mut persisted_rows = Vec::new();
         for row in query_rows {
             let receipt_id: String = row
                 .try_get("", "receipt_id")
@@ -1712,6 +1827,11 @@ impl VenearGovernanceModule {
             let transaction_hash: String = row
                 .try_get("", "transaction_hash")
                 .context("failed to read bulk near_receipt_tx_hash_map.transaction_hash")?;
+            persisted_rows.push(ReceiptTxHashMapRow {
+                receipt_id: receipt_id.clone(),
+                transaction_hash: transaction_hash.clone(),
+                block_height: 0,
+            });
             persisted.insert(receipt_id, transaction_hash);
         }
 
@@ -1729,7 +1849,7 @@ impl VenearGovernanceModule {
             }
         }
 
-        Ok(())
+        Ok(persisted_rows)
     }
 
     fn is_hos_lockup_contract(account_id: &str) -> bool {
@@ -2397,14 +2517,6 @@ impl VenearGovernanceModule {
         Ok(deleted_total)
     }
 
-    fn note_common_block_data(
-        updates: &mut HosBlockUpdates,
-        transaction_hash: &str,
-        block_height: i64,
-    ) {
-        updates.note_block_ref(transaction_hash, block_height);
-    }
-
     async fn store_hos_projection(
         &self,
         msg: &StreamerMessage,
@@ -2461,16 +2573,89 @@ impl VenearGovernanceModule {
             }
         }
 
-        stats.record_count("receipt_lookup_count", lookup_receipt_ids.len());
+        for shard in &msg.shards {
+            if let Some(chunk) = &shard.chunk {
+                for receipt in chunk.receipts.iter().chain(chunk.local_receipts.iter()) {
+                    if let Some(link) = Self::data_receipt_link(&data_receipt_links, receipt) {
+                        receipt_tx_hashes
+                            .entry(receipt.receipt_id.to_string())
+                            .or_insert(link.transaction_hash);
+                    }
+                }
+            }
+
+            for outcome_with_receipt in &shard.receipt_execution_outcomes {
+                let receipt = &outcome_with_receipt.receipt;
+                if let Some(link) = Self::data_receipt_link(&data_receipt_links, receipt) {
+                    receipt_tx_hashes
+                        .entry(receipt.receipt_id.to_string())
+                        .or_insert(link.transaction_hash);
+                }
+            }
+        }
+
+        let mut seen_lookup_receipt_ids = HashSet::new();
+        lookup_receipt_ids.retain(|receipt_id| seen_lookup_receipt_ids.insert(receipt_id.clone()));
+
+        let mut lookup_stats = {
+            let mut state = self.state.lock().unwrap();
+            state.resolve_receipt_tx_hashes_from_hot_cache(
+                block_height,
+                &lookup_receipt_ids,
+                &mut receipt_tx_hashes,
+            )
+        };
+        let unresolved_lookup_receipt_ids = lookup_receipt_ids
+            .iter()
+            .filter(|receipt_id| !receipt_tx_hashes.contains_key(*receipt_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        lookup_stats.db_query_count = unresolved_lookup_receipt_ids.len();
 
         let lineage_lookup_start = Instant::now();
-        let mapped_receipts = load_receipt_tx_hash_map(db, &lookup_receipt_ids).await?;
-        for (receipt_id, transaction_hash) in mapped_receipts {
+        let mapped_receipts = load_receipt_tx_hash_map(db, &unresolved_lookup_receipt_ids).await?;
+        let mapped_receipt_rows = mapped_receipts
+            .into_iter()
+            .map(|(receipt_id, transaction_hash)| ReceiptTxHashMapRow {
+                receipt_id,
+                transaction_hash,
+                block_height,
+            })
+            .collect::<Vec<_>>();
+        for row in &mapped_receipt_rows {
             receipt_tx_hashes
-                .entry(receipt_id)
-                .or_insert_with(|| transaction_hash);
+                .entry(row.receipt_id.clone())
+                .or_insert_with(|| row.transaction_hash.clone());
         }
         stats.record_phase_elapsed("lineage_lookup", lineage_lookup_start);
+        {
+            let mut state = self.state.lock().unwrap();
+            state.remember_receipt_tx_hashes(
+                block_height,
+                &mapped_receipt_rows,
+                &mapped_receipt_rows,
+            );
+        }
+        lookup_stats.db_hit_count = mapped_receipt_rows.len();
+        lookup_stats.db_miss_count = unresolved_lookup_receipt_ids
+            .len()
+            .saturating_sub(lookup_stats.db_hit_count);
+        stats.record_count("receipt_lookup_count", lookup_receipt_ids.len());
+        stats.record_count(
+            "receipt_lookup_candidate_count",
+            lookup_stats.candidate_count,
+        );
+        stats.record_count(
+            "receipt_lookup_local_resolved_count",
+            lookup_stats.local_resolved_count,
+        );
+        stats.record_count(
+            "receipt_lookup_hot_cache_hit_count",
+            lookup_stats.hot_cache_hit_count,
+        );
+        stats.record_count("receipt_lookup_db_query_count", lookup_stats.db_query_count);
+        stats.record_count("receipt_lookup_db_hit_count", lookup_stats.db_hit_count);
+        stats.record_count("receipt_lookup_db_miss_count", lookup_stats.db_miss_count);
 
         let mut updates = HosBlockUpdates::default();
         updates.set_block_source(block_source);
@@ -2569,7 +2754,6 @@ impl VenearGovernanceModule {
                         Some(tx_with_outcome.transaction.signer_id.as_ref()),
                     );
                     updates.note_tx_metadata(&tx_hash, tx_root_related, true);
-                    Self::note_common_block_data(&mut updates, &tx_hash, block_height);
                     updates.note_transaction(
                         &tx_hash,
                         TransactionSource {
@@ -2735,7 +2919,6 @@ impl VenearGovernanceModule {
                             },
                         );
                     }
-                    Self::note_common_block_data(&mut updates, &transaction_hash, block_height);
                     updates.note_receipt(
                         &transaction_hash,
                         ReceiptSource {
@@ -2798,7 +2981,6 @@ impl VenearGovernanceModule {
                         },
                     );
                 }
-                Self::note_common_block_data(&mut updates, &transaction_hash, block_height);
 
                 updates.note_receipt(
                     &transaction_hash,
@@ -2865,13 +3047,13 @@ impl VenearGovernanceModule {
             }
 
             if let Some(chunk) = &shard.chunk {
-                let chunk_source = ChunkSource {
-                    block_height,
-                    shard_id,
-                    chunk: Arc::new(chunk.clone()),
-                };
-                for transaction_hash in &shard_touched_tx_hashes {
-                    updates.note_chunk(transaction_hash, chunk_source.clone());
+                if !shard_touched_tx_hashes.is_empty() {
+                    let chunk_source = ChunkSource {
+                        block_height,
+                        shard_id,
+                        chunk: Arc::new(chunk.clone()),
+                    };
+                    updates.remember_chunk_source(chunk_source);
                 }
             }
 
@@ -2881,9 +3063,7 @@ impl VenearGovernanceModule {
                     shard_id,
                     state_changes: Arc::new(shard.state_changes.clone()),
                 };
-                for transaction_hash in &shard_touched_tx_hashes {
-                    updates.note_state_changes(transaction_hash, state_changes_source.clone());
-                }
+                updates.remember_state_changes_source(state_changes_source);
             }
         }
         stats.record_phase_elapsed("block_update_build", block_update_build_start);
@@ -2899,10 +3079,39 @@ impl VenearGovernanceModule {
             .values()
             .cloned()
             .collect::<Vec<_>>();
-        stats.record_count("receipt_tx_map_write_rows", receipt_map_rows.len());
+        let (receipt_map_rows_to_write, receipt_tx_write_stats) = {
+            let state = self.state.lock().unwrap();
+            state.plan_receipt_tx_hash_map_writes(&receipt_map_rows, block_height)
+        };
+        stats.record_count("receipt_tx_map_write_rows", receipt_map_rows_to_write.len());
+        stats.record_count(
+            "receipt_tx_map_write_new_count",
+            receipt_tx_write_stats.new_count,
+        );
+        stats.record_count(
+            "receipt_tx_map_write_refresh_count",
+            receipt_tx_write_stats.refresh_count,
+        );
+        stats.record_count(
+            "receipt_tx_map_write_skipped_count",
+            receipt_tx_write_stats.skipped_count,
+        );
         let receipt_map_write_start = Instant::now();
-        Self::flush_receipt_tx_hash_map_upserts(db, &receipt_map_rows).await?;
+        let persisted_receipt_map_rows =
+            Self::flush_receipt_tx_hash_map_upserts(db, &receipt_map_rows_to_write).await?;
         stats.record_phase_elapsed("receipt_tx_map_write", receipt_map_write_start);
+        {
+            let mut state = self.state.lock().unwrap();
+            state.remember_receipt_tx_hashes(
+                block_height,
+                &receipt_map_rows,
+                &persisted_receipt_map_rows,
+            );
+            stats.record_count(
+                "receipt_tx_hot_cache_size",
+                state.receipt_tx_hot_cache.len(),
+            );
+        }
 
         let memory_merge_start = Instant::now();
         let merge_plan = {
@@ -3030,6 +3239,18 @@ impl VenearGovernanceModule {
             };
             stats.record_phase_elapsed("receipt_tx_map_cleanup", cleanup_start);
             stats.record_count("receipt_tx_map_deleted", deleted);
+            {
+                let mut state = self.state.lock().unwrap();
+                state.evict_receipt_tx_hot_cache(
+                    block_height,
+                    self.effective_receipt_tx_map_retention_blocks(),
+                    &maintenance_plan.active_graph_tx_hashes,
+                );
+                stats.record_count(
+                    "receipt_tx_hot_cache_size",
+                    state.receipt_tx_hot_cache.len(),
+                );
+            }
             stats.record_phase_elapsed("maintenance_finalize", finalize_start);
         }
 
@@ -3181,8 +3402,8 @@ impl IndexerModule for VenearGovernanceModule {
 #[cfg(test)]
 mod tests {
     use super::{
-        BlockSource, HosBlockUpdates, HosRuntimeState, StageMetrics, TransactionSource,
-        VenearGovernanceModule,
+        BlockSource, HosBlockUpdates, HosRuntimeState, ReceiptTxHashMapRow, StageMetrics,
+        TransactionSource, VenearGovernanceModule, RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS,
     };
     use near_lake_framework::near_indexer_primitives::types::Balance;
     use near_lake_framework::near_indexer_primitives::views::{
@@ -3344,7 +3565,6 @@ mod tests {
         });
         for tx_hash in ["tx-1", "tx-2"] {
             updates.note_tx_metadata(tx_hash, false, true);
-            updates.note_block_ref(tx_hash, 123);
             updates.note_pending_receipt(tx_hash, &format!("pending-{tx_hash}"));
             updates.note_transaction(
                 tx_hash,
@@ -3438,6 +3658,103 @@ mod tests {
             VenearGovernanceModule::effective_receipt_tx_map_retention_blocks_for(1_024, 256, 100),
             1_024
         );
+    }
+
+    #[test]
+    fn receipt_tx_hot_cache_resolves_misses_without_db() {
+        let mut state = HosRuntimeState::default();
+        state.remember_receipt_tx_hashes(
+            100,
+            &[ReceiptTxHashMapRow {
+                receipt_id: "receipt-1".to_string(),
+                transaction_hash: "tx-1".to_string(),
+                block_height: 100,
+            }],
+            &[ReceiptTxHashMapRow {
+                receipt_id: "receipt-1".to_string(),
+                transaction_hash: "tx-1".to_string(),
+                block_height: 100,
+            }],
+        );
+
+        let mut receipt_tx_hashes = std::collections::HashMap::new();
+        let stats = state.resolve_receipt_tx_hashes_from_hot_cache(
+            101,
+            &["receipt-1".to_string(), "receipt-2".to_string()],
+            &mut receipt_tx_hashes,
+        );
+
+        assert_eq!(
+            receipt_tx_hashes.get("receipt-1"),
+            Some(&"tx-1".to_string())
+        );
+        assert_eq!(stats.candidate_count, 2);
+        assert_eq!(stats.hot_cache_hit_count, 1);
+        assert_eq!(stats.local_resolved_count, 0);
+    }
+
+    #[test]
+    fn receipt_tx_map_write_plan_skips_recent_known_rows() {
+        let mut state = HosRuntimeState::default();
+        state.remember_receipt_tx_hashes(
+            100,
+            &[ReceiptTxHashMapRow {
+                receipt_id: "receipt-1".to_string(),
+                transaction_hash: "tx-1".to_string(),
+                block_height: 100,
+            }],
+            &[ReceiptTxHashMapRow {
+                receipt_id: "receipt-1".to_string(),
+                transaction_hash: "tx-1".to_string(),
+                block_height: 100,
+            }],
+        );
+
+        let (planned, stats) = state.plan_receipt_tx_hash_map_writes(
+            &[ReceiptTxHashMapRow {
+                receipt_id: "receipt-1".to_string(),
+                transaction_hash: "tx-1".to_string(),
+                block_height: 101,
+            }],
+            101,
+        );
+
+        assert!(planned.is_empty());
+        assert_eq!(stats.new_count, 0);
+        assert_eq!(stats.refresh_count, 0);
+        assert_eq!(stats.skipped_count, 1);
+    }
+
+    #[test]
+    fn receipt_tx_map_write_plan_refreshes_stale_rows() {
+        let mut state = HosRuntimeState::default();
+        state.remember_receipt_tx_hashes(
+            100,
+            &[ReceiptTxHashMapRow {
+                receipt_id: "receipt-1".to_string(),
+                transaction_hash: "tx-1".to_string(),
+                block_height: 100,
+            }],
+            &[ReceiptTxHashMapRow {
+                receipt_id: "receipt-1".to_string(),
+                transaction_hash: "tx-1".to_string(),
+                block_height: 100,
+            }],
+        );
+
+        let (planned, stats) = state.plan_receipt_tx_hash_map_writes(
+            &[ReceiptTxHashMapRow {
+                receipt_id: "receipt-1".to_string(),
+                transaction_hash: "tx-1".to_string(),
+                block_height: 100 + RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS,
+            }],
+            100 + RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS,
+        );
+
+        assert_eq!(planned.len(), 1);
+        assert_eq!(stats.new_count, 0);
+        assert_eq!(stats.refresh_count, 1);
+        assert_eq!(stats.skipped_count, 0);
     }
 
     #[test]

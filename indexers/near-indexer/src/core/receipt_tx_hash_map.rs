@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use std::collections::{HashMap, HashSet};
 
+const RECEIPT_TX_HASH_LOOKUP_BATCH_SIZE: usize = 2_048;
+
 /// Load persisted `receipt_id -> transaction_hash` mappings.
 pub async fn load_receipt_tx_hash_map(
     db: &impl ConnectionTrait,
@@ -19,38 +21,42 @@ pub async fn load_receipt_tx_hash_map(
         return Ok(HashMap::new());
     }
 
-    let mut placeholders = String::new();
-    for idx in 0..ids.len() {
-        if idx > 0 {
-            placeholders.push_str(", ");
-        }
-        placeholders.push_str(&format!("${}", idx + 1));
-    }
-
-    let sql = format!(
-        "SELECT receipt_id, transaction_hash
-         FROM near.near_receipt_tx_hash_map
-         WHERE receipt_id IN ({placeholders})"
-    );
-
-    let rows = db
-        .query_all(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            &sql,
-            ids.into_iter().map(Into::into).collect::<Vec<_>>(),
-        ))
-        .await
-        .context("failed to load near_receipt_tx_hash_map rows")?;
-
     let mut result = HashMap::new();
-    for row in rows {
-        let receipt_id: String = row
-            .try_get("", "receipt_id")
-            .context("failed to read near_receipt_tx_hash_map.receipt_id")?;
-        let transaction_hash: String = row
-            .try_get("", "transaction_hash")
-            .context("failed to read near_receipt_tx_hash_map.transaction_hash")?;
-        result.insert(receipt_id, transaction_hash);
+    for chunk in ids.chunks(RECEIPT_TX_HASH_LOOKUP_BATCH_SIZE) {
+        let mut placeholders = String::new();
+        for idx in 0..chunk.len() {
+            if idx > 0 {
+                placeholders.push_str(", ");
+            }
+            let value_idx = idx + 1;
+            placeholders.push_str(&format!("(${value_idx})"));
+        }
+
+        let sql = format!(
+            "SELECT m.receipt_id, m.transaction_hash
+             FROM near.near_receipt_tx_hash_map m
+             JOIN (VALUES {placeholders}) AS lookup(receipt_id)
+               ON lookup.receipt_id = m.receipt_id"
+        );
+
+        let rows = db
+            .query_all(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                &sql,
+                chunk.iter().cloned().map(Into::into).collect::<Vec<_>>(),
+            ))
+            .await
+            .context("failed to load near_receipt_tx_hash_map rows")?;
+
+        for row in rows {
+            let receipt_id: String = row
+                .try_get("", "receipt_id")
+                .context("failed to read near_receipt_tx_hash_map.receipt_id")?;
+            let transaction_hash: String = row
+                .try_get("", "transaction_hash")
+                .context("failed to read near_receipt_tx_hash_map.transaction_hash")?;
+            result.insert(receipt_id, transaction_hash);
+        }
     }
 
     Ok(result)
