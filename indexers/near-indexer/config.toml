@@ -38,7 +38,7 @@ provider = "fastnear"
 # Chain to index: "mainnet", "testnet", or "disabled"
 chain = "mainnet"
 # Starting block height (0 for genesis)
-start_height = 167673600
+start_height = 158320040
 # Concurrency for parallel block processing (number of blocks to process simultaneously)
 # Keep at 1 for deterministic cumulative veNEAR balances
 concurrency = 1
@@ -64,7 +64,7 @@ start_height = 0
 [near.modules.venear_governance]
 enabled = true
 stream_mode = "shared"
-start_height = 167673600
+start_height = 158320040
 # Refresh HoS materialized views every N blocks (0 disables auto-refresh).
 mview_refresh_interval_blocks = 100
 # Garbage-collect finalized/pruned tx-state rows every N blocks.
