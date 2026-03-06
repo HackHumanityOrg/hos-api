@@ -537,7 +537,7 @@ fn default_hos_restart_rewind_blocks() -> u64 {
 }
 
 fn default_receipt_tx_map_retention_blocks() -> u64 {
-    86_400
+    1_024
 }
 
 impl ToLog for NearLakeConfig {
@@ -1158,7 +1158,7 @@ mod tests {
         assert_eq!(venear_governance.mview_refresh_interval_blocks, 100);
         assert_eq!(venear_governance.finalization_interval_blocks, 100);
         assert_eq!(venear_governance.restart_rewind_blocks, 256);
-        assert_eq!(venear_governance.receipt_tx_map_retention_blocks, 86_400);
+        assert_eq!(venear_governance.receipt_tx_map_retention_blocks, 1_024);
         assert!(near_cfg.raw_enabled_or_default());
         assert_eq!(
             near_cfg.raw_stream_mode_or_default(),

@@ -30,7 +30,7 @@ const HOS_REWARDS_CONTRACT_ID: &str = "rewards.hos-dao.near";
 const VENEAR_LOCKUP_SUFFIX: &str = ".venear.dao";
 const DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS: i64 = 100;
 const DEFAULT_FINALIZATION_INTERVAL_BLOCKS: i64 = 100;
-const DEFAULT_TX_MAP_RETENTION_BLOCKS: i64 = 86_400;
+const DEFAULT_TX_MAP_RETENTION_BLOCKS: i64 = 1_024;
 const DEFAULT_YIELD_TIMEOUT_BLOCKS: i64 = 200;
 const DATA_RECEIPT_LINK_RETENTION_BLOCKS: i64 = 256;
 const STALLED_PENDING_GRAPH_WARNING_BLOCKS: i64 = 43_200;
@@ -613,6 +613,7 @@ struct HosRuntimeState {
     data_receipt_links: HashMap<String, DataReceiptParentLink>,
     data_receipt_link_heights: BTreeMap<i64, Vec<String>>,
     closed_hos_since_refresh: usize,
+    cleanup_resume_height: Option<i64>,
 }
 
 #[derive(Default)]
@@ -665,6 +666,23 @@ struct RecentCacheEvictionStats {
 }
 
 impl HosRuntimeState {
+    fn set_cleanup_resume_height(&mut self, cleanup_resume_height: Option<i64>) {
+        self.cleanup_resume_height = cleanup_resume_height;
+    }
+
+    fn should_skip_receipt_tx_map_cleanup(&mut self, block_height: i64) -> bool {
+        let Some(cleanup_resume_height) = self.cleanup_resume_height else {
+            return false;
+        };
+
+        if block_height <= cleanup_resume_height {
+            return true;
+        }
+
+        self.cleanup_resume_height = None;
+        false
+    }
+
     fn remember_data_receipt_links(
         &mut self,
         block_height: i64,
@@ -1165,6 +1183,7 @@ pub struct VenearGovernanceModule {
     stream_mode: NearModuleStreamMode,
     mview_refresh_interval_blocks: i64,
     finalization_interval_blocks: i64,
+    restart_rewind_blocks: i64,
     receipt_tx_map_retention_blocks: i64,
     raw_enabled: bool,
     state: Mutex<HosRuntimeState>,
@@ -1176,6 +1195,7 @@ impl VenearGovernanceModule {
         let mut stream_mode = NearModuleStreamMode::Shared;
         let mut mview_refresh_interval_blocks = DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS;
         let mut finalization_interval_blocks = DEFAULT_FINALIZATION_INTERVAL_BLOCKS;
+        let mut restart_rewind_blocks = 0_i64;
         let mut receipt_tx_map_retention_blocks = DEFAULT_TX_MAP_RETENTION_BLOCKS;
         let mut raw_enabled = false;
 
@@ -1198,6 +1218,8 @@ impl VenearGovernanceModule {
                         finalization_interval_blocks =
                             i64::try_from(module_cfg.finalization_interval_blocks)
                                 .unwrap_or(i64::MAX);
+                        restart_rewind_blocks =
+                            i64::try_from(module_cfg.restart_rewind_blocks).unwrap_or(i64::MAX);
                         receipt_tx_map_retention_blocks =
                             i64::try_from(module_cfg.receipt_tx_map_retention_blocks)
                                 .unwrap_or(i64::MAX);
@@ -1211,10 +1233,40 @@ impl VenearGovernanceModule {
             stream_mode,
             mview_refresh_interval_blocks,
             finalization_interval_blocks,
+            restart_rewind_blocks,
             receipt_tx_map_retention_blocks,
             raw_enabled,
             state: Mutex::new(HosRuntimeState::default()),
         }
+    }
+
+    fn minimum_receipt_tx_map_retention_blocks(
+        restart_rewind_blocks: i64,
+        finalization_interval_blocks: i64,
+    ) -> i64 {
+        restart_rewind_blocks
+            .max(0)
+            .saturating_add(DEFAULT_YIELD_TIMEOUT_BLOCKS)
+            .saturating_add(finalization_interval_blocks.max(0))
+    }
+
+    fn effective_receipt_tx_map_retention_blocks_for(
+        configured_retention_blocks: i64,
+        restart_rewind_blocks: i64,
+        finalization_interval_blocks: i64,
+    ) -> i64 {
+        configured_retention_blocks.max(Self::minimum_receipt_tx_map_retention_blocks(
+            restart_rewind_blocks,
+            finalization_interval_blocks,
+        ))
+    }
+
+    fn effective_receipt_tx_map_retention_blocks(&self) -> i64 {
+        Self::effective_receipt_tx_map_retention_blocks_for(
+            self.receipt_tx_map_retention_blocks,
+            self.restart_rewind_blocks,
+            self.finalization_interval_blocks,
+        )
     }
 
     fn parse_args_json(args: &[u8]) -> JsonValue {
@@ -2285,12 +2337,8 @@ impl VenearGovernanceModule {
         block_height: i64,
         active_graph_tx_hashes: &HashSet<String>,
     ) -> Result<u64> {
-        if self.receipt_tx_map_retention_blocks <= 0 {
-            return Ok(0);
-        }
-
         let cutoff_height =
-            block_height.saturating_sub(self.receipt_tx_map_retention_blocks.max(0));
+            block_height.saturating_sub(self.effective_receipt_tx_map_retention_blocks());
         let mut deleted_total = 0_u64;
 
         for _ in 0..RECEIPT_TX_MAP_CLEANUP_MAX_BATCHES {
@@ -2301,17 +2349,6 @@ impl VenearGovernanceModule {
                     FROM near.near_receipt_tx_hash_map m
                     WHERE m.last_seen_height < $1",
             );
-
-            if self.raw_enabled {
-                sql.push_str(
-                    "
-                      AND NOT EXISTS (
-                            SELECT 1
-                            FROM near.near_transactions nt
-                            WHERE nt.hash = m.transaction_hash
-                      )",
-                );
-            }
 
             if !active_graph_tx_hashes.is_empty() {
                 sql.push_str(" AND m.transaction_hash NOT IN (");
@@ -2964,17 +3001,33 @@ impl VenearGovernanceModule {
             "stalled_hos_graph_count",
             maintenance_plan.stalled_warning_summary.hos_touch_count,
         );
+        stats.record_count(
+            "effective_receipt_tx_map_retention_blocks",
+            self.effective_receipt_tx_map_retention_blocks().max(0) as u64,
+        );
+        stats.record_flag("receipt_tx_map_cleanup_skipped_for_replay", false);
 
         if maintenance_plan.triggered {
             let finalize_start = Instant::now();
             let cleanup_start = Instant::now();
-            let deleted = self
-                .run_receipt_tx_map_cleanup(
+            let cleanup_skipped_for_replay = {
+                let mut state = self.state.lock().unwrap();
+                state.should_skip_receipt_tx_map_cleanup(block_height)
+            };
+            stats.record_flag(
+                "receipt_tx_map_cleanup_skipped_for_replay",
+                cleanup_skipped_for_replay,
+            );
+            let deleted = if cleanup_skipped_for_replay {
+                0
+            } else {
+                self.run_receipt_tx_map_cleanup(
                     db,
                     block_height,
                     &maintenance_plan.active_graph_tx_hashes,
                 )
-                .await?;
+                .await?
+            };
             stats.record_phase_elapsed("receipt_tx_map_cleanup", cleanup_start);
             stats.record_count("receipt_tx_map_deleted", deleted);
             stats.record_phase_elapsed("maintenance_finalize", finalize_start);
@@ -3084,7 +3137,25 @@ impl IndexerModule for VenearGovernanceModule {
         self.stream_mode
     }
 
-    async fn initialize(&self, _db: &DatabaseConnection) -> Result<()> {
+    async fn initialize(&self, db: &DatabaseConnection) -> Result<()> {
+        let cleanup_resume_height = if self.restart_rewind_blocks > 0 {
+            cursor::get_module_cursor(db, MODULE_NAME).await?
+        } else {
+            None
+        };
+
+        let mut state = self.state.lock().unwrap();
+        state.set_cleanup_resume_height(cleanup_resume_height);
+
+        if let Some(cleanup_resume_height) = cleanup_resume_height {
+            info!(
+                module = MODULE_NAME,
+                cleanup_resume_height,
+                restart_rewind_blocks = self.restart_rewind_blocks,
+                "Deferring receipt->tx cleanup until replay catches up to the previous cursor"
+            );
+        }
+
         Ok(())
     }
 
@@ -3351,5 +3422,35 @@ mod tests {
         );
         assert_eq!(link.parent_execution_outcome_id, "outcome-1");
         assert_eq!(link.block_height, 100);
+    }
+
+    #[test]
+    fn receipt_tx_map_retention_clamps_to_runtime_minimum() {
+        assert_eq!(
+            VenearGovernanceModule::minimum_receipt_tx_map_retention_blocks(256, 100),
+            556
+        );
+        assert_eq!(
+            VenearGovernanceModule::effective_receipt_tx_map_retention_blocks_for(0, 256, 100),
+            556
+        );
+        assert_eq!(
+            VenearGovernanceModule::effective_receipt_tx_map_retention_blocks_for(1_024, 256, 100),
+            1_024
+        );
+    }
+
+    #[test]
+    fn receipt_tx_map_cleanup_is_deferred_during_replay_catch_up() {
+        let mut state = HosRuntimeState::default();
+        state.set_cleanup_resume_height(Some(1_000));
+
+        assert!(state.should_skip_receipt_tx_map_cleanup(999));
+        assert!(state.should_skip_receipt_tx_map_cleanup(1_000));
+        assert_eq!(state.cleanup_resume_height, Some(1_000));
+
+        assert!(!state.should_skip_receipt_tx_map_cleanup(1_001));
+        assert_eq!(state.cleanup_resume_height, None);
+        assert!(!state.should_skip_receipt_tx_map_cleanup(1_002));
     }
 }

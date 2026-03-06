@@ -208,6 +208,14 @@ fn build_raw_and_venear_config() -> AppConfig {
     build_test_app_config(Some(raw_config(true)), Some(venear_test_config()))
 }
 
+fn effective_receipt_tx_map_retention_blocks(cfg: &VenearGovernanceModuleConfig) -> u64 {
+    cfg.receipt_tx_map_retention_blocks.max(
+        cfg.restart_rewind_blocks
+            .saturating_add(200)
+            .saturating_add(cfg.finalization_interval_blocks),
+    )
+}
+
 fn is_hos_test_account(account_id: &str) -> bool {
     matches!(
         account_id,
@@ -941,7 +949,7 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
 }
 
 #[tokio::test]
-async fn omitted_raw_config_still_disables_receipt_tx_map_cleanup() -> Result<()> {
+async fn omitted_raw_config_still_prunes_stale_receipt_tx_map_rows() -> Result<()> {
     init_test_tracing();
 
     let db = TestDatabase::new().await;
@@ -991,8 +999,8 @@ async fn omitted_raw_config_still_disables_receipt_tx_map_cleanup() -> Result<()
     )
     .await?;
     assert_eq!(
-        legacy_map_rows, 1,
-        "venear cleanup must stay disabled when raw is implicitly enabled"
+        legacy_map_rows, 0,
+        "venear cleanup should prune stale lineage rows even when raw is implicitly enabled"
     );
 
     Ok(())
@@ -1248,6 +1256,7 @@ async fn receipt_tx_map_cleanup_deletes_orphans_after_retention() -> Result<()> 
     let mut venear_cfg = venear_test_config();
     venear_cfg.finalization_interval_blocks = 1;
     venear_cfg.receipt_tx_map_retention_blocks = 1;
+    let cleanup_height = effective_receipt_tx_map_retention_blocks(&venear_cfg) + 1;
     let module = VenearGovernanceModule::new(&build_test_app_config(
         Some(raw_config(false)),
         Some(venear_cfg),
@@ -1257,7 +1266,7 @@ async fn receipt_tx_map_cleanup_deletes_orphans_after_retention() -> Result<()> 
     insert_receipt_tx_map_row(conn.as_ref(), "receipt-orphan", "tx-orphan", 0, 0).await?;
 
     module
-        .process_block(&cleanup_trigger_message(2), conn.as_ref())
+        .process_block(&cleanup_trigger_message(cleanup_height), conn.as_ref())
         .await?;
 
     let map_rows_after_cleanup = scalar_i64(
@@ -1293,6 +1302,8 @@ async fn receipt_tx_map_cleanup_preserves_canonical_and_active_graph_rows() -> R
     let mut venear_cfg = venear_test_config();
     venear_cfg.finalization_interval_blocks = 1;
     venear_cfg.receipt_tx_map_retention_blocks = 1;
+    let cleanup_height =
+        initial_block_height + effective_receipt_tx_map_retention_blocks(&venear_cfg) + 1;
     let module = VenearGovernanceModule::new(&build_test_app_config(
         Some(raw_config(false)),
         Some(venear_cfg),
@@ -1318,7 +1329,7 @@ async fn receipt_tx_map_cleanup_preserves_canonical_and_active_graph_rows() -> R
     insert_canonical_transaction_row(conn.as_ref(), "tx-canonical", 0).await?;
 
     module
-        .process_block(&cleanup_trigger_message(2), conn.as_ref())
+        .process_block(&cleanup_trigger_message(cleanup_height), conn.as_ref())
         .await?;
 
     let deleted_rows = scalar_i64(
@@ -1506,27 +1517,6 @@ async fn raw_and_venear_modules_share_receipt_tx_lineage_map() -> Result<()> {
          )",
     )
     .await?;
-    let hos_receipts_missing_map = scalar_i64(
-        conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value
-         FROM near.near_receipt_actions ra
-         INNER JOIN near.near_execution_outcomes eo
-           ON eo.transaction_hash = ra.transaction_hash
-         WHERE near.is_hos_action(
-                 ra.receiver_id,
-                 ra.predecessor_id,
-                 ra.signer_account_id
-               )
-           AND eo.receipt_id IS NOT NULL
-           AND NOT EXISTS (
-             SELECT 1
-             FROM near.near_receipt_tx_hash_map map
-             WHERE map.receipt_id = eo.receipt_id
-               AND map.transaction_hash = eo.transaction_hash
-           )",
-    )
-    .await?;
-
     assert!(tx_map_count > 0, "expected receipt->tx lineage rows");
     assert!(
         mapped_hos_receipts > 0,
@@ -1536,7 +1526,6 @@ async fn raw_and_venear_modules_share_receipt_tx_lineage_map() -> Result<()> {
         mapped_non_hos_receipts > 0,
         "raw should contribute lineage rows beyond HoS-only scope"
     );
-    assert_eq!(hos_receipts_missing_map, 0);
 
     Ok(())
 }

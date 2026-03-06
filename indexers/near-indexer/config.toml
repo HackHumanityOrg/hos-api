@@ -72,4 +72,4 @@ finalization_interval_blocks = 100
 # Rewind this many blocks from the persisted cursor on worker restart.
 restart_rewind_blocks = 256
 # Keep lineage for this many blocks before pruning non-HoS entries.
-receipt_tx_map_retention_blocks = 86400
+receipt_tx_map_retention_blocks = 1024
