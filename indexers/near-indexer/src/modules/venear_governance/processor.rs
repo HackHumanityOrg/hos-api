@@ -236,19 +236,32 @@ impl HosGraphBundle {
     }
 }
 
+#[derive(Default, Clone)]
+struct TxSliceRefs {
+    block_heights: HashSet<i64>,
+    chunk_hashes: HashSet<String>,
+    state_change_keys: HashSet<(i64, i64)>,
+    transaction_hashes: HashSet<String>,
+    receipt_ids: HashSet<String>,
+    execution_outcome_ids: HashSet<String>,
+    receipt_action_ids: HashSet<String>,
+    receipt_edge_keys: HashSet<(String, String)>,
+}
+
 #[derive(Default)]
 struct GraphBlockUpdate {
     has_hos_touch: bool,
     root_transaction_seen: bool,
     pending_receipts_add: HashSet<String>,
     pending_receipts_remove: HashSet<String>,
-    slice: HosGraphBundle,
+    refs: TxSliceRefs,
 }
 
 #[derive(Default)]
 struct HosBlockUpdates {
     receipt_tx_hash_map: HashMap<String, ReceiptTxHashMapRow>,
     graph_updates: HashMap<String, GraphBlockUpdate>,
+    shared_bundle: HosGraphBundle,
 }
 
 impl HosBlockUpdates {
@@ -309,81 +322,99 @@ impl HosBlockUpdates {
     }
 
     fn note_block(&mut self, transaction_hash: &str, row: NearBlockRow) {
+        let block_height = row.height;
+        self.shared_bundle.blocks.entry(block_height).or_insert(row);
         self.graph_update_mut(transaction_hash)
-            .slice
-            .blocks
-            .entry(row.height)
-            .or_insert(row);
+            .refs
+            .block_heights
+            .insert(block_height);
     }
 
     fn note_chunk(&mut self, transaction_hash: &str, row: NearChunkRow) {
+        let key = row.chunk_hash.clone();
+        self.shared_bundle.chunks.entry(key.clone()).or_insert(row);
         self.graph_update_mut(transaction_hash)
-            .slice
-            .chunks
-            .entry(row.chunk_hash.clone())
-            .or_insert(row);
+            .refs
+            .chunk_hashes
+            .insert(key);
     }
 
     fn note_state_changes(&mut self, transaction_hash: &str, row: NearStateChangesRow) {
+        let key = (row.block_height, row.shard_id);
+        self.shared_bundle.state_changes.entry(key).or_insert(row);
         self.graph_update_mut(transaction_hash)
-            .slice
-            .state_changes
-            .entry((row.block_height, row.shard_id))
-            .or_insert(row);
+            .refs
+            .state_change_keys
+            .insert(key);
     }
 
     fn note_transaction(&mut self, transaction_hash: &str, row: NearTransactionRow) {
-        self.graph_update_mut(transaction_hash)
-            .slice
+        let key = row.hash.clone();
+        self.shared_bundle
             .transactions
-            .entry(row.hash.clone())
+            .entry(key.clone())
             .or_insert(row);
+        self.graph_update_mut(transaction_hash)
+            .refs
+            .transaction_hashes
+            .insert(key);
     }
 
     fn note_receipt(&mut self, transaction_hash: &str, row: NearReceiptRow) {
-        self.graph_update_mut(transaction_hash)
-            .slice
+        let key = row.receipt_id.clone();
+        self.shared_bundle
             .receipts
-            .entry(row.receipt_id.clone())
+            .entry(key.clone())
             .or_insert(row);
+        self.graph_update_mut(transaction_hash)
+            .refs
+            .receipt_ids
+            .insert(key);
     }
 
     fn note_execution_outcome(&mut self, transaction_hash: &str, row: NearExecutionOutcomeRow) {
-        self.graph_update_mut(transaction_hash)
-            .slice
+        let key = row.id.clone();
+        self.shared_bundle
             .execution_outcomes
-            .entry(row.id.clone())
+            .entry(key.clone())
             .and_modify(|existing| {
                 if existing.receipt_id.is_none() {
                     existing.receipt_id = row.receipt_id.clone();
                 }
             })
             .or_insert(row);
+        self.graph_update_mut(transaction_hash)
+            .refs
+            .execution_outcome_ids
+            .insert(key);
     }
 
     fn note_receipt_action(&mut self, transaction_hash: &str, row: NearReceiptActionRow) {
-        self.graph_update_mut(transaction_hash)
-            .slice
+        let key = row.id.clone();
+        self.shared_bundle
             .receipt_actions
-            .entry(row.id.clone())
+            .entry(key.clone())
             .or_insert(row);
+        self.graph_update_mut(transaction_hash)
+            .refs
+            .receipt_action_ids
+            .insert(key);
     }
 
     fn note_receipt_edge(&mut self, transaction_hash: &str, row: NearReceiptEdgeRow) {
-        self.graph_update_mut(transaction_hash)
-            .slice
+        let key = (row.parent_receipt_id.clone(), row.child_receipt_id.clone());
+        self.shared_bundle
             .receipt_edges
-            .entry((row.parent_receipt_id.clone(), row.child_receipt_id.clone()))
+            .entry(key.clone())
             .or_insert(row);
+        self.graph_update_mut(transaction_hash)
+            .refs
+            .receipt_edge_keys
+            .insert(key);
     }
 
     fn row_count(&self) -> usize {
-        self.receipt_tx_hash_map.len()
-            + self
-                .graph_updates
-                .values()
-                .map(|update| update.slice.row_count())
-                .sum::<usize>()
+        self.receipt_tx_hash_map.len() + self.shared_bundle.row_count()
     }
 }
 
@@ -400,7 +431,13 @@ struct GraphState {
 #[derive(Default)]
 struct HosRuntimeState {
     graphs: HashMap<String, GraphState>,
-    recent_blocks: BTreeMap<i64, HashMap<String, HosGraphBundle>>,
+    recent_blocks: BTreeMap<i64, RecentBlockCache>,
+}
+
+#[derive(Default)]
+struct RecentBlockCache {
+    shared_bundle: HosGraphBundle,
+    tx_refs: HashMap<String, TxSliceRefs>,
 }
 
 #[derive(Clone)]
@@ -442,8 +479,14 @@ impl HosRuntimeState {
         stats: &mut StageMetrics,
     ) -> MaintenancePlan {
         stats.record_count("block_write_rows", updates.row_count());
+        let HosBlockUpdates {
+            receipt_tx_hash_map: _,
+            graph_updates,
+            shared_bundle,
+        } = updates;
+        let mut recent_cache_refs = HashMap::new();
 
-        for (transaction_hash, update) in updates.graph_updates {
+        for (transaction_hash, update) in graph_updates {
             let prior_hos_touch = self
                 .graphs
                 .get(&transaction_hash)
@@ -451,6 +494,14 @@ impl HosRuntimeState {
                 .unwrap_or(false);
             let hydrated_bundle = if !raw_enabled && !prior_hos_touch && update.has_hos_touch {
                 Some(self.hydrate_bundle_from_recent_cache(&transaction_hash))
+            } else {
+                None
+            };
+            let current_slice = if !raw_enabled && (prior_hos_touch || update.has_hos_touch) {
+                Some(Self::materialize_bundle_from_shared(
+                    &shared_bundle,
+                    &update.refs,
+                ))
             } else {
                 None
             };
@@ -481,7 +532,9 @@ impl HosRuntimeState {
                 }
 
                 let bundle = graph.bundle.get_or_insert_with(HosGraphBundle::default);
-                bundle.merge(update.slice.clone());
+                if let Some(slice) = &current_slice {
+                    bundle.merge(slice.clone());
+                }
 
                 if !graph.root_transaction_seen || !bundle.has_root_transaction(&transaction_hash) {
                     graph.incomplete_reason = Some("missing_root_transaction_row".to_string());
@@ -491,11 +544,18 @@ impl HosRuntimeState {
             }
 
             if !raw_enabled && recent_raw_cache_blocks > 0 {
-                self.recent_blocks
-                    .entry(block_height)
-                    .or_default()
-                    .insert(transaction_hash, update.slice);
+                recent_cache_refs.insert(transaction_hash, update.refs);
             }
+        }
+
+        if !raw_enabled && recent_raw_cache_blocks > 0 {
+            self.recent_blocks.insert(
+                block_height,
+                RecentBlockCache {
+                    shared_bundle,
+                    tx_refs: recent_cache_refs,
+                },
+            );
         }
 
         if !raw_enabled && recent_raw_cache_blocks > 0 {
@@ -517,11 +577,68 @@ impl HosRuntimeState {
 
     fn hydrate_bundle_from_recent_cache(&self, transaction_hash: &str) -> HosGraphBundle {
         let mut bundle = HosGraphBundle::default();
-        for graph_slices in self.recent_blocks.values() {
-            if let Some(slice) = graph_slices.get(transaction_hash) {
-                bundle.merge(slice.clone());
+        for block_cache in self.recent_blocks.values() {
+            if let Some(refs) = block_cache.tx_refs.get(transaction_hash) {
+                bundle.merge(Self::materialize_bundle_from_shared(
+                    &block_cache.shared_bundle,
+                    refs,
+                ));
             }
         }
+        bundle
+    }
+
+    fn materialize_bundle_from_shared(
+        shared_bundle: &HosGraphBundle,
+        refs: &TxSliceRefs,
+    ) -> HosGraphBundle {
+        let mut bundle = HosGraphBundle::default();
+
+        for block_height in &refs.block_heights {
+            if let Some(row) = shared_bundle.blocks.get(block_height) {
+                bundle.blocks.insert(*block_height, row.clone());
+            }
+        }
+        for chunk_hash in &refs.chunk_hashes {
+            if let Some(row) = shared_bundle.chunks.get(chunk_hash) {
+                bundle.chunks.insert(chunk_hash.clone(), row.clone());
+            }
+        }
+        for key in &refs.state_change_keys {
+            if let Some(row) = shared_bundle.state_changes.get(key) {
+                bundle.state_changes.insert(*key, row.clone());
+            }
+        }
+        for hash in &refs.transaction_hashes {
+            if let Some(row) = shared_bundle.transactions.get(hash) {
+                bundle.transactions.insert(hash.clone(), row.clone());
+            }
+        }
+        for receipt_id in &refs.receipt_ids {
+            if let Some(row) = shared_bundle.receipts.get(receipt_id) {
+                bundle.receipts.insert(receipt_id.clone(), row.clone());
+            }
+        }
+        for outcome_id in &refs.execution_outcome_ids {
+            if let Some(row) = shared_bundle.execution_outcomes.get(outcome_id) {
+                bundle
+                    .execution_outcomes
+                    .insert(outcome_id.clone(), row.clone());
+            }
+        }
+        for action_id in &refs.receipt_action_ids {
+            if let Some(row) = shared_bundle.receipt_actions.get(action_id) {
+                bundle
+                    .receipt_actions
+                    .insert(action_id.clone(), row.clone());
+            }
+        }
+        for edge_key in &refs.receipt_edge_keys {
+            if let Some(row) = shared_bundle.receipt_edges.get(edge_key) {
+                bundle.receipt_edges.insert(edge_key.clone(), row.clone());
+            }
+        }
+
         bundle
     }
 
@@ -2351,7 +2468,11 @@ impl IndexerModule for VenearGovernanceModule {
 
 #[cfg(test)]
 mod tests {
-    use super::VenearGovernanceModule;
+    use super::{
+        HosBlockUpdates, HosRuntimeState, NearBlockRow, NearTransactionRow, StageMetrics,
+        VenearGovernanceModule,
+    };
+    use serde_json::json;
 
     #[test]
     fn hos_contract_matcher_accepts_verified_contracts_and_lockups() {
@@ -2382,5 +2503,61 @@ mod tests {
                 "expected {account_id} to be outside HoS scope"
             );
         }
+    }
+
+    #[test]
+    fn recent_cache_keeps_shared_block_rows_once_per_height() {
+        let block_row = NearBlockRow {
+            height: 123,
+            hash: "block-hash".to_string(),
+            prev_hash: "prev-hash".to_string(),
+            epoch_id: "epoch".to_string(),
+            next_epoch_id: "next-epoch".to_string(),
+            author: "author.near".to_string(),
+            timestamp: 1,
+            timestamp_nanosec: 1,
+            gas_price: "1".to_string(),
+            total_supply: "1".to_string(),
+            validator_reward: "0".to_string(),
+            protocol_version: 0,
+            chunks_included: 1,
+            block_ordinal: Some(123),
+            prev_height: Some(122),
+            raw_data: json!({"height": 123}),
+        };
+
+        let mut updates = HosBlockUpdates::default();
+        for tx_hash in ["tx-1", "tx-2"] {
+            updates.note_tx_metadata(tx_hash, false, true);
+            updates.note_block(tx_hash, block_row.clone());
+            updates.note_transaction(
+                tx_hash,
+                NearTransactionRow {
+                    hash: tx_hash.to_string(),
+                    block_height: 123,
+                    shard_id: 0,
+                    signer_id: "signer.near".to_string(),
+                    receiver_id: "receiver.near".to_string(),
+                    nonce: 1,
+                    priority_fee: 0,
+                    public_key: "pk".to_string(),
+                    signature: "sig".to_string(),
+                    actions: json!([]),
+                    raw_data: json!({"hash": tx_hash}),
+                },
+            );
+        }
+
+        let mut state = HosRuntimeState::default();
+        let mut stats = StageMetrics::new();
+        let plan = state.merge_block_updates(123, updates, false, 32, 100, &mut stats);
+
+        assert!(!plan.triggered);
+        let cache = state.recent_blocks.get(&123).expect("cache for block 123");
+        assert_eq!(cache.shared_bundle.blocks.len(), 1);
+        assert_eq!(cache.shared_bundle.transactions.len(), 2);
+        assert_eq!(cache.tx_refs.len(), 2);
+        assert_eq!(cache.tx_refs["tx-1"].block_heights.len(), 1);
+        assert_eq!(cache.tx_refs["tx-2"].block_heights.len(), 1);
     }
 }
