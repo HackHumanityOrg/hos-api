@@ -15,6 +15,7 @@ use tracing::{error, info, instrument, warn};
 use crate::core::cursor;
 use crate::core::receipt_tx_hash_map::{load_receipt_tx_hash_map, upsert_receipt_tx_hash};
 use crate::core::receipt_tx_resolver::build_receipt_tx_hashes;
+use crate::core::stage_timing::{BlockProcessingLog, StageMetrics};
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "venear_governance";
@@ -422,17 +423,16 @@ impl VenearGovernanceModule {
         }
     }
 
-    async fn refresh_hos_materialized_views(&self, db: &DatabaseConnection) {
-        if let Err(err) = db
-            .execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT near.refresh_hos_materialized_views()",
-                vec![],
-            ))
-            .await
-        {
-            warn!(error = %err, "failed refreshing HOS materialized views");
-        }
+    async fn refresh_hos_materialized_views(&self, db: &DatabaseConnection) -> Result<()> {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT near.refresh_hos_materialized_views()",
+            vec![],
+        ))
+        .await
+        .context("failed refreshing HOS materialized views")?;
+
+        Ok(())
     }
 
     fn should_refresh_mviews(&self, block_height: i64) -> bool {
@@ -1608,11 +1608,13 @@ impl VenearGovernanceModule {
         Ok(())
     }
 
+    #[instrument(skip(self, msg, db), level = "debug", fields(height = %msg.block.header.height))]
     async fn store_hos_projection(
         &self,
         msg: &StreamerMessage,
         db: &impl ConnectionTrait,
-    ) -> Result<()> {
+    ) -> Result<StageMetrics> {
+        let mut stats = StageMetrics::new();
         let block_height = msg.block.header.height as i64;
         let block_hash = msg.block.header.hash.to_string();
         let block_timestamp = msg.block.header.timestamp as i64;
@@ -1656,6 +1658,8 @@ impl VenearGovernanceModule {
             }
         }
 
+        stats.record_count("receipt_lookup_count", lookup_receipt_ids.len());
+        let lineage_lookup_start = Instant::now();
         let existing_staging_status =
             Self::load_receipt_tx_from_staging_status(db, &lookup_receipt_ids).await?;
         for (receipt_id, transaction_hash) in existing_staging_status {
@@ -1670,7 +1674,9 @@ impl VenearGovernanceModule {
                 .entry(receipt_id)
                 .or_insert_with(|| transaction_hash);
         }
+        stats.record_phase_elapsed("lineage_lookup", lineage_lookup_start);
 
+        let staging_write_start = Instant::now();
         for shard in &msg.shards {
             let mut shard_touched_tx_hashes: HashSet<String> = HashSet::new();
             let chunk_hash = shard
@@ -2140,11 +2146,18 @@ impl VenearGovernanceModule {
                 }
             }
         }
+        stats.record_phase_elapsed("staging_write", staging_write_start);
 
         let touched_tx_hashes: Vec<String> = touched_tx_hashes.into_iter().collect();
-        Self::refresh_pending_counts_for_txs(db, &touched_tx_hashes).await?;
+        stats.record_count("touched_tx_count", touched_tx_hashes.len());
 
+        let pending_count_refresh_start = Instant::now();
+        Self::refresh_pending_counts_for_txs(db, &touched_tx_hashes).await?;
+        stats.record_phase_elapsed("pending_count_refresh", pending_count_refresh_start);
+
+        let finalize_graphs_start = Instant::now();
         let finalize_candidates = Self::load_finalize_candidates(db).await?;
+        stats.record_count("finalize_candidate_count", finalize_candidates.len());
 
         for (transaction_hash, has_hos_touch, pending_receipt_count, _first_seen_height) in
             finalize_candidates
@@ -2167,6 +2180,12 @@ impl VenearGovernanceModule {
                         "missing_staging_transaction_row",
                     )
                     .await?;
+                    let current = stats
+                        .counts()
+                        .get("incomplete_tx_count")
+                        .copied()
+                        .unwrap_or(0);
+                    stats.record_count("incomplete_tx_count", current + 1);
                     continue;
                 }
 
@@ -2183,6 +2202,12 @@ impl VenearGovernanceModule {
                     None,
                 )
                 .await?;
+                let current = stats
+                    .counts()
+                    .get("finalized_tx_count")
+                    .copied()
+                    .unwrap_or(0);
+                stats.record_count("finalized_tx_count", current + 1);
             } else {
                 Self::mark_tx_state_finished(
                     db,
@@ -2193,50 +2218,93 @@ impl VenearGovernanceModule {
                     None,
                 )
                 .await?;
+                let current = stats
+                    .counts()
+                    .get("pruned_non_hos_tx_count")
+                    .copied()
+                    .unwrap_or(0);
+                stats.record_count("pruned_non_hos_tx_count", current + 1);
             }
 
             Self::purge_staging_for_tx(db, &transaction_hash).await?;
         }
+        stats.record_phase_elapsed("finalize_graphs", finalize_graphs_start);
 
+        let staging_gc_start = Instant::now();
         self.run_staging_gc(db, block_height).await?;
+        stats.record_phase_elapsed("staging_gc", staging_gc_start);
 
-        Ok(())
+        Ok(stats)
     }
     async fn process_block_internal(
         &self,
         msg: &StreamerMessage,
         db: &DatabaseConnection,
     ) -> Result<()> {
-        let start_time = Instant::now();
-
+        let height = msg.block.header.height;
+        let shard_count = msg.shards.len();
         info!(
             module = MODULE_NAME,
-            height = msg.block.header.height,
-            shard_count = msg.shards.len(),
+            height = height,
+            shard_count = shard_count,
             "Processing HOS governance raw block data"
         );
 
-        let txn = db.begin().await?;
+        let mut process_log = BlockProcessingLog::new(MODULE_NAME, height, shard_count);
 
-        self.store_hos_projection(msg, &txn)
+        let txn = process_log
+            .metrics_mut()
+            .time_future("txn_begin", db.begin())
+            .await?;
+
+        let projection_stats = process_log
+            .metrics_mut()
+            .time_future("store_projection", self.store_hos_projection(msg, &txn))
             .await
             .context("failed to store HOS governance raw projection data")?;
+        process_log
+            .metrics_mut()
+            .merge_with_prefix("projection.", projection_stats);
 
-        txn.commit().await?;
+        process_log
+            .metrics_mut()
+            .time_future("txn_commit", txn.commit())
+            .await?;
 
-        let block_height = msg.block.header.height as i64;
-        if self.should_refresh_mviews(block_height) {
-            self.refresh_hos_materialized_views(db).await;
+        let block_height = height as i64;
+        let mview_refresh_triggered = self.should_refresh_mviews(block_height);
+        process_log
+            .metrics_mut()
+            .record_flag("mview_refresh_triggered", mview_refresh_triggered);
+
+        if mview_refresh_triggered {
+            let mview_refresh_start = Instant::now();
+            if let Err(err) = self.refresh_hos_materialized_views(db).await {
+                process_log
+                    .metrics_mut()
+                    .record_phase_elapsed("mview_refresh", mview_refresh_start);
+                process_log
+                    .metrics_mut()
+                    .record_flag("mview_refresh_failed", true);
+                warn!(
+                    module = MODULE_NAME,
+                    height = block_height,
+                    elapsed_ms = u64::try_from(mview_refresh_start.elapsed().as_millis())
+                        .unwrap_or(u64::MAX),
+                    error = %err,
+                    "failed refreshing HOS materialized views"
+                );
+            } else {
+                process_log
+                    .metrics_mut()
+                    .record_phase_elapsed("mview_refresh", mview_refresh_start);
+                process_log
+                    .metrics_mut()
+                    .record_flag("mview_refresh_failed", false);
+            }
         }
 
-        let elapsed = start_time.elapsed();
-        info!(
-            module = MODULE_NAME,
-            height = msg.block.header.height,
-            shard_count = msg.shards.len(),
-            elapsed_ms = elapsed.as_millis(),
-            "Successfully processed HOS governance raw block data"
-        );
+        process_log.log_success("Successfully processed HOS governance raw block data");
 
         Ok(())
     }

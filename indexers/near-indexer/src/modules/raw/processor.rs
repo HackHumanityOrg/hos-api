@@ -13,12 +13,12 @@ use sea_orm::{
 };
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
 use tracing::{error, info, instrument};
 
 use crate::core::cursor;
 use crate::core::receipt_tx_hash_map::{load_receipt_tx_hash_map, upsert_receipt_tx_hash};
 use crate::core::receipt_tx_resolver::build_receipt_tx_hashes;
+use crate::core::stage_timing::BlockProcessingLog;
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "raw";
@@ -1284,65 +1284,134 @@ impl RawModule {
         msg: &StreamerMessage,
         db: &DatabaseConnection,
     ) -> Result<()> {
-        let start_time = Instant::now();
-
+        let height = msg.block.header.height;
+        let shard_count = msg.shards.len();
         info!(
             module = MODULE_NAME,
-            height = msg.block.header.height,
-            shard_count = msg.shards.len(),
+            height = height,
+            shard_count = shard_count,
             "Processing NEAR raw block data"
         );
 
-        let block_height = msg.block.header.height as i64;
+        let mut process_log = BlockProcessingLog::new(MODULE_NAME, height, shard_count);
+        process_log.metrics_mut().record_count(
+            "chunk_count",
+            msg.shards
+                .iter()
+                .filter(|shard| shard.chunk.is_some())
+                .count(),
+        );
+        process_log.metrics_mut().record_count(
+            "transaction_count",
+            msg.shards
+                .iter()
+                .filter_map(|shard| shard.chunk.as_ref())
+                .map(|chunk| chunk.transactions.len())
+                .sum::<usize>(),
+        );
+        process_log.metrics_mut().record_count(
+            "receipt_count",
+            msg.shards
+                .iter()
+                .filter_map(|shard| shard.chunk.as_ref())
+                .map(|chunk| chunk.receipts.len() + chunk.local_receipts.len())
+                .sum::<usize>(),
+        );
+        process_log.metrics_mut().record_count(
+            "receipt_execution_outcome_count",
+            msg.shards
+                .iter()
+                .map(|shard| shard.receipt_execution_outcomes.len())
+                .sum::<usize>(),
+        );
+        process_log.metrics_mut().record_count(
+            "state_change_count",
+            msg.shards
+                .iter()
+                .map(|shard| shard.state_changes.len())
+                .sum::<usize>(),
+        );
+
+        let block_height = height as i64;
         let block_hash = msg.block.header.hash.to_string();
         let block_timestamp = msg.block.header.timestamp as i64;
         let block_author = msg.block.author.to_string();
+        let receipt_tx_hashes_start = std::time::Instant::now();
         let receipt_tx_hashes = build_receipt_tx_hashes(&msg.shards);
+        process_log
+            .metrics_mut()
+            .record_phase_elapsed("build_receipt_tx_hashes", receipt_tx_hashes_start);
 
-        let txn = db.begin().await?;
+        let txn = process_log
+            .metrics_mut()
+            .time_future("txn_begin", db.begin())
+            .await?;
 
-        self.store_block(&msg.block, &txn)
+        process_log
+            .metrics_mut()
+            .time_future("store_block", self.store_block(&msg.block, &txn))
             .await
             .context("Failed to store block data")?;
 
-        self.store_chunks(&msg.shards, block_height, &txn)
+        process_log
+            .metrics_mut()
+            .time_future(
+                "store_chunks",
+                self.store_chunks(&msg.shards, block_height, &txn),
+            )
             .await
             .context("Failed to store chunk data")?;
 
-        self.store_transactions(&msg.shards, block_height, &txn)
+        process_log
+            .metrics_mut()
+            .time_future(
+                "store_transactions",
+                self.store_transactions(&msg.shards, block_height, &txn),
+            )
             .await
             .context("Failed to store transaction data")?;
 
-        self.store_receipts(&msg.shards, block_height, &txn)
+        process_log
+            .metrics_mut()
+            .time_future(
+                "store_receipts",
+                self.store_receipts(&msg.shards, block_height, &txn),
+            )
             .await
             .context("Failed to store receipt data")?;
 
-        self.store_execution_outcomes(
-            &msg.shards,
-            block_height,
-            &block_hash,
-            block_timestamp,
-            &block_author,
-            &receipt_tx_hashes,
-            &txn,
-        )
-        .await
-        .context("Failed to store execution outcome data")?;
+        process_log
+            .metrics_mut()
+            .time_future(
+                "store_execution_outcomes",
+                self.store_execution_outcomes(
+                    &msg.shards,
+                    block_height,
+                    &block_hash,
+                    block_timestamp,
+                    &block_author,
+                    &receipt_tx_hashes,
+                    &txn,
+                ),
+            )
+            .await
+            .context("Failed to store execution outcome data")?;
 
-        self.store_state_changes(&msg.shards, block_height, &txn)
+        process_log
+            .metrics_mut()
+            .time_future(
+                "store_state_changes",
+                self.store_state_changes(&msg.shards, block_height, &txn),
+            )
             .await
             .context("Failed to store state change data")?;
 
-        txn.commit().await?;
+        process_log
+            .metrics_mut()
+            .time_future("txn_commit", txn.commit())
+            .await?;
 
-        let elapsed = start_time.elapsed();
-        info!(
-            module = MODULE_NAME,
-            height = msg.block.header.height,
-            shard_count = msg.shards.len(),
-            elapsed_ms = elapsed.as_millis(),
-            "Successfully processed NEAR raw block data"
-        );
+        process_log.log_success("Successfully processed NEAR raw block data");
 
         Ok(())
     }
