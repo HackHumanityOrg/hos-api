@@ -21,4 +21,4 @@ numReplicas = 1
 
 [deploy.limitOverride.containers]
 cpu = 4
-memoryBytes = 4000000000
+memoryBytes = 8000000000

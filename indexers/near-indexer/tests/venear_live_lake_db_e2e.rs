@@ -75,25 +75,15 @@ async fn venear_governance_live_lake_ingests_into_postgres() -> Result<()> {
 
     assert!(processed > 0, "expected to process at least one block");
 
-    let finalized_hos_transactions = scalar_i64(
-        conn.as_ref(),
-        "SELECT COUNT(*)::bigint AS value
-         FROM near.near_hos_tx_state
-         WHERE status = 'finalized'
-           AND has_hos_touch = TRUE",
-    )
-    .await?;
     let hos_actions = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
          FROM near.near_receipt_actions ra
-         WHERE EXISTS (
-             SELECT 1
-             FROM near.near_hos_tx_state ts
-             WHERE ts.transaction_hash = ra.transaction_hash
-               AND ts.status = 'finalized'
-               AND ts.has_hos_touch = TRUE
-         )",
+         WHERE near.is_hos_action(
+                 ra.receiver_id,
+                 ra.predecessor_id,
+                 ra.signer_account_id
+               )",
     )
     .await?;
     let hos_outcomes = scalar_i64(
@@ -102,16 +92,19 @@ async fn venear_governance_live_lake_ingests_into_postgres() -> Result<()> {
          FROM near.near_execution_outcomes eo
          WHERE EXISTS (
              SELECT 1
-             FROM near.near_hos_tx_state ts
-             WHERE ts.transaction_hash = eo.transaction_hash
-               AND ts.status = 'finalized'
-               AND ts.has_hos_touch = TRUE
+             FROM near.near_receipt_actions ra
+             WHERE ra.transaction_hash = eo.transaction_hash
+               AND near.is_hos_action(
+                     ra.receiver_id,
+                     ra.predecessor_id,
+                     ra.signer_account_id
+               )
          )",
     )
     .await?;
 
     assert!(
-        finalized_hos_transactions > 0 && hos_actions > 0 && hos_outcomes > 0,
+        hos_actions > 0 && hos_outcomes > 0,
         "expected HoS-related canonical raw rows in sampled live window; increase NEAR_LIVE_TEST_BLOCKS or adjust start height"
     );
 
@@ -147,13 +140,10 @@ fn build_live_test_config(start_height: u64) -> AppConfig {
                     stream_mode: NearModuleStreamMode::Shared,
                     start_height: None,
                     mview_refresh_interval_blocks: 100,
-                    staging_gc_interval_blocks: 600,
-                    staging_gc_batch_size: 5_000,
-                    staging_gc_max_batches_per_run: 50,
-                    receipt_tx_map_cleanup_interval_blocks: 600,
+                    finalization_interval_blocks: 1,
+                    recent_raw_cache_blocks: 32,
+                    restart_rewind_blocks: 128,
                     receipt_tx_map_retention_blocks: 86_400,
-                    receipt_tx_map_cleanup_batch_size: 5_000,
-                    receipt_tx_map_cleanup_max_batches_per_run: 50,
                 }),
             }),
         }),

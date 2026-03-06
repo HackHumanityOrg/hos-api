@@ -16,6 +16,12 @@ struct StreamAssignment {
     module_names: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ModuleRuntimeConfig {
+    start_height: Option<u64>,
+    restart_rewind_blocks: u64,
+}
+
 fn plan_stream_assignments(registry: &ModuleRegistry) -> Vec<StreamAssignment> {
     let modules = registry
         .enabled_modules()
@@ -55,33 +61,46 @@ fn plan_stream_assignments_from_modes(
     assignments
 }
 
-fn configured_module_start_heights(config: &AppConfig) -> HashMap<String, u64> {
-    let mut start_heights = HashMap::new();
+fn configured_module_runtime_configs(config: &AppConfig) -> HashMap<String, ModuleRuntimeConfig> {
+    let mut runtime_configs = HashMap::new();
 
     let AppConfig::Indexer(idx) = config else {
-        return start_heights;
+        return runtime_configs;
     };
 
     let Some(near) = idx.near.as_ref() else {
-        return start_heights;
+        return runtime_configs;
     };
 
     let Some(modules) = near.modules.as_ref() else {
-        return start_heights;
+        return runtime_configs;
     };
 
-    if let Some(start_height) = modules.raw.as_ref().and_then(|m| m.start_height) {
-        start_heights.insert("raw".to_string(), start_height);
+    if let Some(raw) = modules.raw.as_ref() {
+        runtime_configs.insert(
+            "raw".to_string(),
+            ModuleRuntimeConfig {
+                start_height: raw.start_height,
+                restart_rewind_blocks: 0,
+            },
+        );
     }
-    if let Some(start_height) = modules
-        .venear_governance
-        .as_ref()
-        .and_then(|m| m.start_height)
-    {
-        start_heights.insert("venear_governance".to_string(), start_height);
+    if let Some(venear) = modules.venear_governance.as_ref() {
+        runtime_configs.insert(
+            "venear_governance".to_string(),
+            ModuleRuntimeConfig {
+                start_height: venear.start_height,
+                restart_rewind_blocks: venear.restart_rewind_blocks,
+            },
+        );
     }
 
-    start_heights
+    runtime_configs
+}
+
+fn module_resume_start_height(cursor: i64, restart_rewind_blocks: u64) -> u64 {
+    let next_height = cursor.saturating_add(1).max(0) as u64;
+    next_height.saturating_sub(restart_rewind_blocks)
 }
 
 fn validate_near_runtime_constraints(config: &AppConfig) -> Result<()> {
@@ -136,17 +155,24 @@ async fn resolve_stream_start_height(
     stream_id: &str,
     module_names: &[String],
     configured_start_height: u64,
-    module_start_heights: &HashMap<String, u64>,
+    module_runtime_configs: &HashMap<String, ModuleRuntimeConfig>,
 ) -> Result<(u64, bool)> {
     let mut stream_start_height: Option<u64> = None;
     let mut any_module_has_cursor = false;
 
     for module_name in module_names {
-        let module_explicit_start_height = module_start_heights.get(module_name).copied();
+        let module_runtime_config = module_runtime_configs.get(module_name).copied();
+        let module_explicit_start_height = module_runtime_config.and_then(|cfg| cfg.start_height);
+        let restart_rewind_blocks = module_runtime_config
+            .map(|cfg| cfg.restart_rewind_blocks)
+            .unwrap_or(0);
         let cursor = near_indexer::core::cursor::get_module_cursor(db, module_name).await?;
 
         let module_start_height = if let Some(height) = cursor {
             let next_height = height.saturating_add(1).max(0) as u64;
+            let rewound_start_height = module_resume_start_height(height, restart_rewind_blocks);
+            let floor_start_height =
+                module_explicit_start_height.unwrap_or(configured_start_height);
             any_module_has_cursor = true;
 
             info!(
@@ -154,10 +180,13 @@ async fn resolve_stream_start_height(
                 module = module_name,
                 cursor = height,
                 next_height,
+                restart_rewind_blocks,
+                rewound_start_height,
+                floor_start_height,
                 "Module cursor found"
             );
 
-            next_height
+            rewound_start_height.max(floor_start_height)
         } else {
             let module_start_height =
                 module_explicit_start_height.unwrap_or(configured_start_height);
@@ -211,7 +240,7 @@ async fn run_stream_worker(
     fastnear_api_key: Option<String>,
     fastnear_num_threads: Option<u64>,
     configured_start_height: u64,
-    module_start_heights: Arc<HashMap<String, u64>>,
+    module_runtime_configs: Arc<HashMap<String, ModuleRuntimeConfig>>,
     configured_concurrency: usize,
     configured_preload_pool_size: usize,
     assignment: StreamAssignment,
@@ -233,7 +262,7 @@ async fn run_stream_worker(
             &assignment.stream_id,
             &assignment.module_names,
             configured_start_height,
-            module_start_heights.as_ref(),
+            module_runtime_configs.as_ref(),
         )
         .await
         {
@@ -499,7 +528,7 @@ async fn run(config: AppConfig) -> Result<()> {
         raw_preload_pool_size
     };
 
-    let module_start_heights = Arc::new(configured_module_start_heights(&config));
+    let module_runtime_configs = Arc::new(configured_module_runtime_configs(&config));
 
     let stream_assignments = plan_stream_assignments(registry.as_ref());
     let stream_count = stream_assignments.len();
@@ -524,7 +553,7 @@ async fn run(config: AppConfig) -> Result<()> {
         stream_plan = ?stream_plan,
         configured_concurrency = configured_concurrency,
         configured_start_height = configured_start_height,
-        module_start_heights = ?module_start_heights,
+        module_runtime_configs = ?module_runtime_configs,
         configured_preload_pool_size = configured_preload_pool_size,
         enabled_modules = enabled_count,
         startup_ms = startup_elapsed.as_millis(),
@@ -542,7 +571,7 @@ async fn run(config: AppConfig) -> Result<()> {
                 configured_fastnear_api_key.clone(),
                 configured_fastnear_num_threads,
                 configured_start_height,
-                module_start_heights.clone(),
+                module_runtime_configs.clone(),
                 configured_concurrency,
                 configured_preload_pool_size,
                 assignment,
@@ -569,8 +598,9 @@ mod tests {
     };
 
     use super::{
-        plan_stream_assignments_from_modes, validate_near_runtime_constraints,
-        NearModuleStreamMode, StreamAssignment,
+        module_resume_start_height, plan_stream_assignments_from_modes,
+        validate_near_runtime_constraints, ModuleRuntimeConfig, NearModuleStreamMode,
+        StreamAssignment,
     };
 
     fn build_indexer_app_config(
@@ -600,10 +630,27 @@ mod tests {
         }))
     }
 
+    fn runtime_configs_from_start_heights(
+        module_start_heights: &HashMap<String, u64>,
+    ) -> HashMap<String, ModuleRuntimeConfig> {
+        module_start_heights
+            .iter()
+            .map(|(name, start_height)| {
+                (
+                    name.clone(),
+                    ModuleRuntimeConfig {
+                        start_height: Some(*start_height),
+                        restart_rewind_blocks: 0,
+                    },
+                )
+            })
+            .collect()
+    }
+
     fn resolve_stream_start_height_for_test(
         configured_start_height: u64,
         module_cursors: &[Option<i64>],
-        module_start_heights: &HashMap<String, u64>,
+        module_runtime_configs: &HashMap<String, ModuleRuntimeConfig>,
         module_names: &[&str],
     ) -> u64 {
         assert_eq!(module_cursors.len(), module_names.len());
@@ -611,10 +658,15 @@ mod tests {
 
         for (index, cursor) in module_cursors.iter().enumerate() {
             let module_name = module_names[index];
-            let module_explicit_start_height = module_start_heights.get(module_name).copied();
+            let module_runtime_config = module_runtime_configs.get(module_name).copied();
+            let module_explicit_start_height =
+                module_runtime_config.and_then(|cfg| cfg.start_height);
+            let restart_rewind_blocks = module_runtime_config
+                .map(|cfg| cfg.restart_rewind_blocks)
+                .unwrap_or(0);
 
             let module_start_height = if let Some(height) = cursor {
-                height.saturating_add(1).max(0) as u64
+                module_resume_start_height(*height, restart_rewind_blocks)
             } else {
                 module_explicit_start_height.unwrap_or(configured_start_height)
             };
@@ -714,7 +766,7 @@ mod tests {
     fn resolve_assignment_start_for_test(
         assignment: &StreamAssignment,
         configured_start_height: u64,
-        module_start_heights: &HashMap<String, u64>,
+        module_runtime_configs: &HashMap<String, ModuleRuntimeConfig>,
         module_cursors: &HashMap<String, Option<i64>>,
     ) -> u64 {
         let module_names: Vec<&str> = assignment.module_names.iter().map(String::as_str).collect();
@@ -727,7 +779,7 @@ mod tests {
         resolve_stream_start_height_for_test(
             configured_start_height,
             &cursors,
-            module_start_heights,
+            module_runtime_configs,
             &module_names,
         )
     }
@@ -762,7 +814,7 @@ mod tests {
         let start = resolve_stream_start_height_for_test(
             0,
             &[Some(220_000_000), None],
-            &module_start_heights,
+            &runtime_configs_from_start_heights(&module_start_heights),
             &["tokens", "venear_governance"],
         );
 
@@ -777,11 +829,32 @@ mod tests {
         let start = resolve_stream_start_height_for_test(
             0,
             &[Some(170_000_000)],
-            &module_start_heights,
+            &runtime_configs_from_start_heights(&module_start_heights),
             &["venear_governance"],
         );
 
         assert_eq!(start, 170_000_001);
+    }
+
+    #[test]
+    fn stream_start_rewinds_cursor_when_module_requests_restart_rewind() {
+        let mut module_runtime_configs = HashMap::new();
+        module_runtime_configs.insert(
+            "venear_governance".to_string(),
+            ModuleRuntimeConfig {
+                start_height: Some(160_000_000),
+                restart_rewind_blocks: 600,
+            },
+        );
+
+        let start = resolve_stream_start_height_for_test(
+            0,
+            &[Some(170_000_000)],
+            &module_runtime_configs,
+            &["venear_governance"],
+        );
+
+        assert_eq!(start, 169_999_401);
     }
 
     #[test]
@@ -855,7 +928,7 @@ mod tests {
         let start_height = resolve_assignment_start_for_test(
             assignment,
             1_000,
-            &module_start_heights,
+            &runtime_configs_from_start_heights(&module_start_heights),
             &HashMap::new(),
         );
 
@@ -899,19 +972,19 @@ mod tests {
         let shared_start = resolve_assignment_start_for_test(
             shared_assignment,
             0,
-            &module_start_heights,
+            &runtime_configs_from_start_heights(&module_start_heights),
             &module_cursors,
         );
         let tokens_start = resolve_assignment_start_for_test(
             tokens_assignment,
             0,
-            &module_start_heights,
+            &runtime_configs_from_start_heights(&module_start_heights),
             &module_cursors,
         );
         let venear_start = resolve_assignment_start_for_test(
             venear_assignment,
             0,
-            &module_start_heights,
+            &runtime_configs_from_start_heights(&module_start_heights),
             &module_cursors,
         );
 
@@ -938,7 +1011,7 @@ mod tests {
         let start_height = resolve_assignment_start_for_test(
             assignment,
             0,
-            &module_start_heights,
+            &runtime_configs_from_start_heights(&module_start_heights),
             &HashMap::new(),
         );
 
@@ -1062,7 +1135,7 @@ mod tests {
             let start_height = resolve_assignment_start_for_test(
                 &assignment,
                 case.configured_start_height,
-                &module_start_heights,
+                &runtime_configs_from_start_heights(&module_start_heights),
                 &module_cursors,
             );
 
@@ -1085,6 +1158,7 @@ mod tests {
             name: &'static str,
             configured_start_height: u64,
             module_start_height: Option<u64>,
+            restart_rewind_blocks: u64,
             cursor: Option<i64>,
             expected_start_height: u64,
         }
@@ -1094,6 +1168,7 @@ mod tests {
                 name: "module override only",
                 configured_start_height: 0,
                 module_start_height: Some(160_000_000),
+                restart_rewind_blocks: 0,
                 cursor: None,
                 expected_start_height: 160_000_000,
             },
@@ -1101,6 +1176,7 @@ mod tests {
                 name: "module override can be lower than global",
                 configured_start_height: 500,
                 module_start_height: Some(200),
+                restart_rewind_blocks: 0,
                 cursor: None,
                 expected_start_height: 200,
             },
@@ -1108,6 +1184,7 @@ mod tests {
                 name: "module override can be higher than global",
                 configured_start_height: 100,
                 module_start_height: Some(200),
+                restart_rewind_blocks: 0,
                 cursor: None,
                 expected_start_height: 200,
             },
@@ -1115,6 +1192,7 @@ mod tests {
                 name: "global only",
                 configured_start_height: 500,
                 module_start_height: None,
+                restart_rewind_blocks: 0,
                 cursor: None,
                 expected_start_height: 500,
             },
@@ -1122,6 +1200,7 @@ mod tests {
                 name: "cursor overrides module start",
                 configured_start_height: 0,
                 module_start_height: Some(160_000_000),
+                restart_rewind_blocks: 0,
                 cursor: Some(170_000_000),
                 expected_start_height: 170_000_001,
             },
@@ -1129,22 +1208,38 @@ mod tests {
                 name: "cursor overrides global",
                 configured_start_height: 500,
                 module_start_height: None,
+                restart_rewind_blocks: 0,
                 cursor: Some(700),
                 expected_start_height: 701,
+            },
+            Case {
+                name: "cursor rewind applies before resume",
+                configured_start_height: 500,
+                module_start_height: Some(160_000_000),
+                restart_rewind_blocks: 600,
+                cursor: Some(170_000_000),
+                expected_start_height: 169_999_401,
             },
             Case {
                 name: "negative cursor resumes from zero",
                 configured_start_height: 500,
                 module_start_height: None,
+                restart_rewind_blocks: 600,
                 cursor: Some(-1),
                 expected_start_height: 0,
             },
         ];
 
         for case in cases {
-            let mut module_start_heights = HashMap::new();
-            if let Some(start_height) = case.module_start_height {
-                module_start_heights.insert("venear_governance".to_string(), start_height);
+            let mut module_runtime_configs = HashMap::new();
+            if case.module_start_height.is_some() || case.restart_rewind_blocks > 0 {
+                module_runtime_configs.insert(
+                    "venear_governance".to_string(),
+                    ModuleRuntimeConfig {
+                        start_height: case.module_start_height,
+                        restart_rewind_blocks: case.restart_rewind_blocks,
+                    },
+                );
             }
 
             let mut module_cursors = HashMap::new();
@@ -1155,7 +1250,7 @@ mod tests {
             let start_height = resolve_assignment_start_for_test(
                 &assignment,
                 case.configured_start_height,
-                &module_start_heights,
+                &module_runtime_configs,
                 &module_cursors,
             );
 

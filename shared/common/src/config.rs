@@ -491,20 +491,20 @@ pub struct VenearGovernanceModuleConfig {
     pub start_height: Option<u64>,
     #[serde(default = "default_hos_mview_refresh_interval_blocks")]
     pub mview_refresh_interval_blocks: u64,
-    #[serde(default = "default_hos_staging_gc_interval_blocks")]
-    pub staging_gc_interval_blocks: u64,
-    #[serde(default = "default_hos_staging_gc_batch_size")]
-    pub staging_gc_batch_size: u64,
-    #[serde(default = "default_hos_staging_gc_max_batches_per_run")]
-    pub staging_gc_max_batches_per_run: u64,
-    #[serde(default = "default_receipt_tx_map_cleanup_interval_blocks")]
-    pub receipt_tx_map_cleanup_interval_blocks: u64,
+    #[serde(
+        default = "default_hos_finalization_interval_blocks",
+        alias = "staging_gc_interval_blocks"
+    )]
+    pub finalization_interval_blocks: u64,
+    #[serde(
+        default = "default_hos_recent_raw_cache_blocks",
+        alias = "receipt_tx_map_cleanup_interval_blocks"
+    )]
+    pub recent_raw_cache_blocks: u64,
+    #[serde(default = "default_hos_restart_rewind_blocks")]
+    pub restart_rewind_blocks: u64,
     #[serde(default = "default_receipt_tx_map_retention_blocks")]
     pub receipt_tx_map_retention_blocks: u64,
-    #[serde(default = "default_receipt_tx_map_cleanup_batch_size")]
-    pub receipt_tx_map_cleanup_batch_size: u64,
-    #[serde(default = "default_receipt_tx_map_cleanup_max_batches_per_run")]
-    pub receipt_tx_map_cleanup_max_batches_per_run: u64,
 }
 
 impl Default for VenearGovernanceModuleConfig {
@@ -514,15 +514,10 @@ impl Default for VenearGovernanceModuleConfig {
             stream_mode: NearModuleStreamMode::default(),
             start_height: None,
             mview_refresh_interval_blocks: default_hos_mview_refresh_interval_blocks(),
-            staging_gc_interval_blocks: default_hos_staging_gc_interval_blocks(),
-            staging_gc_batch_size: default_hos_staging_gc_batch_size(),
-            staging_gc_max_batches_per_run: default_hos_staging_gc_max_batches_per_run(),
-            receipt_tx_map_cleanup_interval_blocks: default_receipt_tx_map_cleanup_interval_blocks(
-            ),
+            finalization_interval_blocks: default_hos_finalization_interval_blocks(),
+            recent_raw_cache_blocks: default_hos_recent_raw_cache_blocks(),
+            restart_rewind_blocks: default_hos_restart_rewind_blocks(),
             receipt_tx_map_retention_blocks: default_receipt_tx_map_retention_blocks(),
-            receipt_tx_map_cleanup_batch_size: default_receipt_tx_map_cleanup_batch_size(),
-            receipt_tx_map_cleanup_max_batches_per_run:
-                default_receipt_tx_map_cleanup_max_batches_per_run(),
         }
     }
 }
@@ -539,32 +534,20 @@ fn default_hos_mview_refresh_interval_blocks() -> u64 {
     100
 }
 
-fn default_hos_staging_gc_interval_blocks() -> u64 {
-    600
+fn default_hos_finalization_interval_blocks() -> u64 {
+    100
 }
 
-fn default_hos_staging_gc_batch_size() -> u64 {
-    5_000
+fn default_hos_recent_raw_cache_blocks() -> u64 {
+    32
 }
 
-fn default_hos_staging_gc_max_batches_per_run() -> u64 {
-    50
-}
-
-fn default_receipt_tx_map_cleanup_interval_blocks() -> u64 {
-    600
+fn default_hos_restart_rewind_blocks() -> u64 {
+    128
 }
 
 fn default_receipt_tx_map_retention_blocks() -> u64 {
     86_400
-}
-
-fn default_receipt_tx_map_cleanup_batch_size() -> u64 {
-    5_000
-}
-
-fn default_receipt_tx_map_cleanup_max_batches_per_run() -> u64 {
-    50
 }
 
 impl ToLog for NearLakeConfig {
@@ -608,13 +591,10 @@ impl ToLog for VenearGovernanceModuleConfig {
             "stream_mode": self.stream_mode.as_str(),
             "start_height": self.start_height,
             "mview_refresh_interval_blocks": self.mview_refresh_interval_blocks,
-            "staging_gc_interval_blocks": self.staging_gc_interval_blocks,
-            "staging_gc_batch_size": self.staging_gc_batch_size,
-            "staging_gc_max_batches_per_run": self.staging_gc_max_batches_per_run,
-            "receipt_tx_map_cleanup_interval_blocks": self.receipt_tx_map_cleanup_interval_blocks,
+            "finalization_interval_blocks": self.finalization_interval_blocks,
+            "recent_raw_cache_blocks": self.recent_raw_cache_blocks,
+            "restart_rewind_blocks": self.restart_rewind_blocks,
             "receipt_tx_map_retention_blocks": self.receipt_tx_map_retention_blocks,
-            "receipt_tx_map_cleanup_batch_size": self.receipt_tx_map_cleanup_batch_size,
-            "receipt_tx_map_cleanup_max_batches_per_run": self.receipt_tx_map_cleanup_max_batches_per_run,
         })
     }
 }
@@ -1187,19 +1167,10 @@ mod tests {
         assert_eq!(raw.start_height, None);
         assert_eq!(venear_governance.start_height, None);
         assert_eq!(venear_governance.mview_refresh_interval_blocks, 100);
-        assert_eq!(venear_governance.staging_gc_interval_blocks, 600);
-        assert_eq!(venear_governance.staging_gc_batch_size, 5_000);
-        assert_eq!(venear_governance.staging_gc_max_batches_per_run, 50);
-        assert_eq!(
-            venear_governance.receipt_tx_map_cleanup_interval_blocks,
-            600
-        );
+        assert_eq!(venear_governance.finalization_interval_blocks, 100);
+        assert_eq!(venear_governance.recent_raw_cache_blocks, 32);
+        assert_eq!(venear_governance.restart_rewind_blocks, 128);
         assert_eq!(venear_governance.receipt_tx_map_retention_blocks, 86_400);
-        assert_eq!(venear_governance.receipt_tx_map_cleanup_batch_size, 5_000);
-        assert_eq!(
-            venear_governance.receipt_tx_map_cleanup_max_batches_per_run,
-            50
-        );
         assert!(near_cfg.raw_enabled_or_default());
         assert_eq!(
             near_cfg.raw_stream_mode_or_default(),
@@ -1302,25 +1273,47 @@ mod tests {
     }
 
     #[test]
-    fn near_module_gc_config_deserializes() {
+    fn near_module_runtime_config_deserializes() {
         let cfg: VenearGovernanceModuleConfig = serde_json::from_value(serde_json::json!({
             "enabled": true,
-            "staging_gc_interval_blocks": 900,
-            "staging_gc_batch_size": 1000,
-            "staging_gc_max_batches_per_run": 10,
-            "receipt_tx_map_cleanup_interval_blocks": 1200,
+            "finalization_interval_blocks": 900,
+            "recent_raw_cache_blocks": 1200,
+            "restart_rewind_blocks": 1440,
             "receipt_tx_map_retention_blocks": 172800,
-            "receipt_tx_map_cleanup_batch_size": 2000,
-            "receipt_tx_map_cleanup_max_batches_per_run": 20
         }))
-        .expect("gc config should deserialize");
+        .expect("runtime config should deserialize");
 
-        assert_eq!(cfg.staging_gc_interval_blocks, 900);
-        assert_eq!(cfg.staging_gc_batch_size, 1_000);
-        assert_eq!(cfg.staging_gc_max_batches_per_run, 10);
-        assert_eq!(cfg.receipt_tx_map_cleanup_interval_blocks, 1_200);
+        assert_eq!(cfg.finalization_interval_blocks, 900);
+        assert_eq!(cfg.recent_raw_cache_blocks, 1_200);
+        assert_eq!(cfg.restart_rewind_blocks, 1_440);
         assert_eq!(cfg.receipt_tx_map_retention_blocks, 172_800);
-        assert_eq!(cfg.receipt_tx_map_cleanup_batch_size, 2_000);
-        assert_eq!(cfg.receipt_tx_map_cleanup_max_batches_per_run, 20);
+    }
+
+    #[test]
+    fn near_module_runtime_log_uses_new_fields() {
+        let cfg = VenearGovernanceModuleConfig {
+            enabled: true,
+            stream_mode: NearModuleStreamMode::Independent,
+            start_height: Some(160_000_000),
+            mview_refresh_interval_blocks: 250,
+            finalization_interval_blocks: 900,
+            recent_raw_cache_blocks: 1_200,
+            restart_rewind_blocks: 1_440,
+            receipt_tx_map_retention_blocks: 172_800,
+        };
+
+        assert_eq!(
+            cfg.to_log(),
+            serde_json::json!({
+                "enabled": true,
+                "stream_mode": "independent",
+                "start_height": 160000000u64,
+                "mview_refresh_interval_blocks": 250u64,
+                "finalization_interval_blocks": 900u64,
+                "recent_raw_cache_blocks": 1200u64,
+                "restart_rewind_blocks": 1440u64,
+                "receipt_tx_map_retention_blocks": 172800u64,
+            })
+        );
     }
 }

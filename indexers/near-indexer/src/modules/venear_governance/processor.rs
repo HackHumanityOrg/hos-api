@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use common::config::NearModuleStreamMode;
 use near_lake_framework::near_indexer_primitives::views::{
-    ActionView, ExecutionStatusView, ReceiptEnumView,
+    ActionView, ExecutionStatusView, ReceiptEnumView, ReceiptView,
 };
 use near_lake_framework::near_indexer_primitives::StreamerMessage;
 use sea_orm::{
@@ -11,7 +11,8 @@ use sea_orm::{
     Value,
 };
 use serde_json::{json, Value as JsonValue};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Mutex;
 use std::time::Instant;
 use tracing::{error, info, instrument, warn};
 
@@ -28,31 +29,14 @@ const HOS_ROOT_CONTRACT_ID: &str = "hos-root.sputnik-dao.near";
 const HOS_REWARDS_CONTRACT_ID: &str = "rewards.hos-dao.near";
 const VENEAR_LOCKUP_SUFFIX: &str = ".venear.dao";
 const DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS: i64 = 100;
-const DEFAULT_STAGING_GC_INTERVAL_BLOCKS: i64 = 600;
-const DEFAULT_STAGING_GC_BATCH_SIZE: i64 = 5_000;
-const DEFAULT_STAGING_GC_MAX_BATCHES: i64 = 50;
-const DEFAULT_TX_MAP_CLEANUP_INTERVAL_BLOCKS: i64 = 600;
+const DEFAULT_FINALIZATION_INTERVAL_BLOCKS: i64 = 100;
+const DEFAULT_RECENT_RAW_CACHE_BLOCKS: i64 = 32;
 const DEFAULT_TX_MAP_RETENTION_BLOCKS: i64 = 86_400;
-const DEFAULT_TX_MAP_CLEANUP_BATCH_SIZE: i64 = 5_000;
-const DEFAULT_TX_MAP_CLEANUP_MAX_BATCHES: i64 = 50;
 const STALLED_PENDING_GRAPH_WARNING_BLOCKS: i64 = 43_200;
-const TX_STATE_GC_RETENTION_BLOCKS: i64 = 43_200;
-const TX_STATUS_PENDING: &str = "pending";
-const TX_STATUS_FINALIZED: &str = "finalized";
-const TX_STATUS_PRUNED_NON_HOS: &str = "pruned_non_hos";
-const TX_STATUS_INCOMPLETE_MISSING_TX_HASH: &str = "incomplete_missing_tx_hash";
+const RECEIPT_TX_MAP_CLEANUP_BATCH_SIZE: usize = 5_000;
+const RECEIPT_TX_MAP_CLEANUP_MAX_BATCHES: usize = 50;
 const MAX_BULK_INSERT_PARAMS: usize = 65_535;
-// Bulk statements repeat large JSON payloads per row, especially for staged
-// block/chunk/state-change raw_data. Keep row batches small enough to avoid
-// oversized Postgres statements while still reducing round trips materially.
-const MAX_BULK_INSERT_ROWS: usize = 25;
-
-#[derive(Clone)]
-struct TxStateUpsertRow {
-    transaction_hash: String,
-    has_hos_touch: bool,
-    block_height: i64,
-}
+const MAX_BULK_INSERT_ROWS: usize = 250;
 
 #[derive(Clone)]
 struct ReceiptTxHashMapRow {
@@ -62,8 +46,7 @@ struct ReceiptTxHashMapRow {
 }
 
 #[derive(Clone)]
-struct StagingBlockRow {
-    transaction_hash: String,
+struct NearBlockRow {
     height: i64,
     hash: String,
     prev_hash: String,
@@ -80,12 +63,10 @@ struct StagingBlockRow {
     block_ordinal: Option<i64>,
     prev_height: Option<i64>,
     raw_data: JsonValue,
-    seen_height: i64,
 }
 
 #[derive(Clone)]
-struct StagingChunkRow {
-    transaction_hash: String,
+struct NearChunkRow {
     chunk_hash: String,
     block_height: i64,
     shard_id: i64,
@@ -99,15 +80,14 @@ struct StagingChunkRow {
 }
 
 #[derive(Clone)]
-struct StagingStateChangesRow {
-    transaction_hash: String,
+struct NearStateChangesRow {
     block_height: i64,
     shard_id: i64,
     state_changes: JsonValue,
 }
 
 #[derive(Clone)]
-struct StagingTransactionRow {
+struct NearTransactionRow {
     hash: String,
     block_height: i64,
     shard_id: i64,
@@ -122,9 +102,8 @@ struct StagingTransactionRow {
 }
 
 #[derive(Clone)]
-struct StagingReceiptRow {
+struct NearReceiptRow {
     receipt_id: String,
-    transaction_hash: String,
     block_height: i64,
     shard_id: i64,
     predecessor_id: String,
@@ -134,7 +113,7 @@ struct StagingReceiptRow {
 }
 
 #[derive(Clone)]
-struct StagingExecutionOutcomeRow {
+struct NearExecutionOutcomeRow {
     id: String,
     transaction_hash: String,
     block_height: i64,
@@ -157,7 +136,7 @@ struct StagingExecutionOutcomeRow {
 }
 
 #[derive(Clone)]
-struct StagingReceiptActionRow {
+struct NearReceiptActionRow {
     id: String,
     transaction_hash: String,
     block_height: i64,
@@ -184,7 +163,7 @@ struct StagingReceiptActionRow {
 }
 
 #[derive(Clone)]
-struct StagingReceiptEdgeRow {
+struct NearReceiptEdgeRow {
     parent_receipt_id: String,
     child_receipt_id: String,
     transaction_hash: String,
@@ -194,42 +173,89 @@ struct StagingReceiptEdgeRow {
     block_timestamp: i64,
 }
 
-#[derive(Clone)]
-struct StagingReceiptStatusRow {
-    receipt_id: String,
-    transaction_hash: String,
-    executed: bool,
-    block_height: i64,
+#[derive(Default, Clone)]
+struct HosGraphBundle {
+    blocks: HashMap<i64, NearBlockRow>,
+    chunks: HashMap<String, NearChunkRow>,
+    state_changes: HashMap<(i64, i64), NearStateChangesRow>,
+    transactions: HashMap<String, NearTransactionRow>,
+    receipts: HashMap<String, NearReceiptRow>,
+    execution_outcomes: HashMap<String, NearExecutionOutcomeRow>,
+    receipt_actions: HashMap<String, NearReceiptActionRow>,
+    receipt_edges: HashMap<(String, String), NearReceiptEdgeRow>,
+}
+
+impl HosGraphBundle {
+    fn merge(&mut self, other: HosGraphBundle) {
+        for (key, row) in other.blocks {
+            self.blocks.entry(key).or_insert(row);
+        }
+        for (key, row) in other.chunks {
+            self.chunks.entry(key).or_insert(row);
+        }
+        for (key, row) in other.state_changes {
+            self.state_changes.entry(key).or_insert(row);
+        }
+        for (key, row) in other.transactions {
+            self.transactions.entry(key).or_insert(row);
+        }
+        for (key, row) in other.receipts {
+            self.receipts.entry(key).or_insert(row);
+        }
+        for (key, row) in other.execution_outcomes {
+            self.execution_outcomes
+                .entry(key)
+                .and_modify(|existing| {
+                    if existing.receipt_id.is_none() {
+                        existing.receipt_id = row.receipt_id.clone();
+                    }
+                })
+                .or_insert(row);
+        }
+        for (key, row) in other.receipt_actions {
+            self.receipt_actions.entry(key).or_insert(row);
+        }
+        for (key, row) in other.receipt_edges {
+            self.receipt_edges.entry(key).or_insert(row);
+        }
+    }
+
+    fn has_root_transaction(&self, transaction_hash: &str) -> bool {
+        self.transactions.contains_key(transaction_hash)
+    }
+
+    fn row_count(&self) -> usize {
+        self.blocks.len()
+            + self.chunks.len()
+            + self.state_changes.len()
+            + self.transactions.len()
+            + self.receipts.len()
+            + self.execution_outcomes.len()
+            + self.receipt_actions.len()
+            + self.receipt_edges.len()
+    }
 }
 
 #[derive(Default)]
-struct HosBlockWrites {
-    tx_states: HashMap<String, TxStateUpsertRow>,
-    receipt_tx_hash_map: HashMap<String, ReceiptTxHashMapRow>,
-    staging_blocks: HashMap<String, StagingBlockRow>,
-    staging_chunks: HashMap<(String, String), StagingChunkRow>,
-    staging_state_changes: HashMap<(String, i64, i64), StagingStateChangesRow>,
-    staging_transactions: HashMap<String, StagingTransactionRow>,
-    staging_receipts: HashMap<String, StagingReceiptRow>,
-    staging_execution_outcomes: HashMap<String, StagingExecutionOutcomeRow>,
-    staging_receipt_actions: HashMap<String, StagingReceiptActionRow>,
-    staging_receipt_edges: HashMap<(String, String), StagingReceiptEdgeRow>,
-    staging_receipt_statuses: HashMap<String, StagingReceiptStatusRow>,
+struct GraphBlockUpdate {
+    has_hos_touch: bool,
+    root_transaction_seen: bool,
+    pending_receipts_add: HashSet<String>,
+    pending_receipts_remove: HashSet<String>,
+    slice: HosGraphBundle,
 }
 
-impl HosBlockWrites {
-    fn note_tx_state(&mut self, transaction_hash: &str, block_height: i64, has_hos_touch: bool) {
-        self.tx_states
+#[derive(Default)]
+struct HosBlockUpdates {
+    receipt_tx_hash_map: HashMap<String, ReceiptTxHashMapRow>,
+    graph_updates: HashMap<String, GraphBlockUpdate>,
+}
+
+impl HosBlockUpdates {
+    fn graph_update_mut(&mut self, transaction_hash: &str) -> &mut GraphBlockUpdate {
+        self.graph_updates
             .entry(transaction_hash.to_string())
-            .and_modify(|row| {
-                row.has_hos_touch |= has_hos_touch;
-                row.block_height = row.block_height.max(block_height);
-            })
-            .or_insert_with(|| TxStateUpsertRow {
-                transaction_hash: transaction_hash.to_string(),
-                has_hos_touch,
-                block_height,
-            });
+            .or_default()
     }
 
     fn note_receipt_tx_hash_mapping(
@@ -259,38 +285,73 @@ impl HosBlockWrites {
             });
     }
 
-    fn note_staging_block(&mut self, row: StagingBlockRow) {
-        self.staging_blocks
-            .entry(row.transaction_hash.clone())
+    fn note_tx_metadata(
+        &mut self,
+        transaction_hash: &str,
+        has_hos_touch: bool,
+        root_transaction_seen: bool,
+    ) {
+        let update = self.graph_update_mut(transaction_hash);
+        update.has_hos_touch |= has_hos_touch;
+        update.root_transaction_seen |= root_transaction_seen;
+    }
+
+    fn note_pending_receipt(&mut self, transaction_hash: &str, receipt_id: &str) {
+        self.graph_update_mut(transaction_hash)
+            .pending_receipts_add
+            .insert(receipt_id.to_string());
+    }
+
+    fn note_executed_receipt(&mut self, transaction_hash: &str, receipt_id: &str) {
+        self.graph_update_mut(transaction_hash)
+            .pending_receipts_remove
+            .insert(receipt_id.to_string());
+    }
+
+    fn note_block(&mut self, transaction_hash: &str, row: NearBlockRow) {
+        self.graph_update_mut(transaction_hash)
+            .slice
+            .blocks
+            .entry(row.height)
             .or_insert(row);
     }
 
-    fn note_staging_chunk(&mut self, row: StagingChunkRow) {
-        self.staging_chunks
-            .entry((row.transaction_hash.clone(), row.chunk_hash.clone()))
+    fn note_chunk(&mut self, transaction_hash: &str, row: NearChunkRow) {
+        self.graph_update_mut(transaction_hash)
+            .slice
+            .chunks
+            .entry(row.chunk_hash.clone())
             .or_insert(row);
     }
 
-    fn note_staging_state_changes(&mut self, row: StagingStateChangesRow) {
-        self.staging_state_changes
-            .entry((row.transaction_hash.clone(), row.block_height, row.shard_id))
+    fn note_state_changes(&mut self, transaction_hash: &str, row: NearStateChangesRow) {
+        self.graph_update_mut(transaction_hash)
+            .slice
+            .state_changes
+            .entry((row.block_height, row.shard_id))
             .or_insert(row);
     }
 
-    fn note_staging_transaction(&mut self, row: StagingTransactionRow) {
-        self.staging_transactions
+    fn note_transaction(&mut self, transaction_hash: &str, row: NearTransactionRow) {
+        self.graph_update_mut(transaction_hash)
+            .slice
+            .transactions
             .entry(row.hash.clone())
             .or_insert(row);
     }
 
-    fn note_staging_receipt(&mut self, row: StagingReceiptRow) {
-        self.staging_receipts
+    fn note_receipt(&mut self, transaction_hash: &str, row: NearReceiptRow) {
+        self.graph_update_mut(transaction_hash)
+            .slice
+            .receipts
             .entry(row.receipt_id.clone())
             .or_insert(row);
     }
 
-    fn note_staging_execution_outcome(&mut self, row: StagingExecutionOutcomeRow) {
-        self.staging_execution_outcomes
+    fn note_execution_outcome(&mut self, transaction_hash: &str, row: NearExecutionOutcomeRow) {
+        self.graph_update_mut(transaction_hash)
+            .slice
+            .execution_outcomes
             .entry(row.id.clone())
             .and_modify(|existing| {
                 if existing.receipt_id.is_none() {
@@ -300,27 +361,316 @@ impl HosBlockWrites {
             .or_insert(row);
     }
 
-    fn note_staging_receipt_action(&mut self, row: StagingReceiptActionRow) {
-        self.staging_receipt_actions
+    fn note_receipt_action(&mut self, transaction_hash: &str, row: NearReceiptActionRow) {
+        self.graph_update_mut(transaction_hash)
+            .slice
+            .receipt_actions
             .entry(row.id.clone())
             .or_insert(row);
     }
 
-    fn note_staging_receipt_edge(&mut self, row: StagingReceiptEdgeRow) {
-        self.staging_receipt_edges
+    fn note_receipt_edge(&mut self, transaction_hash: &str, row: NearReceiptEdgeRow) {
+        self.graph_update_mut(transaction_hash)
+            .slice
+            .receipt_edges
             .entry((row.parent_receipt_id.clone(), row.child_receipt_id.clone()))
             .or_insert(row);
     }
 
-    fn note_staging_receipt_status(&mut self, row: StagingReceiptStatusRow) {
-        self.staging_receipt_statuses
-            .entry(row.receipt_id.clone())
-            .and_modify(|existing| {
-                existing.transaction_hash = row.transaction_hash.clone();
-                existing.executed |= row.executed;
-                existing.block_height = existing.block_height.max(row.block_height);
-            })
-            .or_insert(row);
+    fn row_count(&self) -> usize {
+        self.receipt_tx_hash_map.len()
+            + self
+                .graph_updates
+                .values()
+                .map(|update| update.slice.row_count())
+                .sum::<usize>()
+    }
+}
+
+#[derive(Default)]
+struct GraphState {
+    last_seen_height: i64,
+    has_hos_touch: bool,
+    root_transaction_seen: bool,
+    pending_receipts: HashSet<String>,
+    bundle: Option<HosGraphBundle>,
+    incomplete_reason: Option<String>,
+}
+
+#[derive(Default)]
+struct HosRuntimeState {
+    graphs: HashMap<String, GraphState>,
+    recent_blocks: BTreeMap<i64, HashMap<String, HosGraphBundle>>,
+}
+
+#[derive(Clone)]
+struct PendingGraphWarning {
+    transaction_hash: String,
+    has_hos_touch: bool,
+    pending_receipt_count: usize,
+    last_seen_height: i64,
+}
+
+#[derive(Default)]
+struct StalledWarningSummary {
+    total_count: usize,
+    hos_touch_count: usize,
+    max_pending_receipt_count: usize,
+    oldest_last_seen_height: Option<i64>,
+    sample_tx_hashes: Vec<String>,
+}
+
+#[derive(Default)]
+struct MaintenancePlan {
+    triggered: bool,
+    finalized_hos: Vec<(String, HosGraphBundle)>,
+    finalized_raw_only: Vec<String>,
+    pruned_non_hos: Vec<String>,
+    stalled_warning_summary: StalledWarningSummary,
+    active_graph_tx_hashes: HashSet<String>,
+    incomplete_graph_count: usize,
+}
+
+impl HosRuntimeState {
+    fn merge_block_updates(
+        &mut self,
+        block_height: i64,
+        updates: HosBlockUpdates,
+        raw_enabled: bool,
+        recent_raw_cache_blocks: i64,
+        finalization_interval_blocks: i64,
+        stats: &mut StageMetrics,
+    ) -> MaintenancePlan {
+        stats.record_count("block_write_rows", updates.row_count());
+
+        for (transaction_hash, update) in updates.graph_updates {
+            let prior_hos_touch = self
+                .graphs
+                .get(&transaction_hash)
+                .map(|graph| graph.has_hos_touch)
+                .unwrap_or(false);
+            let hydrated_bundle = if !raw_enabled && !prior_hos_touch && update.has_hos_touch {
+                Some(self.hydrate_bundle_from_recent_cache(&transaction_hash))
+            } else {
+                None
+            };
+
+            let graph = self
+                .graphs
+                .entry(transaction_hash.clone())
+                .or_insert_with(|| GraphState {
+                    last_seen_height: block_height,
+                    ..GraphState::default()
+                });
+
+            graph.last_seen_height = graph.last_seen_height.max(block_height);
+            graph.has_hos_touch |= update.has_hos_touch;
+            graph.root_transaction_seen |= update.root_transaction_seen;
+
+            for receipt_id in update.pending_receipts_add {
+                graph.pending_receipts.insert(receipt_id);
+            }
+            for receipt_id in update.pending_receipts_remove {
+                graph.pending_receipts.remove(&receipt_id);
+            }
+
+            let became_hos_touch = !prior_hos_touch && graph.has_hos_touch;
+            if !raw_enabled && graph.has_hos_touch {
+                if became_hos_touch && graph.bundle.is_none() {
+                    graph.bundle = Some(hydrated_bundle.unwrap_or_default());
+                }
+
+                let bundle = graph.bundle.get_or_insert_with(HosGraphBundle::default);
+                bundle.merge(update.slice.clone());
+
+                if !graph.root_transaction_seen || !bundle.has_root_transaction(&transaction_hash) {
+                    graph.incomplete_reason = Some("missing_root_transaction_row".to_string());
+                } else {
+                    graph.incomplete_reason = None;
+                }
+            }
+
+            if !raw_enabled && recent_raw_cache_blocks > 0 {
+                self.recent_blocks
+                    .entry(block_height)
+                    .or_default()
+                    .insert(transaction_hash, update.slice);
+            }
+        }
+
+        if !raw_enabled && recent_raw_cache_blocks > 0 {
+            self.evict_recent_cache(block_height, recent_raw_cache_blocks);
+        }
+
+        stats.record_count("active_graph_count", self.graphs.len());
+        stats.record_count(
+            "hos_graph_count",
+            self.graphs
+                .values()
+                .filter(|graph| graph.has_hos_touch)
+                .count(),
+        );
+        stats.record_count("recent_cache_block_count", self.recent_blocks.len());
+
+        self.collect_maintenance_plan(block_height, raw_enabled, finalization_interval_blocks)
+    }
+
+    fn hydrate_bundle_from_recent_cache(&self, transaction_hash: &str) -> HosGraphBundle {
+        let mut bundle = HosGraphBundle::default();
+        for graph_slices in self.recent_blocks.values() {
+            if let Some(slice) = graph_slices.get(transaction_hash) {
+                bundle.merge(slice.clone());
+            }
+        }
+        bundle
+    }
+
+    fn evict_recent_cache(&mut self, block_height: i64, recent_raw_cache_blocks: i64) {
+        let cutoff_height = block_height.saturating_sub(recent_raw_cache_blocks.max(0));
+        let stale_heights = self
+            .recent_blocks
+            .keys()
+            .copied()
+            .take_while(|height| *height <= cutoff_height)
+            .collect::<Vec<_>>();
+        for height in stale_heights {
+            self.recent_blocks.remove(&height);
+        }
+    }
+
+    fn collect_maintenance_plan(
+        &mut self,
+        block_height: i64,
+        raw_enabled: bool,
+        finalization_interval_blocks: i64,
+    ) -> MaintenancePlan {
+        let mut plan = MaintenancePlan {
+            active_graph_tx_hashes: self.graphs.keys().cloned().collect(),
+            ..MaintenancePlan::default()
+        };
+
+        if finalization_interval_blocks <= 0 || block_height % finalization_interval_blocks != 0 {
+            return plan;
+        }
+
+        plan.triggered = true;
+
+        let warning_threshold_height =
+            block_height.saturating_sub(STALLED_PENDING_GRAPH_WARNING_BLOCKS.max(0));
+
+        for (transaction_hash, graph) in &self.graphs {
+            if !graph.pending_receipts.is_empty()
+                && (graph.has_hos_touch || graph.incomplete_reason.is_some())
+                && graph.last_seen_height <= warning_threshold_height
+            {
+                let warning = PendingGraphWarning {
+                    transaction_hash: transaction_hash.clone(),
+                    has_hos_touch: graph.has_hos_touch,
+                    pending_receipt_count: graph.pending_receipts.len(),
+                    last_seen_height: graph.last_seen_height,
+                };
+                plan.stalled_warning_summary.total_count += 1;
+                if warning.has_hos_touch {
+                    plan.stalled_warning_summary.hos_touch_count += 1;
+                }
+                plan.stalled_warning_summary.max_pending_receipt_count = plan
+                    .stalled_warning_summary
+                    .max_pending_receipt_count
+                    .max(warning.pending_receipt_count);
+                plan.stalled_warning_summary.oldest_last_seen_height = Some(
+                    plan.stalled_warning_summary
+                        .oldest_last_seen_height
+                        .map(|height| height.min(warning.last_seen_height))
+                        .unwrap_or(warning.last_seen_height),
+                );
+                if plan.stalled_warning_summary.sample_tx_hashes.len() < 5 {
+                    plan.stalled_warning_summary
+                        .sample_tx_hashes
+                        .push(warning.transaction_hash);
+                }
+            }
+        }
+
+        for (transaction_hash, graph) in &self.graphs {
+            if !graph.pending_receipts.is_empty() {
+                if graph.incomplete_reason.is_some() {
+                    plan.incomplete_graph_count += 1;
+                }
+                continue;
+            }
+
+            if !graph.has_hos_touch {
+                plan.pruned_non_hos.push(transaction_hash.clone());
+                continue;
+            }
+
+            if raw_enabled {
+                plan.finalized_raw_only.push(transaction_hash.clone());
+                continue;
+            }
+
+            let Some(bundle) = graph.bundle.clone() else {
+                plan.incomplete_graph_count += 1;
+                continue;
+            };
+
+            if !graph.root_transaction_seen || !bundle.has_root_transaction(transaction_hash) {
+                plan.incomplete_graph_count += 1;
+                continue;
+            }
+
+            plan.finalized_hos.push((transaction_hash.clone(), bundle));
+        }
+
+        plan
+    }
+
+    fn apply_maintenance(&mut self, plan: &MaintenancePlan) {
+        for tx_hash in plan
+            .finalized_hos
+            .iter()
+            .map(|(tx_hash, _)| tx_hash)
+            .chain(plan.finalized_raw_only.iter())
+            .chain(plan.pruned_non_hos.iter())
+        {
+            self.graphs.remove(tx_hash);
+        }
+    }
+}
+
+#[derive(Default)]
+struct CanonicalWriteBatch {
+    blocks: HashMap<i64, NearBlockRow>,
+    chunks: HashMap<String, NearChunkRow>,
+    state_changes: HashMap<(i64, i64), NearStateChangesRow>,
+    transactions: HashMap<String, NearTransactionRow>,
+    receipts: HashMap<String, NearReceiptRow>,
+    execution_outcomes: HashMap<String, NearExecutionOutcomeRow>,
+    receipt_actions: HashMap<String, NearReceiptActionRow>,
+    receipt_edges: HashMap<(String, String), NearReceiptEdgeRow>,
+}
+
+impl CanonicalWriteBatch {
+    fn merge_bundle(&mut self, bundle: HosGraphBundle) {
+        self.blocks.extend(bundle.blocks);
+        self.chunks.extend(bundle.chunks);
+        self.state_changes.extend(bundle.state_changes);
+        self.transactions.extend(bundle.transactions);
+        self.receipts.extend(bundle.receipts);
+        self.execution_outcomes.extend(bundle.execution_outcomes);
+        self.receipt_actions.extend(bundle.receipt_actions);
+        self.receipt_edges.extend(bundle.receipt_edges);
+    }
+
+    fn row_count(&self) -> usize {
+        self.blocks.len()
+            + self.chunks.len()
+            + self.state_changes.len()
+            + self.transactions.len()
+            + self.receipts.len()
+            + self.execution_outcomes.len()
+            + self.receipt_actions.len()
+            + self.receipt_edges.len()
     }
 }
 
@@ -328,14 +678,11 @@ pub struct VenearGovernanceModule {
     enabled: bool,
     stream_mode: NearModuleStreamMode,
     mview_refresh_interval_blocks: i64,
-    staging_gc_interval_blocks: i64,
-    staging_gc_batch_size: i64,
-    staging_gc_max_batches_per_run: i64,
-    receipt_tx_map_cleanup_interval_blocks: i64,
+    finalization_interval_blocks: i64,
+    recent_raw_cache_blocks: i64,
     receipt_tx_map_retention_blocks: i64,
-    receipt_tx_map_cleanup_batch_size: i64,
-    receipt_tx_map_cleanup_max_batches_per_run: i64,
     raw_enabled: bool,
+    state: Mutex<HosRuntimeState>,
 }
 
 impl VenearGovernanceModule {
@@ -343,13 +690,9 @@ impl VenearGovernanceModule {
         let mut enabled = false;
         let mut stream_mode = NearModuleStreamMode::Shared;
         let mut mview_refresh_interval_blocks = DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS;
-        let mut staging_gc_interval_blocks = DEFAULT_STAGING_GC_INTERVAL_BLOCKS;
-        let mut staging_gc_batch_size = DEFAULT_STAGING_GC_BATCH_SIZE;
-        let mut staging_gc_max_batches_per_run = DEFAULT_STAGING_GC_MAX_BATCHES;
-        let mut receipt_tx_map_cleanup_interval_blocks = DEFAULT_TX_MAP_CLEANUP_INTERVAL_BLOCKS;
+        let mut finalization_interval_blocks = DEFAULT_FINALIZATION_INTERVAL_BLOCKS;
+        let mut recent_raw_cache_blocks = DEFAULT_RECENT_RAW_CACHE_BLOCKS;
         let mut receipt_tx_map_retention_blocks = DEFAULT_TX_MAP_RETENTION_BLOCKS;
-        let mut receipt_tx_map_cleanup_batch_size = DEFAULT_TX_MAP_CLEANUP_BATCH_SIZE;
-        let mut receipt_tx_map_cleanup_max_batches_per_run = DEFAULT_TX_MAP_CLEANUP_MAX_BATCHES;
         let mut raw_enabled = false;
 
         if let common::config::AppConfig::Indexer(idx) = config {
@@ -368,25 +711,13 @@ impl VenearGovernanceModule {
                         mview_refresh_interval_blocks =
                             i64::try_from(module_cfg.mview_refresh_interval_blocks)
                                 .unwrap_or(i64::MAX);
-                        staging_gc_interval_blocks =
-                            i64::try_from(module_cfg.staging_gc_interval_blocks)
+                        finalization_interval_blocks =
+                            i64::try_from(module_cfg.finalization_interval_blocks)
                                 .unwrap_or(i64::MAX);
-                        staging_gc_batch_size =
-                            i64::try_from(module_cfg.staging_gc_batch_size).unwrap_or(i64::MAX);
-                        staging_gc_max_batches_per_run =
-                            i64::try_from(module_cfg.staging_gc_max_batches_per_run)
-                                .unwrap_or(i64::MAX);
-                        receipt_tx_map_cleanup_interval_blocks =
-                            i64::try_from(module_cfg.receipt_tx_map_cleanup_interval_blocks)
-                                .unwrap_or(i64::MAX);
+                        recent_raw_cache_blocks =
+                            i64::try_from(module_cfg.recent_raw_cache_blocks).unwrap_or(i64::MAX);
                         receipt_tx_map_retention_blocks =
                             i64::try_from(module_cfg.receipt_tx_map_retention_blocks)
-                                .unwrap_or(i64::MAX);
-                        receipt_tx_map_cleanup_batch_size =
-                            i64::try_from(module_cfg.receipt_tx_map_cleanup_batch_size)
-                                .unwrap_or(i64::MAX);
-                        receipt_tx_map_cleanup_max_batches_per_run =
-                            i64::try_from(module_cfg.receipt_tx_map_cleanup_max_batches_per_run)
                                 .unwrap_or(i64::MAX);
                     }
                 }
@@ -397,14 +728,11 @@ impl VenearGovernanceModule {
             enabled,
             stream_mode,
             mview_refresh_interval_blocks,
-            staging_gc_interval_blocks,
-            staging_gc_batch_size,
-            staging_gc_max_batches_per_run,
-            receipt_tx_map_cleanup_interval_blocks,
+            finalization_interval_blocks,
+            recent_raw_cache_blocks,
             receipt_tx_map_retention_blocks,
-            receipt_tx_map_cleanup_batch_size,
-            receipt_tx_map_cleanup_max_batches_per_run,
             raw_enabled,
+            state: Mutex::new(HosRuntimeState::default()),
         }
     }
 
@@ -485,59 +813,6 @@ impl VenearGovernanceModule {
     fn shard_to_i64(shard_id: near_lake_framework::near_indexer_primitives::types::ShardId) -> i64 {
         let value: u64 = shard_id.into();
         i64::try_from(value).unwrap_or(i64::MAX)
-    }
-
-    async fn load_receipt_tx_from_staging_status(
-        db: &impl ConnectionTrait,
-        receipt_ids: &[String],
-    ) -> Result<HashMap<String, String>> {
-        let mut deduped = Vec::new();
-        let mut seen = HashSet::new();
-        for receipt_id in receipt_ids {
-            if seen.insert(receipt_id.clone()) {
-                deduped.push(receipt_id.clone());
-            }
-        }
-
-        if deduped.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let mut placeholders = String::new();
-        for idx in 0..deduped.len() {
-            if idx > 0 {
-                placeholders.push_str(", ");
-            }
-            placeholders.push_str(&format!("${}", idx + 1));
-        }
-
-        let sql = format!(
-            "SELECT receipt_id, transaction_hash
-             FROM near.near_hos_staging_receipt_status
-             WHERE receipt_id IN ({placeholders})"
-        );
-
-        let rows = db
-            .query_all(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                &sql,
-                deduped.into_iter().map(Into::into).collect::<Vec<_>>(),
-            ))
-            .await
-            .context("failed to load near_hos_staging_receipt_status")?;
-
-        let mut result = HashMap::new();
-        for row in rows {
-            let receipt_id: String = row
-                .try_get("", "receipt_id")
-                .context("failed to read near_hos_staging_receipt_status.receipt_id")?;
-            let transaction_hash: String = row
-                .try_get("", "transaction_hash")
-                .context("failed to read near_hos_staging_receipt_status.transaction_hash")?;
-            result.insert(receipt_id, transaction_hash);
-        }
-
-        Ok(result)
     }
 
     fn max_bulk_rows(columns_per_row: usize) -> usize {
@@ -647,60 +922,6 @@ impl VenearGovernanceModule {
         Ok(results)
     }
 
-    async fn flush_tx_state_upserts(
-        db: &impl ConnectionTrait,
-        rows: &[TxStateUpsertRow],
-    ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            3,
-            "INSERT INTO near.near_hos_tx_state (
-                graph_key,
-                transaction_hash,
-                status,
-                pending_receipt_count,
-                has_hos_touch,
-                first_seen_height,
-                last_seen_height,
-                created_at,
-                updated_at
-            )
-            SELECT
-                incoming.transaction_hash,
-                incoming.transaction_hash,
-                'pending',
-                0,
-                incoming.has_hos_touch,
-                incoming.block_height,
-                incoming.block_height,
-                NOW(),
-                NOW()
-            FROM (VALUES ",
-            "
-            ) AS incoming(transaction_hash, has_hos_touch, block_height)
-            ON CONFLICT (graph_key) DO UPDATE SET
-                last_seen_height = GREATEST(
-                    near.near_hos_tx_state.last_seen_height,
-                    EXCLUDED.last_seen_height
-                ),
-                has_hos_touch = near.near_hos_tx_state.has_hos_touch OR EXCLUDED.has_hos_touch,
-                status = EXCLUDED.status,
-                finalized_at = NULL,
-                representative_receipt_id = NULL,
-                incomplete = FALSE,
-                error_reason = NULL,
-                updated_at = NOW()",
-            |row, values| {
-                values.push(row.transaction_hash.clone().into());
-                values.push(row.has_hos_touch.into());
-                values.push(row.block_height.into());
-            },
-            "failed to bulk upsert near_hos_tx_state",
-        )
-        .await
-    }
-
     async fn flush_receipt_tx_hash_map_upserts(
         db: &impl ConnectionTrait,
         rows: &[ReceiptTxHashMapRow],
@@ -771,54 +992,6 @@ impl VenearGovernanceModule {
         Ok(())
     }
 
-    async fn mark_incomplete_missing_tx_hash(
-        db: &impl ConnectionTrait,
-        receipt_id: &str,
-        block_height: i64,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO near.near_hos_tx_state (
-                graph_key,
-                transaction_hash,
-                status,
-                pending_receipt_count,
-                has_hos_touch,
-                first_seen_height,
-                last_seen_height,
-                representative_receipt_id,
-                incomplete,
-                error_reason,
-                created_at,
-                updated_at
-            ) VALUES ($1, NULL, $2, 1, TRUE, $3, $3, $4, TRUE, $5, NOW(), NOW())
-            ON CONFLICT (graph_key) DO UPDATE SET
-                last_seen_height = GREATEST(
-                    near.near_hos_tx_state.last_seen_height,
-                    EXCLUDED.last_seen_height
-                ),
-                pending_receipt_count = EXCLUDED.pending_receipt_count,
-                has_hos_touch = TRUE,
-                representative_receipt_id = EXCLUDED.representative_receipt_id,
-                finalized_at = NULL,
-                incomplete = TRUE,
-                error_reason = EXCLUDED.error_reason,
-                status = EXCLUDED.status,
-                updated_at = NOW()",
-            vec![
-                format!("missing_tx::{receipt_id}").into(),
-                TX_STATUS_INCOMPLETE_MISSING_TX_HASH.into(),
-                block_height.into(),
-                receipt_id.into(),
-                "unable_to_resolve_transaction_hash".into(),
-            ],
-        ))
-        .await
-        .context("failed to mark missing tx hash incomplete state")?;
-
-        Ok(())
-    }
-
     fn is_hos_lockup_contract(account_id: &str) -> bool {
         account_id
             .strip_suffix(VENEAR_LOCKUP_SUFFIX)
@@ -856,10 +1029,7 @@ impl VenearGovernanceModule {
                 .unwrap_or(false)
     }
 
-    fn is_hos_related_receipt(
-        &self,
-        receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
-    ) -> bool {
+    fn is_hos_related_receipt(&self, receipt: &ReceiptView) -> bool {
         self.is_hos_related_with_signer(
             receipt.receiver_id.as_ref(),
             receipt.predecessor_id.as_ref(),
@@ -891,173 +1061,15 @@ impl VenearGovernanceModule {
             && block_height % self.mview_refresh_interval_blocks == 0
     }
 
-    async fn flush_staging_block_upserts(
+    async fn flush_canonical_transactions(
         db: &impl ConnectionTrait,
-        rows: &[StagingBlockRow],
+        rows: &[NearTransactionRow],
     ) -> Result<()> {
         Self::execute_chunked_upsert(
             db,
             rows,
-            19,
-            "INSERT INTO near.near_hos_staging_blocks (
-                transaction_hash,
-                height,
-                hash,
-                prev_hash,
-                epoch_id,
-                next_epoch_id,
-                author,
-                timestamp,
-                timestamp_nanosec,
-                gas_price,
-                total_supply,
-                validator_reward,
-                protocol_version,
-                chunks_included,
-                block_ordinal,
-                prev_height,
-                raw_data,
-                first_seen_height,
-                last_seen_height
-            ) VALUES ",
-            "
-            ON CONFLICT (transaction_hash, height) DO UPDATE SET
-                last_seen_height = GREATEST(
-                    near.near_hos_staging_blocks.last_seen_height,
-                    EXCLUDED.last_seen_height
-                )",
-            |row, values| {
-                values.push(row.transaction_hash.clone().into());
-                values.push(row.height.into());
-                values.push(row.hash.clone().into());
-                values.push(row.prev_hash.clone().into());
-                values.push(row.epoch_id.clone().into());
-                values.push(row.next_epoch_id.clone().into());
-                values.push(row.author.clone().into());
-                values.push(row.timestamp.into());
-                values.push(row.timestamp_nanosec.into());
-                values.push(row.gas_price.clone().into());
-                values.push(row.total_supply.clone().into());
-                values.push(row.validator_reward.clone().into());
-                values.push(row.protocol_version.into());
-                values.push(row.chunks_included.into());
-                values.push(row.block_ordinal.into());
-                values.push(row.prev_height.into());
-                values.push(row.raw_data.clone().into());
-                values.push(row.seen_height.into());
-                values.push(row.seen_height.into());
-            },
-            "failed to bulk upsert near_hos_staging_blocks",
-        )
-        .await
-    }
-
-    async fn flush_staging_chunk_upserts(
-        db: &impl ConnectionTrait,
-        rows: &[StagingChunkRow],
-    ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            13,
-            "INSERT INTO near.near_hos_staging_chunks (
-                transaction_hash,
-                chunk_hash,
-                block_height,
-                shard_id,
-                author,
-                height_created,
-                height_included,
-                gas_used,
-                gas_limit,
-                validator_reward,
-                raw_data,
-                first_seen_height,
-                last_seen_height
-            ) VALUES ",
-            "
-            ON CONFLICT (transaction_hash, chunk_hash) DO UPDATE SET
-                block_height = EXCLUDED.block_height,
-                shard_id = EXCLUDED.shard_id,
-                author = EXCLUDED.author,
-                height_created = EXCLUDED.height_created,
-                height_included = EXCLUDED.height_included,
-                gas_used = EXCLUDED.gas_used,
-                gas_limit = EXCLUDED.gas_limit,
-                validator_reward = EXCLUDED.validator_reward,
-                raw_data = COALESCE(
-                    EXCLUDED.raw_data,
-                    near.near_hos_staging_chunks.raw_data
-                ),
-                last_seen_height = GREATEST(
-                    near.near_hos_staging_chunks.last_seen_height,
-                    EXCLUDED.last_seen_height
-                )",
-            |row, values| {
-                values.push(row.transaction_hash.clone().into());
-                values.push(row.chunk_hash.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.shard_id.into());
-                values.push(row.author.clone().into());
-                values.push(row.height_created.into());
-                values.push(row.height_included.into());
-                values.push(row.gas_used.into());
-                values.push(row.gas_limit.into());
-                values.push(row.validator_reward.clone().into());
-                values.push(row.raw_data.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.block_height.into());
-            },
-            "failed to bulk upsert near_hos_staging_chunks",
-        )
-        .await
-    }
-
-    async fn flush_staging_state_changes_upserts(
-        db: &impl ConnectionTrait,
-        rows: &[StagingStateChangesRow],
-    ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            6,
-            "INSERT INTO near.near_hos_staging_state_changes (
-                transaction_hash,
-                block_height,
-                shard_id,
-                state_changes,
-                first_seen_height,
-                last_seen_height
-            ) VALUES ",
-            "
-            ON CONFLICT (transaction_hash, block_height, shard_id) DO UPDATE SET
-                state_changes = EXCLUDED.state_changes,
-                last_seen_height = GREATEST(
-                    near.near_hos_staging_state_changes.last_seen_height,
-                    EXCLUDED.last_seen_height
-                )",
-            |row, values| {
-                values.push(row.transaction_hash.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.shard_id.into());
-                values.push(row.state_changes.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.block_height.into());
-            },
-            "failed to bulk upsert near_hos_staging_state_changes",
-        )
-        .await
-    }
-
-    async fn flush_staging_transaction_upserts(
-        db: &impl ConnectionTrait,
-        rows: &[StagingTransactionRow],
-    ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            13,
-            "INSERT INTO near.near_hos_staging_transactions (
+            11,
+            "INSERT INTO near.near_transactions (
                 hash,
                 block_height,
                 signer_id,
@@ -1068,9 +1080,7 @@ impl VenearGovernanceModule {
                 signature,
                 actions,
                 raw_data,
-                shard_id,
-                first_seen_height,
-                last_seen_height
+                shard_id
             ) VALUES ",
             "
             ON CONFLICT (hash) DO UPDATE SET
@@ -1082,15 +1092,8 @@ impl VenearGovernanceModule {
                 public_key = EXCLUDED.public_key,
                 signature = EXCLUDED.signature,
                 actions = EXCLUDED.actions,
-                raw_data = COALESCE(
-                    EXCLUDED.raw_data,
-                    near.near_hos_staging_transactions.raw_data
-                ),
-                shard_id = EXCLUDED.shard_id,
-                last_seen_height = GREATEST(
-                    near.near_hos_staging_transactions.last_seen_height,
-                    EXCLUDED.last_seen_height
-                )",
+                raw_data = COALESCE(EXCLUDED.raw_data, near.near_transactions.raw_data),
+                shard_id = EXCLUDED.shard_id",
             |row, values| {
                 values.push(row.hash.clone().into());
                 values.push(row.block_height.into());
@@ -1103,83 +1106,67 @@ impl VenearGovernanceModule {
                 values.push(row.actions.clone().into());
                 values.push(row.raw_data.clone().into());
                 values.push(row.shard_id.into());
-                values.push(row.block_height.into());
-                values.push(row.block_height.into());
             },
-            "failed to bulk upsert near_hos_staging_transactions",
+            "failed to bulk upsert near_transactions",
         )
         .await
     }
 
-    async fn flush_staging_receipt_upserts(
+    async fn flush_canonical_receipts(
         db: &impl ConnectionTrait,
-        rows: &[StagingReceiptRow],
+        rows: &[NearReceiptRow],
     ) -> Result<()> {
         Self::execute_chunked_upsert(
             db,
             rows,
-            10,
-            "INSERT INTO near.near_hos_staging_receipts (
+            7,
+            "INSERT INTO near.near_receipts (
                 receipt_id,
-                transaction_hash,
                 block_height,
                 shard_id,
                 predecessor_id,
                 receiver_id,
                 receipt,
-                raw_data,
-                first_seen_height,
-                last_seen_height
+                raw_data
             ) VALUES ",
             "
             ON CONFLICT (receipt_id) DO UPDATE SET
-                transaction_hash = EXCLUDED.transaction_hash,
                 block_height = EXCLUDED.block_height,
                 shard_id = EXCLUDED.shard_id,
                 predecessor_id = EXCLUDED.predecessor_id,
                 receiver_id = EXCLUDED.receiver_id,
                 receipt = EXCLUDED.receipt,
-                raw_data = COALESCE(
-                    near.near_hos_staging_receipts.raw_data,
-                    EXCLUDED.raw_data
-                ),
-                last_seen_height = GREATEST(
-                    near.near_hos_staging_receipts.last_seen_height,
-                    EXCLUDED.last_seen_height
-                )",
+                raw_data = COALESCE(near.near_receipts.raw_data, EXCLUDED.raw_data)",
             |row, values| {
                 values.push(row.receipt_id.clone().into());
-                values.push(row.transaction_hash.clone().into());
                 values.push(row.block_height.into());
                 values.push(row.shard_id.into());
                 values.push(row.predecessor_id.clone().into());
                 values.push(row.receiver_id.clone().into());
                 values.push(row.receipt.clone().into());
                 values.push(row.raw_data.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.block_height.into());
             },
-            "failed to bulk upsert near_hos_staging_receipts",
+            "failed to bulk upsert near_receipts",
         )
         .await
     }
 
-    async fn flush_staging_execution_outcome_upserts(
+    async fn flush_canonical_execution_outcomes(
         db: &impl ConnectionTrait,
-        rows: &[StagingExecutionOutcomeRow],
+        rows: &[NearExecutionOutcomeRow],
     ) -> Result<()> {
         Self::execute_chunked_upsert(
             db,
             rows,
-            21,
-            "INSERT INTO near.near_hos_staging_execution_outcomes (
+            19,
+            "INSERT INTO near.near_execution_outcomes (
                 id,
-                transaction_hash,
                 block_height,
                 shard_id,
                 receipt_id,
                 outcome,
                 raw_data,
+                transaction_hash,
                 block_hash,
                 chunk_hash,
                 gas_burnt,
@@ -1191,585 +1178,9 @@ impl VenearGovernanceModule {
                 executed_in_block_hash,
                 logs,
                 results_json,
-                block_timestamp,
-                first_seen_height,
-                last_seen_height
+                block_timestamp
             ) VALUES ",
             "
-            ON CONFLICT (id) DO UPDATE SET
-                transaction_hash = EXCLUDED.transaction_hash,
-                block_height = EXCLUDED.block_height,
-                shard_id = EXCLUDED.shard_id,
-                receipt_id = COALESCE(
-                    near.near_hos_staging_execution_outcomes.receipt_id,
-                    EXCLUDED.receipt_id
-                ),
-                outcome = EXCLUDED.outcome,
-                raw_data = COALESCE(
-                    near.near_hos_staging_execution_outcomes.raw_data,
-                    EXCLUDED.raw_data
-                ),
-                block_hash = EXCLUDED.block_hash,
-                chunk_hash = EXCLUDED.chunk_hash,
-                gas_burnt = EXCLUDED.gas_burnt,
-                gas_used = EXCLUDED.gas_used,
-                tokens_burnt = EXCLUDED.tokens_burnt,
-                executor_account_id = EXCLUDED.executor_account_id,
-                status = EXCLUDED.status,
-                outcome_receipt_ids = EXCLUDED.outcome_receipt_ids,
-                executed_in_block_hash = EXCLUDED.executed_in_block_hash,
-                logs = EXCLUDED.logs,
-                results_json = EXCLUDED.results_json,
-                block_timestamp = EXCLUDED.block_timestamp,
-                last_seen_height = GREATEST(
-                    near.near_hos_staging_execution_outcomes.last_seen_height,
-                    EXCLUDED.last_seen_height
-                )",
-            |row, values| {
-                values.push(row.id.clone().into());
-                values.push(row.transaction_hash.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.shard_id.into());
-                values.push(row.receipt_id.clone().into());
-                values.push(row.outcome.clone().into());
-                values.push(row.raw_data.clone().into());
-                values.push(row.block_hash.clone().into());
-                values.push(row.chunk_hash.clone().into());
-                values.push(row.gas_burnt.into());
-                values.push(row.gas_used.into());
-                values.push(row.tokens_burnt.into());
-                values.push(row.executor_account_id.clone().into());
-                values.push(row.status.clone().into());
-                values.push(row.outcome_receipt_ids.clone().into());
-                values.push(row.executed_in_block_hash.clone().into());
-                values.push(row.logs.clone().into());
-                values.push(row.results_json.clone().into());
-                values.push(row.block_timestamp.into());
-                values.push(row.block_height.into());
-                values.push(row.block_height.into());
-            },
-            "failed to bulk upsert near_hos_staging_execution_outcomes",
-        )
-        .await
-    }
-
-    async fn flush_staging_receipt_action_upserts(
-        db: &impl ConnectionTrait,
-        rows: &[StagingReceiptActionRow],
-    ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            25,
-            "INSERT INTO near.near_hos_staging_receipt_actions (
-                id,
-                transaction_hash,
-                block_height,
-                receipt_id,
-                execution_outcome_id,
-                shard_id,
-                signer_account_id,
-                signer_public_key,
-                gas_price,
-                action_kind,
-                action_json,
-                predecessor_id,
-                receiver_id,
-                block_hash,
-                chunk_hash,
-                author,
-                method_name,
-                gas,
-                deposit,
-                args_base64,
-                args_json,
-                action_index,
-                block_timestamp,
-                first_seen_height,
-                last_seen_height
-            ) VALUES ",
-            "
-            ON CONFLICT (id) DO UPDATE SET
-                transaction_hash = EXCLUDED.transaction_hash,
-                block_height = EXCLUDED.block_height,
-                receipt_id = EXCLUDED.receipt_id,
-                execution_outcome_id = EXCLUDED.execution_outcome_id,
-                shard_id = EXCLUDED.shard_id,
-                signer_account_id = EXCLUDED.signer_account_id,
-                signer_public_key = EXCLUDED.signer_public_key,
-                gas_price = EXCLUDED.gas_price,
-                action_kind = EXCLUDED.action_kind,
-                action_json = EXCLUDED.action_json,
-                predecessor_id = EXCLUDED.predecessor_id,
-                receiver_id = EXCLUDED.receiver_id,
-                block_hash = EXCLUDED.block_hash,
-                chunk_hash = EXCLUDED.chunk_hash,
-                author = EXCLUDED.author,
-                method_name = EXCLUDED.method_name,
-                gas = EXCLUDED.gas,
-                deposit = EXCLUDED.deposit,
-                args_base64 = EXCLUDED.args_base64,
-                args_json = EXCLUDED.args_json,
-                action_index = EXCLUDED.action_index,
-                block_timestamp = EXCLUDED.block_timestamp,
-                last_seen_height = GREATEST(
-                    near.near_hos_staging_receipt_actions.last_seen_height,
-                    EXCLUDED.last_seen_height
-                )",
-            |row, values| {
-                values.push(row.id.clone().into());
-                values.push(row.transaction_hash.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.receipt_id.clone().into());
-                values.push(row.execution_outcome_id.clone().into());
-                values.push(row.shard_id.into());
-                values.push(row.signer_account_id.clone().into());
-                values.push(row.signer_public_key.clone().into());
-                values.push(row.gas_price.clone().into());
-                values.push(row.action_kind.clone().into());
-                values.push(row.action_json.clone().into());
-                values.push(row.predecessor_id.clone().into());
-                values.push(row.receiver_id.clone().into());
-                values.push(row.block_hash.clone().into());
-                values.push(row.chunk_hash.clone().into());
-                values.push(row.author.clone().into());
-                values.push(row.method_name.clone().into());
-                values.push(row.gas.into());
-                values.push(row.deposit.clone().into());
-                values.push(row.args_base64.clone().into());
-                values.push(row.args_json.clone().into());
-                values.push(row.action_index.into());
-                values.push(row.block_timestamp.into());
-                values.push(row.block_height.into());
-                values.push(row.block_height.into());
-            },
-            "failed to bulk upsert near_hos_staging_receipt_actions",
-        )
-        .await
-    }
-
-    async fn flush_staging_receipt_edge_upserts(
-        db: &impl ConnectionTrait,
-        rows: &[StagingReceiptEdgeRow],
-    ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            9,
-            "INSERT INTO near.near_hos_staging_receipt_edges (
-                parent_receipt_id,
-                child_receipt_id,
-                transaction_hash,
-                parent_execution_outcome_id,
-                block_height,
-                block_hash,
-                block_timestamp,
-                first_seen_height,
-                last_seen_height
-            ) VALUES ",
-            "
-            ON CONFLICT (parent_receipt_id, child_receipt_id) DO UPDATE SET
-                transaction_hash = EXCLUDED.transaction_hash,
-                parent_execution_outcome_id = EXCLUDED.parent_execution_outcome_id,
-                block_height = EXCLUDED.block_height,
-                block_hash = EXCLUDED.block_hash,
-                block_timestamp = EXCLUDED.block_timestamp,
-                last_seen_height = GREATEST(
-                    near.near_hos_staging_receipt_edges.last_seen_height,
-                    EXCLUDED.last_seen_height
-                )",
-            |row, values| {
-                values.push(row.parent_receipt_id.clone().into());
-                values.push(row.child_receipt_id.clone().into());
-                values.push(row.transaction_hash.clone().into());
-                values.push(row.parent_execution_outcome_id.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.block_hash.clone().into());
-                values.push(row.block_timestamp.into());
-                values.push(row.block_height.into());
-                values.push(row.block_height.into());
-            },
-            "failed to bulk upsert near_hos_staging_receipt_edges",
-        )
-        .await
-    }
-
-    async fn flush_staging_receipt_status_upserts(
-        db: &impl ConnectionTrait,
-        rows: &[StagingReceiptStatusRow],
-    ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            5,
-            "INSERT INTO near.near_hos_staging_receipt_status (
-                receipt_id,
-                transaction_hash,
-                executed,
-                first_seen_height,
-                last_seen_height
-            ) VALUES ",
-            "
-            ON CONFLICT (receipt_id) DO UPDATE SET
-                transaction_hash = EXCLUDED.transaction_hash,
-                executed = near.near_hos_staging_receipt_status.executed OR EXCLUDED.executed,
-                last_seen_height = GREATEST(
-                    near.near_hos_staging_receipt_status.last_seen_height,
-                    EXCLUDED.last_seen_height
-                )",
-            |row, values| {
-                values.push(row.receipt_id.clone().into());
-                values.push(row.transaction_hash.clone().into());
-                values.push(row.executed.into());
-                values.push(row.block_height.into());
-                values.push(row.block_height.into());
-            },
-            "failed to bulk upsert near_hos_staging_receipt_status",
-        )
-        .await
-    }
-
-    async fn flush_block_writes(
-        db: &impl ConnectionTrait,
-        writes: HosBlockWrites,
-        stats: &mut StageMetrics,
-    ) -> Result<()> {
-        let total_write_rows = writes.tx_states.len()
-            + writes.receipt_tx_hash_map.len()
-            + writes.staging_blocks.len()
-            + writes.staging_chunks.len()
-            + writes.staging_state_changes.len()
-            + writes.staging_transactions.len()
-            + writes.staging_receipts.len()
-            + writes.staging_execution_outcomes.len()
-            + writes.staging_receipt_actions.len()
-            + writes.staging_receipt_edges.len()
-            + writes.staging_receipt_statuses.len();
-        stats.record_count("staging_write_rows", total_write_rows);
-
-        let tx_states = writes.tx_states.into_values().collect::<Vec<_>>();
-        let receipt_tx_hash_map = writes.receipt_tx_hash_map.into_values().collect::<Vec<_>>();
-        let staging_blocks = writes.staging_blocks.into_values().collect::<Vec<_>>();
-        let staging_chunks = writes.staging_chunks.into_values().collect::<Vec<_>>();
-        let staging_state_changes = writes
-            .staging_state_changes
-            .into_values()
-            .collect::<Vec<_>>();
-        let staging_transactions = writes
-            .staging_transactions
-            .into_values()
-            .collect::<Vec<_>>();
-        let staging_receipts = writes.staging_receipts.into_values().collect::<Vec<_>>();
-        let staging_execution_outcomes = writes
-            .staging_execution_outcomes
-            .into_values()
-            .collect::<Vec<_>>();
-        let staging_receipt_actions = writes
-            .staging_receipt_actions
-            .into_values()
-            .collect::<Vec<_>>();
-        let staging_receipt_edges = writes
-            .staging_receipt_edges
-            .into_values()
-            .collect::<Vec<_>>();
-        let staging_receipt_statuses = writes
-            .staging_receipt_statuses
-            .into_values()
-            .collect::<Vec<_>>();
-
-        let start = Instant::now();
-        Self::flush_tx_state_upserts(db, &tx_states).await?;
-        stats.record_phase_elapsed("tx_state_flush", start);
-
-        let start = Instant::now();
-        Self::flush_receipt_tx_hash_map_upserts(db, &receipt_tx_hash_map).await?;
-        stats.record_phase_elapsed("receipt_map_flush", start);
-
-        let start = Instant::now();
-        Self::flush_staging_block_upserts(db, &staging_blocks).await?;
-        stats.record_phase_elapsed("block_flush", start);
-
-        let start = Instant::now();
-        Self::flush_staging_transaction_upserts(db, &staging_transactions).await?;
-        stats.record_phase_elapsed("transaction_flush", start);
-
-        let start = Instant::now();
-        Self::flush_staging_receipt_upserts(db, &staging_receipts).await?;
-        stats.record_phase_elapsed("receipt_flush", start);
-
-        let start = Instant::now();
-        Self::flush_staging_execution_outcome_upserts(db, &staging_execution_outcomes).await?;
-        stats.record_phase_elapsed("execution_outcome_flush", start);
-
-        let start = Instant::now();
-        Self::flush_staging_receipt_action_upserts(db, &staging_receipt_actions).await?;
-        stats.record_phase_elapsed("receipt_action_flush", start);
-
-        let start = Instant::now();
-        Self::flush_staging_receipt_edge_upserts(db, &staging_receipt_edges).await?;
-        stats.record_phase_elapsed("receipt_edge_flush", start);
-
-        let start = Instant::now();
-        Self::flush_staging_receipt_status_upserts(db, &staging_receipt_statuses).await?;
-        stats.record_phase_elapsed("receipt_status_flush", start);
-
-        let start = Instant::now();
-        Self::flush_staging_chunk_upserts(db, &staging_chunks).await?;
-        stats.record_phase_elapsed("chunk_flush", start);
-
-        let start = Instant::now();
-        Self::flush_staging_state_changes_upserts(db, &staging_state_changes).await?;
-        stats.record_phase_elapsed("state_changes_flush", start);
-
-        Ok(())
-    }
-
-    async fn refresh_pending_counts_for_txs(
-        db: &impl ConnectionTrait,
-        tx_hashes: &[String],
-    ) -> Result<()> {
-        if tx_hashes.is_empty() {
-            return Ok(());
-        }
-
-        let mut placeholders = String::new();
-        let mut values = Vec::new();
-        for (idx, tx_hash) in tx_hashes.iter().enumerate() {
-            if idx > 0 {
-                placeholders.push_str(", ");
-            }
-            placeholders.push_str(&format!("${}", idx + 1));
-            values.push(tx_hash.clone().into());
-        }
-        let pending_status_placeholder = tx_hashes.len() + 1;
-        values.push(TX_STATUS_PENDING.into());
-
-        let sql = format!(
-            "UPDATE near.near_hos_tx_state ts
-             SET pending_receipt_count = COALESCE((
-                     SELECT COUNT(*)::BIGINT
-                     FROM near.near_hos_staging_receipt_status rs
-                     WHERE rs.transaction_hash = ts.transaction_hash
-                       AND rs.executed = FALSE
-                 ), 0),
-                 updated_at = NOW()
-             WHERE ts.transaction_hash IN ({placeholders})
-               AND ts.status = ${pending_status_placeholder}"
-        );
-
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            &sql,
-            values,
-        ))
-        .await
-        .context("failed to refresh near_hos_tx_state pending counts")?;
-
-        Ok(())
-    }
-
-    async fn load_finalize_candidates(
-        db: &impl ConnectionTrait,
-    ) -> Result<Vec<(String, bool, i64, i64)>> {
-        let rows = db
-            .query_all(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT transaction_hash, has_hos_touch, pending_receipt_count, first_seen_height
-                 FROM near.near_hos_tx_state
-                 WHERE status = $1
-                   AND transaction_hash IS NOT NULL
-                   AND pending_receipt_count = 0
-                 ORDER BY first_seen_height ASC
-                 LIMIT 5000",
-                vec![TX_STATUS_PENDING.into()],
-            ))
-            .await
-            .context("failed to load finalize candidates from near_hos_tx_state")?;
-
-        let mut candidates = Vec::new();
-        for row in rows {
-            let tx_hash: String = row
-                .try_get("", "transaction_hash")
-                .context("failed to read near_hos_tx_state.transaction_hash")?;
-            let has_hos_touch: bool = row
-                .try_get("", "has_hos_touch")
-                .context("failed to read near_hos_tx_state.has_hos_touch")?;
-            let pending_receipt_count: i64 = row
-                .try_get("", "pending_receipt_count")
-                .context("failed to read near_hos_tx_state.pending_receipt_count")?;
-            let first_seen_height: i64 = row
-                .try_get("", "first_seen_height")
-                .context("failed to read near_hos_tx_state.first_seen_height")?;
-
-            candidates.push((
-                tx_hash,
-                has_hos_touch,
-                pending_receipt_count,
-                first_seen_height,
-            ));
-        }
-
-        Ok(candidates)
-    }
-
-    async fn staging_transaction_exists(
-        db: &impl ConnectionTrait,
-        transaction_hash: &str,
-    ) -> Result<bool> {
-        let row = db
-            .query_one(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT 1
-                 FROM near.near_hos_staging_transactions
-                 WHERE hash = $1
-                 LIMIT 1",
-                vec![transaction_hash.into()],
-            ))
-            .await
-            .context("failed to check staged transaction existence")?;
-
-        Ok(row.is_some())
-    }
-
-    async fn mark_tx_state_finished(
-        db: &impl ConnectionTrait,
-        transaction_hash: &str,
-        status: &str,
-        pending_receipt_count: i64,
-        incomplete: bool,
-        error_reason: Option<&str>,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "UPDATE near.near_hos_tx_state
-             SET status = $2,
-                 pending_receipt_count = $3,
-                 finalized_at = NOW(),
-                 incomplete = $4,
-                 error_reason = COALESCE($5, error_reason),
-                 updated_at = NOW()
-             WHERE graph_key = $1",
-            vec![
-                transaction_hash.into(),
-                status.into(),
-                pending_receipt_count.into(),
-                incomplete.into(),
-                error_reason.map(ToString::to_string).into(),
-            ],
-        ))
-        .await
-        .context("failed to update near_hos_tx_state final status")?;
-
-        Ok(())
-    }
-
-    async fn mark_tx_state_incomplete(
-        db: &impl ConnectionTrait,
-        transaction_hash: &str,
-        pending_receipt_count: i64,
-        error_reason: &str,
-    ) -> Result<()> {
-        db.execute(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "UPDATE near.near_hos_tx_state
-             SET status = $2,
-                 pending_receipt_count = $3,
-                 finalized_at = NULL,
-                 incomplete = TRUE,
-                 error_reason = $4,
-                 updated_at = NOW()
-             WHERE graph_key = $1",
-            vec![
-                transaction_hash.into(),
-                TX_STATUS_INCOMPLETE_MISSING_TX_HASH.into(),
-                pending_receipt_count.into(),
-                error_reason.into(),
-            ],
-        ))
-        .await
-        .context("failed to mark near_hos_tx_state incomplete")?;
-
-        Ok(())
-    }
-
-    async fn purge_staging_for_tx(db: &impl ConnectionTrait, transaction_hash: &str) -> Result<()> {
-        let statements: &[&str] = &[
-            "DELETE FROM near.near_hos_staging_blocks WHERE transaction_hash = $1",
-            "DELETE FROM near.near_hos_staging_chunks WHERE transaction_hash = $1",
-            "DELETE FROM near.near_hos_staging_state_changes WHERE transaction_hash = $1",
-            "DELETE FROM near.near_hos_staging_receipt_actions WHERE transaction_hash = $1",
-            "DELETE FROM near.near_hos_staging_receipt_edges WHERE transaction_hash = $1",
-            "DELETE FROM near.near_hos_staging_execution_outcomes WHERE transaction_hash = $1",
-            "DELETE FROM near.near_hos_staging_receipts WHERE transaction_hash = $1",
-            "DELETE FROM near.near_hos_staging_receipt_status WHERE transaction_hash = $1",
-            "DELETE FROM near.near_hos_staging_transactions WHERE hash = $1",
-        ];
-
-        for statement in statements {
-            db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                *statement,
-                vec![transaction_hash.into()],
-            ))
-            .await
-            .with_context(|| format!("failed purging staging rows for tx {transaction_hash}"))?;
-        }
-
-        Ok(())
-    }
-
-    async fn promote_staged_tx_graph(
-        db: &impl ConnectionTrait,
-        transaction_hash: &str,
-    ) -> Result<()> {
-        let statements: &[&str] = &[
-            "INSERT INTO near.near_transactions (
-                hash, block_height, signer_id, receiver_id, nonce, priority_fee,
-                public_key, signature, actions, raw_data, shard_id
-            )
-            SELECT
-                hash, block_height, signer_id, receiver_id, nonce, priority_fee,
-                public_key, signature, actions, raw_data, shard_id
-            FROM near.near_hos_staging_transactions
-            WHERE hash = $1
-            ON CONFLICT (hash) DO UPDATE SET
-                block_height = EXCLUDED.block_height,
-                signer_id = EXCLUDED.signer_id,
-                receiver_id = EXCLUDED.receiver_id,
-                nonce = EXCLUDED.nonce,
-                priority_fee = EXCLUDED.priority_fee,
-                public_key = EXCLUDED.public_key,
-                signature = EXCLUDED.signature,
-                actions = EXCLUDED.actions,
-                raw_data = COALESCE(EXCLUDED.raw_data, near.near_transactions.raw_data),
-                shard_id = EXCLUDED.shard_id",
-            "INSERT INTO near.near_receipts (
-                receipt_id, block_height, shard_id, predecessor_id, receiver_id, receipt, raw_data
-            )
-            SELECT
-                receipt_id, block_height, shard_id, predecessor_id, receiver_id, receipt, raw_data
-            FROM near.near_hos_staging_receipts
-            WHERE transaction_hash = $1
-            ON CONFLICT (receipt_id) DO UPDATE SET
-                block_height = EXCLUDED.block_height,
-                shard_id = EXCLUDED.shard_id,
-                predecessor_id = EXCLUDED.predecessor_id,
-                receiver_id = EXCLUDED.receiver_id,
-                receipt = EXCLUDED.receipt,
-                raw_data = COALESCE(near.near_receipts.raw_data, EXCLUDED.raw_data)",
-            "INSERT INTO near.near_execution_outcomes (
-                id, block_height, shard_id, receipt_id, outcome, raw_data,
-                transaction_hash, block_hash, chunk_hash, gas_burnt, gas_used,
-                tokens_burnt, executor_account_id, status, outcome_receipt_ids,
-                executed_in_block_hash, logs, results_json, block_timestamp
-            )
-            SELECT
-                id, block_height, shard_id, receipt_id, outcome, raw_data,
-                transaction_hash, block_hash, chunk_hash, gas_burnt, gas_used,
-                tokens_burnt, executor_account_id, status, outcome_receipt_ids,
-                executed_in_block_hash, logs, results_json, block_timestamp
-            FROM near.near_hos_staging_execution_outcomes
-            WHERE transaction_hash = $1
             ON CONFLICT (id) DO UPDATE SET
                 block_height = EXCLUDED.block_height,
                 shard_id = EXCLUDED.shard_id,
@@ -1789,19 +1200,66 @@ impl VenearGovernanceModule {
                 logs = EXCLUDED.logs,
                 results_json = EXCLUDED.results_json,
                 block_timestamp = EXCLUDED.block_timestamp",
+            |row, values| {
+                values.push(row.id.clone().into());
+                values.push(row.block_height.into());
+                values.push(row.shard_id.into());
+                values.push(row.receipt_id.clone().into());
+                values.push(row.outcome.clone().into());
+                values.push(row.raw_data.clone().into());
+                values.push(row.transaction_hash.clone().into());
+                values.push(row.block_hash.clone().into());
+                values.push(row.chunk_hash.clone().into());
+                values.push(row.gas_burnt.into());
+                values.push(row.gas_used.into());
+                values.push(row.tokens_burnt.into());
+                values.push(row.executor_account_id.clone().into());
+                values.push(row.status.clone().into());
+                values.push(row.outcome_receipt_ids.clone().into());
+                values.push(row.executed_in_block_hash.clone().into());
+                values.push(row.logs.clone().into());
+                values.push(row.results_json.clone().into());
+                values.push(row.block_timestamp.into());
+            },
+            "failed to bulk upsert near_execution_outcomes",
+        )
+        .await
+    }
+
+    async fn flush_canonical_receipt_actions(
+        db: &impl ConnectionTrait,
+        rows: &[NearReceiptActionRow],
+    ) -> Result<()> {
+        Self::execute_chunked_upsert(
+            db,
+            rows,
+            23,
             "INSERT INTO near.near_receipt_actions (
-                id, block_height, receipt_id, execution_outcome_id, transaction_hash, shard_id,
-                signer_account_id, signer_public_key, gas_price, action_kind, action_json,
-                predecessor_id, receiver_id, block_hash, chunk_hash, author, method_name, gas,
-                deposit, args_base64, args_json, action_index, block_timestamp
-            )
-            SELECT
-                id, block_height, receipt_id, execution_outcome_id, transaction_hash, shard_id,
-                signer_account_id, signer_public_key, gas_price, action_kind, action_json,
-                predecessor_id, receiver_id, block_hash, chunk_hash, author, method_name, gas,
-                deposit, args_base64, args_json, action_index, block_timestamp
-            FROM near.near_hos_staging_receipt_actions
-            WHERE transaction_hash = $1
+                id,
+                block_height,
+                receipt_id,
+                execution_outcome_id,
+                transaction_hash,
+                shard_id,
+                signer_account_id,
+                signer_public_key,
+                gas_price,
+                action_kind,
+                action_json,
+                predecessor_id,
+                receiver_id,
+                block_hash,
+                chunk_hash,
+                author,
+                method_name,
+                gas,
+                deposit,
+                args_base64,
+                args_json,
+                action_index,
+                block_timestamp
+            ) VALUES ",
+            "
             ON CONFLICT (id) DO UPDATE SET
                 block_height = EXCLUDED.block_height,
                 receipt_id = EXCLUDED.receipt_id,
@@ -1825,15 +1283,54 @@ impl VenearGovernanceModule {
                 args_json = EXCLUDED.args_json,
                 action_index = EXCLUDED.action_index,
                 block_timestamp = EXCLUDED.block_timestamp",
+            |row, values| {
+                values.push(row.id.clone().into());
+                values.push(row.block_height.into());
+                values.push(row.receipt_id.clone().into());
+                values.push(row.execution_outcome_id.clone().into());
+                values.push(row.transaction_hash.clone().into());
+                values.push(row.shard_id.into());
+                values.push(row.signer_account_id.clone().into());
+                values.push(row.signer_public_key.clone().into());
+                values.push(row.gas_price.clone().into());
+                values.push(row.action_kind.clone().into());
+                values.push(row.action_json.clone().into());
+                values.push(row.predecessor_id.clone().into());
+                values.push(row.receiver_id.clone().into());
+                values.push(row.block_hash.clone().into());
+                values.push(row.chunk_hash.clone().into());
+                values.push(row.author.clone().into());
+                values.push(row.method_name.clone().into());
+                values.push(row.gas.into());
+                values.push(row.deposit.clone().into());
+                values.push(row.args_base64.clone().into());
+                values.push(row.args_json.clone().into());
+                values.push(row.action_index.into());
+                values.push(row.block_timestamp.into());
+            },
+            "failed to bulk upsert near_receipt_actions",
+        )
+        .await
+    }
+
+    async fn flush_canonical_receipt_edges(
+        db: &impl ConnectionTrait,
+        rows: &[NearReceiptEdgeRow],
+    ) -> Result<()> {
+        Self::execute_chunked_upsert(
+            db,
+            rows,
+            7,
             "INSERT INTO near.near_receipt_edges (
-                parent_receipt_id, child_receipt_id, parent_execution_outcome_id,
-                block_height, block_hash, block_timestamp, transaction_hash
-            )
-            SELECT
-                parent_receipt_id, child_receipt_id, parent_execution_outcome_id,
-                block_height, block_hash, block_timestamp, transaction_hash
-            FROM near.near_hos_staging_receipt_edges
-            WHERE transaction_hash = $1
+                parent_receipt_id,
+                child_receipt_id,
+                parent_execution_outcome_id,
+                block_height,
+                block_hash,
+                block_timestamp,
+                transaction_hash
+            ) VALUES ",
+            "
             ON CONFLICT (parent_receipt_id, child_receipt_id) DO UPDATE SET
                 parent_execution_outcome_id = EXCLUDED.parent_execution_outcome_id,
                 block_height = EXCLUDED.block_height,
@@ -1843,49 +1340,182 @@ impl VenearGovernanceModule {
                     near.near_receipt_edges.transaction_hash,
                     EXCLUDED.transaction_hash
                 )",
-            "INSERT INTO near.near_blocks (
-                height, hash, prev_hash, epoch_id, next_epoch_id, author,
-                timestamp, timestamp_nanosec, gas_price, total_supply,
-                validator_reward, protocol_version, chunks_included,
-                block_ordinal, prev_height, raw_data
-            )
-            SELECT DISTINCT
-                height, hash, prev_hash, epoch_id, next_epoch_id, author,
-                timestamp, timestamp_nanosec, gas_price, total_supply,
-                validator_reward, protocol_version, chunks_included,
-                block_ordinal, prev_height, raw_data
-            FROM near.near_hos_staging_blocks
-            WHERE transaction_hash = $1
-            ON CONFLICT (height) DO NOTHING",
-            "INSERT INTO near.near_chunks (
-                chunk_hash, block_height, shard_id, author, height_created,
-                height_included, gas_used, gas_limit, validator_reward, raw_data
-            )
-            SELECT DISTINCT
-                chunk_hash, block_height, shard_id, author, height_created,
-                height_included, gas_used, gas_limit, validator_reward, raw_data
-            FROM near.near_hos_staging_chunks
-            WHERE transaction_hash = $1
-            ON CONFLICT (chunk_hash) DO NOTHING",
-            "INSERT INTO near.near_state_changes (
-                block_height, shard_id, state_changes
-            )
-            SELECT DISTINCT
-                block_height, shard_id, state_changes
-            FROM near.near_hos_staging_state_changes
-            WHERE transaction_hash = $1
-            ON CONFLICT (block_height, shard_id) DO NOTHING",
-        ];
+            |row, values| {
+                values.push(row.parent_receipt_id.clone().into());
+                values.push(row.child_receipt_id.clone().into());
+                values.push(row.parent_execution_outcome_id.clone().into());
+                values.push(row.block_height.into());
+                values.push(row.block_hash.clone().into());
+                values.push(row.block_timestamp.into());
+                values.push(row.transaction_hash.clone().into());
+            },
+            "failed to bulk upsert near_receipt_edges",
+        )
+        .await
+    }
 
-        for statement in statements {
-            db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                *statement,
-                vec![transaction_hash.into()],
-            ))
-            .await
-            .with_context(|| format!("failed promoting staged tx graph {transaction_hash}"))?;
-        }
+    async fn flush_canonical_blocks(
+        db: &impl ConnectionTrait,
+        rows: &[NearBlockRow],
+    ) -> Result<()> {
+        Self::execute_chunked_upsert(
+            db,
+            rows,
+            16,
+            "INSERT INTO near.near_blocks (
+                height,
+                hash,
+                prev_hash,
+                epoch_id,
+                next_epoch_id,
+                author,
+                timestamp,
+                timestamp_nanosec,
+                gas_price,
+                total_supply,
+                validator_reward,
+                protocol_version,
+                chunks_included,
+                block_ordinal,
+                prev_height,
+                raw_data
+            ) VALUES ",
+            "
+            ON CONFLICT (height) DO NOTHING",
+            |row, values| {
+                values.push(row.height.into());
+                values.push(row.hash.clone().into());
+                values.push(row.prev_hash.clone().into());
+                values.push(row.epoch_id.clone().into());
+                values.push(row.next_epoch_id.clone().into());
+                values.push(row.author.clone().into());
+                values.push(row.timestamp.into());
+                values.push(row.timestamp_nanosec.into());
+                values.push(row.gas_price.clone().into());
+                values.push(row.total_supply.clone().into());
+                values.push(row.validator_reward.clone().into());
+                values.push(row.protocol_version.into());
+                values.push(row.chunks_included.into());
+                values.push(row.block_ordinal.into());
+                values.push(row.prev_height.into());
+                values.push(row.raw_data.clone().into());
+            },
+            "failed to bulk insert near_blocks",
+        )
+        .await
+    }
+
+    async fn flush_canonical_chunks(
+        db: &impl ConnectionTrait,
+        rows: &[NearChunkRow],
+    ) -> Result<()> {
+        Self::execute_chunked_upsert(
+            db,
+            rows,
+            10,
+            "INSERT INTO near.near_chunks (
+                chunk_hash,
+                block_height,
+                shard_id,
+                author,
+                height_created,
+                height_included,
+                gas_used,
+                gas_limit,
+                validator_reward,
+                raw_data
+            ) VALUES ",
+            "
+            ON CONFLICT (chunk_hash) DO NOTHING",
+            |row, values| {
+                values.push(row.chunk_hash.clone().into());
+                values.push(row.block_height.into());
+                values.push(row.shard_id.into());
+                values.push(row.author.clone().into());
+                values.push(row.height_created.into());
+                values.push(row.height_included.into());
+                values.push(row.gas_used.into());
+                values.push(row.gas_limit.into());
+                values.push(row.validator_reward.clone().into());
+                values.push(row.raw_data.clone().into());
+            },
+            "failed to bulk insert near_chunks",
+        )
+        .await
+    }
+
+    async fn flush_canonical_state_changes(
+        db: &impl ConnectionTrait,
+        rows: &[NearStateChangesRow],
+    ) -> Result<()> {
+        Self::execute_chunked_upsert(
+            db,
+            rows,
+            3,
+            "INSERT INTO near.near_state_changes (
+                block_height,
+                shard_id,
+                state_changes
+            ) VALUES ",
+            "
+            ON CONFLICT (block_height, shard_id) DO NOTHING",
+            |row, values| {
+                values.push(row.block_height.into());
+                values.push(row.shard_id.into());
+                values.push(row.state_changes.clone().into());
+            },
+            "failed to bulk insert near_state_changes",
+        )
+        .await
+    }
+
+    async fn flush_canonical_write_batch(
+        db: &impl ConnectionTrait,
+        batch: CanonicalWriteBatch,
+        stats: &mut StageMetrics,
+    ) -> Result<()> {
+        stats.record_count("canonical_write_rows", batch.row_count());
+
+        let transactions = batch.transactions.into_values().collect::<Vec<_>>();
+        let receipts = batch.receipts.into_values().collect::<Vec<_>>();
+        let execution_outcomes = batch.execution_outcomes.into_values().collect::<Vec<_>>();
+        let receipt_actions = batch.receipt_actions.into_values().collect::<Vec<_>>();
+        let receipt_edges = batch.receipt_edges.into_values().collect::<Vec<_>>();
+        let blocks = batch.blocks.into_values().collect::<Vec<_>>();
+        let chunks = batch.chunks.into_values().collect::<Vec<_>>();
+        let state_changes = batch.state_changes.into_values().collect::<Vec<_>>();
+
+        let start = Instant::now();
+        Self::flush_canonical_transactions(db, &transactions).await?;
+        stats.record_phase_elapsed("canonical_transaction_write", start);
+
+        let start = Instant::now();
+        Self::flush_canonical_receipts(db, &receipts).await?;
+        stats.record_phase_elapsed("canonical_receipt_write", start);
+
+        let start = Instant::now();
+        Self::flush_canonical_execution_outcomes(db, &execution_outcomes).await?;
+        stats.record_phase_elapsed("canonical_execution_outcome_write", start);
+
+        let start = Instant::now();
+        Self::flush_canonical_receipt_actions(db, &receipt_actions).await?;
+        stats.record_phase_elapsed("canonical_receipt_action_write", start);
+
+        let start = Instant::now();
+        Self::flush_canonical_receipt_edges(db, &receipt_edges).await?;
+        stats.record_phase_elapsed("canonical_receipt_edge_write", start);
+
+        let start = Instant::now();
+        Self::flush_canonical_blocks(db, &blocks).await?;
+        stats.record_phase_elapsed("canonical_block_write", start);
+
+        let start = Instant::now();
+        Self::flush_canonical_chunks(db, &chunks).await?;
+        stats.record_phase_elapsed("canonical_chunk_write", start);
+
+        let start = Instant::now();
+        Self::flush_canonical_state_changes(db, &state_changes).await?;
+        stats.record_phase_elapsed("canonical_state_changes_write", start);
 
         Ok(())
     }
@@ -1894,184 +1524,85 @@ impl VenearGovernanceModule {
         &self,
         db: &impl ConnectionTrait,
         block_height: i64,
-    ) -> Result<()> {
-        if self.raw_enabled
-            || self.receipt_tx_map_cleanup_interval_blocks <= 0
-            || self.receipt_tx_map_cleanup_batch_size <= 0
-        {
-            return Ok(());
-        }
-
-        if block_height % self.receipt_tx_map_cleanup_interval_blocks != 0 {
-            return Ok(());
+        active_graph_tx_hashes: &HashSet<String>,
+    ) -> Result<u64> {
+        if self.receipt_tx_map_retention_blocks <= 0 {
+            return Ok(0);
         }
 
         let cutoff_height =
             block_height.saturating_sub(self.receipt_tx_map_retention_blocks.max(0));
-        let batch_size = self.receipt_tx_map_cleanup_batch_size.max(1);
-        let max_batches = self.receipt_tx_map_cleanup_max_batches_per_run.max(1);
+        let mut deleted_total = 0_u64;
 
-        for _ in 0..max_batches {
+        for _ in 0..RECEIPT_TX_MAP_CLEANUP_MAX_BATCHES {
+            let mut values = vec![cutoff_height.into()];
+            let mut sql = String::from(
+                "WITH deletable AS (
+                    SELECT m.receipt_id
+                    FROM near.near_receipt_tx_hash_map m
+                    WHERE m.last_seen_height < $1
+                      AND NOT EXISTS (
+                            SELECT 1
+                            FROM near.near_transactions nt
+                            WHERE nt.hash = m.transaction_hash
+                      )",
+            );
+
+            if !active_graph_tx_hashes.is_empty() {
+                sql.push_str(" AND m.transaction_hash NOT IN (");
+                let start_idx = values.len() + 1;
+                let mut first = true;
+                for (idx, tx_hash) in active_graph_tx_hashes.iter().enumerate() {
+                    if !first {
+                        sql.push_str(", ");
+                    }
+                    first = false;
+                    sql.push('$');
+                    sql.push_str(&(start_idx + idx).to_string());
+                    values.push(tx_hash.clone().into());
+                }
+                sql.push(')');
+            }
+
+            let batch_placeholder = values.len() + 1;
+            values.push((RECEIPT_TX_MAP_CLEANUP_BATCH_SIZE as i64).into());
+            sql.push_str(&format!(
+                "
+                    ORDER BY m.last_seen_height ASC
+                    LIMIT ${batch_placeholder}
+                 )
+                 DELETE FROM near.near_receipt_tx_hash_map m
+                 USING deletable d
+                 WHERE m.receipt_id = d.receipt_id"
+            ));
+
             let result = db
                 .execute(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    "WITH deletable AS (
-                        SELECT m.receipt_id
-                        FROM near.near_receipt_tx_hash_map m
-                        WHERE m.last_seen_height < $1
-                          AND NOT EXISTS (
-                                SELECT 1
-                                FROM near.near_transactions nt
-                                WHERE nt.hash = m.transaction_hash
-                          )
-                          AND NOT EXISTS (
-                                SELECT 1
-                                FROM near.near_hos_staging_transactions st
-                                WHERE st.hash = m.transaction_hash
-                          )
-                          AND NOT EXISTS (
-                                SELECT 1
-                                FROM near.near_hos_staging_receipt_status rs
-                                WHERE rs.transaction_hash = m.transaction_hash
-                          )
-                          AND NOT EXISTS (
-                                SELECT 1
-                                FROM near.near_hos_tx_state ts
-                                WHERE ts.transaction_hash = m.transaction_hash
-                                  AND ts.status IN ($3, $4)
-                          )
-                        ORDER BY m.last_seen_height ASC
-                        LIMIT $2
-                     )
-                     DELETE FROM near.near_receipt_tx_hash_map m
-                     USING deletable d
-                     WHERE m.receipt_id = d.receipt_id",
-                    vec![
-                        cutoff_height.into(),
-                        batch_size.into(),
-                        TX_STATUS_PENDING.into(),
-                        TX_STATUS_INCOMPLETE_MISSING_TX_HASH.into(),
-                    ],
+                    &sql,
+                    values,
                 ))
                 .await
                 .context("failed running near_receipt_tx_hash_map cleanup")?;
 
-            if result.rows_affected() == 0 {
+            let affected = result.rows_affected();
+            deleted_total += affected;
+            if affected == 0 {
                 break;
             }
         }
 
-        Ok(())
+        Ok(deleted_total)
     }
 
-    async fn warn_on_stalled_pending_graphs(
-        &self,
-        db: &impl ConnectionTrait,
-        block_height: i64,
-    ) -> Result<()> {
-        let warning_threshold_height =
-            block_height.saturating_sub(STALLED_PENDING_GRAPH_WARNING_BLOCKS.max(0));
-        let limit = self.staging_gc_batch_size.clamp(1, 100);
-        let rows = db
-            .query_all(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT transaction_hash, has_hos_touch, pending_receipt_count, last_seen_height
-                 FROM near.near_hos_tx_state
-                 WHERE status = $1
-                   AND transaction_hash IS NOT NULL
-                   AND pending_receipt_count > 0
-                   AND last_seen_height <= $2
-                 ORDER BY last_seen_height ASC
-                 LIMIT $3",
-                vec![
-                    TX_STATUS_PENDING.into(),
-                    warning_threshold_height.into(),
-                    limit.into(),
-                ],
-            ))
-            .await
-            .context("failed to load stalled pending near_hos_tx_state rows")?;
-
-        for row in rows {
-            let transaction_hash: String = row
-                .try_get("", "transaction_hash")
-                .context("failed to read stalled near_hos_tx_state.transaction_hash")?;
-            let has_hos_touch: bool = row
-                .try_get("", "has_hos_touch")
-                .context("failed to read stalled near_hos_tx_state.has_hos_touch")?;
-            let pending_receipt_count: i64 = row
-                .try_get("", "pending_receipt_count")
-                .context("failed to read stalled near_hos_tx_state.pending_receipt_count")?;
-            let last_seen_height: i64 = row
-                .try_get("", "last_seen_height")
-                .context("failed to read stalled near_hos_tx_state.last_seen_height")?;
-
-            warn!(
-                module = MODULE_NAME,
-                tx_hash = %transaction_hash,
-                pending_receipt_count,
-                has_hos_touch,
-                last_seen_height,
-                age_blocks = block_height.saturating_sub(last_seen_height),
-                "Pending tx graph remains unresolved; preserving staging rows"
-            );
-        }
-
-        Ok(())
+    fn note_common_block_data(
+        updates: &mut HosBlockUpdates,
+        transaction_hash: &str,
+        block_row: &NearBlockRow,
+    ) {
+        updates.note_block(transaction_hash, block_row.clone());
     }
 
-    async fn run_staging_gc(&self, db: &impl ConnectionTrait, block_height: i64) -> Result<()> {
-        self.run_receipt_tx_map_cleanup(db, block_height).await?;
-
-        if self.staging_gc_interval_blocks <= 0 || self.staging_gc_batch_size <= 0 {
-            return Ok(());
-        }
-
-        if block_height % self.staging_gc_interval_blocks != 0 {
-            return Ok(());
-        }
-
-        self.warn_on_stalled_pending_graphs(db, block_height)
-            .await?;
-
-        let cutoff_height = block_height.saturating_sub(TX_STATE_GC_RETENTION_BLOCKS.max(0));
-        let batch_size = self.staging_gc_batch_size.max(1);
-        let max_batches = self.staging_gc_max_batches_per_run.max(1);
-
-        for _ in 0..max_batches {
-            let result = db
-                .execute(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "WITH deletable AS (
-                        SELECT graph_key
-                        FROM near.near_hos_tx_state
-                        WHERE status IN ($1, $2)
-                          AND last_seen_height < $3
-                        ORDER BY last_seen_height ASC
-                        LIMIT $4
-                     )
-                     DELETE FROM near.near_hos_tx_state ts
-                     USING deletable d
-                     WHERE ts.graph_key = d.graph_key",
-                    vec![
-                        TX_STATUS_FINALIZED.into(),
-                        TX_STATUS_PRUNED_NON_HOS.into(),
-                        cutoff_height.into(),
-                        batch_size.into(),
-                    ],
-                ))
-                .await
-                .context("failed running near_hos_tx_state GC")?;
-
-            if result.rows_affected() == 0 {
-                break;
-            }
-        }
-
-        Ok(())
-    }
-
-    #[instrument(skip(self, msg, db), level = "debug", fields(height = %msg.block.header.height))]
     async fn store_hos_projection(
         &self,
         msg: &StreamerMessage,
@@ -2093,11 +1624,28 @@ impl VenearGovernanceModule {
         let block_block_ordinal = msg.block.header.block_ordinal.map(|value| value as i64);
         let block_prev_height = msg.block.header.prev_height.map(|value| value as i64);
         let block_timestamp_nanosec = msg.block.header.timestamp_nanosec as i64;
-        let block_raw_data = Self::serialize_json(&msg.block, "staging block raw_data")?;
+        let block_raw_data = Self::serialize_json(&msg.block, "block raw_data")?;
+        let block_row = NearBlockRow {
+            height: block_height,
+            hash: block_hash.clone(),
+            prev_hash: block_prev_hash,
+            epoch_id: block_epoch_id,
+            next_epoch_id: block_next_epoch_id,
+            author: default_author.clone(),
+            timestamp: block_timestamp,
+            timestamp_nanosec: block_timestamp_nanosec,
+            gas_price: block_gas_price,
+            total_supply: block_total_supply,
+            validator_reward: block_validator_reward,
+            protocol_version: block_protocol_version,
+            chunks_included: block_chunks_included,
+            block_ordinal: block_block_ordinal,
+            prev_height: block_prev_height,
+            raw_data: block_raw_data,
+        };
 
         let mut receipt_tx_hashes = build_receipt_tx_hashes(&msg.shards);
-        let mut touched_tx_hashes: HashSet<String> = HashSet::new();
-        let mut lookup_receipt_ids: Vec<String> = Vec::new();
+        let mut lookup_receipt_ids = Vec::new();
 
         for shard in &msg.shards {
             if let Some(chunk) = &shard.chunk {
@@ -2134,15 +1682,8 @@ impl VenearGovernanceModule {
         }
 
         stats.record_count("receipt_lookup_count", lookup_receipt_ids.len());
-        let lineage_lookup_start = Instant::now();
-        let existing_staging_status =
-            Self::load_receipt_tx_from_staging_status(db, &lookup_receipt_ids).await?;
-        for (receipt_id, transaction_hash) in existing_staging_status {
-            receipt_tx_hashes
-                .entry(receipt_id)
-                .or_insert_with(|| transaction_hash);
-        }
 
+        let lineage_lookup_start = Instant::now();
         let mapped_receipts = load_receipt_tx_hash_map(db, &lookup_receipt_ids).await?;
         for (receipt_id, transaction_hash) in mapped_receipts {
             receipt_tx_hashes
@@ -2151,33 +1692,13 @@ impl VenearGovernanceModule {
         }
         stats.record_phase_elapsed("lineage_lookup", lineage_lookup_start);
 
-        let staging_write_start = Instant::now();
-        let mut writes = HosBlockWrites::default();
-        let note_block_for_tx = |writes: &mut HosBlockWrites, transaction_hash: &str| {
-            writes.note_staging_block(StagingBlockRow {
-                transaction_hash: transaction_hash.to_string(),
-                height: block_height,
-                hash: block_hash.clone(),
-                prev_hash: block_prev_hash.clone(),
-                epoch_id: block_epoch_id.clone(),
-                next_epoch_id: block_next_epoch_id.clone(),
-                author: default_author.clone(),
-                timestamp: block_timestamp,
-                timestamp_nanosec: block_timestamp_nanosec,
-                gas_price: block_gas_price.clone(),
-                total_supply: block_total_supply.clone(),
-                validator_reward: block_validator_reward.clone(),
-                protocol_version: block_protocol_version,
-                chunks_included: block_chunks_included,
-                block_ordinal: block_block_ordinal,
-                prev_height: block_prev_height,
-                raw_data: block_raw_data.clone(),
-                seen_height: block_height,
-            });
-        };
+        let memory_merge_start = Instant::now();
+        let mut updates = HosBlockUpdates::default();
+        let mut touched_tx_hashes = HashSet::new();
+        let mut unresolved_hos_receipts = Vec::new();
 
         for shard in &msg.shards {
-            let mut shard_touched_tx_hashes: HashSet<String> = HashSet::new();
+            let mut shard_touched_tx_hashes = HashSet::new();
             let chunk_hash = shard
                 .chunk
                 .as_ref()
@@ -2201,27 +1722,30 @@ impl VenearGovernanceModule {
                         tx_with_outcome.transaction.signer_id.as_ref(),
                         Some(tx_with_outcome.transaction.signer_id.as_ref()),
                     );
-                    writes.note_tx_state(&tx_hash, block_height, tx_root_related);
-                    note_block_for_tx(&mut writes, &tx_hash);
-                    writes.note_staging_transaction(StagingTransactionRow {
-                        hash: tx_hash.clone(),
-                        block_height,
-                        shard_id,
-                        signer_id: tx_with_outcome.transaction.signer_id.to_string(),
-                        receiver_id: tx_with_outcome.transaction.receiver_id.to_string(),
-                        nonce: tx_with_outcome.transaction.nonce as i64,
-                        priority_fee: tx_with_outcome.transaction.priority_fee as i64,
-                        public_key: tx_with_outcome.transaction.public_key.to_string(),
-                        signature: tx_with_outcome.transaction.signature.to_string(),
-                        actions: Self::serialize_json(
-                            &tx_with_outcome.transaction.actions,
-                            "HoS transaction actions",
-                        )?,
-                        raw_data: Self::serialize_json(
-                            &tx_with_outcome.transaction,
-                            "HoS transaction raw_data",
-                        )?,
-                    });
+                    updates.note_tx_metadata(&tx_hash, tx_root_related, true);
+                    Self::note_common_block_data(&mut updates, &tx_hash, &block_row);
+                    updates.note_transaction(
+                        &tx_hash,
+                        NearTransactionRow {
+                            hash: tx_hash.clone(),
+                            block_height,
+                            shard_id,
+                            signer_id: tx_with_outcome.transaction.signer_id.to_string(),
+                            receiver_id: tx_with_outcome.transaction.receiver_id.to_string(),
+                            nonce: tx_with_outcome.transaction.nonce as i64,
+                            priority_fee: tx_with_outcome.transaction.priority_fee as i64,
+                            public_key: tx_with_outcome.transaction.public_key.to_string(),
+                            signature: tx_with_outcome.transaction.signature.to_string(),
+                            actions: Self::serialize_json(
+                                &tx_with_outcome.transaction.actions,
+                                "HoS transaction actions",
+                            )?,
+                            raw_data: Self::serialize_json(
+                                &tx_with_outcome.transaction,
+                                "HoS transaction raw_data",
+                            )?,
+                        },
+                    );
 
                     let tx_outcome_receipt_id = tx_with_outcome
                         .outcome
@@ -2231,29 +1755,26 @@ impl VenearGovernanceModule {
                     if let Some(receipt) = &tx_with_outcome.outcome.receipt {
                         let receipt_id = receipt.receipt_id.to_string();
                         receipt_tx_hashes.insert(receipt_id.clone(), tx_hash.clone());
-                        writes.note_receipt_tx_hash_mapping(&receipt_id, &tx_hash, block_height);
+                        updates.note_receipt_tx_hash_mapping(&receipt_id, &tx_hash, block_height);
 
                         let is_hos_root_related = self.is_hos_related_receipt(receipt);
                         if is_hos_root_related {
-                            writes.note_tx_state(&tx_hash, block_height, true);
+                            updates.note_tx_metadata(&tx_hash, true, false);
                         }
 
-                        writes.note_staging_receipt(StagingReceiptRow {
-                            receipt_id: receipt_id.clone(),
-                            transaction_hash: tx_hash.clone(),
-                            block_height,
-                            shard_id,
-                            predecessor_id: receipt.predecessor_id.to_string(),
-                            receiver_id: receipt.receiver_id.to_string(),
-                            receipt: Self::serialize_json(&receipt.receipt, "receipt body")?,
-                            raw_data: Self::serialize_json(receipt, "receipt row")?,
-                        });
-                        writes.note_staging_receipt_status(StagingReceiptStatusRow {
-                            receipt_id,
-                            transaction_hash: tx_hash.clone(),
-                            executed: true,
-                            block_height,
-                        });
+                        updates.note_receipt(
+                            &tx_hash,
+                            NearReceiptRow {
+                                receipt_id: receipt_id.clone(),
+                                block_height,
+                                shard_id,
+                                predecessor_id: receipt.predecessor_id.to_string(),
+                                receiver_id: receipt.receiver_id.to_string(),
+                                receipt: Self::serialize_json(&receipt.receipt, "receipt body")?,
+                                raw_data: Self::serialize_json(receipt, "receipt row")?,
+                            },
+                        );
+                        updates.note_executed_receipt(&tx_hash, &receipt_id);
                     }
 
                     let tx_outcome_view = &tx_with_outcome.outcome.execution_outcome;
@@ -2275,74 +1796,70 @@ impl VenearGovernanceModule {
                             .collect(),
                     );
                     let (tx_status, tx_results_json) = Self::extract_status(&tx_outcome.status);
-                    writes.note_staging_execution_outcome(StagingExecutionOutcomeRow {
-                        id: tx_outcome_id.clone(),
-                        transaction_hash: tx_hash.clone(),
-                        block_height,
-                        shard_id,
-                        receipt_id: tx_outcome_receipt_id.clone(),
-                        outcome: Self::serialize_json(
-                            &tx_outcome_view.outcome,
-                            "tx execution outcome",
-                        )?,
-                        raw_data: Self::serialize_json(
-                            tx_outcome_view,
-                            "tx execution outcome row",
-                        )?,
-                        block_hash: block_hash.clone(),
-                        chunk_hash: chunk_hash.clone(),
-                        gas_burnt: tx_outcome.gas_burnt.as_gas() as i64,
-                        gas_used: tx_outcome.gas_burnt.as_gas() as f64,
-                        tokens_burnt: tx_outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
-                        executor_account_id: tx_outcome.executor_id.to_string(),
-                        status: tx_status.to_string(),
-                        outcome_receipt_ids: tx_outcome_receipt_ids,
-                        executed_in_block_hash: block_hash.clone(),
-                        logs: tx_logs,
-                        results_json: tx_results_json,
-                        block_timestamp,
-                    });
+                    updates.note_execution_outcome(
+                        &tx_hash,
+                        NearExecutionOutcomeRow {
+                            id: tx_outcome_id.clone(),
+                            transaction_hash: tx_hash.clone(),
+                            block_height,
+                            shard_id,
+                            receipt_id: tx_outcome_receipt_id.clone(),
+                            outcome: Self::serialize_json(
+                                &tx_outcome_view.outcome,
+                                "tx execution outcome",
+                            )?,
+                            raw_data: Self::serialize_json(
+                                tx_outcome_view,
+                                "tx execution outcome row",
+                            )?,
+                            block_hash: block_hash.clone(),
+                            chunk_hash: chunk_hash.clone(),
+                            gas_burnt: tx_outcome.gas_burnt.as_gas() as i64,
+                            gas_used: tx_outcome.gas_burnt.as_gas() as f64,
+                            tokens_burnt: tx_outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
+                            executor_account_id: tx_outcome.executor_id.to_string(),
+                            status: tx_status.to_string(),
+                            outcome_receipt_ids: tx_outcome_receipt_ids,
+                            executed_in_block_hash: block_hash.clone(),
+                            logs: tx_logs,
+                            results_json: tx_results_json,
+                            block_timestamp,
+                        },
+                    );
 
                     if let Some(parent_receipt_id) = tx_outcome_receipt_id.as_deref() {
                         for child_receipt_id in &tx_outcome.receipt_ids {
                             let child_receipt_id = child_receipt_id.to_string();
                             receipt_tx_hashes.insert(child_receipt_id.clone(), tx_hash.clone());
-                            writes.note_receipt_tx_hash_mapping(
+                            updates.note_receipt_tx_hash_mapping(
                                 &child_receipt_id,
                                 &tx_hash,
                                 block_height,
                             );
-                            writes.note_staging_receipt_edge(StagingReceiptEdgeRow {
-                                parent_receipt_id: parent_receipt_id.to_string(),
-                                child_receipt_id: child_receipt_id.clone(),
-                                transaction_hash: tx_hash.clone(),
-                                parent_execution_outcome_id: tx_outcome_id.clone(),
-                                block_height,
-                                block_hash: block_hash.clone(),
-                                block_timestamp,
-                            });
-                            writes.note_staging_receipt_status(StagingReceiptStatusRow {
-                                receipt_id: child_receipt_id,
-                                transaction_hash: tx_hash.clone(),
-                                executed: false,
-                                block_height,
-                            });
+                            updates.note_receipt_edge(
+                                &tx_hash,
+                                NearReceiptEdgeRow {
+                                    parent_receipt_id: parent_receipt_id.to_string(),
+                                    child_receipt_id: child_receipt_id.clone(),
+                                    transaction_hash: tx_hash.clone(),
+                                    parent_execution_outcome_id: tx_outcome_id.clone(),
+                                    block_height,
+                                    block_hash: block_hash.clone(),
+                                    block_timestamp,
+                                },
+                            );
+                            updates.note_pending_receipt(&tx_hash, &child_receipt_id);
                         }
                     } else {
                         for child_receipt_id in &tx_outcome.receipt_ids {
                             let child_receipt_id = child_receipt_id.to_string();
                             receipt_tx_hashes.insert(child_receipt_id.clone(), tx_hash.clone());
-                            writes.note_receipt_tx_hash_mapping(
+                            updates.note_receipt_tx_hash_mapping(
                                 &child_receipt_id,
                                 &tx_hash,
                                 block_height,
                             );
-                            writes.note_staging_receipt_status(StagingReceiptStatusRow {
-                                receipt_id: child_receipt_id,
-                                transaction_hash: tx_hash.clone(),
-                                executed: false,
-                                block_height,
-                            });
+                            updates.note_pending_receipt(&tx_hash, &child_receipt_id);
                         }
                     }
                 }
@@ -2356,43 +1873,36 @@ impl VenearGovernanceModule {
 
                     let Some(transaction_hash) = transaction_hash else {
                         if is_hos_root_related {
-                            error!(
-                                module = MODULE_NAME,
-                                receipt_id = %receipt_id,
-                                height = block_height,
-                                "HoS observed receipt missing transaction hash; marking incomplete"
-                            );
-                            Self::mark_incomplete_missing_tx_hash(db, &receipt_id, block_height)
-                                .await?;
+                            unresolved_hos_receipts.push(receipt_id);
                         }
                         continue;
                     };
 
                     touched_tx_hashes.insert(transaction_hash.clone());
                     shard_touched_tx_hashes.insert(transaction_hash.clone());
-                    writes.note_tx_state(&transaction_hash, block_height, is_hos_root_related);
-                    writes.note_receipt_tx_hash_mapping(
+                    updates.note_tx_metadata(&transaction_hash, is_hos_root_related, false);
+                    updates.note_receipt_tx_hash_mapping(
                         &receipt_id,
                         &transaction_hash,
                         block_height,
                     );
-                    note_block_for_tx(&mut writes, &transaction_hash);
-                    writes.note_staging_receipt(StagingReceiptRow {
-                        receipt_id: receipt_id.clone(),
-                        transaction_hash: transaction_hash.clone(),
-                        block_height,
-                        shard_id,
-                        predecessor_id: receipt.predecessor_id.to_string(),
-                        receiver_id: receipt.receiver_id.to_string(),
-                        receipt: Self::serialize_json(&receipt.receipt, "observed receipt body")?,
-                        raw_data: Self::serialize_json(receipt, "observed receipt row")?,
-                    });
-                    writes.note_staging_receipt_status(StagingReceiptStatusRow {
-                        receipt_id,
-                        transaction_hash,
-                        executed: false,
-                        block_height,
-                    });
+                    Self::note_common_block_data(&mut updates, &transaction_hash, &block_row);
+                    updates.note_receipt(
+                        &transaction_hash,
+                        NearReceiptRow {
+                            receipt_id: receipt_id.clone(),
+                            block_height,
+                            shard_id,
+                            predecessor_id: receipt.predecessor_id.to_string(),
+                            receiver_id: receipt.receiver_id.to_string(),
+                            receipt: Self::serialize_json(
+                                &receipt.receipt,
+                                "observed receipt body",
+                            )?,
+                            raw_data: Self::serialize_json(receipt, "observed receipt row")?,
+                        },
+                    );
+                    updates.note_pending_receipt(&transaction_hash, &receipt_id);
                 }
             }
 
@@ -2404,14 +1914,7 @@ impl VenearGovernanceModule {
 
                 let Some(transaction_hash) = transaction_hash else {
                     if is_hos_root_related {
-                        error!(
-                            module = MODULE_NAME,
-                            receipt_id = %receipt_id,
-                            height = block_height,
-                            "HoS executed receipt missing transaction hash; marking incomplete"
-                        );
-                        Self::mark_incomplete_missing_tx_hash(db, &receipt_id, block_height)
-                            .await?;
+                        unresolved_hos_receipts.push(receipt_id);
                     }
                     continue;
                 };
@@ -2419,26 +1922,23 @@ impl VenearGovernanceModule {
                 receipt_tx_hashes.insert(receipt_id.clone(), transaction_hash.clone());
                 touched_tx_hashes.insert(transaction_hash.clone());
                 shard_touched_tx_hashes.insert(transaction_hash.clone());
-                writes.note_tx_state(&transaction_hash, block_height, is_hos_root_related);
-                writes.note_receipt_tx_hash_mapping(&receipt_id, &transaction_hash, block_height);
-                note_block_for_tx(&mut writes, &transaction_hash);
+                updates.note_tx_metadata(&transaction_hash, is_hos_root_related, false);
+                updates.note_receipt_tx_hash_mapping(&receipt_id, &transaction_hash, block_height);
+                Self::note_common_block_data(&mut updates, &transaction_hash, &block_row);
 
-                writes.note_staging_receipt(StagingReceiptRow {
-                    receipt_id: receipt_id.clone(),
-                    transaction_hash: transaction_hash.clone(),
-                    block_height,
-                    shard_id,
-                    predecessor_id: receipt.predecessor_id.to_string(),
-                    receiver_id: receipt.receiver_id.to_string(),
-                    receipt: Self::serialize_json(&receipt.receipt, "receipt body")?,
-                    raw_data: Self::serialize_json(receipt, "receipt row")?,
-                });
-                writes.note_staging_receipt_status(StagingReceiptStatusRow {
-                    receipt_id: receipt_id.clone(),
-                    transaction_hash: transaction_hash.clone(),
-                    executed: true,
-                    block_height,
-                });
+                updates.note_receipt(
+                    &transaction_hash,
+                    NearReceiptRow {
+                        receipt_id: receipt_id.clone(),
+                        block_height,
+                        shard_id,
+                        predecessor_id: receipt.predecessor_id.to_string(),
+                        receiver_id: receipt.receiver_id.to_string(),
+                        receipt: Self::serialize_json(&receipt.receipt, "receipt body")?,
+                        raw_data: Self::serialize_json(receipt, "receipt row")?,
+                    },
+                );
+                updates.note_executed_receipt(&transaction_hash, &receipt_id);
 
                 let outcome_view = &outcome_with_receipt.execution_outcome;
                 let outcome = &outcome_view.outcome;
@@ -2461,51 +1961,52 @@ impl VenearGovernanceModule {
                 let (status, results_json) = Self::extract_status(&outcome.status);
                 let executor_account_id = outcome.executor_id.to_string();
 
-                writes.note_staging_execution_outcome(StagingExecutionOutcomeRow {
-                    id: outcome_id.clone(),
-                    transaction_hash: transaction_hash.clone(),
-                    block_height,
-                    shard_id,
-                    receipt_id: Some(receipt_id.clone()),
-                    outcome: Self::serialize_json(&outcome_view.outcome, "execution outcome")?,
-                    raw_data: Self::serialize_json(outcome_view, "execution outcome row")?,
-                    block_hash: block_hash.clone(),
-                    chunk_hash: chunk_hash.clone(),
-                    gas_burnt: outcome.gas_burnt.as_gas() as i64,
-                    gas_used: outcome.gas_burnt.as_gas() as f64,
-                    tokens_burnt: outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
-                    executor_account_id,
-                    status: status.to_string(),
-                    outcome_receipt_ids: outcome_receipt_ids.clone(),
-                    executed_in_block_hash: block_hash.clone(),
-                    logs,
-                    results_json,
-                    block_timestamp,
-                });
+                updates.note_execution_outcome(
+                    &transaction_hash,
+                    NearExecutionOutcomeRow {
+                        id: outcome_id.clone(),
+                        transaction_hash: transaction_hash.clone(),
+                        block_height,
+                        shard_id,
+                        receipt_id: Some(receipt_id.clone()),
+                        outcome: Self::serialize_json(&outcome_view.outcome, "execution outcome")?,
+                        raw_data: Self::serialize_json(outcome_view, "execution outcome row")?,
+                        block_hash: block_hash.clone(),
+                        chunk_hash: chunk_hash.clone(),
+                        gas_burnt: outcome.gas_burnt.as_gas() as i64,
+                        gas_used: outcome.gas_burnt.as_gas() as f64,
+                        tokens_burnt: outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
+                        executor_account_id,
+                        status: status.to_string(),
+                        outcome_receipt_ids: outcome_receipt_ids.clone(),
+                        executed_in_block_hash: block_hash.clone(),
+                        logs,
+                        results_json,
+                        block_timestamp,
+                    },
+                );
 
                 for child_receipt_id in &outcome.receipt_ids {
                     let child_receipt_id = child_receipt_id.to_string();
                     receipt_tx_hashes.insert(child_receipt_id.clone(), transaction_hash.clone());
-                    writes.note_receipt_tx_hash_mapping(
+                    updates.note_receipt_tx_hash_mapping(
                         &child_receipt_id,
                         &transaction_hash,
                         block_height,
                     );
-                    writes.note_staging_receipt_edge(StagingReceiptEdgeRow {
-                        parent_receipt_id: receipt_id.clone(),
-                        child_receipt_id: child_receipt_id.clone(),
-                        transaction_hash: transaction_hash.clone(),
-                        parent_execution_outcome_id: outcome_id.clone(),
-                        block_height,
-                        block_hash: block_hash.clone(),
-                        block_timestamp,
-                    });
-                    writes.note_staging_receipt_status(StagingReceiptStatusRow {
-                        receipt_id: child_receipt_id,
-                        transaction_hash: transaction_hash.clone(),
-                        executed: false,
-                        block_height,
-                    });
+                    updates.note_receipt_edge(
+                        &transaction_hash,
+                        NearReceiptEdgeRow {
+                            parent_receipt_id: receipt_id.clone(),
+                            child_receipt_id: child_receipt_id.clone(),
+                            transaction_hash: transaction_hash.clone(),
+                            parent_execution_outcome_id: outcome_id.clone(),
+                            block_height,
+                            block_hash: block_hash.clone(),
+                            block_timestamp,
+                        },
+                    );
+                    updates.note_pending_receipt(&transaction_hash, &child_receipt_id);
                 }
 
                 if let ReceiptEnumView::Action {
@@ -2544,31 +2045,34 @@ impl VenearGovernanceModule {
                             args_json = Some(Self::parse_args_json(args_bytes));
                         }
 
-                        writes.note_staging_receipt_action(StagingReceiptActionRow {
-                            id: format!("{receipt_id}-{action_index}"),
-                            transaction_hash: transaction_hash.clone(),
-                            block_height,
-                            receipt_id: receipt_id.clone(),
-                            execution_outcome_id: outcome_id.clone(),
-                            shard_id,
-                            signer_account_id: Some(signer_id_value),
-                            signer_public_key: Some(signer_public_key_value),
-                            gas_price: Some(gas_price_value),
-                            action_kind,
-                            action_json,
-                            predecessor_id: receipt.predecessor_id.to_string(),
-                            receiver_id: receipt.receiver_id.to_string(),
-                            block_hash: block_hash.clone(),
-                            chunk_hash: chunk_hash.clone(),
-                            author: chunk_author.clone(),
-                            method_name,
-                            gas,
-                            deposit,
-                            args_base64,
-                            args_json,
-                            action_index: action_index as i32,
-                            block_timestamp,
-                        });
+                        updates.note_receipt_action(
+                            &transaction_hash,
+                            NearReceiptActionRow {
+                                id: format!("{receipt_id}-{action_index}"),
+                                transaction_hash: transaction_hash.clone(),
+                                block_height,
+                                receipt_id: receipt_id.clone(),
+                                execution_outcome_id: outcome_id.clone(),
+                                shard_id,
+                                signer_account_id: Some(signer_id_value),
+                                signer_public_key: Some(signer_public_key_value),
+                                gas_price: Some(gas_price_value),
+                                action_kind,
+                                action_json,
+                                predecessor_id: receipt.predecessor_id.to_string(),
+                                receiver_id: receipt.receiver_id.to_string(),
+                                block_hash: block_hash.clone(),
+                                chunk_hash: chunk_hash.clone(),
+                                author: chunk_author.clone(),
+                                method_name,
+                                gas,
+                                deposit,
+                                args_base64,
+                                args_json,
+                                action_index: action_index as i32,
+                                block_timestamp,
+                            },
+                        );
                     }
                 }
             }
@@ -2577,19 +2081,21 @@ impl VenearGovernanceModule {
                 let header = &chunk.header;
                 let chunk_raw_data = Self::serialize_json(chunk, "chunk raw_data")?;
                 for transaction_hash in &shard_touched_tx_hashes {
-                    writes.note_staging_chunk(StagingChunkRow {
-                        transaction_hash: transaction_hash.clone(),
-                        chunk_hash: header.chunk_hash.to_string(),
-                        block_height,
-                        shard_id,
-                        author: chunk.author.to_string(),
-                        height_created: header.height_created as i64,
-                        height_included: header.height_included as i64,
-                        gas_used: header.gas_used.as_gas() as i64,
-                        gas_limit: header.gas_limit.as_gas() as i64,
-                        validator_reward: header.validator_reward.to_string(),
-                        raw_data: chunk_raw_data.clone(),
-                    });
+                    updates.note_chunk(
+                        transaction_hash,
+                        NearChunkRow {
+                            chunk_hash: header.chunk_hash.to_string(),
+                            block_height,
+                            shard_id,
+                            author: chunk.author.to_string(),
+                            height_created: header.height_created as i64,
+                            height_included: header.height_included as i64,
+                            gas_used: header.gas_used.as_gas() as i64,
+                            gas_limit: header.gas_limit.as_gas() as i64,
+                            validator_reward: header.validator_reward.to_string(),
+                            raw_data: chunk_raw_data.clone(),
+                        },
+                    );
                 }
             }
 
@@ -2597,106 +2103,141 @@ impl VenearGovernanceModule {
                 let state_changes_json =
                     Self::serialize_json(&shard.state_changes, "state changes payload")?;
                 for transaction_hash in &shard_touched_tx_hashes {
-                    writes.note_staging_state_changes(StagingStateChangesRow {
-                        transaction_hash: transaction_hash.clone(),
-                        block_height,
-                        shard_id,
-                        state_changes: state_changes_json.clone(),
-                    });
-                }
-            }
-        }
-        Self::flush_block_writes(db, writes, &mut stats).await?;
-        stats.record_phase_elapsed("staging_write", staging_write_start);
-
-        let touched_tx_hashes: Vec<String> = touched_tx_hashes.into_iter().collect();
-        stats.record_count("touched_tx_count", touched_tx_hashes.len());
-
-        let pending_count_refresh_start = Instant::now();
-        Self::refresh_pending_counts_for_txs(db, &touched_tx_hashes).await?;
-        stats.record_phase_elapsed("pending_count_refresh", pending_count_refresh_start);
-
-        let finalize_graphs_start = Instant::now();
-        let finalize_candidates = Self::load_finalize_candidates(db).await?;
-        stats.record_count("finalize_candidate_count", finalize_candidates.len());
-
-        for (transaction_hash, has_hos_touch, pending_receipt_count, _first_seen_height) in
-            finalize_candidates
-        {
-            if has_hos_touch {
-                if !self.raw_enabled
-                    && !Self::staging_transaction_exists(db, &transaction_hash).await?
-                {
-                    error!(
-                        module = MODULE_NAME,
-                        tx_hash = %transaction_hash,
-                        pending_receipt_count,
-                        block_height,
-                        "HoS tx missing staged transaction row; marking incomplete and skipping promotion"
+                    updates.note_state_changes(
+                        transaction_hash,
+                        NearStateChangesRow {
+                            block_height,
+                            shard_id,
+                            state_changes: state_changes_json.clone(),
+                        },
                     );
-                    Self::mark_tx_state_incomplete(
-                        db,
-                        &transaction_hash,
-                        pending_receipt_count,
-                        "missing_staging_transaction_row",
-                    )
-                    .await?;
-                    let current = stats
-                        .counts()
-                        .get("incomplete_tx_count")
-                        .copied()
-                        .unwrap_or(0);
-                    stats.record_count("incomplete_tx_count", current + 1);
-                    continue;
                 }
+            }
+        }
 
-                if !self.raw_enabled {
-                    Self::promote_staged_tx_graph(db, &transaction_hash).await?;
-                }
+        stats.record_count("touched_tx_count", touched_tx_hashes.len());
+        stats.record_count(
+            "unresolved_hos_receipt_count",
+            unresolved_hos_receipts.len(),
+        );
 
-                Self::mark_tx_state_finished(
-                    db,
-                    &transaction_hash,
-                    TX_STATUS_FINALIZED,
-                    pending_receipt_count,
-                    false,
-                    None,
-                )
-                .await?;
-                let current = stats
-                    .counts()
-                    .get("finalized_tx_count")
-                    .copied()
-                    .unwrap_or(0);
-                stats.record_count("finalized_tx_count", current + 1);
-            } else {
-                Self::mark_tx_state_finished(
-                    db,
-                    &transaction_hash,
-                    TX_STATUS_PRUNED_NON_HOS,
-                    pending_receipt_count,
-                    false,
-                    None,
-                )
-                .await?;
-                let current = stats
-                    .counts()
-                    .get("pruned_non_hos_tx_count")
-                    .copied()
-                    .unwrap_or(0);
-                stats.record_count("pruned_non_hos_tx_count", current + 1);
+        let receipt_map_rows = updates
+            .receipt_tx_hash_map
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        let receipt_map_write_start = Instant::now();
+        Self::flush_receipt_tx_hash_map_upserts(db, &receipt_map_rows).await?;
+        stats.record_phase_elapsed("receipt_tx_map_write", receipt_map_write_start);
+
+        let maintenance_plan = {
+            let mut state = self.state.lock().unwrap();
+            state.merge_block_updates(
+                block_height,
+                updates,
+                self.raw_enabled,
+                self.recent_raw_cache_blocks,
+                self.finalization_interval_blocks,
+                &mut stats,
+            )
+        };
+        stats.record_phase_elapsed("memory_merge", memory_merge_start);
+
+        if maintenance_plan.stalled_warning_summary.total_count > 0 {
+            warn!(
+                module = MODULE_NAME,
+                stalled_graph_count = maintenance_plan.stalled_warning_summary.total_count,
+                stalled_hos_graph_count = maintenance_plan.stalled_warning_summary.hos_touch_count,
+                max_pending_receipt_count = maintenance_plan
+                    .stalled_warning_summary
+                    .max_pending_receipt_count,
+                oldest_last_seen_height = maintenance_plan
+                    .stalled_warning_summary
+                    .oldest_last_seen_height,
+                oldest_age_blocks = maintenance_plan
+                    .stalled_warning_summary
+                    .oldest_last_seen_height
+                    .map(|height| block_height.saturating_sub(height))
+                    .unwrap_or(0),
+                sample_tx_hashes = ?maintenance_plan.stalled_warning_summary.sample_tx_hashes,
+                "Stalled pending tx graphs remain unresolved; preserving in-memory state"
+            );
+        }
+
+        stats.record_flag("maintenance_triggered", maintenance_plan.triggered);
+        stats.record_count(
+            "maintenance_candidate_count",
+            maintenance_plan.finalized_hos.len()
+                + maintenance_plan.finalized_raw_only.len()
+                + maintenance_plan.pruned_non_hos.len(),
+        );
+        stats.record_count(
+            "incomplete_graph_count",
+            maintenance_plan.incomplete_graph_count,
+        );
+        stats.record_count(
+            "stalled_graph_count",
+            maintenance_plan.stalled_warning_summary.total_count,
+        );
+        stats.record_count(
+            "stalled_hos_graph_count",
+            maintenance_plan.stalled_warning_summary.hos_touch_count,
+        );
+
+        if maintenance_plan.triggered {
+            let finalize_start = Instant::now();
+            let mut canonical_batch = CanonicalWriteBatch::default();
+            for (_, bundle) in &maintenance_plan.finalized_hos {
+                canonical_batch.merge_bundle(bundle.clone());
+            }
+            stats.record_count(
+                "finalized_hos_graph_count",
+                maintenance_plan.finalized_hos.len(),
+            );
+            stats.record_count(
+                "finalized_raw_only_graph_count",
+                maintenance_plan.finalized_raw_only.len(),
+            );
+            stats.record_count(
+                "pruned_non_hos_graph_count",
+                maintenance_plan.pruned_non_hos.len(),
+            );
+
+            if !self.raw_enabled {
+                let promote_start = Instant::now();
+                Self::flush_canonical_write_batch(db, canonical_batch, &mut stats).await?;
+                stats.record_phase_elapsed("maintenance_promote", promote_start);
             }
 
-            Self::purge_staging_for_tx(db, &transaction_hash).await?;
-        }
-        stats.record_phase_elapsed("finalize_graphs", finalize_graphs_start);
+            let cleanup_start = Instant::now();
+            let deleted = self
+                .run_receipt_tx_map_cleanup(
+                    db,
+                    block_height,
+                    &maintenance_plan.active_graph_tx_hashes,
+                )
+                .await?;
+            stats.record_phase_elapsed("receipt_tx_map_cleanup", cleanup_start);
+            stats.record_count("receipt_tx_map_deleted", deleted);
+            stats.record_phase_elapsed("maintenance_finalize", finalize_start);
 
-        let staging_gc_start = Instant::now();
-        self.run_staging_gc(db, block_height).await?;
-        stats.record_phase_elapsed("staging_gc", staging_gc_start);
+            let mut state = self.state.lock().unwrap();
+            state.apply_maintenance(&maintenance_plan);
+            stats.record_count("active_graph_count_after_maintenance", state.graphs.len());
+        }
+
+        for receipt_id in unresolved_hos_receipts {
+            warn!(
+                module = MODULE_NAME,
+                receipt_id = %receipt_id,
+                height = block_height,
+                "HoS-related receipt observed without resolvable transaction hash; preserving nothing until replay or later lineage resolution"
+            );
+        }
 
         Ok(stats)
     }
+
     async fn process_block_internal(
         &self,
         msg: &StreamerMessage,
@@ -2820,27 +2361,25 @@ mod tests {
             "hos-root.sputnik-dao.near",
             "rewards.hos-dao.near",
             "0887fe221cafb6810909c83393e23585c439fe99.venear.dao",
-            "0887FE221CAFB6810909C83393E23585C439FE99.VENEAR.DAO",
         ] {
             assert!(
                 VenearGovernanceModule::is_hos_contract(account_id),
-                "expected {account_id} to match HoS contract matcher"
+                "expected {account_id} to match HoS scope"
             );
         }
     }
 
     #[test]
-    fn hos_contract_matcher_rejects_legacy_and_unrelated_accounts() {
+    fn hos_contract_matcher_rejects_non_hos_accounts() {
         for account_id in [
             "dao",
             "foo.vote.dao",
             "lockup.alice.venear.dao",
-            "random.dao",
-            "0887fe221cafb6810909c83393e23585c439fe9.venear.dao",
+            "some-other.dao",
         ] {
             assert!(
                 !VenearGovernanceModule::is_hos_contract(account_id),
-                "expected {account_id} to be excluded from HoS contract matcher"
+                "expected {account_id} to be outside HoS scope"
             );
         }
     }
