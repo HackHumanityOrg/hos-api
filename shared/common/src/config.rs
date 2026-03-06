@@ -543,7 +543,7 @@ fn default_hos_recent_raw_cache_blocks() -> u64 {
 }
 
 fn default_hos_restart_rewind_blocks() -> u64 {
-    128
+    256
 }
 
 fn default_receipt_tx_map_retention_blocks() -> u64 {
@@ -1169,7 +1169,7 @@ mod tests {
         assert_eq!(venear_governance.mview_refresh_interval_blocks, 100);
         assert_eq!(venear_governance.finalization_interval_blocks, 100);
         assert_eq!(venear_governance.recent_raw_cache_blocks, 32);
-        assert_eq!(venear_governance.restart_rewind_blocks, 128);
+        assert_eq!(venear_governance.restart_rewind_blocks, 256);
         assert_eq!(venear_governance.receipt_tx_map_retention_blocks, 86_400);
         assert!(near_cfg.raw_enabled_or_default());
         assert_eq!(

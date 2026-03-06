@@ -181,7 +181,7 @@ fn venear_test_config() -> VenearGovernanceModuleConfig {
         mview_refresh_interval_blocks: 0,
         finalization_interval_blocks: 1,
         recent_raw_cache_blocks: 32,
-        restart_rewind_blocks: 128,
+        restart_rewind_blocks: 256,
         ..VenearGovernanceModuleConfig::default()
     }
 }
@@ -1212,8 +1212,8 @@ async fn receipt_tx_map_cleanup_preserves_canonical_and_active_graph_rows() -> R
     )
     .await?;
     assert_eq!(
-        canonical_rows, 1,
-        "canonical lineage rows must be preserved"
+        canonical_rows, 0,
+        "HoS-only cleanup should prune stale canonical lineage rows once they are no longer active"
     );
 
     let active_rows = scalar_i64(

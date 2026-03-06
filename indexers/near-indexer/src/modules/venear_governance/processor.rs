@@ -32,6 +32,7 @@ const DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS: i64 = 100;
 const DEFAULT_FINALIZATION_INTERVAL_BLOCKS: i64 = 100;
 const DEFAULT_RECENT_RAW_CACHE_BLOCKS: i64 = 32;
 const DEFAULT_TX_MAP_RETENTION_BLOCKS: i64 = 86_400;
+const DEFAULT_YIELD_TIMEOUT_BLOCKS: i64 = 200;
 const STALLED_PENDING_GRAPH_WARNING_BLOCKS: i64 = 43_200;
 const RECEIPT_TX_MAP_CLEANUP_BATCH_SIZE: usize = 5_000;
 const RECEIPT_TX_MAP_CLEANUP_MAX_BATCHES: usize = 50;
@@ -248,12 +249,39 @@ struct TxSliceRefs {
     receipt_edge_keys: HashSet<(String, String)>,
 }
 
+impl TxSliceRefs {
+    fn merge(&mut self, other: TxSliceRefs) {
+        self.block_heights.extend(other.block_heights);
+        self.chunk_hashes.extend(other.chunk_hashes);
+        self.state_change_keys.extend(other.state_change_keys);
+        self.transaction_hashes.extend(other.transaction_hashes);
+        self.receipt_ids.extend(other.receipt_ids);
+        self.execution_outcome_ids
+            .extend(other.execution_outcome_ids);
+        self.receipt_action_ids.extend(other.receipt_action_ids);
+        self.receipt_edge_keys.extend(other.receipt_edge_keys);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.block_heights.is_empty()
+            && self.chunk_hashes.is_empty()
+            && self.state_change_keys.is_empty()
+            && self.transaction_hashes.is_empty()
+            && self.receipt_ids.is_empty()
+            && self.execution_outcome_ids.is_empty()
+            && self.receipt_action_ids.is_empty()
+            && self.receipt_edge_keys.is_empty()
+    }
+}
+
 #[derive(Default)]
 struct GraphBlockUpdate {
     has_hos_touch: bool,
     root_transaction_seen: bool,
     pending_receipts_add: HashSet<String>,
     pending_receipts_remove: HashSet<String>,
+    yielded_receipts: HashMap<String, i64>,
+    resumed_yield_receipt_count: usize,
     refs: TxSliceRefs,
 }
 
@@ -319,6 +347,22 @@ impl HosBlockUpdates {
         self.graph_update_mut(transaction_hash)
             .pending_receipts_remove
             .insert(receipt_id.to_string());
+    }
+
+    fn note_yielded_receipt(
+        &mut self,
+        transaction_hash: &str,
+        receipt_id: &str,
+        timeout_height: i64,
+    ) {
+        self.graph_update_mut(transaction_hash)
+            .yielded_receipts
+            .insert(receipt_id.to_string(), timeout_height);
+    }
+
+    fn note_resumed_yield_receipt(&mut self, transaction_hash: &str) {
+        self.graph_update_mut(transaction_hash)
+            .resumed_yield_receipt_count += 1;
     }
 
     fn note_block(&mut self, transaction_hash: &str, row: NearBlockRow) {
@@ -420,24 +464,60 @@ impl HosBlockUpdates {
 
 #[derive(Default)]
 struct GraphState {
+    first_seen_height: i64,
     last_seen_height: i64,
     has_hos_touch: bool,
     root_transaction_seen: bool,
     pending_receipts: HashSet<String>,
+    open_yield_receipts: HashMap<String, i64>,
+    recent_refs: BTreeMap<i64, TxSliceRefs>,
+    history_truncated_before_hos_touch: bool,
     bundle: Option<HosGraphBundle>,
     incomplete_reason: Option<String>,
+}
+
+impl GraphState {
+    fn expire_timed_out_yields(&mut self, block_height: i64) {
+        self.open_yield_receipts
+            .retain(|_, timeout_height| *timeout_height > block_height);
+    }
+
+    fn resolve_yield_receipts(&mut self, resume_count: usize) {
+        if resume_count == 0 || self.open_yield_receipts.is_empty() {
+            return;
+        }
+
+        let mut yielded_receipts = self
+            .open_yield_receipts
+            .iter()
+            .map(|(receipt_id, timeout_height)| (receipt_id.clone(), *timeout_height))
+            .collect::<Vec<_>>();
+        yielded_receipts.sort_by_key(|(_, timeout_height)| *timeout_height);
+
+        for (receipt_id, _) in yielded_receipts.into_iter().take(resume_count) {
+            self.open_yield_receipts.remove(&receipt_id);
+        }
+    }
+
+    fn is_closed(&self) -> bool {
+        self.pending_receipts.is_empty() && self.open_yield_receipts.is_empty()
+    }
+
+    fn open_graph_age_blocks(&self, current_height: i64) -> i64 {
+        current_height.saturating_sub(self.first_seen_height)
+    }
 }
 
 #[derive(Default)]
 struct HosRuntimeState {
     graphs: HashMap<String, GraphState>,
     recent_blocks: BTreeMap<i64, RecentBlockCache>,
+    closed_hos_since_refresh: usize,
 }
 
 #[derive(Default)]
 struct RecentBlockCache {
     shared_bundle: HosGraphBundle,
-    tx_refs: HashMap<String, TxSliceRefs>,
 }
 
 #[derive(Clone)]
@@ -458,14 +538,25 @@ struct StalledWarningSummary {
 }
 
 #[derive(Default)]
+struct BlockMergePlan {
+    closed_hos: Vec<(String, HosGraphBundle)>,
+    closed_raw_only: Vec<String>,
+    pruned_non_hos: Vec<String>,
+    dropped_incomplete_hos: Vec<(String, String)>,
+    incomplete_graph_count: usize,
+    active_graph_count: usize,
+    active_hos_graph_count: usize,
+    ready_hos_graph_count: usize,
+    yield_open_graph_count: usize,
+    late_first_touch_cache_miss_count: usize,
+    max_open_graph_age_blocks: i64,
+}
+
+#[derive(Default)]
 struct MaintenancePlan {
     triggered: bool,
-    finalized_hos: Vec<(String, HosGraphBundle)>,
-    finalized_raw_only: Vec<String>,
-    pruned_non_hos: Vec<String>,
     stalled_warning_summary: StalledWarningSummary,
     active_graph_tx_hashes: HashSet<String>,
-    incomplete_graph_count: usize,
 }
 
 impl HosRuntimeState {
@@ -475,16 +566,14 @@ impl HosRuntimeState {
         updates: HosBlockUpdates,
         raw_enabled: bool,
         recent_raw_cache_blocks: i64,
-        finalization_interval_blocks: i64,
         stats: &mut StageMetrics,
-    ) -> MaintenancePlan {
+    ) -> BlockMergePlan {
         stats.record_count("block_write_rows", updates.row_count());
         let HosBlockUpdates {
             receipt_tx_hash_map: _,
             graph_updates,
             shared_bundle,
         } = updates;
-        let mut recent_cache_refs = HashMap::new();
 
         for (transaction_hash, update) in graph_updates {
             let prior_hos_touch = self
@@ -493,9 +582,12 @@ impl HosRuntimeState {
                 .map(|graph| graph.has_hos_touch)
                 .unwrap_or(false);
             let hydrated_bundle = if !raw_enabled && !prior_hos_touch && update.has_hos_touch {
-                Some(self.hydrate_bundle_from_recent_cache(&transaction_hash))
+                self.graphs
+                    .get(&transaction_hash)
+                    .map(|graph| self.hydrate_bundle_from_recent_cache(graph))
+                    .unwrap_or_default()
             } else {
-                None
+                HosGraphBundle::default()
             };
             let current_slice = if !raw_enabled && (prior_hos_touch || update.has_hos_touch) {
                 Some(Self::materialize_bundle_from_shared(
@@ -510,10 +602,16 @@ impl HosRuntimeState {
                 .graphs
                 .entry(transaction_hash.clone())
                 .or_insert_with(|| GraphState {
+                    first_seen_height: block_height,
                     last_seen_height: block_height,
                     ..GraphState::default()
                 });
 
+            graph.first_seen_height = if graph.first_seen_height == 0 {
+                block_height
+            } else {
+                graph.first_seen_height.min(block_height)
+            };
             graph.last_seen_height = graph.last_seen_height.max(block_height);
             graph.has_hos_touch |= update.has_hos_touch;
             graph.root_transaction_seen |= update.root_transaction_seen;
@@ -524,11 +622,18 @@ impl HosRuntimeState {
             for receipt_id in update.pending_receipts_remove {
                 graph.pending_receipts.remove(&receipt_id);
             }
+            graph.open_yield_receipts.extend(update.yielded_receipts);
+            graph.resolve_yield_receipts(update.resumed_yield_receipt_count);
+            graph.expire_timed_out_yields(block_height);
 
             let became_hos_touch = !prior_hos_touch && graph.has_hos_touch;
             if !raw_enabled && graph.has_hos_touch {
                 if became_hos_touch && graph.bundle.is_none() {
-                    graph.bundle = Some(hydrated_bundle.unwrap_or_default());
+                    graph.bundle = Some(hydrated_bundle);
+                    if graph.history_truncated_before_hos_touch {
+                        graph.incomplete_reason = Some("late_first_touch_cache_miss".to_string());
+                    }
+                    graph.recent_refs.clear();
                 }
 
                 let bundle = graph.bundle.get_or_insert_with(HosGraphBundle::default);
@@ -537,48 +642,118 @@ impl HosRuntimeState {
                 }
 
                 if !graph.root_transaction_seen || !bundle.has_root_transaction(&transaction_hash) {
-                    graph.incomplete_reason = Some("missing_root_transaction_row".to_string());
-                } else {
+                    if graph.incomplete_reason.is_none() {
+                        graph.incomplete_reason = Some("missing_root_transaction_row".to_string());
+                    }
+                } else if graph.incomplete_reason.as_deref() == Some("missing_root_transaction_row")
+                {
                     graph.incomplete_reason = None;
                 }
-            }
-
-            if !raw_enabled && recent_raw_cache_blocks > 0 {
-                recent_cache_refs.insert(transaction_hash, update.refs);
+            } else if !raw_enabled && !update.refs.is_empty() {
+                graph
+                    .recent_refs
+                    .entry(block_height)
+                    .or_default()
+                    .merge(update.refs);
             }
         }
 
         if !raw_enabled && recent_raw_cache_blocks > 0 {
-            self.recent_blocks.insert(
-                block_height,
-                RecentBlockCache {
-                    shared_bundle,
-                    tx_refs: recent_cache_refs,
-                },
-            );
-        }
-
-        if !raw_enabled && recent_raw_cache_blocks > 0 {
+            self.recent_blocks
+                .insert(block_height, RecentBlockCache { shared_bundle });
             self.evict_recent_cache(block_height, recent_raw_cache_blocks);
         }
 
-        stats.record_count("active_graph_count", self.graphs.len());
-        stats.record_count(
-            "hos_graph_count",
-            self.graphs
-                .values()
-                .filter(|graph| graph.has_hos_touch)
-                .count(),
-        );
+        let mut plan = BlockMergePlan::default();
+        let mut remove_now = Vec::new();
+
+        for (transaction_hash, graph) in &mut self.graphs {
+            graph.expire_timed_out_yields(block_height);
+            if !graph.is_closed() {
+                if graph.incomplete_reason.is_some() {
+                    plan.incomplete_graph_count += 1;
+                }
+                plan.max_open_graph_age_blocks = plan
+                    .max_open_graph_age_blocks
+                    .max(graph.open_graph_age_blocks(block_height));
+                if !graph.open_yield_receipts.is_empty() {
+                    plan.yield_open_graph_count += 1;
+                }
+                if graph.history_truncated_before_hos_touch && !graph.has_hos_touch {
+                    plan.late_first_touch_cache_miss_count += 1;
+                }
+                continue;
+            }
+
+            if !graph.has_hos_touch {
+                plan.pruned_non_hos.push(transaction_hash.clone());
+                remove_now.push(transaction_hash.clone());
+                continue;
+            }
+
+            if raw_enabled {
+                plan.closed_raw_only.push(transaction_hash.clone());
+                remove_now.push(transaction_hash.clone());
+                continue;
+            }
+
+            let Some(bundle) = graph.bundle.clone() else {
+                plan.dropped_incomplete_hos.push((
+                    transaction_hash.clone(),
+                    graph
+                        .incomplete_reason
+                        .clone()
+                        .unwrap_or_else(|| "missing_bundle".to_string()),
+                ));
+                remove_now.push(transaction_hash.clone());
+                continue;
+            };
+
+            if !graph.root_transaction_seen || !bundle.has_root_transaction(transaction_hash) {
+                plan.dropped_incomplete_hos.push((
+                    transaction_hash.clone(),
+                    graph
+                        .incomplete_reason
+                        .clone()
+                        .unwrap_or_else(|| "missing_root_transaction_row".to_string()),
+                ));
+                remove_now.push(transaction_hash.clone());
+                continue;
+            }
+
+            if let Some(reason) = &graph.incomplete_reason {
+                plan.dropped_incomplete_hos
+                    .push((transaction_hash.clone(), reason.clone()));
+                remove_now.push(transaction_hash.clone());
+                continue;
+            }
+
+            plan.closed_hos.push((transaction_hash.clone(), bundle));
+        }
+
+        for tx_hash in remove_now {
+            self.graphs.remove(&tx_hash);
+        }
+
+        plan.ready_hos_graph_count = plan.closed_hos.len();
+        plan.active_graph_count = self.graphs.len();
+        plan.active_hos_graph_count = self
+            .graphs
+            .values()
+            .filter(|graph| graph.has_hos_touch)
+            .count();
+
+        stats.record_count("active_graph_count", plan.active_graph_count);
+        stats.record_count("active_hos_graph_count", plan.active_hos_graph_count);
         stats.record_count("recent_cache_block_count", self.recent_blocks.len());
 
-        self.collect_maintenance_plan(block_height, raw_enabled, finalization_interval_blocks)
+        plan
     }
 
-    fn hydrate_bundle_from_recent_cache(&self, transaction_hash: &str) -> HosGraphBundle {
+    fn hydrate_bundle_from_recent_cache(&self, graph: &GraphState) -> HosGraphBundle {
         let mut bundle = HosGraphBundle::default();
-        for block_cache in self.recent_blocks.values() {
-            if let Some(refs) = block_cache.tx_refs.get(transaction_hash) {
+        for (block_height, refs) in &graph.recent_refs {
+            if let Some(block_cache) = self.recent_blocks.get(block_height) {
                 bundle.merge(Self::materialize_bundle_from_shared(
                     &block_cache.shared_bundle,
                     refs,
@@ -653,12 +828,28 @@ impl HosRuntimeState {
         for height in stale_heights {
             self.recent_blocks.remove(&height);
         }
+        for graph in self.graphs.values_mut() {
+            if graph.has_hos_touch {
+                continue;
+            }
+            let stale_refs = graph
+                .recent_refs
+                .keys()
+                .copied()
+                .take_while(|height| *height <= cutoff_height)
+                .collect::<Vec<_>>();
+            if !stale_refs.is_empty() {
+                graph.history_truncated_before_hos_touch = true;
+                for height in stale_refs {
+                    graph.recent_refs.remove(&height);
+                }
+            }
+        }
     }
 
     fn collect_maintenance_plan(
-        &mut self,
+        &self,
         block_height: i64,
-        raw_enabled: bool,
         finalization_interval_blocks: i64,
     ) -> MaintenancePlan {
         let mut plan = MaintenancePlan {
@@ -671,19 +862,19 @@ impl HosRuntimeState {
         }
 
         plan.triggered = true;
-
         let warning_threshold_height =
             block_height.saturating_sub(STALLED_PENDING_GRAPH_WARNING_BLOCKS.max(0));
 
         for (transaction_hash, graph) in &self.graphs {
-            if !graph.pending_receipts.is_empty()
+            if !graph.is_closed()
                 && (graph.has_hos_touch || graph.incomplete_reason.is_some())
                 && graph.last_seen_height <= warning_threshold_height
             {
                 let warning = PendingGraphWarning {
                     transaction_hash: transaction_hash.clone(),
                     has_hos_touch: graph.has_hos_touch,
-                    pending_receipt_count: graph.pending_receipts.len(),
+                    pending_receipt_count: graph.pending_receipts.len()
+                        + graph.open_yield_receipts.len(),
                     last_seen_height: graph.last_seen_height,
                 };
                 plan.stalled_warning_summary.total_count += 1;
@@ -708,50 +899,23 @@ impl HosRuntimeState {
             }
         }
 
-        for (transaction_hash, graph) in &self.graphs {
-            if !graph.pending_receipts.is_empty() {
-                if graph.incomplete_reason.is_some() {
-                    plan.incomplete_graph_count += 1;
-                }
-                continue;
-            }
-
-            if !graph.has_hos_touch {
-                plan.pruned_non_hos.push(transaction_hash.clone());
-                continue;
-            }
-
-            if raw_enabled {
-                plan.finalized_raw_only.push(transaction_hash.clone());
-                continue;
-            }
-
-            let Some(bundle) = graph.bundle.clone() else {
-                plan.incomplete_graph_count += 1;
-                continue;
-            };
-
-            if !graph.root_transaction_seen || !bundle.has_root_transaction(transaction_hash) {
-                plan.incomplete_graph_count += 1;
-                continue;
-            }
-
-            plan.finalized_hos.push((transaction_hash.clone(), bundle));
-        }
-
         plan
     }
 
-    fn apply_maintenance(&mut self, plan: &MaintenancePlan) {
-        for tx_hash in plan
-            .finalized_hos
-            .iter()
-            .map(|(tx_hash, _)| tx_hash)
-            .chain(plan.finalized_raw_only.iter())
-            .chain(plan.pruned_non_hos.iter())
-        {
+    fn remove_closed_hos_graphs(&mut self, tx_hashes: &[String]) {
+        for tx_hash in tx_hashes {
             self.graphs.remove(tx_hash);
         }
+    }
+
+    fn note_closed_hos_graphs(&mut self, count: usize) {
+        self.closed_hos_since_refresh += count;
+    }
+
+    fn take_mview_refresh_count(&mut self) -> usize {
+        let pending = self.closed_hos_since_refresh;
+        self.closed_hos_since_refresh = 0;
+        pending
     }
 }
 
@@ -1161,6 +1325,26 @@ impl VenearGovernanceModule {
         }
     }
 
+    fn is_promise_yield(receipt: &ReceiptEnumView) -> bool {
+        matches!(
+            receipt,
+            ReceiptEnumView::Action {
+                is_promise_yield: true,
+                ..
+            }
+        )
+    }
+
+    fn is_promise_resume(receipt: &ReceiptEnumView) -> bool {
+        matches!(
+            receipt,
+            ReceiptEnumView::Data {
+                is_promise_resume: true,
+                ..
+            }
+        )
+    }
+
     async fn refresh_hos_materialized_views(&self, db: &DatabaseConnection) -> Result<()> {
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -1176,6 +1360,16 @@ impl VenearGovernanceModule {
     fn should_refresh_mviews(&self, block_height: i64) -> bool {
         self.mview_refresh_interval_blocks > 0
             && block_height % self.mview_refresh_interval_blocks == 0
+    }
+
+    fn take_pending_mview_refresh(&self, block_height: i64) -> (bool, usize) {
+        if !self.should_refresh_mviews(block_height) {
+            return (false, 0);
+        }
+
+        let mut state = self.state.lock().unwrap();
+        let pending = state.take_mview_refresh_count();
+        (pending > 0, pending)
     }
 
     async fn flush_canonical_transactions(
@@ -1657,13 +1851,19 @@ impl VenearGovernanceModule {
                 "WITH deletable AS (
                     SELECT m.receipt_id
                     FROM near.near_receipt_tx_hash_map m
-                    WHERE m.last_seen_height < $1
+                    WHERE m.last_seen_height < $1",
+            );
+
+            if self.raw_enabled {
+                sql.push_str(
+                    "
                       AND NOT EXISTS (
                             SELECT 1
                             FROM near.near_transactions nt
                             WHERE nt.hash = m.transaction_hash
                       )",
-            );
+                );
+            }
 
             if !active_graph_tx_hashes.is_empty() {
                 sql.push_str(" AND m.transaction_hash NOT IN (");
@@ -1892,6 +2092,13 @@ impl VenearGovernanceModule {
                             },
                         );
                         updates.note_executed_receipt(&tx_hash, &receipt_id);
+                        if Self::is_promise_yield(&receipt.receipt) {
+                            updates.note_yielded_receipt(
+                                &tx_hash,
+                                &receipt_id,
+                                block_height.saturating_add(DEFAULT_YIELD_TIMEOUT_BLOCKS),
+                            );
+                        }
                     }
 
                     let tx_outcome_view = &tx_with_outcome.outcome.execution_outcome;
@@ -2020,6 +2227,16 @@ impl VenearGovernanceModule {
                         },
                     );
                     updates.note_pending_receipt(&transaction_hash, &receipt_id);
+                    if Self::is_promise_yield(&receipt.receipt) {
+                        updates.note_yielded_receipt(
+                            &transaction_hash,
+                            &receipt_id,
+                            block_height.saturating_add(DEFAULT_YIELD_TIMEOUT_BLOCKS),
+                        );
+                    }
+                    if Self::is_promise_resume(&receipt.receipt) {
+                        updates.note_resumed_yield_receipt(&transaction_hash);
+                    }
                 }
             }
 
@@ -2056,6 +2273,16 @@ impl VenearGovernanceModule {
                     },
                 );
                 updates.note_executed_receipt(&transaction_hash, &receipt_id);
+                if Self::is_promise_yield(&receipt.receipt) {
+                    updates.note_yielded_receipt(
+                        &transaction_hash,
+                        &receipt_id,
+                        block_height.saturating_add(DEFAULT_YIELD_TIMEOUT_BLOCKS),
+                    );
+                }
+                if Self::is_promise_resume(&receipt.receipt) {
+                    updates.note_resumed_yield_receipt(&transaction_hash);
+                }
 
                 let outcome_view = &outcome_with_receipt.execution_outcome;
                 let outcome = &outcome_view.outcome;
@@ -2247,18 +2474,77 @@ impl VenearGovernanceModule {
         Self::flush_receipt_tx_hash_map_upserts(db, &receipt_map_rows).await?;
         stats.record_phase_elapsed("receipt_tx_map_write", receipt_map_write_start);
 
-        let maintenance_plan = {
+        let merge_plan = {
             let mut state = self.state.lock().unwrap();
             state.merge_block_updates(
                 block_height,
                 updates,
                 self.raw_enabled,
                 self.recent_raw_cache_blocks,
-                self.finalization_interval_blocks,
                 &mut stats,
             )
         };
         stats.record_phase_elapsed("memory_merge", memory_merge_start);
+
+        stats.record_count("closed_hos_graph_count", merge_plan.closed_hos.len());
+        stats.record_count(
+            "closed_raw_only_graph_count",
+            merge_plan.closed_raw_only.len(),
+        );
+        stats.record_count(
+            "pruned_non_hos_graph_count",
+            merge_plan.pruned_non_hos.len(),
+        );
+        stats.record_count("ready_hos_graph_count", merge_plan.ready_hos_graph_count);
+        stats.record_count("yield_open_graph_count", merge_plan.yield_open_graph_count);
+        stats.record_count(
+            "late_first_touch_cache_miss_count",
+            merge_plan.late_first_touch_cache_miss_count,
+        );
+        stats.record_count(
+            "max_open_graph_age_blocks",
+            merge_plan.max_open_graph_age_blocks,
+        );
+        stats.record_count("incomplete_graph_count", merge_plan.incomplete_graph_count);
+
+        for (transaction_hash, reason) in &merge_plan.dropped_incomplete_hos {
+            warn!(
+                module = MODULE_NAME,
+                transaction_hash = %transaction_hash,
+                height = block_height,
+                reason = %reason,
+                "Dropping closed HoS graph without canonical persistence"
+            );
+        }
+
+        if !self.raw_enabled && !merge_plan.closed_hos.is_empty() {
+            let mut canonical_batch = CanonicalWriteBatch::default();
+            for (_, bundle) in &merge_plan.closed_hos {
+                canonical_batch.merge_bundle(bundle.clone());
+            }
+
+            let canonical_close_write_start = Instant::now();
+            Self::flush_canonical_write_batch(db, canonical_batch, &mut stats).await?;
+            stats.record_phase_elapsed("canonical_close_write", canonical_close_write_start);
+
+            let closed_tx_hashes = merge_plan
+                .closed_hos
+                .iter()
+                .map(|(transaction_hash, _)| transaction_hash.clone())
+                .collect::<Vec<_>>();
+            let mut state = self.state.lock().unwrap();
+            state.remove_closed_hos_graphs(&closed_tx_hashes);
+            state.note_closed_hos_graphs(closed_tx_hashes.len());
+            stats.record_count("active_graph_count_after_close_write", state.graphs.len());
+        } else if !merge_plan.closed_raw_only.is_empty() {
+            let mut state = self.state.lock().unwrap();
+            state.note_closed_hos_graphs(merge_plan.closed_raw_only.len());
+        }
+
+        let maintenance_plan = {
+            let state = self.state.lock().unwrap();
+            state.collect_maintenance_plan(block_height, self.finalization_interval_blocks)
+        };
 
         if maintenance_plan.stalled_warning_summary.total_count > 0 {
             warn!(
@@ -2283,16 +2569,6 @@ impl VenearGovernanceModule {
 
         stats.record_flag("maintenance_triggered", maintenance_plan.triggered);
         stats.record_count(
-            "maintenance_candidate_count",
-            maintenance_plan.finalized_hos.len()
-                + maintenance_plan.finalized_raw_only.len()
-                + maintenance_plan.pruned_non_hos.len(),
-        );
-        stats.record_count(
-            "incomplete_graph_count",
-            maintenance_plan.incomplete_graph_count,
-        );
-        stats.record_count(
             "stalled_graph_count",
             maintenance_plan.stalled_warning_summary.total_count,
         );
@@ -2303,29 +2579,6 @@ impl VenearGovernanceModule {
 
         if maintenance_plan.triggered {
             let finalize_start = Instant::now();
-            let mut canonical_batch = CanonicalWriteBatch::default();
-            for (_, bundle) in &maintenance_plan.finalized_hos {
-                canonical_batch.merge_bundle(bundle.clone());
-            }
-            stats.record_count(
-                "finalized_hos_graph_count",
-                maintenance_plan.finalized_hos.len(),
-            );
-            stats.record_count(
-                "finalized_raw_only_graph_count",
-                maintenance_plan.finalized_raw_only.len(),
-            );
-            stats.record_count(
-                "pruned_non_hos_graph_count",
-                maintenance_plan.pruned_non_hos.len(),
-            );
-
-            if !self.raw_enabled {
-                let promote_start = Instant::now();
-                Self::flush_canonical_write_batch(db, canonical_batch, &mut stats).await?;
-                stats.record_phase_elapsed("maintenance_promote", promote_start);
-            }
-
             let cleanup_start = Instant::now();
             let deleted = self
                 .run_receipt_tx_map_cleanup(
@@ -2337,10 +2590,6 @@ impl VenearGovernanceModule {
             stats.record_phase_elapsed("receipt_tx_map_cleanup", cleanup_start);
             stats.record_count("receipt_tx_map_deleted", deleted);
             stats.record_phase_elapsed("maintenance_finalize", finalize_start);
-
-            let mut state = self.state.lock().unwrap();
-            state.apply_maintenance(&maintenance_plan);
-            stats.record_count("active_graph_count_after_maintenance", state.graphs.len());
         }
 
         for receipt_id in unresolved_hos_receipts {
@@ -2391,10 +2640,14 @@ impl VenearGovernanceModule {
             .await?;
 
         let block_height = height as i64;
-        let mview_refresh_triggered = self.should_refresh_mviews(block_height);
+        let (mview_refresh_triggered, mview_refresh_graph_count) =
+            self.take_pending_mview_refresh(block_height);
         process_log
             .metrics_mut()
             .record_flag("mview_refresh_triggered", mview_refresh_triggered);
+        process_log
+            .metrics_mut()
+            .record_count("mview_refresh_graph_count", mview_refresh_graph_count);
 
         if mview_refresh_triggered {
             let mview_refresh_start = Instant::now();
@@ -2530,6 +2783,7 @@ mod tests {
         for tx_hash in ["tx-1", "tx-2"] {
             updates.note_tx_metadata(tx_hash, false, true);
             updates.note_block(tx_hash, block_row.clone());
+            updates.note_pending_receipt(tx_hash, &format!("pending-{tx_hash}"));
             updates.note_transaction(
                 tx_hash,
                 NearTransactionRow {
@@ -2550,14 +2804,43 @@ mod tests {
 
         let mut state = HosRuntimeState::default();
         let mut stats = StageMetrics::new();
-        let plan = state.merge_block_updates(123, updates, false, 32, 100, &mut stats);
+        let plan = state.merge_block_updates(123, updates, false, 32, &mut stats);
 
-        assert!(!plan.triggered);
+        assert!(plan.closed_hos.is_empty());
         let cache = state.recent_blocks.get(&123).expect("cache for block 123");
         assert_eq!(cache.shared_bundle.blocks.len(), 1);
         assert_eq!(cache.shared_bundle.transactions.len(), 2);
-        assert_eq!(cache.tx_refs.len(), 2);
-        assert_eq!(cache.tx_refs["tx-1"].block_heights.len(), 1);
-        assert_eq!(cache.tx_refs["tx-2"].block_heights.len(), 1);
+        assert_eq!(state.graphs.len(), 2);
+        assert_eq!(state.graphs["tx-1"].recent_refs.len(), 1);
+        assert_eq!(state.graphs["tx-2"].recent_refs.len(), 1);
+    }
+
+    #[test]
+    fn closed_non_hos_graphs_are_pruned_immediately() {
+        let mut updates = HosBlockUpdates::default();
+        updates.note_tx_metadata("tx-1", false, true);
+        updates.note_transaction(
+            "tx-1",
+            NearTransactionRow {
+                hash: "tx-1".to_string(),
+                block_height: 123,
+                shard_id: 0,
+                signer_id: "signer.near".to_string(),
+                receiver_id: "receiver.near".to_string(),
+                nonce: 1,
+                priority_fee: 0,
+                public_key: "pk".to_string(),
+                signature: "sig".to_string(),
+                actions: json!([]),
+                raw_data: json!({"hash": "tx-1"}),
+            },
+        );
+
+        let mut state = HosRuntimeState::default();
+        let mut stats = StageMetrics::new();
+        let plan = state.merge_block_updates(123, updates, false, 32, &mut stats);
+
+        assert_eq!(plan.pruned_non_hos, vec!["tx-1".to_string()]);
+        assert!(state.graphs.is_empty());
     }
 }
