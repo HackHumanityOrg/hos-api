@@ -604,6 +604,13 @@ struct MaintenancePlan {
     active_graph_tx_hashes: HashSet<String>,
 }
 
+#[derive(Default)]
+struct RecentCacheEvictionStats {
+    evicted_block_count: usize,
+    evicted_graph_ref_height_count: usize,
+    truncated_graph_count: usize,
+}
+
 impl HosRuntimeState {
     fn remember_data_receipt_links(
         &mut self,
@@ -660,15 +667,27 @@ impl HosRuntimeState {
         stats: &mut StageMetrics,
     ) -> BlockMergePlan {
         stats.record_count("block_write_rows", updates.row_count());
+        let mut merge_metrics = StageMetrics::new();
         let HosBlockUpdates {
             receipt_tx_hash_map: _,
             data_receipt_links,
             graph_updates,
             shared_bundle,
         } = updates;
+        merge_metrics.record_count("graph_update_count", graph_updates.len());
+        merge_metrics.record_count("shared_bundle_row_count", shared_bundle.row_count());
 
+        let remember_links_start = Instant::now();
         self.remember_data_receipt_links(block_height, data_receipt_links);
+        merge_metrics.record_phase_elapsed("remember_data_receipt_links", remember_links_start);
 
+        let update_loop_start = Instant::now();
+        let mut hydrated_graph_count = 0_u64;
+        let mut hydrated_row_count = 0_u64;
+        let mut current_slice_graph_count = 0_u64;
+        let mut current_slice_row_count = 0_u64;
+        let mut recent_ref_graph_count = 0_u64;
+        let mut became_hos_touch_count = 0_u64;
         for (transaction_hash, update) in graph_updates {
             let prior_hos_touch = self
                 .graphs
@@ -676,18 +695,27 @@ impl HosRuntimeState {
                 .map(|graph| graph.has_hos_touch)
                 .unwrap_or(false);
             let hydrated_bundle = if !raw_enabled && !prior_hos_touch && update.has_hos_touch {
-                self.graphs
+                let hydrate_start = Instant::now();
+                let bundle = self
+                    .graphs
                     .get(&transaction_hash)
                     .map(|graph| self.hydrate_bundle_from_recent_cache(graph))
-                    .unwrap_or_default()
+                    .unwrap_or_default();
+                merge_metrics.record_phase_elapsed("hydrate_bundle", hydrate_start);
+                hydrated_graph_count += 1;
+                hydrated_row_count += bundle.row_count() as u64;
+                bundle
             } else {
                 HosGraphBundle::default()
             };
             let current_slice = if !raw_enabled && (prior_hos_touch || update.has_hos_touch) {
-                Some(Self::materialize_bundle_from_shared(
-                    &shared_bundle,
-                    &update.refs,
-                ))
+                let current_slice_start = Instant::now();
+                let slice = Self::materialize_bundle_from_shared(&shared_bundle, &update.refs);
+                merge_metrics
+                    .record_phase_elapsed("materialize_current_slice", current_slice_start);
+                current_slice_graph_count += 1;
+                current_slice_row_count += slice.row_count() as u64;
+                Some(slice)
             } else {
                 None
             };
@@ -722,6 +750,9 @@ impl HosRuntimeState {
 
             let became_hos_touch = !prior_hos_touch && graph.has_hos_touch;
             if !raw_enabled && graph.has_hos_touch {
+                if became_hos_touch {
+                    became_hos_touch_count += 1;
+                }
                 if became_hos_touch && graph.bundle.is_none() {
                     graph.bundle = Some(hydrated_bundle);
                     if graph.history_truncated_before_hos_touch {
@@ -744,6 +775,7 @@ impl HosRuntimeState {
                     graph.incomplete_reason = None;
                 }
             } else if !raw_enabled && !update.refs.is_empty() {
+                recent_ref_graph_count += 1;
                 graph
                     .recent_refs
                     .entry(block_height)
@@ -751,15 +783,38 @@ impl HosRuntimeState {
                     .merge(update.refs);
             }
         }
+        merge_metrics.record_phase_elapsed("graph_update_loop", update_loop_start);
+        merge_metrics.record_count("hydrated_graph_count", hydrated_graph_count);
+        merge_metrics.record_count("hydrated_row_count", hydrated_row_count);
+        merge_metrics.record_count("current_slice_graph_count", current_slice_graph_count);
+        merge_metrics.record_count("current_slice_row_count", current_slice_row_count);
+        merge_metrics.record_count("recent_ref_graph_count", recent_ref_graph_count);
+        merge_metrics.record_count("became_hos_touch_count", became_hos_touch_count);
 
         if !raw_enabled && recent_raw_cache_blocks > 0 {
+            let cache_insert_start = Instant::now();
             self.recent_blocks
                 .insert(block_height, RecentBlockCache { shared_bundle });
-            self.evict_recent_cache(block_height, recent_raw_cache_blocks);
+            merge_metrics.record_phase_elapsed("recent_cache_insert", cache_insert_start);
+
+            let cache_evict_start = Instant::now();
+            let eviction_stats = self.evict_recent_cache(block_height, recent_raw_cache_blocks);
+            merge_metrics.record_phase_elapsed("recent_cache_evict", cache_evict_start);
+            merge_metrics.record_count("evicted_block_count", eviction_stats.evicted_block_count);
+            merge_metrics.record_count(
+                "evicted_graph_ref_height_count",
+                eviction_stats.evicted_graph_ref_height_count,
+            );
+            merge_metrics.record_count(
+                "truncated_graph_count",
+                eviction_stats.truncated_graph_count,
+            );
         }
 
         let mut plan = BlockMergePlan::default();
         let mut remove_now = Vec::new();
+        merge_metrics.record_count("closure_scan_graph_count", self.graphs.len());
+        let closure_scan_start = Instant::now();
 
         for (transaction_hash, graph) in &mut self.graphs {
             graph.expire_timed_out_yields(block_height);
@@ -824,6 +879,8 @@ impl HosRuntimeState {
 
             plan.closed_hos.push((transaction_hash.clone(), bundle));
         }
+        merge_metrics.record_phase_elapsed("closure_scan", closure_scan_start);
+        merge_metrics.record_count("remove_now_count", remove_now.len());
 
         for tx_hash in remove_now {
             self.graphs.remove(&tx_hash);
@@ -840,6 +897,7 @@ impl HosRuntimeState {
         stats.record_count("active_graph_count", plan.active_graph_count);
         stats.record_count("active_hos_graph_count", plan.active_hos_graph_count);
         stats.record_count("recent_cache_block_count", self.recent_blocks.len());
+        stats.merge_with_prefix("merge.", merge_metrics);
 
         plan
     }
@@ -911,7 +969,12 @@ impl HosRuntimeState {
         bundle
     }
 
-    fn evict_recent_cache(&mut self, block_height: i64, recent_raw_cache_blocks: i64) {
+    fn evict_recent_cache(
+        &mut self,
+        block_height: i64,
+        recent_raw_cache_blocks: i64,
+    ) -> RecentCacheEvictionStats {
+        let mut stats = RecentCacheEvictionStats::default();
         let cutoff_height = block_height.saturating_sub(recent_raw_cache_blocks.max(0));
         let stale_heights = self
             .recent_blocks
@@ -920,7 +983,9 @@ impl HosRuntimeState {
             .take_while(|height| *height <= cutoff_height)
             .collect::<Vec<_>>();
         for height in stale_heights {
-            self.recent_blocks.remove(&height);
+            if self.recent_blocks.remove(&height).is_some() {
+                stats.evicted_block_count += 1;
+            }
         }
         for graph in self.graphs.values_mut() {
             if graph.has_hos_touch {
@@ -933,12 +998,16 @@ impl HosRuntimeState {
                 .take_while(|height| *height <= cutoff_height)
                 .collect::<Vec<_>>();
             if !stale_refs.is_empty() {
+                stats.truncated_graph_count += 1;
+                stats.evicted_graph_ref_height_count += stale_refs.len();
                 graph.history_truncated_before_hos_touch = true;
                 for height in stale_refs {
                     graph.recent_refs.remove(&height);
                 }
             }
         }
+
+        stats
     }
 
     fn collect_maintenance_plan(
@@ -2148,11 +2217,11 @@ impl VenearGovernanceModule {
         }
         stats.record_phase_elapsed("lineage_lookup", lineage_lookup_start);
 
-        let memory_merge_start = Instant::now();
         let mut updates = HosBlockUpdates::default();
         let mut touched_tx_hashes = HashSet::new();
         let mut unresolved_hos_receipts = Vec::new();
 
+        let output_data_link_build_start = Instant::now();
         for shard in &msg.shards {
             if let Some(chunk) = &shard.chunk {
                 for tx_with_outcome in &chunk.transactions {
@@ -2215,7 +2284,9 @@ impl VenearGovernanceModule {
                 );
             }
         }
+        stats.record_phase_elapsed("output_data_link_build", output_data_link_build_start);
 
+        let block_update_build_start = Instant::now();
         for shard in &msg.shards {
             let mut shard_touched_tx_hashes = HashSet::new();
             let chunk_hash = shard
@@ -2721,6 +2792,7 @@ impl VenearGovernanceModule {
                 }
             }
         }
+        stats.record_phase_elapsed("block_update_build", block_update_build_start);
 
         stats.record_count("touched_tx_count", touched_tx_hashes.len());
         stats.record_count(
@@ -2733,10 +2805,12 @@ impl VenearGovernanceModule {
             .values()
             .cloned()
             .collect::<Vec<_>>();
+        stats.record_count("receipt_tx_map_write_rows", receipt_map_rows.len());
         let receipt_map_write_start = Instant::now();
         Self::flush_receipt_tx_hash_map_upserts(db, &receipt_map_rows).await?;
         stats.record_phase_elapsed("receipt_tx_map_write", receipt_map_write_start);
 
+        let memory_merge_start = Instant::now();
         let merge_plan = {
             let mut state = self.state.lock().unwrap();
             state.merge_block_updates(
