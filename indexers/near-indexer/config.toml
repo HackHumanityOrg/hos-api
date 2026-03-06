@@ -69,8 +69,6 @@ start_height = 158320040
 mview_refresh_interval_blocks = 100
 # Run HoS maintenance every N blocks.
 finalization_interval_blocks = 100
-# Keep this many recent blocks in the HoS in-memory raw cache.
-recent_raw_cache_blocks = 32
 # Rewind this many blocks from the persisted cursor on worker restart.
 restart_rewind_blocks = 256
 # Keep lineage for this many blocks before pruning non-HoS entries.

@@ -141,7 +141,6 @@ fn build_live_test_config(start_height: u64) -> AppConfig {
                     start_height: None,
                     mview_refresh_interval_blocks: 100,
                     finalization_interval_blocks: 1,
-                    recent_raw_cache_blocks: 32,
                     restart_rewind_blocks: 256,
                     receipt_tx_map_retention_blocks: 86_400,
                 }),

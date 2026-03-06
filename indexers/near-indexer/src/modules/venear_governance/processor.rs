@@ -12,7 +12,7 @@ use sea_orm::{
 };
 use serde_json::{json, Value as JsonValue};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracing::{error, info, instrument, warn};
 
@@ -30,7 +30,6 @@ const HOS_REWARDS_CONTRACT_ID: &str = "rewards.hos-dao.near";
 const VENEAR_LOCKUP_SUFFIX: &str = ".venear.dao";
 const DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS: i64 = 100;
 const DEFAULT_FINALIZATION_INTERVAL_BLOCKS: i64 = 100;
-const DEFAULT_RECENT_RAW_CACHE_BLOCKS: i64 = 32;
 const DEFAULT_TX_MAP_RETENTION_BLOCKS: i64 = 86_400;
 const DEFAULT_YIELD_TIMEOUT_BLOCKS: i64 = 200;
 const DATA_RECEIPT_LINK_RETENTION_BLOCKS: i64 = 256;
@@ -45,6 +44,56 @@ struct ReceiptTxHashMapRow {
     receipt_id: String,
     transaction_hash: String,
     block_height: i64,
+}
+
+#[derive(Clone)]
+struct BlockSource {
+    author: String,
+    block: Arc<near_lake_framework::near_indexer_primitives::views::BlockView>,
+}
+
+#[derive(Clone)]
+struct ChunkSource {
+    block_height: i64,
+    shard_id: i64,
+    chunk: Arc<near_lake_framework::near_indexer_primitives::IndexerChunkView>,
+}
+
+#[derive(Clone)]
+struct StateChangesSource {
+    block_height: i64,
+    shard_id: i64,
+    state_changes: Arc<near_lake_framework::near_indexer_primitives::views::StateChangesView>,
+}
+
+#[derive(Clone)]
+struct TransactionSource {
+    block_height: i64,
+    shard_id: i64,
+    transaction: Arc<near_lake_framework::near_indexer_primitives::views::SignedTransactionView>,
+}
+
+#[derive(Clone)]
+struct ReceiptSource {
+    block_height: i64,
+    shard_id: i64,
+    receipt: Arc<ReceiptView>,
+}
+
+#[derive(Clone)]
+struct ExecutionOutcomeSource {
+    id: String,
+    transaction_hash: String,
+    block_height: i64,
+    shard_id: i64,
+    receipt_id: Option<String>,
+    execution_outcome:
+        Arc<near_lake_framework::near_indexer_primitives::views::ExecutionOutcomeWithIdView>,
+    block_hash: String,
+    chunk_hash: String,
+    author: String,
+    block_timestamp: i64,
+    receipt: Option<Arc<ReceiptView>>,
 }
 
 #[derive(Clone)]
@@ -256,7 +305,6 @@ struct TxSliceRefs {
     transaction_hashes: HashSet<String>,
     receipt_ids: HashSet<String>,
     execution_outcome_ids: HashSet<String>,
-    receipt_action_ids: HashSet<String>,
     receipt_edge_keys: HashSet<(String, String)>,
 }
 
@@ -269,7 +317,6 @@ impl TxSliceRefs {
         self.receipt_ids.extend(other.receipt_ids);
         self.execution_outcome_ids
             .extend(other.execution_outcome_ids);
-        self.receipt_action_ids.extend(other.receipt_action_ids);
         self.receipt_edge_keys.extend(other.receipt_edge_keys);
     }
 
@@ -280,7 +327,6 @@ impl TxSliceRefs {
             && self.transaction_hashes.is_empty()
             && self.receipt_ids.is_empty()
             && self.execution_outcome_ids.is_empty()
-            && self.receipt_action_ids.is_empty()
             && self.receipt_edge_keys.is_empty()
     }
 }
@@ -301,7 +347,30 @@ struct HosBlockUpdates {
     receipt_tx_hash_map: HashMap<String, ReceiptTxHashMapRow>,
     data_receipt_links: HashMap<String, DataReceiptParentLink>,
     graph_updates: HashMap<String, GraphBlockUpdate>,
-    shared_bundle: HosGraphBundle,
+    shared_bundle: SourceBlockBundle,
+}
+
+#[derive(Default, Clone)]
+struct SourceBlockBundle {
+    block: Option<BlockSource>,
+    chunks: HashMap<String, ChunkSource>,
+    state_changes: HashMap<(i64, i64), StateChangesSource>,
+    transactions: HashMap<String, TransactionSource>,
+    receipts: HashMap<String, ReceiptSource>,
+    execution_outcomes: HashMap<String, ExecutionOutcomeSource>,
+    receipt_edges: HashMap<(String, String), NearReceiptEdgeRow>,
+}
+
+impl SourceBlockBundle {
+    fn row_count(&self) -> usize {
+        usize::from(self.block.is_some())
+            + self.chunks.len()
+            + self.state_changes.len()
+            + self.transactions.len()
+            + self.receipts.len()
+            + self.execution_outcomes.len()
+            + self.receipt_edges.len()
+    }
 }
 
 impl HosBlockUpdates {
@@ -408,17 +477,21 @@ impl HosBlockUpdates {
             .resumed_yield_receipt_count += 1;
     }
 
-    fn note_block(&mut self, transaction_hash: &str, row: NearBlockRow) {
-        let block_height = row.height;
-        self.shared_bundle.blocks.entry(block_height).or_insert(row);
+    fn set_block_source(&mut self, row: BlockSource) {
+        if self.shared_bundle.block.is_none() {
+            self.shared_bundle.block = Some(row);
+        }
+    }
+
+    fn note_block_ref(&mut self, transaction_hash: &str, block_height: i64) {
         self.graph_update_mut(transaction_hash)
             .refs
             .block_heights
             .insert(block_height);
     }
 
-    fn note_chunk(&mut self, transaction_hash: &str, row: NearChunkRow) {
-        let key = row.chunk_hash.clone();
+    fn note_chunk(&mut self, transaction_hash: &str, row: ChunkSource) {
+        let key = row.chunk.header.chunk_hash.to_string();
         self.shared_bundle.chunks.entry(key.clone()).or_insert(row);
         self.graph_update_mut(transaction_hash)
             .refs
@@ -426,7 +499,7 @@ impl HosBlockUpdates {
             .insert(key);
     }
 
-    fn note_state_changes(&mut self, transaction_hash: &str, row: NearStateChangesRow) {
+    fn note_state_changes(&mut self, transaction_hash: &str, row: StateChangesSource) {
         let key = (row.block_height, row.shard_id);
         self.shared_bundle.state_changes.entry(key).or_insert(row);
         self.graph_update_mut(transaction_hash)
@@ -435,8 +508,8 @@ impl HosBlockUpdates {
             .insert(key);
     }
 
-    fn note_transaction(&mut self, transaction_hash: &str, row: NearTransactionRow) {
-        let key = row.hash.clone();
+    fn note_transaction(&mut self, transaction_hash: &str, row: TransactionSource) {
+        let key = row.transaction.hash.to_string();
         self.shared_bundle
             .transactions
             .entry(key.clone())
@@ -447,8 +520,8 @@ impl HosBlockUpdates {
             .insert(key);
     }
 
-    fn note_receipt(&mut self, transaction_hash: &str, row: NearReceiptRow) {
-        let key = row.receipt_id.clone();
+    fn note_receipt(&mut self, transaction_hash: &str, row: ReceiptSource) {
+        let key = row.receipt.receipt_id.to_string();
         self.shared_bundle
             .receipts
             .entry(key.clone())
@@ -459,32 +532,15 @@ impl HosBlockUpdates {
             .insert(key);
     }
 
-    fn note_execution_outcome(&mut self, transaction_hash: &str, row: NearExecutionOutcomeRow) {
+    fn note_execution_outcome(&mut self, transaction_hash: &str, row: ExecutionOutcomeSource) {
         let key = row.id.clone();
         self.shared_bundle
             .execution_outcomes
             .entry(key.clone())
-            .and_modify(|existing| {
-                if existing.receipt_id.is_none() {
-                    existing.receipt_id = row.receipt_id.clone();
-                }
-            })
             .or_insert(row);
         self.graph_update_mut(transaction_hash)
             .refs
             .execution_outcome_ids
-            .insert(key);
-    }
-
-    fn note_receipt_action(&mut self, transaction_hash: &str, row: NearReceiptActionRow) {
-        let key = row.id.clone();
-        self.shared_bundle
-            .receipt_actions
-            .entry(key.clone())
-            .or_insert(row);
-        self.graph_update_mut(transaction_hash)
-            .refs
-            .receipt_action_ids
             .insert(key);
     }
 
@@ -514,7 +570,6 @@ struct GraphState {
     pending_receipts: HashSet<String>,
     open_yield_receipts: HashMap<String, i64>,
     recent_refs: BTreeMap<i64, TxSliceRefs>,
-    history_truncated_before_hos_touch: bool,
     bundle: Option<HosGraphBundle>,
     incomplete_reason: Option<String>,
 }
@@ -562,7 +617,7 @@ struct HosRuntimeState {
 
 #[derive(Default)]
 struct RecentBlockCache {
-    shared_bundle: HosGraphBundle,
+    shared_bundle: SourceBlockBundle,
 }
 
 #[derive(Clone)]
@@ -607,8 +662,6 @@ struct MaintenancePlan {
 #[derive(Default)]
 struct RecentCacheEvictionStats {
     evicted_block_count: usize,
-    evicted_graph_ref_height_count: usize,
-    truncated_graph_count: usize,
 }
 
 impl HosRuntimeState {
@@ -663,7 +716,6 @@ impl HosRuntimeState {
         block_height: i64,
         updates: HosBlockUpdates,
         raw_enabled: bool,
-        recent_raw_cache_blocks: i64,
         stats: &mut StageMetrics,
     ) -> BlockMergePlan {
         stats.record_count("block_write_rows", updates.row_count());
@@ -755,9 +807,6 @@ impl HosRuntimeState {
                 }
                 if became_hos_touch && graph.bundle.is_none() {
                     graph.bundle = Some(hydrated_bundle);
-                    if graph.history_truncated_before_hos_touch {
-                        graph.incomplete_reason = Some("late_first_touch_cache_miss".to_string());
-                    }
                     graph.recent_refs.clear();
                 }
 
@@ -791,24 +840,11 @@ impl HosRuntimeState {
         merge_metrics.record_count("recent_ref_graph_count", recent_ref_graph_count);
         merge_metrics.record_count("became_hos_touch_count", became_hos_touch_count);
 
-        if !raw_enabled && recent_raw_cache_blocks > 0 {
+        if !raw_enabled && shared_bundle.row_count() > 0 {
             let cache_insert_start = Instant::now();
             self.recent_blocks
                 .insert(block_height, RecentBlockCache { shared_bundle });
             merge_metrics.record_phase_elapsed("recent_cache_insert", cache_insert_start);
-
-            let cache_evict_start = Instant::now();
-            let eviction_stats = self.evict_recent_cache(block_height, recent_raw_cache_blocks);
-            merge_metrics.record_phase_elapsed("recent_cache_evict", cache_evict_start);
-            merge_metrics.record_count("evicted_block_count", eviction_stats.evicted_block_count);
-            merge_metrics.record_count(
-                "evicted_graph_ref_height_count",
-                eviction_stats.evicted_graph_ref_height_count,
-            );
-            merge_metrics.record_count(
-                "truncated_graph_count",
-                eviction_stats.truncated_graph_count,
-            );
         }
 
         let mut plan = BlockMergePlan::default();
@@ -827,9 +863,6 @@ impl HosRuntimeState {
                     .max(graph.open_graph_age_blocks(block_height));
                 if !graph.open_yield_receipts.is_empty() {
                     plan.yield_open_graph_count += 1;
-                }
-                if graph.history_truncated_before_hos_touch && !graph.has_hos_touch {
-                    plan.late_first_touch_cache_miss_count += 1;
                 }
                 continue;
             }
@@ -886,6 +919,13 @@ impl HosRuntimeState {
             self.graphs.remove(&tx_hash);
         }
 
+        if !raw_enabled {
+            let cache_evict_start = Instant::now();
+            let eviction_stats = self.evict_unreferenced_source_blocks();
+            merge_metrics.record_phase_elapsed("recent_cache_evict", cache_evict_start);
+            merge_metrics.record_count("evicted_block_count", eviction_stats.evicted_block_count);
+        }
+
         plan.ready_hos_graph_count = plan.closed_hos.len();
         plan.active_graph_count = self.graphs.len();
         plan.active_hos_graph_count = self
@@ -896,6 +936,7 @@ impl HosRuntimeState {
 
         stats.record_count("active_graph_count", plan.active_graph_count);
         stats.record_count("active_hos_graph_count", plan.active_hos_graph_count);
+        stats.record_count("source_cache_block_count", self.recent_blocks.len());
         stats.record_count("recent_cache_block_count", self.recent_blocks.len());
         stats.merge_with_prefix("merge.", merge_metrics);
 
@@ -916,48 +957,65 @@ impl HosRuntimeState {
     }
 
     fn materialize_bundle_from_shared(
-        shared_bundle: &HosGraphBundle,
+        shared_bundle: &SourceBlockBundle,
         refs: &TxSliceRefs,
     ) -> HosGraphBundle {
         let mut bundle = HosGraphBundle::default();
 
-        for block_height in &refs.block_heights {
-            if let Some(row) = shared_bundle.blocks.get(block_height) {
-                bundle.blocks.insert(*block_height, row.clone());
+        if let Some(block_source) = shared_bundle.block.as_ref() {
+            let block_height = block_source.block.header.height as i64;
+            if refs.block_heights.contains(&block_height) {
+                if let Ok(row) = VenearGovernanceModule::block_source_to_row(block_source) {
+                    bundle.blocks.insert(block_height, row);
+                }
             }
         }
         for chunk_hash in &refs.chunk_hashes {
             if let Some(row) = shared_bundle.chunks.get(chunk_hash) {
-                bundle.chunks.insert(chunk_hash.clone(), row.clone());
+                if let Ok(materialized) = VenearGovernanceModule::chunk_source_to_row(row) {
+                    bundle.chunks.insert(chunk_hash.clone(), materialized);
+                }
             }
         }
         for key in &refs.state_change_keys {
             if let Some(row) = shared_bundle.state_changes.get(key) {
-                bundle.state_changes.insert(*key, row.clone());
+                if let Ok(materialized) = VenearGovernanceModule::state_changes_source_to_row(row) {
+                    bundle.state_changes.insert(*key, materialized);
+                }
             }
         }
         for hash in &refs.transaction_hashes {
             if let Some(row) = shared_bundle.transactions.get(hash) {
-                bundle.transactions.insert(hash.clone(), row.clone());
+                if let Ok(materialized) = VenearGovernanceModule::transaction_source_to_row(row) {
+                    bundle.transactions.insert(hash.clone(), materialized);
+                }
             }
         }
         for receipt_id in &refs.receipt_ids {
             if let Some(row) = shared_bundle.receipts.get(receipt_id) {
-                bundle.receipts.insert(receipt_id.clone(), row.clone());
+                if let Ok(materialized) = VenearGovernanceModule::receipt_source_to_row(row) {
+                    bundle.receipts.insert(receipt_id.clone(), materialized);
+                }
             }
         }
         for outcome_id in &refs.execution_outcome_ids {
             if let Some(row) = shared_bundle.execution_outcomes.get(outcome_id) {
-                bundle
-                    .execution_outcomes
-                    .insert(outcome_id.clone(), row.clone());
-            }
-        }
-        for action_id in &refs.receipt_action_ids {
-            if let Some(row) = shared_bundle.receipt_actions.get(action_id) {
-                bundle
-                    .receipt_actions
-                    .insert(action_id.clone(), row.clone());
+                if let Ok(materialized) =
+                    VenearGovernanceModule::execution_outcome_source_to_row(row)
+                {
+                    bundle
+                        .execution_outcomes
+                        .insert(outcome_id.clone(), materialized);
+                }
+                if let Ok(receipt_actions) =
+                    VenearGovernanceModule::receipt_action_rows_from_execution_outcome(row)
+                {
+                    for action_row in receipt_actions {
+                        bundle
+                            .receipt_actions
+                            .insert(action_row.id.clone(), action_row);
+                    }
+                }
             }
         }
         for edge_key in &refs.receipt_edge_keys {
@@ -969,41 +1027,25 @@ impl HosRuntimeState {
         bundle
     }
 
-    fn evict_recent_cache(
-        &mut self,
-        block_height: i64,
-        recent_raw_cache_blocks: i64,
-    ) -> RecentCacheEvictionStats {
+    fn evict_unreferenced_source_blocks(&mut self) -> RecentCacheEvictionStats {
         let mut stats = RecentCacheEvictionStats::default();
-        let cutoff_height = block_height.saturating_sub(recent_raw_cache_blocks.max(0));
+
+        let retained_heights = self
+            .graphs
+            .values()
+            .flat_map(|graph| graph.recent_refs.keys().copied())
+            .collect::<HashSet<_>>();
+
         let stale_heights = self
             .recent_blocks
             .keys()
             .copied()
-            .take_while(|height| *height <= cutoff_height)
+            .filter(|height| !retained_heights.contains(height))
             .collect::<Vec<_>>();
+
         for height in stale_heights {
             if self.recent_blocks.remove(&height).is_some() {
                 stats.evicted_block_count += 1;
-            }
-        }
-        for graph in self.graphs.values_mut() {
-            if graph.has_hos_touch {
-                continue;
-            }
-            let stale_refs = graph
-                .recent_refs
-                .keys()
-                .copied()
-                .take_while(|height| *height <= cutoff_height)
-                .collect::<Vec<_>>();
-            if !stale_refs.is_empty() {
-                stats.truncated_graph_count += 1;
-                stats.evicted_graph_ref_height_count += stale_refs.len();
-                graph.history_truncated_before_hos_touch = true;
-                for height in stale_refs {
-                    graph.recent_refs.remove(&height);
-                }
             }
         }
 
@@ -1123,7 +1165,6 @@ pub struct VenearGovernanceModule {
     stream_mode: NearModuleStreamMode,
     mview_refresh_interval_blocks: i64,
     finalization_interval_blocks: i64,
-    recent_raw_cache_blocks: i64,
     receipt_tx_map_retention_blocks: i64,
     raw_enabled: bool,
     state: Mutex<HosRuntimeState>,
@@ -1135,7 +1176,6 @@ impl VenearGovernanceModule {
         let mut stream_mode = NearModuleStreamMode::Shared;
         let mut mview_refresh_interval_blocks = DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS;
         let mut finalization_interval_blocks = DEFAULT_FINALIZATION_INTERVAL_BLOCKS;
-        let mut recent_raw_cache_blocks = DEFAULT_RECENT_RAW_CACHE_BLOCKS;
         let mut receipt_tx_map_retention_blocks = DEFAULT_TX_MAP_RETENTION_BLOCKS;
         let mut raw_enabled = false;
 
@@ -1158,8 +1198,6 @@ impl VenearGovernanceModule {
                         finalization_interval_blocks =
                             i64::try_from(module_cfg.finalization_interval_blocks)
                                 .unwrap_or(i64::MAX);
-                        recent_raw_cache_blocks =
-                            i64::try_from(module_cfg.recent_raw_cache_blocks).unwrap_or(i64::MAX);
                         receipt_tx_map_retention_blocks =
                             i64::try_from(module_cfg.receipt_tx_map_retention_blocks)
                                 .unwrap_or(i64::MAX);
@@ -1173,7 +1211,6 @@ impl VenearGovernanceModule {
             stream_mode,
             mview_refresh_interval_blocks,
             finalization_interval_blocks,
-            recent_raw_cache_blocks,
             receipt_tx_map_retention_blocks,
             raw_enabled,
             state: Mutex::new(HosRuntimeState::default()),
@@ -1197,6 +1234,213 @@ impl VenearGovernanceModule {
 
     fn serialize_json<T: serde::Serialize>(value: &T, label: &str) -> Result<JsonValue> {
         serde_json::to_value(value).with_context(|| format!("failed to serialize {label}"))
+    }
+
+    fn block_source_to_row(source: &BlockSource) -> Result<NearBlockRow> {
+        let block = source.block.as_ref();
+        let header = &block.header;
+
+        Ok(NearBlockRow {
+            height: header.height as i64,
+            hash: header.hash.to_string(),
+            prev_hash: header.prev_hash.to_string(),
+            epoch_id: header.epoch_id.to_string(),
+            next_epoch_id: header.next_epoch_id.to_string(),
+            author: source.author.clone(),
+            timestamp: header.timestamp as i64,
+            timestamp_nanosec: header.timestamp_nanosec as i64,
+            gas_price: header.gas_price.to_string(),
+            total_supply: header.total_supply.to_string(),
+            validator_reward: header.validator_reward.to_string(),
+            protocol_version: header.latest_protocol_version as i32,
+            chunks_included: header.chunks_included as i64,
+            block_ordinal: header.block_ordinal.map(|value| value as i64),
+            prev_height: header.prev_height.map(|value| value as i64),
+            raw_data: Self::serialize_json(block, "block raw_data")?,
+        })
+    }
+
+    fn chunk_source_to_row(source: &ChunkSource) -> Result<NearChunkRow> {
+        let chunk = source.chunk.as_ref();
+        let header = &chunk.header;
+
+        Ok(NearChunkRow {
+            chunk_hash: header.chunk_hash.to_string(),
+            block_height: source.block_height,
+            shard_id: source.shard_id,
+            author: chunk.author.to_string(),
+            height_created: header.height_created as i64,
+            height_included: header.height_included as i64,
+            gas_used: header.gas_used.as_gas() as i64,
+            gas_limit: header.gas_limit.as_gas() as i64,
+            validator_reward: header.validator_reward.to_string(),
+            raw_data: Self::serialize_json(chunk, "chunk raw_data")?,
+        })
+    }
+
+    fn state_changes_source_to_row(source: &StateChangesSource) -> Result<NearStateChangesRow> {
+        Ok(NearStateChangesRow {
+            block_height: source.block_height,
+            shard_id: source.shard_id,
+            state_changes: Self::serialize_json(
+                source.state_changes.as_ref(),
+                "state changes payload",
+            )?,
+        })
+    }
+
+    fn transaction_source_to_row(source: &TransactionSource) -> Result<NearTransactionRow> {
+        let transaction = source.transaction.as_ref();
+
+        Ok(NearTransactionRow {
+            hash: transaction.hash.to_string(),
+            block_height: source.block_height,
+            shard_id: source.shard_id,
+            signer_id: transaction.signer_id.to_string(),
+            receiver_id: transaction.receiver_id.to_string(),
+            nonce: transaction.nonce as i64,
+            priority_fee: transaction.priority_fee as i64,
+            public_key: transaction.public_key.to_string(),
+            signature: transaction.signature.to_string(),
+            actions: Self::serialize_json(&transaction.actions, "HoS transaction actions")?,
+            raw_data: Self::serialize_json(transaction, "HoS transaction raw_data")?,
+        })
+    }
+
+    fn receipt_source_to_row(source: &ReceiptSource) -> Result<NearReceiptRow> {
+        let receipt = source.receipt.as_ref();
+
+        Ok(NearReceiptRow {
+            receipt_id: receipt.receipt_id.to_string(),
+            block_height: source.block_height,
+            shard_id: source.shard_id,
+            predecessor_id: receipt.predecessor_id.to_string(),
+            receiver_id: receipt.receiver_id.to_string(),
+            receipt: Self::serialize_json(&receipt.receipt, "receipt body")?,
+            raw_data: Self::serialize_json(receipt, "receipt row")?,
+        })
+    }
+
+    fn execution_outcome_source_to_row(
+        source: &ExecutionOutcomeSource,
+    ) -> Result<NearExecutionOutcomeRow> {
+        let outcome_view = source.execution_outcome.as_ref();
+        let outcome = &outcome_view.outcome;
+        let outcome_receipt_ids = JsonValue::Array(
+            outcome
+                .receipt_ids
+                .iter()
+                .map(|value| JsonValue::String(value.to_string()))
+                .collect(),
+        );
+        let logs = JsonValue::Array(
+            outcome
+                .logs
+                .iter()
+                .cloned()
+                .map(JsonValue::String)
+                .collect(),
+        );
+        let (status, results_json) = Self::extract_status(&outcome.status);
+
+        Ok(NearExecutionOutcomeRow {
+            id: source.id.clone(),
+            transaction_hash: source.transaction_hash.clone(),
+            block_height: source.block_height,
+            shard_id: source.shard_id,
+            receipt_id: source.receipt_id.clone(),
+            outcome: Self::serialize_json(&outcome_view.outcome, "execution outcome")?,
+            raw_data: Self::serialize_json(outcome_view, "execution outcome row")?,
+            block_hash: source.block_hash.clone(),
+            chunk_hash: source.chunk_hash.clone(),
+            gas_burnt: outcome.gas_burnt.as_gas() as i64,
+            gas_used: outcome.gas_burnt.as_gas() as f64,
+            tokens_burnt: outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
+            executor_account_id: outcome.executor_id.to_string(),
+            status: status.to_string(),
+            outcome_receipt_ids,
+            executed_in_block_hash: source.block_hash.clone(),
+            logs,
+            results_json,
+            block_timestamp: source.block_timestamp,
+        })
+    }
+
+    fn receipt_action_rows_from_execution_outcome(
+        source: &ExecutionOutcomeSource,
+    ) -> Result<Vec<NearReceiptActionRow>> {
+        let Some(receipt) = source.receipt.as_ref() else {
+            return Ok(Vec::new());
+        };
+
+        let ReceiptEnumView::Action {
+            signer_id,
+            signer_public_key,
+            gas_price,
+            actions,
+            ..
+        } = &receipt.receipt
+        else {
+            return Ok(Vec::new());
+        };
+
+        let mut rows = Vec::with_capacity(actions.len());
+        for (action_index, action) in actions.iter().enumerate() {
+            let action_json = Self::serialize_json(action, "receipt action")?;
+            let action_kind = Self::action_kind_from_json(&action_json);
+            let signer_id_value = signer_id.to_string();
+            let signer_public_key_value = signer_public_key.to_string();
+            let gas_price_value = gas_price.to_string();
+
+            let mut method_name: Option<String> = None;
+            let mut gas: Option<i64> = None;
+            let mut deposit: Option<String> = None;
+            let mut args_base64: Option<String> = None;
+            let mut args_json: Option<JsonValue> = None;
+
+            if let ActionView::FunctionCall {
+                method_name: function_name,
+                args,
+                gas: function_gas,
+                deposit: function_deposit,
+            } = action
+            {
+                let args_bytes: &[u8] = args.as_ref();
+                method_name = Some(function_name.clone());
+                gas = Some(function_gas.as_gas() as i64);
+                deposit = Some(function_deposit.to_string());
+                args_base64 = Some(BASE64_STANDARD.encode(args_bytes));
+                args_json = Some(Self::parse_args_json(args_bytes));
+            }
+
+            rows.push(NearReceiptActionRow {
+                id: format!("{}-{action_index}", receipt.receipt_id),
+                transaction_hash: source.transaction_hash.clone(),
+                block_height: source.block_height,
+                receipt_id: receipt.receipt_id.to_string(),
+                execution_outcome_id: source.id.clone(),
+                shard_id: source.shard_id,
+                signer_account_id: Some(signer_id_value),
+                signer_public_key: Some(signer_public_key_value),
+                gas_price: Some(gas_price_value),
+                action_kind,
+                action_json,
+                predecessor_id: receipt.predecessor_id.to_string(),
+                receiver_id: receipt.receiver_id.to_string(),
+                block_hash: source.block_hash.clone(),
+                chunk_hash: source.chunk_hash.clone(),
+                author: source.author.clone(),
+                method_name,
+                gas,
+                deposit,
+                args_base64,
+                args_json,
+                action_index: action_index as i32,
+                block_timestamp: source.block_timestamp,
+            });
+        }
+
+        Ok(rows)
     }
 
     fn action_kind_from_json(action_json: &JsonValue) -> String {
@@ -2119,9 +2363,9 @@ impl VenearGovernanceModule {
     fn note_common_block_data(
         updates: &mut HosBlockUpdates,
         transaction_hash: &str,
-        block_row: &NearBlockRow,
+        block_height: i64,
     ) {
-        updates.note_block(transaction_hash, block_row.clone());
+        updates.note_block_ref(transaction_hash, block_height);
     }
 
     async fn store_hos_projection(
@@ -2134,35 +2378,9 @@ impl VenearGovernanceModule {
         let block_hash = msg.block.header.hash.to_string();
         let block_timestamp = msg.block.header.timestamp as i64;
         let default_author = msg.block.author.to_string();
-        let block_prev_hash = msg.block.header.prev_hash.to_string();
-        let block_epoch_id = msg.block.header.epoch_id.to_string();
-        let block_next_epoch_id = msg.block.header.next_epoch_id.to_string();
-        let block_gas_price = msg.block.header.gas_price.to_string();
-        let block_total_supply = msg.block.header.total_supply.to_string();
-        let block_validator_reward = msg.block.header.validator_reward.to_string();
-        let block_protocol_version = msg.block.header.latest_protocol_version as i32;
-        let block_chunks_included = msg.block.header.chunks_included as i64;
-        let block_block_ordinal = msg.block.header.block_ordinal.map(|value| value as i64);
-        let block_prev_height = msg.block.header.prev_height.map(|value| value as i64);
-        let block_timestamp_nanosec = msg.block.header.timestamp_nanosec as i64;
-        let block_raw_data = Self::serialize_json(&msg.block, "block raw_data")?;
-        let block_row = NearBlockRow {
-            height: block_height,
-            hash: block_hash.clone(),
-            prev_hash: block_prev_hash,
-            epoch_id: block_epoch_id,
-            next_epoch_id: block_next_epoch_id,
+        let block_source = BlockSource {
             author: default_author.clone(),
-            timestamp: block_timestamp,
-            timestamp_nanosec: block_timestamp_nanosec,
-            gas_price: block_gas_price,
-            total_supply: block_total_supply,
-            validator_reward: block_validator_reward,
-            protocol_version: block_protocol_version,
-            chunks_included: block_chunks_included,
-            block_ordinal: block_block_ordinal,
-            prev_height: block_prev_height,
-            raw_data: block_raw_data,
+            block: Arc::new(msg.block.clone()),
         };
 
         let mut receipt_tx_hashes = build_receipt_tx_hashes(&msg.shards);
@@ -2218,6 +2436,7 @@ impl VenearGovernanceModule {
         stats.record_phase_elapsed("lineage_lookup", lineage_lookup_start);
 
         let mut updates = HosBlockUpdates::default();
+        updates.set_block_source(block_source);
         let mut touched_tx_hashes = HashSet::new();
         let mut unresolved_hos_receipts = Vec::new();
 
@@ -2313,27 +2532,13 @@ impl VenearGovernanceModule {
                         Some(tx_with_outcome.transaction.signer_id.as_ref()),
                     );
                     updates.note_tx_metadata(&tx_hash, tx_root_related, true);
-                    Self::note_common_block_data(&mut updates, &tx_hash, &block_row);
+                    Self::note_common_block_data(&mut updates, &tx_hash, block_height);
                     updates.note_transaction(
                         &tx_hash,
-                        NearTransactionRow {
-                            hash: tx_hash.clone(),
+                        TransactionSource {
                             block_height,
                             shard_id,
-                            signer_id: tx_with_outcome.transaction.signer_id.to_string(),
-                            receiver_id: tx_with_outcome.transaction.receiver_id.to_string(),
-                            nonce: tx_with_outcome.transaction.nonce as i64,
-                            priority_fee: tx_with_outcome.transaction.priority_fee as i64,
-                            public_key: tx_with_outcome.transaction.public_key.to_string(),
-                            signature: tx_with_outcome.transaction.signature.to_string(),
-                            actions: Self::serialize_json(
-                                &tx_with_outcome.transaction.actions,
-                                "HoS transaction actions",
-                            )?,
-                            raw_data: Self::serialize_json(
-                                &tx_with_outcome.transaction,
-                                "HoS transaction raw_data",
-                            )?,
+                            transaction: Arc::new(tx_with_outcome.transaction.clone()),
                         },
                     );
 
@@ -2346,6 +2551,7 @@ impl VenearGovernanceModule {
                     let tx_outcome = &tx_outcome_view.outcome;
                     let tx_outcome_id = tx_outcome_view.id.to_string();
                     if let Some(receipt) = &tx_with_outcome.outcome.receipt {
+                        let receipt_arc = Arc::new(receipt.clone());
                         let receipt_id = receipt.receipt_id.to_string();
                         receipt_tx_hashes.insert(receipt_id.clone(), tx_hash.clone());
                         updates.note_receipt_tx_hash_mapping(&receipt_id, &tx_hash, block_height);
@@ -2357,14 +2563,10 @@ impl VenearGovernanceModule {
 
                         updates.note_receipt(
                             &tx_hash,
-                            NearReceiptRow {
-                                receipt_id: receipt_id.clone(),
+                            ReceiptSource {
                                 block_height,
                                 shard_id,
-                                predecessor_id: receipt.predecessor_id.to_string(),
-                                receiver_id: receipt.receiver_id.to_string(),
-                                receipt: Self::serialize_json(&receipt.receipt, "receipt body")?,
-                                raw_data: Self::serialize_json(receipt, "receipt row")?,
+                                receipt: receipt_arc.clone(),
                             },
                         );
                         updates.note_executed_receipt(&tx_hash, &receipt_id);
@@ -2393,50 +2595,24 @@ impl VenearGovernanceModule {
                             block_timestamp,
                         );
                     }
-                    let tx_outcome_receipt_ids = JsonValue::Array(
-                        tx_outcome
-                            .receipt_ids
-                            .iter()
-                            .map(|value| JsonValue::String(value.to_string()))
-                            .collect(),
-                    );
-                    let tx_logs = JsonValue::Array(
-                        tx_outcome
-                            .logs
-                            .iter()
-                            .cloned()
-                            .map(JsonValue::String)
-                            .collect(),
-                    );
-                    let (tx_status, tx_results_json) = Self::extract_status(&tx_outcome.status);
                     updates.note_execution_outcome(
                         &tx_hash,
-                        NearExecutionOutcomeRow {
+                        ExecutionOutcomeSource {
                             id: tx_outcome_id.clone(),
                             transaction_hash: tx_hash.clone(),
                             block_height,
                             shard_id,
                             receipt_id: tx_outcome_receipt_id.clone(),
-                            outcome: Self::serialize_json(
-                                &tx_outcome_view.outcome,
-                                "tx execution outcome",
-                            )?,
-                            raw_data: Self::serialize_json(
-                                tx_outcome_view,
-                                "tx execution outcome row",
-                            )?,
+                            execution_outcome: Arc::new(tx_outcome_view.clone()),
                             block_hash: block_hash.clone(),
                             chunk_hash: chunk_hash.clone(),
-                            gas_burnt: tx_outcome.gas_burnt.as_gas() as i64,
-                            gas_used: tx_outcome.gas_burnt.as_gas() as f64,
-                            tokens_burnt: tx_outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
-                            executor_account_id: tx_outcome.executor_id.to_string(),
-                            status: tx_status.to_string(),
-                            outcome_receipt_ids: tx_outcome_receipt_ids,
-                            executed_in_block_hash: block_hash.clone(),
-                            logs: tx_logs,
-                            results_json: tx_results_json,
+                            author: chunk_author.clone(),
                             block_timestamp,
+                            receipt: tx_with_outcome
+                                .outcome
+                                .receipt
+                                .as_ref()
+                                .map(|receipt| Arc::new(receipt.clone())),
                         },
                     );
 
@@ -2522,20 +2698,13 @@ impl VenearGovernanceModule {
                             },
                         );
                     }
-                    Self::note_common_block_data(&mut updates, &transaction_hash, &block_row);
+                    Self::note_common_block_data(&mut updates, &transaction_hash, block_height);
                     updates.note_receipt(
                         &transaction_hash,
-                        NearReceiptRow {
-                            receipt_id: receipt_id.clone(),
+                        ReceiptSource {
                             block_height,
                             shard_id,
-                            predecessor_id: receipt.predecessor_id.to_string(),
-                            receiver_id: receipt.receiver_id.to_string(),
-                            receipt: Self::serialize_json(
-                                &receipt.receipt,
-                                "observed receipt body",
-                            )?,
-                            raw_data: Self::serialize_json(receipt, "observed receipt row")?,
+                            receipt: Arc::new(receipt.clone()),
                         },
                     );
                     if !matches!(receipt.receipt, ReceiptEnumView::Data { .. }) {
@@ -2592,18 +2761,14 @@ impl VenearGovernanceModule {
                         },
                     );
                 }
-                Self::note_common_block_data(&mut updates, &transaction_hash, &block_row);
+                Self::note_common_block_data(&mut updates, &transaction_hash, block_height);
 
                 updates.note_receipt(
                     &transaction_hash,
-                    NearReceiptRow {
-                        receipt_id: receipt_id.clone(),
+                    ReceiptSource {
                         block_height,
                         shard_id,
-                        predecessor_id: receipt.predecessor_id.to_string(),
-                        receiver_id: receipt.receiver_id.to_string(),
-                        receipt: Self::serialize_json(&receipt.receipt, "receipt body")?,
-                        raw_data: Self::serialize_json(receipt, "receipt row")?,
+                        receipt: Arc::new(receipt.clone()),
                     },
                 );
                 updates.note_executed_receipt(&transaction_hash, &receipt_id);
@@ -2621,46 +2786,20 @@ impl VenearGovernanceModule {
                 let outcome_view = &outcome_with_receipt.execution_outcome;
                 let outcome = &outcome_view.outcome;
                 let outcome_id = outcome_view.id.to_string();
-                let outcome_receipt_ids = JsonValue::Array(
-                    outcome
-                        .receipt_ids
-                        .iter()
-                        .map(|value| JsonValue::String(value.to_string()))
-                        .collect(),
-                );
-                let logs = JsonValue::Array(
-                    outcome
-                        .logs
-                        .iter()
-                        .cloned()
-                        .map(JsonValue::String)
-                        .collect(),
-                );
-                let (status, results_json) = Self::extract_status(&outcome.status);
-                let executor_account_id = outcome.executor_id.to_string();
-
                 updates.note_execution_outcome(
                     &transaction_hash,
-                    NearExecutionOutcomeRow {
+                    ExecutionOutcomeSource {
                         id: outcome_id.clone(),
                         transaction_hash: transaction_hash.clone(),
                         block_height,
                         shard_id,
                         receipt_id: Some(receipt_id.clone()),
-                        outcome: Self::serialize_json(&outcome_view.outcome, "execution outcome")?,
-                        raw_data: Self::serialize_json(outcome_view, "execution outcome row")?,
+                        execution_outcome: Arc::new(outcome_view.clone()),
                         block_hash: block_hash.clone(),
                         chunk_hash: chunk_hash.clone(),
-                        gas_burnt: outcome.gas_burnt.as_gas() as i64,
-                        gas_used: outcome.gas_burnt.as_gas() as f64,
-                        tokens_burnt: outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
-                        executor_account_id,
-                        status: status.to_string(),
-                        outcome_receipt_ids: outcome_receipt_ids.clone(),
-                        executed_in_block_hash: block_hash.clone(),
-                        logs,
-                        results_json,
+                        author: chunk_author.clone(),
                         block_timestamp,
+                        receipt: Some(Arc::new(receipt.clone())),
                     },
                 );
 
@@ -2686,109 +2825,27 @@ impl VenearGovernanceModule {
                     );
                     updates.note_pending_receipt(&transaction_hash, &child_receipt_id);
                 }
-
-                if let ReceiptEnumView::Action {
-                    signer_id,
-                    signer_public_key,
-                    gas_price,
-                    actions,
-                    ..
-                } = &receipt.receipt
-                {
-                    for (action_index, action) in actions.iter().enumerate() {
-                        let action_json = Self::serialize_json(action, "receipt action")?;
-                        let action_kind = Self::action_kind_from_json(&action_json);
-                        let signer_id_value = signer_id.to_string();
-                        let signer_public_key_value = signer_public_key.to_string();
-                        let gas_price_value = gas_price.to_string();
-
-                        let mut method_name: Option<String> = None;
-                        let mut gas: Option<i64> = None;
-                        let mut deposit: Option<String> = None;
-                        let mut args_base64: Option<String> = None;
-                        let mut args_json: Option<JsonValue> = None;
-
-                        if let ActionView::FunctionCall {
-                            method_name: function_name,
-                            args,
-                            gas: function_gas,
-                            deposit: function_deposit,
-                        } = action
-                        {
-                            let args_bytes: &[u8] = args.as_ref();
-                            method_name = Some(function_name.clone());
-                            gas = Some(function_gas.as_gas() as i64);
-                            deposit = Some(function_deposit.to_string());
-                            args_base64 = Some(BASE64_STANDARD.encode(args_bytes));
-                            args_json = Some(Self::parse_args_json(args_bytes));
-                        }
-
-                        updates.note_receipt_action(
-                            &transaction_hash,
-                            NearReceiptActionRow {
-                                id: format!("{receipt_id}-{action_index}"),
-                                transaction_hash: transaction_hash.clone(),
-                                block_height,
-                                receipt_id: receipt_id.clone(),
-                                execution_outcome_id: outcome_id.clone(),
-                                shard_id,
-                                signer_account_id: Some(signer_id_value),
-                                signer_public_key: Some(signer_public_key_value),
-                                gas_price: Some(gas_price_value),
-                                action_kind,
-                                action_json,
-                                predecessor_id: receipt.predecessor_id.to_string(),
-                                receiver_id: receipt.receiver_id.to_string(),
-                                block_hash: block_hash.clone(),
-                                chunk_hash: chunk_hash.clone(),
-                                author: chunk_author.clone(),
-                                method_name,
-                                gas,
-                                deposit,
-                                args_base64,
-                                args_json,
-                                action_index: action_index as i32,
-                                block_timestamp,
-                            },
-                        );
-                    }
-                }
             }
 
             if let Some(chunk) = &shard.chunk {
-                let header = &chunk.header;
-                let chunk_raw_data = Self::serialize_json(chunk, "chunk raw_data")?;
+                let chunk_source = ChunkSource {
+                    block_height,
+                    shard_id,
+                    chunk: Arc::new(chunk.clone()),
+                };
                 for transaction_hash in &shard_touched_tx_hashes {
-                    updates.note_chunk(
-                        transaction_hash,
-                        NearChunkRow {
-                            chunk_hash: header.chunk_hash.to_string(),
-                            block_height,
-                            shard_id,
-                            author: chunk.author.to_string(),
-                            height_created: header.height_created as i64,
-                            height_included: header.height_included as i64,
-                            gas_used: header.gas_used.as_gas() as i64,
-                            gas_limit: header.gas_limit.as_gas() as i64,
-                            validator_reward: header.validator_reward.to_string(),
-                            raw_data: chunk_raw_data.clone(),
-                        },
-                    );
+                    updates.note_chunk(transaction_hash, chunk_source.clone());
                 }
             }
 
             if !shard.state_changes.is_empty() && !shard_touched_tx_hashes.is_empty() {
-                let state_changes_json =
-                    Self::serialize_json(&shard.state_changes, "state changes payload")?;
+                let state_changes_source = StateChangesSource {
+                    block_height,
+                    shard_id,
+                    state_changes: Arc::new(shard.state_changes.clone()),
+                };
                 for transaction_hash in &shard_touched_tx_hashes {
-                    updates.note_state_changes(
-                        transaction_hash,
-                        NearStateChangesRow {
-                            block_height,
-                            shard_id,
-                            state_changes: state_changes_json.clone(),
-                        },
-                    );
+                    updates.note_state_changes(transaction_hash, state_changes_source.clone());
                 }
             }
         }
@@ -2813,13 +2870,7 @@ impl VenearGovernanceModule {
         let memory_merge_start = Instant::now();
         let merge_plan = {
             let mut state = self.state.lock().unwrap();
-            state.merge_block_updates(
-                block_height,
-                updates,
-                self.raw_enabled,
-                self.recent_raw_cache_blocks,
-                &mut stats,
-            )
+            state.merge_block_updates(block_height, updates, self.raw_enabled, &mut stats)
         };
         stats.record_phase_elapsed("memory_merge", memory_merge_start);
 
@@ -3059,18 +3110,86 @@ impl IndexerModule for VenearGovernanceModule {
 #[cfg(test)]
 mod tests {
     use super::{
-        HosBlockUpdates, HosRuntimeState, NearBlockRow, NearTransactionRow, StageMetrics,
+        BlockSource, HosBlockUpdates, HosRuntimeState, StageMetrics, TransactionSource,
         VenearGovernanceModule,
     };
     use near_lake_framework::near_indexer_primitives::types::Balance;
     use near_lake_framework::near_indexer_primitives::views::{
-        DataReceiverView, ReceiptEnumView, ReceiptView,
+        BlockHeaderView, BlockView, DataReceiverView, ReceiptEnumView, ReceiptView,
+        SignedTransactionView,
     };
     use near_lake_framework::near_indexer_primitives::CryptoHash;
-    use serde_json::json;
+    use std::sync::Arc;
 
     fn crypto_hash(byte: u8) -> CryptoHash {
         CryptoHash([byte; 32])
+    }
+
+    fn near_block(height: u64) -> BlockView {
+        BlockView {
+            author: "author.near".parse().unwrap(),
+            header: BlockHeaderView {
+                height,
+                prev_height: height.checked_sub(1),
+                epoch_id: crypto_hash(10),
+                next_epoch_id: crypto_hash(11),
+                hash: crypto_hash(12),
+                prev_hash: crypto_hash(13),
+                prev_state_root: crypto_hash(14),
+                block_body_hash: None,
+                chunk_receipts_root: crypto_hash(15),
+                chunk_headers_root: crypto_hash(16),
+                chunk_tx_root: crypto_hash(17),
+                outcome_root: crypto_hash(18),
+                chunks_included: 1,
+                challenges_root: crypto_hash(19),
+                timestamp: 1,
+                timestamp_nanosec: 1,
+                random_value: crypto_hash(20),
+                validator_proposals: Vec::new(),
+                chunk_mask: vec![true],
+                gas_price: Balance::from_yoctonear(1),
+                block_ordinal: Some(height),
+                rent_paid: Balance::from_yoctonear(0),
+                validator_reward: Balance::from_yoctonear(0),
+                total_supply: Balance::from_yoctonear(1),
+                challenges_result: Vec::new(),
+                last_final_block: crypto_hash(21),
+                last_ds_final_block: crypto_hash(22),
+                next_bp_hash: crypto_hash(23),
+                block_merkle_root: crypto_hash(24),
+                epoch_sync_data_hash: None,
+                approvals: Vec::new(),
+                signature: "ed25519:5N5CB9H1dm42Hcps225y7sY9qsKf8GugHgdGXN53BJ38qRAjPR9U1FVLtZL1NVr7Di5urN6byjHgNsZM3Rp3cr8M"
+                    .parse()
+                    .unwrap(),
+                latest_protocol_version: 0,
+                chunk_endorsements: None,
+            },
+            chunks: Vec::new(),
+        }
+    }
+
+    fn signed_transaction(
+        hash_label: &str,
+        signer_id: &str,
+        receiver_id: &str,
+    ) -> SignedTransactionView {
+        let hash_byte = hash_label
+            .bytes()
+            .fold(0_u8, |acc, byte| acc.wrapping_add(byte));
+        SignedTransactionView {
+            signer_id: signer_id.parse().unwrap(),
+            public_key: "ed25519:11111111111111111111111111111111".parse().unwrap(),
+            nonce: 1,
+            receiver_id: receiver_id.parse().unwrap(),
+            actions: Vec::new(),
+            priority_fee: 0,
+            signature: "ed25519:3s1BfR1CV2wAPYp8nH3UX77YPD6PEw24kTx5cHGNy8JD7BqXc9E8u6KDAdAm8YGtSNYGGyRyvE4s46HoPazTA7kG"
+                .parse()
+                .unwrap(),
+            hash: crypto_hash(hash_byte),
+        }
     }
 
     fn action_receipt_with_data_outputs(data_ids: &[u8]) -> ReceiptView {
@@ -3147,55 +3266,36 @@ mod tests {
 
     #[test]
     fn recent_cache_keeps_shared_block_rows_once_per_height() {
-        let block_row = NearBlockRow {
-            height: 123,
-            hash: "block-hash".to_string(),
-            prev_hash: "prev-hash".to_string(),
-            epoch_id: "epoch".to_string(),
-            next_epoch_id: "next-epoch".to_string(),
-            author: "author.near".to_string(),
-            timestamp: 1,
-            timestamp_nanosec: 1,
-            gas_price: "1".to_string(),
-            total_supply: "1".to_string(),
-            validator_reward: "0".to_string(),
-            protocol_version: 0,
-            chunks_included: 1,
-            block_ordinal: Some(123),
-            prev_height: Some(122),
-            raw_data: json!({"height": 123}),
-        };
-
         let mut updates = HosBlockUpdates::default();
+        updates.set_block_source(BlockSource {
+            author: "author.near".to_string(),
+            block: Arc::new(near_block(123)),
+        });
         for tx_hash in ["tx-1", "tx-2"] {
             updates.note_tx_metadata(tx_hash, false, true);
-            updates.note_block(tx_hash, block_row.clone());
+            updates.note_block_ref(tx_hash, 123);
             updates.note_pending_receipt(tx_hash, &format!("pending-{tx_hash}"));
             updates.note_transaction(
                 tx_hash,
-                NearTransactionRow {
-                    hash: tx_hash.to_string(),
+                TransactionSource {
                     block_height: 123,
                     shard_id: 0,
-                    signer_id: "signer.near".to_string(),
-                    receiver_id: "receiver.near".to_string(),
-                    nonce: 1,
-                    priority_fee: 0,
-                    public_key: "pk".to_string(),
-                    signature: "sig".to_string(),
-                    actions: json!([]),
-                    raw_data: json!({"hash": tx_hash}),
+                    transaction: Arc::new(signed_transaction(
+                        tx_hash,
+                        "signer.near",
+                        "receiver.near",
+                    )),
                 },
             );
         }
 
         let mut state = HosRuntimeState::default();
         let mut stats = StageMetrics::new();
-        let plan = state.merge_block_updates(123, updates, false, 32, &mut stats);
+        let plan = state.merge_block_updates(123, updates, false, &mut stats);
 
         assert!(plan.closed_hos.is_empty());
         let cache = state.recent_blocks.get(&123).expect("cache for block 123");
-        assert_eq!(cache.shared_bundle.blocks.len(), 1);
+        assert!(cache.shared_bundle.block.is_some());
         assert_eq!(cache.shared_bundle.transactions.len(), 2);
         assert_eq!(state.graphs.len(), 2);
         assert_eq!(state.graphs["tx-1"].recent_refs.len(), 1);
@@ -3208,24 +3308,16 @@ mod tests {
         updates.note_tx_metadata("tx-1", false, true);
         updates.note_transaction(
             "tx-1",
-            NearTransactionRow {
-                hash: "tx-1".to_string(),
+            TransactionSource {
                 block_height: 123,
                 shard_id: 0,
-                signer_id: "signer.near".to_string(),
-                receiver_id: "receiver.near".to_string(),
-                nonce: 1,
-                priority_fee: 0,
-                public_key: "pk".to_string(),
-                signature: "sig".to_string(),
-                actions: json!([]),
-                raw_data: json!({"hash": "tx-1"}),
+                transaction: Arc::new(signed_transaction("tx-1", "signer.near", "receiver.near")),
             },
         );
 
         let mut state = HosRuntimeState::default();
         let mut stats = StageMetrics::new();
-        let plan = state.merge_block_updates(123, updates, false, 32, &mut stats);
+        let plan = state.merge_block_updates(123, updates, false, &mut stats);
 
         assert_eq!(plan.pruned_non_hos, vec!["tx-1".to_string()]);
         assert!(state.graphs.is_empty());
@@ -3246,7 +3338,7 @@ mod tests {
 
         let mut state = HosRuntimeState::default();
         let mut stats = StageMetrics::new();
-        state.merge_block_updates(100, updates, false, 32, &mut stats);
+        state.merge_block_updates(100, updates, false, &mut stats);
 
         let link =
             VenearGovernanceModule::data_receipt_link(&state.data_receipt_links, &data_receipt(9))

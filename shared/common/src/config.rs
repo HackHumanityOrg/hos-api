@@ -496,11 +496,6 @@ pub struct VenearGovernanceModuleConfig {
         alias = "staging_gc_interval_blocks"
     )]
     pub finalization_interval_blocks: u64,
-    #[serde(
-        default = "default_hos_recent_raw_cache_blocks",
-        alias = "receipt_tx_map_cleanup_interval_blocks"
-    )]
-    pub recent_raw_cache_blocks: u64,
     #[serde(default = "default_hos_restart_rewind_blocks")]
     pub restart_rewind_blocks: u64,
     #[serde(default = "default_receipt_tx_map_retention_blocks")]
@@ -515,7 +510,6 @@ impl Default for VenearGovernanceModuleConfig {
             start_height: None,
             mview_refresh_interval_blocks: default_hos_mview_refresh_interval_blocks(),
             finalization_interval_blocks: default_hos_finalization_interval_blocks(),
-            recent_raw_cache_blocks: default_hos_recent_raw_cache_blocks(),
             restart_rewind_blocks: default_hos_restart_rewind_blocks(),
             receipt_tx_map_retention_blocks: default_receipt_tx_map_retention_blocks(),
         }
@@ -536,10 +530,6 @@ fn default_hos_mview_refresh_interval_blocks() -> u64 {
 
 fn default_hos_finalization_interval_blocks() -> u64 {
     100
-}
-
-fn default_hos_recent_raw_cache_blocks() -> u64 {
-    32
 }
 
 fn default_hos_restart_rewind_blocks() -> u64 {
@@ -592,7 +582,6 @@ impl ToLog for VenearGovernanceModuleConfig {
             "start_height": self.start_height,
             "mview_refresh_interval_blocks": self.mview_refresh_interval_blocks,
             "finalization_interval_blocks": self.finalization_interval_blocks,
-            "recent_raw_cache_blocks": self.recent_raw_cache_blocks,
             "restart_rewind_blocks": self.restart_rewind_blocks,
             "receipt_tx_map_retention_blocks": self.receipt_tx_map_retention_blocks,
         })
@@ -1168,7 +1157,6 @@ mod tests {
         assert_eq!(venear_governance.start_height, None);
         assert_eq!(venear_governance.mview_refresh_interval_blocks, 100);
         assert_eq!(venear_governance.finalization_interval_blocks, 100);
-        assert_eq!(venear_governance.recent_raw_cache_blocks, 32);
         assert_eq!(venear_governance.restart_rewind_blocks, 256);
         assert_eq!(venear_governance.receipt_tx_map_retention_blocks, 86_400);
         assert!(near_cfg.raw_enabled_or_default());
@@ -1277,14 +1265,12 @@ mod tests {
         let cfg: VenearGovernanceModuleConfig = serde_json::from_value(serde_json::json!({
             "enabled": true,
             "finalization_interval_blocks": 900,
-            "recent_raw_cache_blocks": 1200,
             "restart_rewind_blocks": 1440,
             "receipt_tx_map_retention_blocks": 172800,
         }))
         .expect("runtime config should deserialize");
 
         assert_eq!(cfg.finalization_interval_blocks, 900);
-        assert_eq!(cfg.recent_raw_cache_blocks, 1_200);
         assert_eq!(cfg.restart_rewind_blocks, 1_440);
         assert_eq!(cfg.receipt_tx_map_retention_blocks, 172_800);
     }
@@ -1297,7 +1283,6 @@ mod tests {
             start_height: Some(160_000_000),
             mview_refresh_interval_blocks: 250,
             finalization_interval_blocks: 900,
-            recent_raw_cache_blocks: 1_200,
             restart_rewind_blocks: 1_440,
             receipt_tx_map_retention_blocks: 172_800,
         };
@@ -1310,7 +1295,6 @@ mod tests {
                 "start_height": 160000000u64,
                 "mview_refresh_interval_blocks": 250u64,
                 "finalization_interval_blocks": 900u64,
-                "recent_raw_cache_blocks": 1200u64,
                 "restart_rewind_blocks": 1440u64,
                 "receipt_tx_map_retention_blocks": 172800u64,
             })

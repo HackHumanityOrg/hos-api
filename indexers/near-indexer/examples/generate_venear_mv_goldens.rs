@@ -142,7 +142,6 @@ fn build_venear_only_config() -> AppConfig {
                     start_height: None,
                     mview_refresh_interval_blocks: 0,
                     finalization_interval_blocks: 1,
-                    recent_raw_cache_blocks: 32,
                     restart_rewind_blocks: 256,
                     receipt_tx_map_retention_blocks: 86_400,
                 }),

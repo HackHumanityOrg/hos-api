@@ -168,7 +168,7 @@ uses HoS staging tables.
 The HoS module keeps runtime graph state in memory:
 
 - one `GraphState` per open transaction graph
-- a shared recent raw cache for the last `recent_raw_cache_blocks`
+- a shared source-block cache keyed by block height
 - a full in-memory HoS bundle only after a graph first touches HoS
 
 For each open graph it tracks:
@@ -178,9 +178,9 @@ For each open graph it tracks:
 - whether the root transaction row has been seen
 - pending child receipt ids
 - open yielded-promise receipts with timeout heights
-- a bounded recent-cache reference set for pre-HoS hydration
+- per-block source references used for pre-HoS hydration
 - an optional HoS bundle once the graph becomes HoS-relevant
-- an optional incomplete reason when earlier history can no longer be recovered
+- an optional incomplete reason when restart replay cannot recover earlier history
 
 There is no `near_hos_tx_state` table and no `near_hos_staging_*` schema in the
 current design.
@@ -193,8 +193,9 @@ When `raw` is disabled:
 - non-HoS graphs are pruned immediately when they close
 - HoS graphs are written into the canonical `near_*` tables immediately when
   they close
-- if a graph first touches HoS after its earlier rows have already fallen out of
-  the recent cache, the graph is marked incomplete and not partially projected
+- source blocks are retained while any open pre-HoS graph still references them
+- if a restart rewinds too little to rebuild the full pre-HoS history, the
+  graph is marked incomplete and not partially projected
 
 This means canonical HoS raw rows are the long-term store, but only HoS-touching
 graphs are written there.
@@ -228,8 +229,10 @@ Restart recovery for the HoS module is bounded, not durable:
 
 - on restart, the HoS module rewinds `restart_rewind_blocks`
 - it rebuilds in-memory graph state by replaying the rewound block range
-- if a relevant graph spans beyond both the rewind window and the recent cache
-  window while `raw=false`, HoS-only recovery can miss earlier history
+- while the process stays up, source retention follows open graphs rather than a
+  fixed cache window
+- if a relevant graph spans beyond the rewind window while `raw=false`, HoS-only
+  recovery can miss earlier history after restart
 
 ## HoS Materialized Views
 

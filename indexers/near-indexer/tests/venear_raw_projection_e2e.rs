@@ -191,7 +191,6 @@ fn venear_test_config() -> VenearGovernanceModuleConfig {
         start_height: None,
         mview_refresh_interval_blocks: 0,
         finalization_interval_blocks: 1,
-        recent_raw_cache_blocks: 32,
         restart_rewind_blocks: 256,
         ..VenearGovernanceModuleConfig::default()
     }
@@ -948,7 +947,6 @@ async fn omitted_raw_config_still_disables_receipt_tx_map_cleanup() -> Result<()
     let db = TestDatabase::new().await;
     let conn = db.db();
     let mut venear_cfg = venear_test_config();
-    venear_cfg.recent_raw_cache_blocks = 1;
     venear_cfg.receipt_tx_map_retention_blocks = 0;
     let mut config = build_default_raw_and_venear_config();
     if let AppConfig::Indexer(indexer) = &mut config {
