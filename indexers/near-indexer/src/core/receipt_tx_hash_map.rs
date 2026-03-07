@@ -2,7 +2,15 @@ use anyhow::{Context, Result};
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use std::collections::{HashMap, HashSet};
 
-const RECEIPT_TX_HASH_LOOKUP_BATCH_SIZE: usize = 2_048;
+pub(crate) const RECEIPT_TX_HASH_LOOKUP_BATCH_SIZE: usize = 2_048;
+
+pub(crate) fn receipt_tx_hash_lookup_batch_count(receipt_id_count: usize) -> usize {
+    if receipt_id_count == 0 {
+        0
+    } else {
+        receipt_id_count.div_ceil(RECEIPT_TX_HASH_LOOKUP_BATCH_SIZE)
+    }
+}
 
 /// Load persisted `receipt_id -> transaction_hash` mappings.
 pub async fn load_receipt_tx_hash_map(

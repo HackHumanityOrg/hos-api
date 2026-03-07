@@ -17,7 +17,9 @@ use std::time::Instant;
 use tracing::{error, info, instrument, warn};
 
 use crate::core::cursor;
-use crate::core::receipt_tx_hash_map::load_receipt_tx_hash_map;
+use crate::core::receipt_tx_hash_map::{
+    load_receipt_tx_hash_map, receipt_tx_hash_lookup_batch_count,
+};
 use crate::core::receipt_tx_resolver::build_receipt_tx_hashes;
 use crate::core::stage_timing::{BlockProcessingLog, StageMetrics};
 use crate::IndexerModule;
@@ -665,6 +667,14 @@ struct MaintenancePlan {
 #[derive(Default)]
 struct RecentCacheEvictionStats {
     evicted_block_count: usize,
+    retained_block_count: usize,
+    stale_block_count: usize,
+}
+
+#[derive(Default)]
+struct ReceiptTxMapCleanupStats {
+    deleted_total: u64,
+    batch_count: u64,
 }
 
 impl HosRuntimeState {
@@ -1052,6 +1062,8 @@ impl HosRuntimeState {
             let eviction_stats = self.evict_unreferenced_source_blocks();
             merge_metrics.record_phase_elapsed("recent_cache_evict", cache_evict_start);
             merge_metrics.record_count("evicted_block_count", eviction_stats.evicted_block_count);
+            merge_metrics.record_count("retained_block_count", eviction_stats.retained_block_count);
+            merge_metrics.record_count("stale_block_count", eviction_stats.stale_block_count);
         }
 
         plan.ready_hos_graph_count = plan.closed_hos.len();
@@ -1167,6 +1179,7 @@ impl HosRuntimeState {
             .values()
             .flat_map(|graph| graph.recent_refs.keys().copied())
             .collect::<HashSet<_>>();
+        stats.retained_block_count = retained_heights.len();
 
         let stale_heights = self
             .recent_blocks
@@ -1174,6 +1187,7 @@ impl HosRuntimeState {
             .copied()
             .filter(|height| !retained_heights.contains(height))
             .collect::<Vec<_>>();
+        stats.stale_block_count = stale_heights.len();
 
         for height in stale_heights {
             if self.recent_blocks.remove(&height).is_some() {
@@ -1672,6 +1686,14 @@ impl VenearGovernanceModule {
     fn max_bulk_rows(columns_per_row: usize) -> usize {
         let max_by_params = (MAX_BULK_INSERT_PARAMS / columns_per_row.max(1)).max(1);
         max_by_params.min(MAX_BULK_INSERT_ROWS)
+    }
+
+    fn batch_count(row_count: usize, columns_per_row: usize) -> usize {
+        if row_count == 0 {
+            0
+        } else {
+            row_count.div_ceil(Self::max_bulk_rows(columns_per_row))
+        }
     }
 
     fn build_values_clause(row_count: usize, columns_per_row: usize) -> String {
@@ -2416,6 +2438,26 @@ impl VenearGovernanceModule {
         let chunks = batch.chunks.into_values().collect::<Vec<_>>();
         let state_changes = batch.state_changes.into_values().collect::<Vec<_>>();
 
+        stats.record_count("canonical_transaction_rows", transactions.len());
+        stats.record_count("canonical_receipt_rows", receipts.len());
+        stats.record_count("canonical_execution_outcome_rows", execution_outcomes.len());
+        stats.record_count("canonical_receipt_action_rows", receipt_actions.len());
+        stats.record_count("canonical_receipt_edge_rows", receipt_edges.len());
+        stats.record_count("canonical_block_rows", blocks.len());
+        stats.record_count("canonical_chunk_rows", chunks.len());
+        stats.record_count("canonical_state_changes_rows", state_changes.len());
+        stats.record_count(
+            "canonical_total_batches",
+            Self::batch_count(transactions.len(), 11)
+                + Self::batch_count(receipts.len(), 7)
+                + Self::batch_count(execution_outcomes.len(), 19)
+                + Self::batch_count(receipt_actions.len(), 23)
+                + Self::batch_count(receipt_edges.len(), 7)
+                + Self::batch_count(blocks.len(), 16)
+                + Self::batch_count(chunks.len(), 10)
+                + Self::batch_count(state_changes.len(), 3),
+        );
+
         let start = Instant::now();
         Self::flush_canonical_transactions(db, &transactions).await?;
         stats.record_phase_elapsed("canonical_transaction_write", start);
@@ -2456,10 +2498,10 @@ impl VenearGovernanceModule {
         db: &impl ConnectionTrait,
         block_height: i64,
         active_graph_tx_hashes: &HashSet<String>,
-    ) -> Result<u64> {
+    ) -> Result<ReceiptTxMapCleanupStats> {
         let cutoff_height =
             block_height.saturating_sub(self.effective_receipt_tx_map_retention_blocks());
-        let mut deleted_total = 0_u64;
+        let mut stats = ReceiptTxMapCleanupStats::default();
 
         for _ in 0..RECEIPT_TX_MAP_CLEANUP_MAX_BATCHES {
             let mut values = vec![cutoff_height.into()];
@@ -2508,13 +2550,14 @@ impl VenearGovernanceModule {
                 .context("failed running near_receipt_tx_hash_map cleanup")?;
 
             let affected = result.rows_affected();
-            deleted_total += affected;
+            stats.batch_count += 1;
+            stats.deleted_total += affected;
             if affected == 0 {
                 break;
             }
         }
 
-        Ok(deleted_total)
+        Ok(stats)
     }
 
     async fn store_hos_projection(
@@ -2532,13 +2575,20 @@ impl VenearGovernanceModule {
             block: Arc::new(msg.block.clone()),
         };
 
+        let build_receipt_tx_hashes_start = Instant::now();
         let mut receipt_tx_hashes = build_receipt_tx_hashes(&msg.shards);
+        stats.record_phase_elapsed("build_receipt_tx_hashes", build_receipt_tx_hashes_start);
+
+        let data_receipt_links_clone_start = Instant::now();
         let mut data_receipt_links = {
             let state = self.state.lock().unwrap();
             state.data_receipt_links.clone()
         };
+        stats.record_phase_elapsed("data_receipt_links_clone", data_receipt_links_clone_start);
+        stats.record_count("data_receipt_link_cache_size", data_receipt_links.len());
         let mut lookup_receipt_ids = Vec::new();
 
+        let lookup_receipt_collect_start = Instant::now();
         for shard in &msg.shards {
             if let Some(chunk) = &shard.chunk {
                 for tx_with_outcome in &chunk.transactions {
@@ -2572,7 +2622,10 @@ impl VenearGovernanceModule {
                 }
             }
         }
+        stats.record_phase_elapsed("lookup_receipt_collect", lookup_receipt_collect_start);
+        stats.record_count("lookup_receipt_ids_before_dedup", lookup_receipt_ids.len());
 
+        let lookup_seed_from_data_links_start = Instant::now();
         for shard in &msg.shards {
             if let Some(chunk) = &shard.chunk {
                 for receipt in chunk.receipts.iter().chain(chunk.local_receipts.iter()) {
@@ -2593,10 +2646,18 @@ impl VenearGovernanceModule {
                 }
             }
         }
+        stats.record_phase_elapsed(
+            "lookup_seed_from_data_links",
+            lookup_seed_from_data_links_start,
+        );
 
+        let lookup_receipt_dedup_start = Instant::now();
         let mut seen_lookup_receipt_ids = HashSet::new();
         lookup_receipt_ids.retain(|receipt_id| seen_lookup_receipt_ids.insert(receipt_id.clone()));
+        stats.record_phase_elapsed("lookup_receipt_dedup", lookup_receipt_dedup_start);
+        stats.record_count("lookup_receipt_ids_after_dedup", lookup_receipt_ids.len());
 
+        let lookup_hot_cache_resolve_start = Instant::now();
         let mut lookup_stats = {
             let mut state = self.state.lock().unwrap();
             state.resolve_receipt_tx_hashes_from_hot_cache(
@@ -2605,12 +2666,14 @@ impl VenearGovernanceModule {
                 &mut receipt_tx_hashes,
             )
         };
+        stats.record_phase_elapsed("lookup_hot_cache_resolve", lookup_hot_cache_resolve_start);
         let unresolved_lookup_receipt_ids = lookup_receipt_ids
             .iter()
             .filter(|receipt_id| !receipt_tx_hashes.contains_key(*receipt_id))
             .cloned()
             .collect::<Vec<_>>();
-        lookup_stats.db_query_count = unresolved_lookup_receipt_ids.len();
+        lookup_stats.db_query_count =
+            receipt_tx_hash_lookup_batch_count(unresolved_lookup_receipt_ids.len());
 
         let lineage_lookup_start = Instant::now();
         let mapped_receipts = load_receipt_tx_hash_map(db, &unresolved_lookup_receipt_ids).await?;
@@ -2652,6 +2715,10 @@ impl VenearGovernanceModule {
         stats.record_count(
             "receipt_lookup_hot_cache_hit_count",
             lookup_stats.hot_cache_hit_count,
+        );
+        stats.record_count(
+            "receipt_lookup_db_receipt_count",
+            unresolved_lookup_receipt_ids.len(),
         );
         stats.record_count("receipt_lookup_db_query_count", lookup_stats.db_query_count);
         stats.record_count("receipt_lookup_db_hit_count", lookup_stats.db_hit_count);
@@ -3083,7 +3150,12 @@ impl VenearGovernanceModule {
             let state = self.state.lock().unwrap();
             state.plan_receipt_tx_hash_map_writes(&receipt_map_rows, block_height)
         };
+        stats.record_count("receipt_tx_map_candidate_rows", receipt_map_rows.len());
         stats.record_count("receipt_tx_map_write_rows", receipt_map_rows_to_write.len());
+        stats.record_count(
+            "receipt_tx_map_write_batch_count",
+            Self::batch_count(receipt_map_rows_to_write.len(), 3),
+        );
         stats.record_count(
             "receipt_tx_map_write_new_count",
             receipt_tx_write_stats.new_count,
@@ -3214,6 +3286,10 @@ impl VenearGovernanceModule {
             "effective_receipt_tx_map_retention_blocks",
             self.effective_receipt_tx_map_retention_blocks().max(0) as u64,
         );
+        stats.record_count(
+            "maintenance_active_graph_tx_hash_count",
+            maintenance_plan.active_graph_tx_hashes.len(),
+        );
         stats.record_flag("receipt_tx_map_cleanup_skipped_for_replay", false);
 
         if maintenance_plan.triggered {
@@ -3227,8 +3303,8 @@ impl VenearGovernanceModule {
                 "receipt_tx_map_cleanup_skipped_for_replay",
                 cleanup_skipped_for_replay,
             );
-            let deleted = if cleanup_skipped_for_replay {
-                0
+            let cleanup_stats = if cleanup_skipped_for_replay {
+                ReceiptTxMapCleanupStats::default()
             } else {
                 self.run_receipt_tx_map_cleanup(
                     db,
@@ -3238,7 +3314,11 @@ impl VenearGovernanceModule {
                 .await?
             };
             stats.record_phase_elapsed("receipt_tx_map_cleanup", cleanup_start);
-            stats.record_count("receipt_tx_map_deleted", deleted);
+            stats.record_count(
+                "receipt_tx_map_cleanup_batch_count",
+                cleanup_stats.batch_count,
+            );
+            stats.record_count("receipt_tx_map_deleted", cleanup_stats.deleted_total);
             {
                 let mut state = self.state.lock().unwrap();
                 state.evict_receipt_tx_hot_cache(
