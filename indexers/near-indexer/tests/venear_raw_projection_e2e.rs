@@ -13,19 +13,17 @@ use near_indexer::modules::venear_governance::VenearGovernanceModule;
 use near_indexer::IndexerModule;
 use near_lake_framework::near_indexer_primitives::StreamerMessage;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-use std::path::Path;
 use std::sync::OnceLock;
-use support::hos_mv_goldens::{assert_hos_mv_golden_rows, assert_hos_mv_normalized_semantics};
+use support::fixture_catalog::{
+    all_fixture_cases, find_fixture_case, load_all_range_fixture_messages, load_fixture_messages,
+    ModuleExpectationKind,
+};
+use support::fixture_expectations::{
+    assert_fixture_expectation, assert_snapshot_equal, capture_fixture_snapshot,
+    refresh_hos_materialized_views, reset_near_indexer_tables,
+};
+use support::hos_mv_goldens::assert_hos_mv_normalized_semantics;
 use support::{init_test_tracing, TestDatabase};
-
-const RANGE_SCENARIOS: &[&str] = &[
-    "hos_lockup_core_167957",
-    "hos_create_proposal_167957",
-    "hos_approval_snapshot_168368",
-    "hos_vote_168369",
-    "hos_delegation_187483",
-    "hos_config_185721",
-];
 
 const HOS_MATERIALIZED_VIEWS: &[&str] = &[
     "hos_function_calls",
@@ -39,69 +37,15 @@ const HOS_MATERIALIZED_VIEWS: &[&str] = &[
     "hos_proposal_non_voters",
 ];
 
-fn load_fixture_range(name: &str) -> Vec<StreamerMessage> {
-    let ranges_dir =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/venear_governance/ranges");
-    let single_path = ranges_dir.join(format!("{name}.json"));
-
-    let mut paths = Vec::new();
-    if single_path.exists() {
-        paths.push(single_path);
-    } else {
-        let part_prefix = format!("{name}.part");
-        let mut part_paths: Vec<_> = std::fs::read_dir(&ranges_dir)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "Failed to read fixture directory {}: {err}",
-                    ranges_dir.display()
-                )
-            })
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .map(|name| name.starts_with(&part_prefix) && name.ends_with(".json"))
-                    .unwrap_or(false)
-            })
-            .collect();
-
-        part_paths.sort();
-        assert!(
-            !part_paths.is_empty(),
-            "Failed to find fixture range file or parts for {name} in {}",
-            ranges_dir.display()
-        );
-        paths.extend(part_paths);
-    }
-
-    let mut messages = Vec::new();
-    for path in paths {
-        let bytes = std::fs::read(&path)
-            .unwrap_or_else(|err| panic!("Failed to read fixture {}: {err}", path.display()));
-        let mut parsed: Vec<StreamerMessage> =
-            serde_json::from_slice(&bytes).unwrap_or_else(|err| {
-                panic!("Failed to deserialize fixture {}: {err}", path.display())
-            });
-        messages.append(&mut parsed);
-    }
-
-    messages
+fn load_fixture_messages_by_id(id: &str) -> Vec<StreamerMessage> {
+    let fixture_case = find_fixture_case(id)
+        .unwrap_or_else(|err| panic!("failed to resolve fixture case {id}: {err}"));
+    load_fixture_messages(&fixture_case)
+        .unwrap_or_else(|err| panic!("failed to load fixture case {id}: {err}"))
 }
 
 fn load_all_fixture_messages() -> Vec<StreamerMessage> {
-    let mut messages = Vec::new();
-
-    for scenario in RANGE_SCENARIOS {
-        let mut range = load_fixture_range(scenario);
-        assert!(
-            !range.is_empty(),
-            "fixture range should not be empty: {scenario}"
-        );
-        messages.append(&mut range);
-    }
-
-    messages.sort_by_key(|msg| msg.block.header.height);
-    messages
+    load_all_range_fixture_messages().expect("failed to load ranged fixture messages")
 }
 
 fn all_fixture_messages() -> &'static [StreamerMessage] {
@@ -113,7 +57,7 @@ fn core_hos_fixture_messages() -> &'static [StreamerMessage] {
     static FIXTURES: OnceLock<Vec<StreamerMessage>> = OnceLock::new();
     FIXTURES
         .get_or_init(|| {
-            let mut messages = load_fixture_range("hos_lockup_core_167957");
+            let mut messages = load_fixture_messages_by_id("hos_lockup_core_167957");
             messages.sort_by_key(|msg| msg.block.header.height);
             messages
         })
@@ -124,7 +68,7 @@ fn rewards_fixture_messages() -> &'static [StreamerMessage] {
     static FIXTURES: OnceLock<Vec<StreamerMessage>> = OnceLock::new();
     FIXTURES
         .get_or_init(|| {
-            let mut messages = load_fixture_range("hos_rewards_claim_179510");
+            let mut messages = load_fixture_messages_by_id("hos_rewards_claim_179510");
             messages.sort_by_key(|msg| msg.block.header.height);
             messages
         })
@@ -928,7 +872,6 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         assert_eq!(count, 0, "HoS MV contract/action filter broken: {sql}");
     }
 
-    assert_hos_mv_golden_rows(conn.as_ref()).await?;
     assert_hos_mv_normalized_semantics(conn.as_ref()).await?;
 
     let non_voter_overlap = scalar_i64(
@@ -944,6 +887,78 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
         non_voter_overlap, 0,
         "proposal_non_voters must not include accounts that actually voted"
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn venear_governance_fixture_expectations_match_checked_in_snapshots() -> Result<()> {
+    init_test_tracing();
+
+    let db = TestDatabase::new().await;
+
+    for fixture_case in all_fixture_cases()? {
+        reset_near_indexer_tables(db.connection.as_ref()).await?;
+        let mut venear_cfg = venear_test_config();
+        venear_cfg.finalization_interval_blocks = 1;
+        let module = VenearGovernanceModule::new(&build_test_app_config(
+            Some(raw_config(false)),
+            Some(venear_cfg),
+        ));
+        let fixtures = load_fixture_messages(&fixture_case)?;
+
+        module.initialize(db.connection.as_ref()).await?;
+        for fixture in &fixtures {
+            module
+                .process_block(fixture, db.connection.as_ref())
+                .await?;
+        }
+
+        refresh_hos_materialized_views(db.connection.as_ref()).await?;
+        assert_fixture_expectation(
+            db.connection.as_ref(),
+            &fixture_case,
+            ModuleExpectationKind::Venear,
+        )
+        .await?;
+        assert_hos_mv_normalized_semantics(db.connection.as_ref()).await?;
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn venear_governance_is_replay_idempotent() -> Result<()> {
+    init_test_tracing();
+
+    let fixtures = all_fixture_messages();
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+    let mut venear_cfg = venear_test_config();
+    venear_cfg.finalization_interval_blocks = 1;
+    let module = VenearGovernanceModule::new(&build_test_app_config(
+        Some(raw_config(false)),
+        Some(venear_cfg),
+    ));
+
+    module.initialize(conn.as_ref()).await?;
+    for fixture in fixtures {
+        module.process_block(fixture, conn.as_ref()).await?;
+    }
+    refresh_hos_materialized_views(conn.as_ref()).await?;
+    let snapshot_before_replay = capture_fixture_snapshot(conn.as_ref()).await?;
+
+    for fixture in fixtures {
+        module.process_block(fixture, conn.as_ref()).await?;
+    }
+    refresh_hos_materialized_views(conn.as_ref()).await?;
+    let snapshot_after_replay = capture_fixture_snapshot(conn.as_ref()).await?;
+
+    assert_snapshot_equal(
+        &snapshot_after_replay,
+        &snapshot_before_replay,
+        "venear-governance-replay-idempotence",
+    )?;
 
     Ok(())
 }

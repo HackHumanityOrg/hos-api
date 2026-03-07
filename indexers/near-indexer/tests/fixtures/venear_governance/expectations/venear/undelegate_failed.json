@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "fixture_id": "undelegate_failed",
+  "fixture_kind": "single",
+  "module_kind": "venear",
+  "canonical": {
+    "near_blocks": {
+      "rows": []
+    },
+    "near_chunks": {
+      "rows": []
+    },
+    "near_execution_outcomes": {
+      "rows": []
+    },
+    "near_receipt_actions": {
+      "rows": []
+    },
+    "near_receipt_edges": {
+      "rows": []
+    },
+    "near_receipt_tx_hash_map": {
+      "rows": [
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "2PCztPkH8kpLeWqpQtz9fFzSRX75qsZMSxNrHxVgA8CJ",
+          "transaction_hash": "2A7Cec4vUop5CtrNiuHMp7JrnXtKqQiAoMSGT4vvdziS"
+        },
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "3ZA1hKvbhnWrLKAvmdEm7RqQC6vQBD17vmrwjkUQkfVZ",
+          "transaction_hash": "EX3FQ1SwzPyGTtCTbiLqmXjKGivG1ZRjsK8YqUkx8Ty9"
+        },
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "3iX9cWpVuMdH89cVXBGhKcHXn3n7g5im712YjnHz9Rxw",
+          "transaction_hash": "DuTNoxViww7GiAatVZp2msGpTSWhQqCWKaVv6xpzdWYv"
+        },
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "486Kt8PaYnqU6FdBEQT5mJGebi9FqjUhULgaxhxEdhhs",
+          "transaction_hash": "B747c4sh55hEEzBaoPmMDDfmHqJpCoMMpRaEiTgYVpZu"
+        },
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "8rpb4DQ2RdM6krmKKDFfzuEyFXjJJXqNyGnUKNtgFfL6",
+          "transaction_hash": "DekGY4jpJvEmM3kHUxis6UYgBuWaMDEjASMiuoN6eZC3"
+        },
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "8uGANb7S8w46U2BnxGDAyPuaZeafymuxrr64CsUfET5g",
+          "transaction_hash": "BepFh8PW7ifHMpYATPVBQPf2h72toCAu9E1zqEaSShF7"
+        },
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "9ZzQfvL7ozaJB2VQAP4xTciDK54CBFzzMGrSUXy4acFn",
+          "transaction_hash": "F5GwHYv6upK47AjhR3Fx33fCV7uwDYRa58QDkDac1C9A"
+        },
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "ASFe7nJWyLa3AFLY9AXexfSWeiKDwQcb5T5UmikMyepW",
+          "transaction_hash": "5BGxbGdP5nXprK1HWuB76xJZGvtLjTrHsYGejENU1zBv"
+        },
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "BudSwaLQrwMRX75L6f671JETF1dyJEpaPHeeSdigMp7j",
+          "transaction_hash": "CZBSFe5oEJe5e7D4BpxmddaAzKNGYAR5bqqY1yaBoj7j"
+        },
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "EAWUEcDatj5VQZsRV8k8F3Dkm4bbReYfUGf8b8HZKtH8",
+          "transaction_hash": "5BGxbGdP5nXprK1HWuB76xJZGvtLjTrHsYGejENU1zBv"
+        },
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "Fzr2PAR8CVreMweignoBChYV2vWDoBNxpDGWLynPmyri",
+          "transaction_hash": "9DgigAd4YXZDe9X6bb1ZvQD1vFkchA7r3iEmDA5hZ2V8"
+        },
+        {
+          "first_seen_height": 181512997,
+          "last_seen_height": 181512997,
+          "receipt_id": "HxWxCqvkvWazwUpbk1R1c7qCGEXZWCbPRdYyXcQJVwH6",
+          "transaction_hash": "9WV9xnBke262zM5nohTuJV4yxrqMempg8SBu1bjupJQN"
+        }
+      ]
+    },
+    "near_receipts": {
+      "rows": []
+    },
+    "near_state_changes": {
+      "rows": []
+    },
+    "near_transactions": {
+      "rows": []
+    }
+  },
+  "materialized_views": {
+    "hos_config_history": {
+      "rows": []
+    },
+    "hos_delegation_events": {
+      "rows": []
+    },
+    "hos_event_logs": {
+      "rows": []
+    },
+    "hos_function_calls": {
+      "rows": []
+    },
+    "hos_proposal_non_voters": {
+      "rows": []
+    },
+    "hos_proposal_voting_history": {
+      "rows": []
+    },
+    "hos_proposals": {
+      "rows": []
+    },
+    "hos_registered_voters": {
+      "rows": []
+    },
+    "hos_user_activities": {
+      "rows": []
+    }
+  }
+}

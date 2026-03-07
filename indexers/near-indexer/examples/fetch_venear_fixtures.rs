@@ -86,6 +86,66 @@ const DEFAULT_SCENARIOS: &[ScenarioSpec] = &[
         block_count: 3,
         required_event_types: &["rewards_claim"],
     },
+    ScenarioSpec {
+        name: "hos_admin_prepare_lockup_167688",
+        start_height: 167_688_388,
+        block_count: 20,
+        required_event_types: &["admin_prepare_lockup_code"],
+    },
+    ScenarioSpec {
+        name: "hos_admin_set_lockup_contract_167867",
+        start_height: 167_867_469,
+        block_count: 20,
+        required_event_types: &["admin_set_lockup_contract"],
+    },
+    ScenarioSpec {
+        name: "hos_admin_lockup_code_deployers_175528",
+        start_height: 175_528_566,
+        block_count: 20,
+        required_event_types: &["admin_set_lockup_code_deployers"],
+    },
+    ScenarioSpec {
+        name: "hos_vote_upgrade_migrate_177187",
+        start_height: 177_187_510,
+        block_count: 20,
+        required_event_types: &["admin_upgrade", "admin_migrate_state"],
+    },
+    ScenarioSpec {
+        name: "hos_undelegate_187339",
+        start_height: 187_339_239,
+        block_count: 20,
+        required_event_types: &["undelegate"],
+    },
+    ScenarioSpec {
+        name: "hos_undelegate_failed_181512",
+        start_height: 181_512_987,
+        block_count: 20,
+        required_event_types: &["undelegate_failed"],
+    },
+    ScenarioSpec {
+        name: "hos_delegate_failed_185678",
+        start_height: 185_678_249,
+        block_count: 20,
+        required_event_types: &["delegate_all_failed"],
+    },
+    ScenarioSpec {
+        name: "hos_lockup_delete_186618",
+        start_height: 186_618_871,
+        block_count: 20,
+        required_event_types: &["lockup_delete"],
+    },
+    ScenarioSpec {
+        name: "hos_begin_unlock_burn_187483",
+        start_height: 187_483_417,
+        block_count: 20,
+        required_event_types: &["begin_unlock_near", "ft_burn"],
+    },
+    ScenarioSpec {
+        name: "hos_end_unlock_187814",
+        start_height: 187_814_854,
+        block_count: 20,
+        required_event_types: &["end_unlock_near"],
+    },
 ];
 
 fn parse_csv_env(name: &str) -> Option<Vec<String>> {

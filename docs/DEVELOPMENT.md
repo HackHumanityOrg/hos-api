@@ -325,9 +325,26 @@ cargo test -p api routes::health
 cargo test -p discourse-indexer
 cargo test -p near-indexer
 
+# Rebuild checked-in NEAR fixture expectations
+MODULE_KIND=raw ALL=true OVERWRITE_EXISTING=true \
+  cargo run -p near-indexer --example generate_venear_fixture_expectations
+MODULE_KIND=venear ALL=true OVERWRITE_EXISTING=true \
+  cargo run -p near-indexer --example generate_venear_fixture_expectations
+
 # With output and timing
 cargo test -p api -- --nocapture --test-threads=1
 ```
+
+For `near-indexer`, deterministic fixture expectations live under:
+
+- `indexers/near-indexer/tests/fixtures/venear_governance/expectations/raw/`
+- `indexers/near-indexer/tests/fixtures/venear_governance/expectations/venear/`
+
+Each checked-in fixture, including logical range scenarios in
+`indexers/near-indexer/tests/fixtures/venear_governance/ranges/`, must ship
+with both a `raw` and a `venear` expectation file. The fixture tests now assert
+exact canonical-table and materialized-view outputs rather than just checking
+for non-empty ingestion.
 
 #### Live HTTP Tests
 

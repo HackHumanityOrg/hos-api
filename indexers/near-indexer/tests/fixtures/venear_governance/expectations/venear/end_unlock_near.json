@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "fixture_id": "end_unlock_near",
+  "fixture_kind": "single",
+  "module_kind": "venear",
+  "canonical": {
+    "near_blocks": {
+      "rows": []
+    },
+    "near_chunks": {
+      "rows": []
+    },
+    "near_execution_outcomes": {
+      "rows": []
+    },
+    "near_receipt_actions": {
+      "rows": []
+    },
+    "near_receipt_edges": {
+      "rows": []
+    },
+    "near_receipt_tx_hash_map": {
+      "rows": [
+        {
+          "first_seen_height": 187814864,
+          "last_seen_height": 187814864,
+          "receipt_id": "2CnfibS8ozyhr26RsqxieMRTUNNAbgwUP7pGHZydZpFF",
+          "transaction_hash": "EdaGudSngxGKCDYHMmU9FJjZJsuAdfDcBHrBsFWi1Bjj"
+        },
+        {
+          "first_seen_height": 187814864,
+          "last_seen_height": 187814864,
+          "receipt_id": "HcLfr418FDXNBYtwfvn4QwzUmzbueBGJYXMLgTsjiXbZ",
+          "transaction_hash": "Hrppbv7pkS4etYkTma4dWdcF2432z4gakxzUmknfijPx"
+        },
+        {
+          "first_seen_height": 187814864,
+          "last_seen_height": 187814864,
+          "receipt_id": "J3U8MUk54MDCfNsZ6u1ADdpemjh6t1iGo5Yj4m2p8bEM",
+          "transaction_hash": "4q1AMsPP8DPJtfZr9V3nJCRf1ao7kodfQhNL5e9W3nTD"
+        },
+        {
+          "first_seen_height": 187814864,
+          "last_seen_height": 187814864,
+          "receipt_id": "J4tfWMWocWVy3gCkY9nMJ4TARoU3VXZpwxzfqTpq9ASU",
+          "transaction_hash": "An93YwRUaqvaWKF6vPca7ow1d2iQmejh1h1xZBJt5SBT"
+        }
+      ]
+    },
+    "near_receipts": {
+      "rows": []
+    },
+    "near_state_changes": {
+      "rows": []
+    },
+    "near_transactions": {
+      "rows": []
+    }
+  },
+  "materialized_views": {
+    "hos_config_history": {
+      "rows": []
+    },
+    "hos_delegation_events": {
+      "rows": []
+    },
+    "hos_event_logs": {
+      "rows": []
+    },
+    "hos_function_calls": {
+      "rows": []
+    },
+    "hos_proposal_non_voters": {
+      "rows": []
+    },
+    "hos_proposal_voting_history": {
+      "rows": []
+    },
+    "hos_proposals": {
+      "rows": []
+    },
+    "hos_registered_voters": {
+      "rows": []
+    },
+    "hos_user_activities": {
+      "rows": []
+    }
+  }
+}

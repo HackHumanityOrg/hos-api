@@ -1,0 +1,646 @@
+{
+  "version": 1,
+  "fixture_id": "hos_rewards_deploy_176767",
+  "fixture_kind": "range",
+  "module_kind": "venear",
+  "canonical": {
+    "near_blocks": {
+      "rows": [
+        {
+          "author": "twinstake.poolv1.near",
+          "block_ordinal": 166552020,
+          "chunks_included": 9,
+          "epoch_id": "5WzwUGRyabn1YM7jVDxN9sGh3TjHQ2uqQTLsK2XQTZwG",
+          "gas_price": "<0.001 NEAR",
+          "hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "height": 176767290,
+          "next_epoch_id": "7CFgweU9n7zcuptm5xzy21cF6C98pK9SnVKfudwDiNp1",
+          "prev_hash": "CXs6Cwb6SEeWZzBKdX4sNAdBaetkfGMurTuWv7m1bbJ7",
+          "prev_height": 176767289,
+          "protocol_version": 82,
+          "raw_data_sha256": "834bd9089183aab9e04c6e98137e813da51363c31df32614617d5d6ce962d84c",
+          "timestamp": 1765695280245502401,
+          "timestamp_nanosec": 1765695280245502401,
+          "total_supply": "1282445574.18 NEAR",
+          "validator_reward": "0 NEAR"
+        },
+        {
+          "author": "bisontrails2.poolv1.near",
+          "block_ordinal": 166552021,
+          "chunks_included": 9,
+          "epoch_id": "5WzwUGRyabn1YM7jVDxN9sGh3TjHQ2uqQTLsK2XQTZwG",
+          "gas_price": "<0.001 NEAR",
+          "hash": "BdaFXnKW8VnSdXmkwkkbgv8MGCXyRbfyrjyZ1rBPUp4o",
+          "height": 176767291,
+          "next_epoch_id": "7CFgweU9n7zcuptm5xzy21cF6C98pK9SnVKfudwDiNp1",
+          "prev_hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "prev_height": 176767290,
+          "protocol_version": 82,
+          "raw_data_sha256": "cb4f3670669561068b3d92473d1182febcdba67fdffd9cc88fbbe02548586aa4",
+          "timestamp": 1765695281044374206,
+          "timestamp_nanosec": 1765695281044374206,
+          "total_supply": "1282445574.17 NEAR",
+          "validator_reward": "0 NEAR"
+        }
+      ]
+    },
+    "near_chunks": {
+      "rows": [
+        {
+          "author": "pairpoint.poolv1.near",
+          "block_height": 176767290,
+          "chunk_hash": "6jKvreNn1iaouStXDjoMeFzJaJZC8dWHi6oBqqq4uiai",
+          "gas_limit": 1000000000000000,
+          "gas_used": 9753095761851,
+          "height_created": 176767290,
+          "height_included": 176767290,
+          "raw_data_sha256": "e07341b342761eeb2472783c4f8960726fb32f2cdb98343f811de7aec007eef4",
+          "shard_id": 4,
+          "validator_reward": "0 NEAR"
+        },
+        {
+          "author": "okx-earn.poolv1.near",
+          "block_height": 176767291,
+          "chunk_hash": "F8ThbVQrn2jDXNoxU4G7um7bhBMSsTCGHTLxRqYs8Dtq",
+          "gas_limit": 1000000000000000,
+          "gas_used": 19239369955953,
+          "height_created": 176767291,
+          "height_included": 176767291,
+          "raw_data_sha256": "8dc87acbe9c507119360e1ac5560e80449e3d95527c4d1c81d2c9379b6e8ad21",
+          "shard_id": 4,
+          "validator_reward": "0 NEAR"
+        }
+      ]
+    },
+    "near_execution_outcomes": {
+      "rows": [
+        {
+          "block_hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "block_height": 176767290,
+          "block_timestamp": 1765695280245502401,
+          "chunk_hash": "6jKvreNn1iaouStXDjoMeFzJaJZC8dWHi6oBqqq4uiai",
+          "executed_in_block_hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "executor_account_id": "rewards.hos-dao.near",
+          "gas_burnt": 12014898159765,
+          "gas_used": 12014898159765,
+          "id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "logs": [],
+          "outcome_receipt_ids": [
+            "9rVoppqYupuhLQjMv6XJmSPQbp4EqGuLHTE1xhpdV3wG",
+            "ESmNvS9GDx4atu9iahHUjRW3Up6NNmfd7vGUjZXewZRs"
+          ],
+          "outcome_sha256": "5f5571b0a985085647bc126e5fb88a2df0c790cdef7360d6a9c83d1b0c4c4e4d",
+          "raw_data_sha256": "5b570ba833575983c3ddd812d22855db3b7163cf4a7e397e88f86308c7e65afb",
+          "receipt_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "results_json": null,
+          "shard_id": 4,
+          "status": "SuccessValue",
+          "tokens_burnt": 0.0012014898159765,
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        },
+        {
+          "block_hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "block_height": 176767290,
+          "block_timestamp": 1765695280245502401,
+          "chunk_hash": "6jKvreNn1iaouStXDjoMeFzJaJZC8dWHi6oBqqq4uiai",
+          "executed_in_block_hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "executor_account_id": "rewards.hos-dao.near",
+          "gas_burnt": 1581424802468,
+          "gas_used": 1581424802468,
+          "id": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B",
+          "logs": [],
+          "outcome_receipt_ids": [
+            "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3"
+          ],
+          "outcome_sha256": "08df082bafcf298bc07be5edb91922049f46e06901cb08c1ba76258802569e91",
+          "raw_data_sha256": "c5fc46ea20b0acea47b551f3b316189505045ac28c2a203a0501b586d3df0af2",
+          "receipt_id": null,
+          "results_json": {
+            "receipt_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+            "status_type": "SuccessReceiptId"
+          },
+          "shard_id": 4,
+          "status": "SuccessReceiptId",
+          "tokens_burnt": 0.0001581424802468,
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        },
+        {
+          "block_hash": "BdaFXnKW8VnSdXmkwkkbgv8MGCXyRbfyrjyZ1rBPUp4o",
+          "block_height": 176767291,
+          "block_timestamp": 1765695281044374206,
+          "chunk_hash": "F8ThbVQrn2jDXNoxU4G7um7bhBMSsTCGHTLxRqYs8Dtq",
+          "executed_in_block_hash": "BdaFXnKW8VnSdXmkwkkbgv8MGCXyRbfyrjyZ1rBPUp4o",
+          "executor_account_id": "rewards.hos-dao.near",
+          "gas_burnt": 223182562500,
+          "gas_used": 223182562500,
+          "id": "9rVoppqYupuhLQjMv6XJmSPQbp4EqGuLHTE1xhpdV3wG",
+          "logs": [],
+          "outcome_receipt_ids": [],
+          "outcome_sha256": "87c45242baf3bc5b80f9b0b122b0396e1e5d19723f439a4c07e04d9585798503",
+          "raw_data_sha256": "3ba745d05d3ede165ecb624b8baf11b6ddc134c23df8a4f17349ef65ed05b7d7",
+          "receipt_id": "9rVoppqYupuhLQjMv6XJmSPQbp4EqGuLHTE1xhpdV3wG",
+          "results_json": null,
+          "shard_id": 4,
+          "status": "SuccessValue",
+          "tokens_burnt": 0.00002231825625,
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        },
+        {
+          "block_hash": "BdaFXnKW8VnSdXmkwkkbgv8MGCXyRbfyrjyZ1rBPUp4o",
+          "block_height": 176767291,
+          "block_timestamp": 1765695281044374206,
+          "chunk_hash": "F8ThbVQrn2jDXNoxU4G7um7bhBMSsTCGHTLxRqYs8Dtq",
+          "executed_in_block_hash": "BdaFXnKW8VnSdXmkwkkbgv8MGCXyRbfyrjyZ1rBPUp4o",
+          "executor_account_id": "rewards.hos-dao.near",
+          "gas_burnt": 223182562500,
+          "gas_used": 223182562500,
+          "id": "ESmNvS9GDx4atu9iahHUjRW3Up6NNmfd7vGUjZXewZRs",
+          "logs": [],
+          "outcome_receipt_ids": [],
+          "outcome_sha256": "192b31953ef95235df67039a8beadb8f8556e837e85c9f49ba5a525ac6827367",
+          "raw_data_sha256": "95ca644d28c0468dc6adc53730ec357275fa2fe4d5db9db0b4a6404a8737a661",
+          "receipt_id": "ESmNvS9GDx4atu9iahHUjRW3Up6NNmfd7vGUjZXewZRs",
+          "results_json": null,
+          "shard_id": 4,
+          "status": "SuccessValue",
+          "tokens_burnt": 0,
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        }
+      ]
+    },
+    "near_receipt_actions": {
+      "rows": [
+        {
+          "action_index": 0,
+          "action_json_sha256": "1fa23843227017ddee1571e107b11e7f15b4dd1a3b6eb39f3f808747ea27456d",
+          "action_kind": "DeployContract",
+          "args_base64": null,
+          "args_json": null,
+          "author": "pairpoint.poolv1.near",
+          "block_hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "block_height": 176767290,
+          "block_timestamp": 1765695280245502401,
+          "chunk_hash": "6jKvreNn1iaouStXDjoMeFzJaJZC8dWHi6oBqqq4uiai",
+          "deposit": null,
+          "execution_outcome_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "gas": null,
+          "gas_price": "<0.001 NEAR",
+          "id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3-0",
+          "method_name": null,
+          "predecessor_id": "rewards.hos-dao.near",
+          "receipt_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "receiver_id": "rewards.hos-dao.near",
+          "shard_id": 4,
+          "signer_account_id": "rewards.hos-dao.near",
+          "signer_public_key": "ed25519:E8Wvh4QR1PBZv9N6PWT8Pzj7L2m72s6jnLfGj397L6oQ",
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        },
+        {
+          "action_index": 1,
+          "action_json_sha256": "a98abb3ba17bb1aee2b4444712a98783a435edd6353ae9400bdc1a41d5089b5e",
+          "action_kind": "FunctionCall",
+          "args_base64": "eyJjb25maWciOnsibWluX3N0b3JhZ2VfZGVwb3NpdCI6IjEwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsIm93bmVyX2FjY291bnRfaWQiOiJyZXdhcmRzLWNsYWltczIuc3B1dG5pay1kYW8ubmVhciJ9fQ==",
+          "args_json": {
+            "config": {
+              "min_storage_deposit": "100000000000000000000000",
+              "owner_account_id": "rewards-claims2.sputnik-dao.near"
+            }
+          },
+          "author": "pairpoint.poolv1.near",
+          "block_hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "block_height": 176767290,
+          "block_timestamp": 1765695280245502401,
+          "chunk_hash": "6jKvreNn1iaouStXDjoMeFzJaJZC8dWHi6oBqqq4uiai",
+          "deposit": "1.00 NEAR",
+          "execution_outcome_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "gas": 10000000000000,
+          "gas_price": "<0.001 NEAR",
+          "id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3-1",
+          "method_name": "new",
+          "predecessor_id": "rewards.hos-dao.near",
+          "receipt_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "receiver_id": "rewards.hos-dao.near",
+          "shard_id": 4,
+          "signer_account_id": "rewards.hos-dao.near",
+          "signer_public_key": "ed25519:E8Wvh4QR1PBZv9N6PWT8Pzj7L2m72s6jnLfGj397L6oQ",
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        },
+        {
+          "action_index": 0,
+          "action_json_sha256": "aa4048d4bcb657a845d87ecb570df89ba15426ba57d9f8841561ce03aedd5d2c",
+          "action_kind": "Transfer",
+          "args_base64": null,
+          "args_json": null,
+          "author": "okx-earn.poolv1.near",
+          "block_hash": "BdaFXnKW8VnSdXmkwkkbgv8MGCXyRbfyrjyZ1rBPUp4o",
+          "block_height": 176767291,
+          "block_timestamp": 1765695281044374206,
+          "chunk_hash": "F8ThbVQrn2jDXNoxU4G7um7bhBMSsTCGHTLxRqYs8Dtq",
+          "deposit": null,
+          "execution_outcome_id": "9rVoppqYupuhLQjMv6XJmSPQbp4EqGuLHTE1xhpdV3wG",
+          "gas": null,
+          "gas_price": "<0.001 NEAR",
+          "id": "9rVoppqYupuhLQjMv6XJmSPQbp4EqGuLHTE1xhpdV3wG-0",
+          "method_name": null,
+          "predecessor_id": "rewards.hos-dao.near",
+          "receipt_id": "9rVoppqYupuhLQjMv6XJmSPQbp4EqGuLHTE1xhpdV3wG",
+          "receiver_id": "rewards.hos-dao.near",
+          "shard_id": 4,
+          "signer_account_id": "rewards.hos-dao.near",
+          "signer_public_key": "ed25519:E8Wvh4QR1PBZv9N6PWT8Pzj7L2m72s6jnLfGj397L6oQ",
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        },
+        {
+          "action_index": 0,
+          "action_json_sha256": "35811a7bfa64549fb9fa9e307a8b94b105c0f5426c25a77f8f995e65db4b7fd4",
+          "action_kind": "Transfer",
+          "args_base64": null,
+          "args_json": null,
+          "author": "okx-earn.poolv1.near",
+          "block_hash": "BdaFXnKW8VnSdXmkwkkbgv8MGCXyRbfyrjyZ1rBPUp4o",
+          "block_height": 176767291,
+          "block_timestamp": 1765695281044374206,
+          "chunk_hash": "F8ThbVQrn2jDXNoxU4G7um7bhBMSsTCGHTLxRqYs8Dtq",
+          "deposit": null,
+          "execution_outcome_id": "ESmNvS9GDx4atu9iahHUjRW3Up6NNmfd7vGUjZXewZRs",
+          "gas": null,
+          "gas_price": "0 NEAR",
+          "id": "ESmNvS9GDx4atu9iahHUjRW3Up6NNmfd7vGUjZXewZRs-0",
+          "method_name": null,
+          "predecessor_id": "system",
+          "receipt_id": "ESmNvS9GDx4atu9iahHUjRW3Up6NNmfd7vGUjZXewZRs",
+          "receiver_id": "rewards.hos-dao.near",
+          "shard_id": 4,
+          "signer_account_id": "rewards.hos-dao.near",
+          "signer_public_key": "ed25519:E8Wvh4QR1PBZv9N6PWT8Pzj7L2m72s6jnLfGj397L6oQ",
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        }
+      ]
+    },
+    "near_receipt_edges": {
+      "rows": [
+        {
+          "block_hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "block_height": 176767290,
+          "block_timestamp": 1765695280245502401,
+          "child_receipt_id": "9rVoppqYupuhLQjMv6XJmSPQbp4EqGuLHTE1xhpdV3wG",
+          "parent_execution_outcome_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "parent_receipt_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        },
+        {
+          "block_hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "block_height": 176767290,
+          "block_timestamp": 1765695280245502401,
+          "child_receipt_id": "ESmNvS9GDx4atu9iahHUjRW3Up6NNmfd7vGUjZXewZRs",
+          "parent_execution_outcome_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "parent_receipt_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        }
+      ]
+    },
+    "near_receipt_tx_hash_map": {
+      "rows": [
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "2Siz2nzy5mJA3QrtmiFtqDHQxk3eVbtj2fC9h8NzjKgT",
+          "transaction_hash": "FRPbv8Eur1qVaqHgXGNAjsiqA23NaCCo6FPJJtiE6Pkz"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "2c4q4dki7YiDW32svbMZ4aFEGohQ6RsLvP5YUigDucLS",
+          "transaction_hash": "3jePk28wd8VjitMWzQJ5B7WLu2P4MMmY4DxtXWKL2R2e"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "2kUekCsfZDmJgXViZByYCqBY1KHt4DHGxZ99vDiTu6fU",
+          "transaction_hash": "8VKuTNMaGYbThmDbNGaYzMBkP5DTpzub3EdK9yMUrLYf"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "3BkJGqUjKAKZAzTrgMA6ULYPEKTq28umx6mTH9SSzCBt",
+          "transaction_hash": "9ZhcBXvTD6frsS3wPo19d5AbVnFJbebzw2ihHQox8WXx"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "4hpqGCX1Ht7DAVsmNRLHwDS7vcY1sjFTvwh5ufR9YT61",
+          "transaction_hash": "GxXngUfNoLRP4VtrRM8xi542vze3nwpP7nv7AzULHd2M"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "5SjBog195TUjNe8VQ1cHFKva3Jbvqgtf8Uwfu8CdQ7g7",
+          "transaction_hash": "8oWdTNky8X2oH5reDYUzjQkX2pn9Uefpr1mf9HD6fE9P"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "64xbY1esDo6rYjNt78AKzqKAWS6yD1b2r43aYkqiBVAP",
+          "transaction_hash": "572esxgxSsUdpYntLotryEVDRGucTesb1Gdps28s4VCT"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "6Bjkq9qtS35RpBqNdJkudEu5T4aSadfPjaNuxQuh9T4d",
+          "transaction_hash": "9ZhcBXvTD6frsS3wPo19d5AbVnFJbebzw2ihHQox8WXx"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "6msTXL6r4jDCZT7jgDTHXCfWi7eDhBfVZrb16E4gNae",
+          "transaction_hash": "7vj6Uo4zhp5TECWzEzzaycnrSKSwC87EAuXUmdGGRXTr"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "7GKzUgDgJqLGSZayK3kdFsEg5bMUNbB8PLzcWfuK3aje",
+          "transaction_hash": "G464jJPrrMLrw3ivf3mwthP7q5PKYkNNTGhoarNYgpj8"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "7v9MLdAN3qNadHM7CKqbj2fm6SiyAfUzortyX1GWHvcM",
+          "transaction_hash": "GxXngUfNoLRP4VtrRM8xi542vze3nwpP7nv7AzULHd2M"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "89d5TH5k8V5wpEK6mAnEpWiMZeSbDcBE4ZMf9Qtn2iss",
+          "transaction_hash": "HCUAbF4BRwNUbmmH6TXBMHMuFAkqis4c3MqoTaD9iDWg"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "8mF153yTnZDaGkTjjYHGXzCzXUmq9Fcy5vcGZAzmBn1Z",
+          "transaction_hash": "9ZhcBXvTD6frsS3wPo19d5AbVnFJbebzw2ihHQox8WXx"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "8mhY1rdAFS1xdmzqwVz5qQgkADpUNRFPuB1KoP5aY5Bh",
+          "transaction_hash": "8VKuTNMaGYbThmDbNGaYzMBkP5DTpzub3EdK9yMUrLYf"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "8nkrkrxwswuWDTMhBQsQGLxS8uAqeDFFqgUxAioHsua",
+          "transaction_hash": "Fs3KB5F1Vcoxsna3ciq3YGc1NEum6m4mfR38G7QokMBU"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "8sY9KA9niYZPBsAB1GVCtY5mYrSTdJvzWDKb5ghCHaRE",
+          "transaction_hash": "87RxPvrpa5p3sEEtvUkTKK8XWgYdJhc3seiLgTYUnXBh"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "98Uoot2AFsNpy4dxQVeyqu43qtM5iHZEpi4VjPH55Qym",
+          "transaction_hash": "AeFsCrVjEaSxGDVhTxfqVwTVJN2p5kP2yZfu1rPZarp6"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "9pwEDriVyukfRVKP5c5ngAVg7y9tT18hhraTHS5Jqrqi",
+          "transaction_hash": "FfqmaDoNtpMv1F2ZmNZDsZixUqekV9EkkEKQcLEseX9f"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "9rVoppqYupuhLQjMv6XJmSPQbp4EqGuLHTE1xhpdV3wG",
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "BpidSxnQyDh6TVhyK5jLS76cmDgQWJhEj8TD9Wd2ewn9",
+          "transaction_hash": "8oWdTNky8X2oH5reDYUzjQkX2pn9Uefpr1mf9HD6fE9P"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "Cr1AYJyW6prHp3XuNsqpYjQKAW6dXdkbsTC4yJ8Y6LNw",
+          "transaction_hash": "3jePk28wd8VjitMWzQJ5B7WLu2P4MMmY4DxtXWKL2R2e"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "CtWg3rBtno2hKD7WgybDDC3mmH2gGosJdbADbRHG1DTh",
+          "transaction_hash": "2gYfJffAX2zoYh5CJtFm6RaTT1BiYaKEKxKc1fBYJf98"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "DEc42EmckFsiYxFmT3RpnQidTGTpbFottDR5nP3sErsF",
+          "transaction_hash": "FfqmaDoNtpMv1F2ZmNZDsZixUqekV9EkkEKQcLEseX9f"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "DyLtarCq5WudSy7KAygxncJhT54s968vD81QQJPBqrgH",
+          "transaction_hash": "9ZhcBXvTD6frsS3wPo19d5AbVnFJbebzw2ihHQox8WXx"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "EDCNFspAG4TpVpZRanVd1rTM3TtRA9MsvujB43epEtKt",
+          "transaction_hash": "6jiuv2W6WuJtZ4R2jx3m1wKd5koZffmyRbDvxTrNxiGB"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "ESmNvS9GDx4atu9iahHUjRW3Up6NNmfd7vGUjZXewZRs",
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "FEY2b8DkUGDBoAq75zsE6pAfkfGgBXuv1wVuibu9hqXh",
+          "transaction_hash": "8gNNr4c3cAbub82WzUQmFunGogqgJ5jjCDMcvH8QTKjS"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "J7hwX4AUSeekK3bS3GQPFg5Tdi9XDhpkFqLxCNQqCWGB",
+          "transaction_hash": "G464jJPrrMLrw3ivf3mwthP7q5PKYkNNTGhoarNYgpj8"
+        },
+        {
+          "first_seen_height": 176767291,
+          "last_seen_height": 176767291,
+          "receipt_id": "Pxz3HXESqnKVaYxVFYbHC3XUVYzq8yx7cKevP6dfFaF",
+          "transaction_hash": "7yfrLothUXqHeZ9Eccmezm34Y8fbEmxGyFR4B8TaA7kx"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "TStV5YdVXkvkjJuktUZMondWfJGPiDpvEAAjZg6hzX1",
+          "transaction_hash": "HCUAbF4BRwNUbmmH6TXBMHMuFAkqis4c3MqoTaD9iDWg"
+        },
+        {
+          "first_seen_height": 176767290,
+          "last_seen_height": 176767290,
+          "receipt_id": "ZScEqYwesyMScibof1AmUcZYwKdnApyy1Xx2kK8RRiA",
+          "transaction_hash": "AeFsCrVjEaSxGDVhTxfqVwTVJN2p5kP2yZfu1rPZarp6"
+        }
+      ]
+    },
+    "near_receipts": {
+      "rows": [
+        {
+          "block_height": 176767290,
+          "predecessor_id": "rewards.hos-dao.near",
+          "raw_data_sha256": "b045a1f675576525445f2c233ef5ad7126ec4d9513d7d6520d19dd5677e8f3d7",
+          "receipt_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "receipt_sha256": "ff421077d5d964b501ed11a7d5cef61946aaa41a957db4a91016c57b48b55a6d",
+          "receiver_id": "rewards.hos-dao.near",
+          "shard_id": 4
+        },
+        {
+          "block_height": 176767291,
+          "predecessor_id": "rewards.hos-dao.near",
+          "raw_data_sha256": "c65250839536c792f842db1ed80b15f35d2e7c2d9f2f3d890203b6e08121c2e2",
+          "receipt_id": "9rVoppqYupuhLQjMv6XJmSPQbp4EqGuLHTE1xhpdV3wG",
+          "receipt_sha256": "0841c273c215cc23e103f9ede08f0adcf4393efdf2ae6cfe17ffd9665937671b",
+          "receiver_id": "rewards.hos-dao.near",
+          "shard_id": 4
+        },
+        {
+          "block_height": 176767291,
+          "predecessor_id": "system",
+          "raw_data_sha256": "63db1d4714ef66c7e2193c308e47e3bab69c01e0366c2059ac7f26e102aea070",
+          "receipt_id": "ESmNvS9GDx4atu9iahHUjRW3Up6NNmfd7vGUjZXewZRs",
+          "receipt_sha256": "cf32fa40bc2e7a2f5e85bc74125a53430a5f7abeff357dad45fcf29321b16a44",
+          "receiver_id": "rewards.hos-dao.near",
+          "shard_id": 4
+        }
+      ]
+    },
+    "near_state_changes": {
+      "rows": [
+        {
+          "block_height": 176767290,
+          "shard_id": 4,
+          "state_changes_sha256": "c111960248f6b29881e79b97004b8f6f9036296250e7e9d8906be5082cea81bc"
+        },
+        {
+          "block_height": 176767291,
+          "shard_id": 4,
+          "state_changes_sha256": "826152202a7c31eddf71f72e58372876e59bddea006ab1534ebcbcdb31839477"
+        }
+      ]
+    },
+    "near_transactions": {
+      "rows": [
+        {
+          "actions_sha256": "0340115b5b84714fc1c63e610719608dd746c231cb4be746cae196fae1d1e975",
+          "block_height": 176767290,
+          "hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B",
+          "nonce": 176766480000001,
+          "priority_fee": 0,
+          "public_key": "ed25519:E8Wvh4QR1PBZv9N6PWT8Pzj7L2m72s6jnLfGj397L6oQ",
+          "raw_data_sha256": "2bc444a9f6e14dff965269a5ee612f9d4f64954e4046117b89af21e7dddd3627",
+          "receiver_id": "rewards.hos-dao.near",
+          "shard_id": 4,
+          "signature": "ed25519:PcMATef5hRkvAZ41tEwSNfmFrx7TFZXHqwwSBeRaG1YH6XLcAi8ZGLdnCYrMvd7UZAHahFqcuDqTsFAgtwiaYNu",
+          "signer_id": "rewards.hos-dao.near"
+        }
+      ]
+    }
+  },
+  "materialized_views": {
+    "hos_config_history": {
+      "rows": []
+    },
+    "hos_delegation_events": {
+      "rows": []
+    },
+    "hos_event_logs": {
+      "rows": []
+    },
+    "hos_function_calls": {
+      "rows": [
+        {
+          "action_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3-1",
+          "args_base64": "eyJjb25maWciOnsibWluX3N0b3JhZ2VfZGVwb3NpdCI6IjEwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsIm93bmVyX2FjY291bnRfaWQiOiJyZXdhcmRzLWNsYWltczIuc3B1dG5pay1kYW8ubmVhciJ9fQ==",
+          "args_json": {
+            "config": {
+              "min_storage_deposit": "100000000000000000000000",
+              "owner_account_id": "rewards-claims2.sputnik-dao.near"
+            }
+          },
+          "block_hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "block_height": 176767290,
+          "block_timestamp": 1765695280245502401,
+          "chunk_hash": "6jKvreNn1iaouStXDjoMeFzJaJZC8dWHi6oBqqq4uiai",
+          "deposit": "1.00 NEAR",
+          "execution_outcome_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "gas": 10000000000000,
+          "gas_price": "<0.001 NEAR",
+          "id": "e9b9007534ec1031cab67c7f5e5c02b6",
+          "method_name": "new",
+          "outcome_logs": [],
+          "outcome_receipt_ids": [
+            "9rVoppqYupuhLQjMv6XJmSPQbp4EqGuLHTE1xhpdV3wG",
+            "ESmNvS9GDx4atu9iahHUjRW3Up6NNmfd7vGUjZXewZRs"
+          ],
+          "outcome_status": "SuccessValue",
+          "predecessor_id": "rewards.hos-dao.near",
+          "receipt_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "receiver_id": "rewards.hos-dao.near",
+          "results_json": null,
+          "shard_id": 4,
+          "signer_account_id": "rewards.hos-dao.near",
+          "signer_public_key": "ed25519:E8Wvh4QR1PBZv9N6PWT8Pzj7L2m72s6jnLfGj397L6oQ",
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B"
+        }
+      ]
+    },
+    "hos_proposal_non_voters": {
+      "rows": []
+    },
+    "hos_proposal_voting_history": {
+      "rows": []
+    },
+    "hos_proposals": {
+      "rows": []
+    },
+    "hos_registered_voters": {
+      "rows": []
+    },
+    "hos_user_activities": {
+      "rows": [
+        {
+          "account_id": "rewards.hos-dao.near",
+          "block_hash": "4dqyfaoZ1ArvSP312rCWi41ckhmG4GsV3jaNZxwm5MPd",
+          "block_height": 176767290,
+          "block_timestamp": 1765695280245502401,
+          "event_date": "2025-12-14",
+          "event_status": "succeeded",
+          "event_timestamp": "2025-12-14T06:54:40.245502",
+          "event_type": "new",
+          "execution_outcome_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "hos_contract_address": "rewards.hos-dao.near",
+          "id": "fd4e46dec6a23c1d10ad3e5528775fc6",
+          "locked_near_balance": null,
+          "method_name": "new",
+          "near_amount": null,
+          "proposal_id": null,
+          "receipt_id": "5E8PTjHjiMAp13RcfNDABMVDJL9xz86ArAZADA3UQAz3",
+          "transaction_hash": "ESxpHyPMXFTTqFndEnGW344BmPXZMWnzAj3EgJzUWZ2B",
+          "voting_power": null
+        }
+      ]
+    }
+  }
+}

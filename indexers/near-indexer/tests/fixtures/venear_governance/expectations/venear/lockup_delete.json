@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "fixture_id": "lockup_delete",
+  "fixture_kind": "single",
+  "module_kind": "venear",
+  "canonical": {
+    "near_blocks": {
+      "rows": []
+    },
+    "near_chunks": {
+      "rows": []
+    },
+    "near_execution_outcomes": {
+      "rows": []
+    },
+    "near_receipt_actions": {
+      "rows": []
+    },
+    "near_receipt_edges": {
+      "rows": []
+    },
+    "near_receipt_tx_hash_map": {
+      "rows": [
+        {
+          "first_seen_height": 186618881,
+          "last_seen_height": 186618881,
+          "receipt_id": "36Yqtj3Q4aHuj2e92Px9vZy3A3DxcHSa6Kup757sHXFX",
+          "transaction_hash": "G4Q9z7bUfeVdwWSjLZbowuJ8q4r2LcDrWpCxa3Py2VpZ"
+        },
+        {
+          "first_seen_height": 186618881,
+          "last_seen_height": 186618881,
+          "receipt_id": "57jv9BYgk14k3KLyfEEYDTYtam35pjcdY4Mjznb5RMc6",
+          "transaction_hash": "Hid6SEbiBT8jWLuMyQrnwanVGy32na9DxJyiGDeZwLmj"
+        },
+        {
+          "first_seen_height": 186618881,
+          "last_seen_height": 186618881,
+          "receipt_id": "6WxxHZhSXuQQ4wzbqUEuLSCDNQRJEhftvDGhq7nRjLLG",
+          "transaction_hash": "2UqgLEWF21ty5dbY4eJzFQBFCPRG95BZbcbu7doQpGGA"
+        },
+        {
+          "first_seen_height": 186618881,
+          "last_seen_height": 186618881,
+          "receipt_id": "7nLyBhGkV9LQoMphinWNn2fFdiWsxov6cE7jZvqqwDfL",
+          "transaction_hash": "61ZMHYHRv3KgxWbcjB6Y8UXc81YHvjBZwhiuY9aUFQJD"
+        },
+        {
+          "first_seen_height": 186618881,
+          "last_seen_height": 186618881,
+          "receipt_id": "BaJENHfx83gbdC7dxmdGF6q6WbRVazjApohEFdTY4DQC",
+          "transaction_hash": "FV9VFUMHUaVhn5vefzQZ4rcrw5vX7Fw6DKNLPtCAtPei"
+        },
+        {
+          "first_seen_height": 186618881,
+          "last_seen_height": 186618881,
+          "receipt_id": "HJ1mvu8YVgYD2xb78gcyUzoy2N5mCZtJ3NcZvsG9g69d",
+          "transaction_hash": "fv6gm9Buk59tYfXsDAUioa5Uauk2GthGBwWV82aQosZ"
+        }
+      ]
+    },
+    "near_receipts": {
+      "rows": []
+    },
+    "near_state_changes": {
+      "rows": []
+    },
+    "near_transactions": {
+      "rows": []
+    }
+  },
+  "materialized_views": {
+    "hos_config_history": {
+      "rows": []
+    },
+    "hos_delegation_events": {
+      "rows": []
+    },
+    "hos_event_logs": {
+      "rows": []
+    },
+    "hos_function_calls": {
+      "rows": []
+    },
+    "hos_proposal_non_voters": {
+      "rows": []
+    },
+    "hos_proposal_voting_history": {
+      "rows": []
+    },
+    "hos_proposals": {
+      "rows": []
+    },
+    "hos_registered_voters": {
+      "rows": []
+    },
+    "hos_user_activities": {
+      "rows": []
+    }
+  }
+}

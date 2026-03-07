@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "fixture_id": "delegate_all",
+  "fixture_kind": "single",
+  "module_kind": "venear",
+  "canonical": {
+    "near_blocks": {
+      "rows": []
+    },
+    "near_chunks": {
+      "rows": []
+    },
+    "near_execution_outcomes": {
+      "rows": []
+    },
+    "near_receipt_actions": {
+      "rows": []
+    },
+    "near_receipt_edges": {
+      "rows": []
+    },
+    "near_receipt_tx_hash_map": {
+      "rows": [
+        {
+          "first_seen_height": 187483279,
+          "last_seen_height": 187483279,
+          "receipt_id": "4QByyAgqMdX2FhZ7Vwf9U79PGnREEiy7Lk2Hg1bqnFxX",
+          "transaction_hash": "DnaSnvFg2wqG1ZgETYRfcW5mhJ3Wj26u9sYAQi5yTeFJ"
+        },
+        {
+          "first_seen_height": 187483279,
+          "last_seen_height": 187483279,
+          "receipt_id": "8nUtahdt5RzdrUNYZoYwoPMCs7nyhS2Bb9qeyUU3LvVw",
+          "transaction_hash": "5EAzEgKpWCHYoPgj5sTLyT6ZBQTaWjExD1W1BncYPc7X"
+        },
+        {
+          "first_seen_height": 187483279,
+          "last_seen_height": 187483279,
+          "receipt_id": "A4ojwDELtGkZJeoxGBhfsnNcnxZMhSDzax4VjyQqDoFP",
+          "transaction_hash": "DnaSnvFg2wqG1ZgETYRfcW5mhJ3Wj26u9sYAQi5yTeFJ"
+        },
+        {
+          "first_seen_height": 187483279,
+          "last_seen_height": 187483279,
+          "receipt_id": "Dh1MPT5dGvAzfXfnEiw2QSgHxC6sFzo1BUevhuy2fZE7",
+          "transaction_hash": "2RLxWawCY1LXJSR7dv6knY7CY63BQpzuYy6pW3xKth85"
+        },
+        {
+          "first_seen_height": 187483279,
+          "last_seen_height": 187483279,
+          "receipt_id": "EFHwVYkK1t9XFM2uEaduyCRsMYmra3fCTSkYJxVFgEK6",
+          "transaction_hash": "DnaSnvFg2wqG1ZgETYRfcW5mhJ3Wj26u9sYAQi5yTeFJ"
+        },
+        {
+          "first_seen_height": 187483279,
+          "last_seen_height": 187483279,
+          "receipt_id": "HV6bQ3j17xSrbPonCKS3RJFAuYW6vVQS6oFNNHHxkpVG",
+          "transaction_hash": "7E1UB6sexqZ6jMbKAeEuz4NrwqmzPwk6gB8QQUxWMeRJ"
+        },
+        {
+          "first_seen_height": 187483279,
+          "last_seen_height": 187483279,
+          "receipt_id": "Hbj4iYa2TRPHQjLNCZx3hysfk85iVGD8L4fx54N4kAKF",
+          "transaction_hash": "AG66wahQEESGWBiN8MFuH1A2NptiSe6Vt9f77mt6gvm"
+        },
+        {
+          "first_seen_height": 187483279,
+          "last_seen_height": 187483279,
+          "receipt_id": "hexqA8yx4aFRLh9K5qwq21MgYeHFrDXNN3iG6iKfUuK",
+          "transaction_hash": "4RQuLrmqEohpiKMMuvuTTnJugd488vrMFDyhs2RCpxxY"
+        },
+        {
+          "first_seen_height": 187483279,
+          "last_seen_height": 187483279,
+          "receipt_id": "v9Q7ks58b21VjUcETYaEEw1DqkfhRs2npyUBccGaayH",
+          "transaction_hash": "9MjYNZJqiuUMhkGhpYFgj3KUMfTaRYK8CsW7ptHrvvYC"
+        },
+        {
+          "first_seen_height": 187483279,
+          "last_seen_height": 187483279,
+          "receipt_id": "zgLBBsPJspZPQh4zWUXs8dWccojeqoDmXVaNtqoe28Y",
+          "transaction_hash": "AG66wahQEESGWBiN8MFuH1A2NptiSe6Vt9f77mt6gvm"
+        }
+      ]
+    },
+    "near_receipts": {
+      "rows": []
+    },
+    "near_state_changes": {
+      "rows": []
+    },
+    "near_transactions": {
+      "rows": []
+    }
+  },
+  "materialized_views": {
+    "hos_config_history": {
+      "rows": []
+    },
+    "hos_delegation_events": {
+      "rows": []
+    },
+    "hos_event_logs": {
+      "rows": []
+    },
+    "hos_function_calls": {
+      "rows": []
+    },
+    "hos_proposal_non_voters": {
+      "rows": []
+    },
+    "hos_proposal_voting_history": {
+      "rows": []
+    },
+    "hos_proposals": {
+      "rows": []
+    },
+    "hos_registered_voters": {
+      "rows": []
+    },
+    "hos_user_activities": {
+      "rows": []
+    }
+  }
+}

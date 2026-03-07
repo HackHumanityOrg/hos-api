@@ -337,15 +337,21 @@ bottleneck.
 The most important tests are:
 
 - [tests/raw_fixtures_e2e.rs](tests/raw_fixtures_e2e.rs): full-chain raw fixture
-  projection plus HoS MV golden-row checks
+  projection plus exact per-fixture canonical and HoS MV expectations
 - [tests/venear_raw_projection_e2e.rs](tests/venear_raw_projection_e2e.rs):
-  HoS-only projection and graph-finalization behavior
+  HoS-only projection, per-fixture expectation checks, and graph-finalization
+  behavior
 - [tests/fastnear_live_stream_e2e.rs](tests/fastnear_live_stream_e2e.rs): live
   streaming behavior against FastNEAR
 - [tests/venear_live_lake_db_e2e.rs](tests/venear_live_lake_db_e2e.rs): live
   HoS ingestion into Postgres
 
-The fixture ranges under `tests/fixtures/venear_governance/ranges/` and the
-golden MV rows in
-[tests/fixtures/venear_governance/expectations/hos_mv_golden_rows.json](tests/fixtures/venear_governance/expectations/hos_mv_golden_rows.json)
-are the best references for expected HoS semantics.
+The fixture inputs live under `tests/fixtures/venear_governance/`, and the
+checked-in expected outputs live under:
+
+- [tests/fixtures/venear_governance/expectations/raw](tests/fixtures/venear_governance/expectations/raw)
+- [tests/fixtures/venear_governance/expectations/venear](tests/fixtures/venear_governance/expectations/venear)
+
+Use `cargo run -p near-indexer --example generate_venear_fixture_expectations`
+with `MODULE_KIND=raw|venear` to regenerate those artifacts after fixture or
+projection changes.

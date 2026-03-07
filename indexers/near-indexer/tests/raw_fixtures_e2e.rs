@@ -15,18 +15,16 @@ use near_lake_framework::near_indexer_primitives::{
 };
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
-use support::hos_mv_goldens::{assert_hos_mv_golden_rows, assert_hos_mv_normalized_semantics};
+use support::fixture_catalog::{
+    all_fixture_cases, load_all_range_fixture_messages, load_fixture_messages,
+    ModuleExpectationKind,
+};
+use support::fixture_expectations::{
+    assert_fixture_expectation, assert_snapshot_equal, capture_fixture_snapshot,
+    refresh_hos_materialized_views, reset_near_indexer_tables,
+};
+use support::hos_mv_goldens::assert_hos_mv_normalized_semantics;
 use support::{init_test_tracing, TestDatabase};
-
-const RANGE_SCENARIOS: &[&str] = &[
-    "hos_lockup_core_167957",
-    "hos_create_proposal_167957",
-    "hos_approval_snapshot_168368",
-    "hos_vote_168369",
-    "hos_delegation_187483",
-    "hos_config_185721",
-];
 
 #[derive(Debug, Default)]
 struct RawFixtureExpectations {
@@ -47,69 +45,8 @@ struct RawFixtureExpectations {
     receipt_edge_keys: HashSet<(String, String)>,
 }
 
-fn load_fixture_range(name: &str) -> Vec<StreamerMessage> {
-    let ranges_dir =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/venear_governance/ranges");
-    let single_path = ranges_dir.join(format!("{name}.json"));
-
-    let mut paths = Vec::new();
-    if single_path.exists() {
-        paths.push(single_path);
-    } else {
-        let part_prefix = format!("{name}.part");
-        let mut part_paths: Vec<_> = std::fs::read_dir(&ranges_dir)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "Failed to read fixture directory {}: {err}",
-                    ranges_dir.display()
-                )
-            })
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .map(|name| name.starts_with(&part_prefix) && name.ends_with(".json"))
-                    .unwrap_or(false)
-            })
-            .collect();
-
-        part_paths.sort();
-        assert!(
-            !part_paths.is_empty(),
-            "Failed to find fixture range file or parts for {name} in {}",
-            ranges_dir.display()
-        );
-        paths.extend(part_paths);
-    }
-
-    let mut messages = Vec::new();
-    for path in paths {
-        let bytes = std::fs::read(&path)
-            .unwrap_or_else(|err| panic!("Failed to read fixture {}: {err}", path.display()));
-        let mut parsed: Vec<StreamerMessage> =
-            serde_json::from_slice(&bytes).unwrap_or_else(|err| {
-                panic!("Failed to deserialize fixture {}: {err}", path.display())
-            });
-        messages.append(&mut parsed);
-    }
-
-    messages
-}
-
 fn load_all_fixture_messages() -> Vec<StreamerMessage> {
-    let mut messages = Vec::new();
-
-    for scenario in RANGE_SCENARIOS {
-        let mut range = load_fixture_range(scenario);
-        assert!(
-            !range.is_empty(),
-            "fixture range should not be empty: {scenario}"
-        );
-        messages.append(&mut range);
-    }
-
-    messages.sort_by_key(|msg| msg.block.header.height);
-    messages
+    load_all_range_fixture_messages().expect("failed to load ranged fixture messages")
 }
 
 fn build_test_config() -> AppConfig {
@@ -421,16 +358,6 @@ async fn scalar_string(db: &impl ConnectionTrait, sql: &str, values: Vec<Value>)
         .await?
         .expect("expected one row from scalar query");
     Ok(row.try_get("", "value")?)
-}
-
-async fn execute_sql(db: &impl ConnectionTrait, sql: &str) -> Result<()> {
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        sql,
-        vec![],
-    ))
-    .await?;
-    Ok(())
 }
 
 #[tokio::test]
@@ -786,28 +713,32 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
 }
 
 #[tokio::test]
-async fn raw_module_materialized_views_match_hos_golden_rows() -> Result<()> {
+async fn raw_module_fixture_expectations_match_checked_in_snapshots() -> Result<()> {
     init_test_tracing();
 
-    let fixtures = load_all_fixture_messages();
     let db = TestDatabase::new().await;
-    let module = RawModule::new(&build_test_config());
 
-    module.initialize(db.connection.as_ref()).await?;
-    for fixture in &fixtures {
-        module
-            .process_block(fixture, db.connection.as_ref())
-            .await?;
+    for fixture_case in all_fixture_cases()? {
+        reset_near_indexer_tables(db.connection.as_ref()).await?;
+
+        let module = RawModule::new(&build_test_config());
+        let fixtures = load_fixture_messages(&fixture_case)?;
+        module.initialize(db.connection.as_ref()).await?;
+        for fixture in &fixtures {
+            module
+                .process_block(fixture, db.connection.as_ref())
+                .await?;
+        }
+
+        refresh_hos_materialized_views(db.connection.as_ref()).await?;
+        assert_fixture_expectation(
+            db.connection.as_ref(),
+            &fixture_case,
+            ModuleExpectationKind::Raw,
+        )
+        .await?;
+        assert_hos_mv_normalized_semantics(db.connection.as_ref()).await?;
     }
-
-    execute_sql(
-        db.connection.as_ref(),
-        "SELECT near.refresh_hos_materialized_views()",
-    )
-    .await?;
-
-    assert_hos_mv_golden_rows(db.connection.as_ref()).await?;
-    assert_hos_mv_normalized_semantics(db.connection.as_ref()).await?;
 
     Ok(())
 }
@@ -839,6 +770,8 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
             .process_block(fixture, db.connection.as_ref())
             .await?;
     }
+    refresh_hos_materialized_views(db.connection.as_ref()).await?;
+    let snapshot_before_replay = capture_fixture_snapshot(db.connection.as_ref()).await?;
 
     let blocks_before = scalar_i64(
         db.connection.as_ref(),
@@ -908,6 +841,8 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
             .process_block(fixture, db.connection.as_ref())
             .await?;
     }
+    refresh_hos_materialized_views(db.connection.as_ref()).await?;
+    let snapshot_after_replay = capture_fixture_snapshot(db.connection.as_ref()).await?;
 
     let blocks_after = scalar_i64(
         db.connection.as_ref(),
@@ -982,6 +917,11 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
     assert_eq!(edges_before, edges_after);
     assert_eq!(tx_map_before, tx_map_after);
     assert_eq!(tx_fingerprint_before, tx_fingerprint_after);
+    assert_snapshot_equal(
+        &snapshot_after_replay,
+        &snapshot_before_replay,
+        "raw-module-replay-idempotence",
+    )?;
 
     Ok(())
 }
