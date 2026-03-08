@@ -37,10 +37,33 @@ const DEFAULT_YIELD_TIMEOUT_BLOCKS: i64 = 200;
 const DATA_RECEIPT_LINK_RETENTION_BLOCKS: i64 = 256;
 const STALLED_PENDING_GRAPH_WARNING_BLOCKS: i64 = 43_200;
 const RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS: i64 = 128;
-const RECEIPT_TX_MAP_CLEANUP_BATCH_SIZE: usize = 5_000;
-const RECEIPT_TX_MAP_CLEANUP_MAX_BATCHES: usize = 50;
+const RECEIPT_TX_MAP_CLEANUP_TARGET_ROWS: usize = 30_000;
 const MAX_BULK_INSERT_PARAMS: usize = 65_535;
-const MAX_BULK_INSERT_ROWS: usize = 250;
+
+#[derive(Clone, Copy)]
+struct BulkInsertPlan {
+    columns_per_row: usize,
+    max_rows_per_statement: usize,
+}
+
+impl BulkInsertPlan {
+    const fn new(columns_per_row: usize, max_rows_per_statement: usize) -> Self {
+        Self {
+            columns_per_row,
+            max_rows_per_statement,
+        }
+    }
+}
+
+const RECEIPT_TX_MAP_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(3, 1_024);
+const CANONICAL_TRANSACTION_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(11, 512);
+const CANONICAL_RECEIPT_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(7, 512);
+const CANONICAL_EXECUTION_OUTCOME_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(19, 384);
+const CANONICAL_RECEIPT_ACTION_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(23, 256);
+const CANONICAL_RECEIPT_EDGE_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(7, 512);
+const CANONICAL_BLOCK_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(16, 256);
+const CANONICAL_CHUNK_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(10, 384);
+const CANONICAL_STATE_CHANGE_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(3, 512);
 
 #[derive(Clone)]
 struct ReceiptTxHashMapRow {
@@ -613,6 +636,7 @@ impl GraphState {
 struct HosRuntimeState {
     graphs: HashMap<String, GraphState>,
     recent_blocks: BTreeMap<i64, RecentBlockCache>,
+    recent_block_ref_counts: HashMap<i64, usize>,
     data_receipt_links: HashMap<String, DataReceiptParentLink>,
     data_receipt_link_heights: BTreeMap<i64, Vec<String>>,
     receipt_tx_hot_cache: HashMap<String, ReceiptTxHotCacheEntry>,
@@ -714,6 +738,25 @@ impl HosRuntimeState {
             self.data_receipt_links.insert(data_id, link);
         }
         self.evict_data_receipt_links(block_height);
+    }
+
+    fn snapshot_data_receipt_links(
+        &self,
+        data_ids: &HashSet<String>,
+    ) -> HashMap<String, DataReceiptParentLink> {
+        if data_ids.is_empty() {
+            return HashMap::new();
+        }
+
+        let mut snapshot =
+            HashMap::with_capacity(data_ids.len().min(self.data_receipt_links.len()));
+        for data_id in data_ids {
+            if let Some(link) = self.data_receipt_links.get(data_id) {
+                snapshot.insert(data_id.clone(), link.clone());
+            }
+        }
+
+        snapshot
     }
 
     fn evict_data_receipt_links(&mut self, block_height: i64) {
@@ -849,6 +892,32 @@ impl HosRuntimeState {
         });
     }
 
+    fn apply_recent_block_ref_delta(&mut self, block_height: i64, delta: isize) {
+        if delta == 0 {
+            return;
+        }
+
+        let current = self
+            .recent_block_ref_counts
+            .get(&block_height)
+            .copied()
+            .unwrap_or_default();
+
+        if delta > 0 {
+            self.recent_block_ref_counts
+                .insert(block_height, current.saturating_add(delta as usize));
+            return;
+        }
+
+        let decrement = delta.unsigned_abs();
+        if current <= decrement {
+            self.recent_block_ref_counts.remove(&block_height);
+        } else {
+            self.recent_block_ref_counts
+                .insert(block_height, current - decrement);
+        }
+    }
+
     fn merge_block_updates(
         &mut self,
         block_height: i64,
@@ -872,6 +941,7 @@ impl HosRuntimeState {
         merge_metrics.record_phase_elapsed("remember_data_receipt_links", remember_links_start);
 
         let update_loop_start = Instant::now();
+        let mut recent_ref_count_deltas = Vec::new();
         let mut hydrated_graph_count = 0_u64;
         let mut hydrated_row_count = 0_u64;
         let mut current_slice_graph_count = 0_u64;
@@ -945,7 +1015,11 @@ impl HosRuntimeState {
                 }
                 if became_hos_touch && graph.bundle.is_none() {
                     graph.bundle = Some(hydrated_bundle);
+                    let released_heights = graph.recent_refs.keys().copied().collect::<Vec<_>>();
                     graph.recent_refs.clear();
+                    for height in released_heights {
+                        recent_ref_count_deltas.push((height, -1));
+                    }
                 }
 
                 let bundle = graph.bundle.get_or_insert_with(HosGraphBundle::default);
@@ -963,11 +1037,12 @@ impl HosRuntimeState {
                 }
             } else if !raw_enabled && !update.refs.is_empty() {
                 recent_ref_graph_count += 1;
-                graph
-                    .recent_refs
-                    .entry(block_height)
-                    .or_default()
-                    .merge(update.refs);
+                let recent_refs = graph.recent_refs.entry(block_height).or_default();
+                let had_recent_refs = !recent_refs.is_empty();
+                recent_refs.merge(update.refs);
+                if !had_recent_refs && !recent_refs.is_empty() {
+                    recent_ref_count_deltas.push((block_height, 1));
+                }
             }
         }
         merge_metrics.record_phase_elapsed("graph_update_loop", update_loop_start);
@@ -977,6 +1052,9 @@ impl HosRuntimeState {
         merge_metrics.record_count("current_slice_row_count", current_slice_row_count);
         merge_metrics.record_count("recent_ref_graph_count", recent_ref_graph_count);
         merge_metrics.record_count("became_hos_touch_count", became_hos_touch_count);
+        for (height, delta) in recent_ref_count_deltas {
+            self.apply_recent_block_ref_delta(height, delta);
+        }
 
         if !raw_enabled && shared_bundle.row_count() > 0 {
             let cache_insert_start = Instant::now();
@@ -1054,7 +1132,11 @@ impl HosRuntimeState {
         merge_metrics.record_count("remove_now_count", remove_now.len());
 
         for tx_hash in remove_now {
-            self.graphs.remove(&tx_hash);
+            if let Some(graph) = self.graphs.remove(&tx_hash) {
+                for height in graph.recent_refs.keys().copied() {
+                    self.apply_recent_block_ref_delta(height, -1);
+                }
+            }
         }
 
         if !raw_enabled {
@@ -1173,19 +1255,13 @@ impl HosRuntimeState {
 
     fn evict_unreferenced_source_blocks(&mut self) -> RecentCacheEvictionStats {
         let mut stats = RecentCacheEvictionStats::default();
-
-        let retained_heights = self
-            .graphs
-            .values()
-            .flat_map(|graph| graph.recent_refs.keys().copied())
-            .collect::<HashSet<_>>();
-        stats.retained_block_count = retained_heights.len();
+        stats.retained_block_count = self.recent_block_ref_counts.len();
 
         let stale_heights = self
             .recent_blocks
             .keys()
             .copied()
-            .filter(|height| !retained_heights.contains(height))
+            .filter(|height| !self.recent_block_ref_counts.contains_key(height))
             .collect::<Vec<_>>();
         stats.stale_block_count = stale_heights.len();
 
@@ -1683,16 +1759,16 @@ impl VenearGovernanceModule {
         i64::try_from(value).unwrap_or(i64::MAX)
     }
 
-    fn max_bulk_rows(columns_per_row: usize) -> usize {
-        let max_by_params = (MAX_BULK_INSERT_PARAMS / columns_per_row.max(1)).max(1);
-        max_by_params.min(MAX_BULK_INSERT_ROWS)
+    fn max_bulk_rows(plan: BulkInsertPlan) -> usize {
+        let max_by_params = (MAX_BULK_INSERT_PARAMS / plan.columns_per_row.max(1)).max(1);
+        max_by_params.min(plan.max_rows_per_statement.max(1))
     }
 
-    fn batch_count(row_count: usize, columns_per_row: usize) -> usize {
+    fn batch_count(row_count: usize, plan: BulkInsertPlan) -> usize {
         if row_count == 0 {
             0
         } else {
-            row_count.div_ceil(Self::max_bulk_rows(columns_per_row))
+            row_count.div_ceil(Self::max_bulk_rows(plan))
         }
     }
 
@@ -1720,7 +1796,7 @@ impl VenearGovernanceModule {
     async fn execute_chunked_upsert<T, F>(
         db: &impl ConnectionTrait,
         rows: &[T],
-        columns_per_row: usize,
+        plan: BulkInsertPlan,
         sql_prefix: &str,
         sql_suffix: &str,
         mut bind_row: F,
@@ -1733,13 +1809,16 @@ impl VenearGovernanceModule {
             return Ok(());
         }
 
-        let batch_size = Self::max_bulk_rows(columns_per_row);
+        let batch_size = Self::max_bulk_rows(plan);
         for chunk in rows.chunks(batch_size) {
             let mut sql = String::from(sql_prefix);
-            sql.push_str(&Self::build_values_clause(chunk.len(), columns_per_row));
+            sql.push_str(&Self::build_values_clause(
+                chunk.len(),
+                plan.columns_per_row,
+            ));
             sql.push_str(sql_suffix);
 
-            let mut values = Vec::with_capacity(chunk.len() * columns_per_row);
+            let mut values = Vec::with_capacity(chunk.len() * plan.columns_per_row);
             for row in chunk {
                 bind_row(row, &mut values);
             }
@@ -1759,7 +1838,7 @@ impl VenearGovernanceModule {
     async fn query_chunked<T, F>(
         db: &impl ConnectionTrait,
         rows: &[T],
-        columns_per_row: usize,
+        plan: BulkInsertPlan,
         sql_prefix: &str,
         sql_suffix: &str,
         mut bind_row: F,
@@ -1772,14 +1851,17 @@ impl VenearGovernanceModule {
             return Ok(Vec::new());
         }
 
-        let batch_size = Self::max_bulk_rows(columns_per_row);
+        let batch_size = Self::max_bulk_rows(plan);
         let mut results = Vec::new();
         for chunk in rows.chunks(batch_size) {
             let mut sql = String::from(sql_prefix);
-            sql.push_str(&Self::build_values_clause(chunk.len(), columns_per_row));
+            sql.push_str(&Self::build_values_clause(
+                chunk.len(),
+                plan.columns_per_row,
+            ));
             sql.push_str(sql_suffix);
 
-            let mut values = Vec::with_capacity(chunk.len() * columns_per_row);
+            let mut values = Vec::with_capacity(chunk.len() * plan.columns_per_row);
             for row in chunk {
                 bind_row(row, &mut values);
             }
@@ -1805,7 +1887,7 @@ impl VenearGovernanceModule {
         let query_rows = Self::query_chunked(
             db,
             rows,
-            3,
+            RECEIPT_TX_MAP_BULK_INSERT_PLAN,
             "INSERT INTO near.near_receipt_tx_hash_map (
                 receipt_id,
                 transaction_hash,
@@ -1946,14 +2028,22 @@ impl VenearGovernanceModule {
         )
     }
 
-    fn data_receipt_link(
-        links: &HashMap<String, DataReceiptParentLink>,
+    fn receipt_data_id(
         receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
-    ) -> Option<DataReceiptParentLink> {
+    ) -> Option<String> {
         let ReceiptEnumView::Data { data_id, .. } = &receipt.receipt else {
             return None;
         };
-        links.get(&data_id.to_string()).cloned()
+
+        Some(data_id.to_string())
+    }
+
+    fn data_receipt_link<'a>(
+        links: &'a HashMap<String, DataReceiptParentLink>,
+        receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
+    ) -> Option<&'a DataReceiptParentLink> {
+        let data_id = Self::receipt_data_id(receipt)?;
+        links.get(&data_id)
     }
 
     fn cache_output_data_receivers(
@@ -2021,7 +2111,7 @@ impl VenearGovernanceModule {
         Self::execute_chunked_upsert(
             db,
             rows,
-            11,
+            CANONICAL_TRANSACTION_BULK_INSERT_PLAN,
             "INSERT INTO near.near_transactions (
                 hash,
                 block_height,
@@ -2072,7 +2162,7 @@ impl VenearGovernanceModule {
         Self::execute_chunked_upsert(
             db,
             rows,
-            7,
+            CANONICAL_RECEIPT_BULK_INSERT_PLAN,
             "INSERT INTO near.near_receipts (
                 receipt_id,
                 block_height,
@@ -2111,7 +2201,7 @@ impl VenearGovernanceModule {
         Self::execute_chunked_upsert(
             db,
             rows,
-            19,
+            CANONICAL_EXECUTION_OUTCOME_BULK_INSERT_PLAN,
             "INSERT INTO near.near_execution_outcomes (
                 id,
                 block_height,
@@ -2186,7 +2276,7 @@ impl VenearGovernanceModule {
         Self::execute_chunked_upsert(
             db,
             rows,
-            23,
+            CANONICAL_RECEIPT_ACTION_BULK_INSERT_PLAN,
             "INSERT INTO near.near_receipt_actions (
                 id,
                 block_height,
@@ -2273,7 +2363,7 @@ impl VenearGovernanceModule {
         Self::execute_chunked_upsert(
             db,
             rows,
-            7,
+            CANONICAL_RECEIPT_EDGE_BULK_INSERT_PLAN,
             "INSERT INTO near.near_receipt_edges (
                 parent_receipt_id,
                 child_receipt_id,
@@ -2314,7 +2404,7 @@ impl VenearGovernanceModule {
         Self::execute_chunked_upsert(
             db,
             rows,
-            16,
+            CANONICAL_BLOCK_BULK_INSERT_PLAN,
             "INSERT INTO near.near_blocks (
                 height,
                 hash,
@@ -2365,7 +2455,7 @@ impl VenearGovernanceModule {
         Self::execute_chunked_upsert(
             db,
             rows,
-            10,
+            CANONICAL_CHUNK_BULK_INSERT_PLAN,
             "INSERT INTO near.near_chunks (
                 chunk_hash,
                 block_height,
@@ -2404,7 +2494,7 @@ impl VenearGovernanceModule {
         Self::execute_chunked_upsert(
             db,
             rows,
-            3,
+            CANONICAL_STATE_CHANGE_BULK_INSERT_PLAN,
             "INSERT INTO near.near_state_changes (
                 block_height,
                 shard_id,
@@ -2448,14 +2538,20 @@ impl VenearGovernanceModule {
         stats.record_count("canonical_state_changes_rows", state_changes.len());
         stats.record_count(
             "canonical_total_batches",
-            Self::batch_count(transactions.len(), 11)
-                + Self::batch_count(receipts.len(), 7)
-                + Self::batch_count(execution_outcomes.len(), 19)
-                + Self::batch_count(receipt_actions.len(), 23)
-                + Self::batch_count(receipt_edges.len(), 7)
-                + Self::batch_count(blocks.len(), 16)
-                + Self::batch_count(chunks.len(), 10)
-                + Self::batch_count(state_changes.len(), 3),
+            Self::batch_count(transactions.len(), CANONICAL_TRANSACTION_BULK_INSERT_PLAN)
+                + Self::batch_count(receipts.len(), CANONICAL_RECEIPT_BULK_INSERT_PLAN)
+                + Self::batch_count(
+                    execution_outcomes.len(),
+                    CANONICAL_EXECUTION_OUTCOME_BULK_INSERT_PLAN,
+                )
+                + Self::batch_count(
+                    receipt_actions.len(),
+                    CANONICAL_RECEIPT_ACTION_BULK_INSERT_PLAN,
+                )
+                + Self::batch_count(receipt_edges.len(), CANONICAL_RECEIPT_EDGE_BULK_INSERT_PLAN)
+                + Self::batch_count(blocks.len(), CANONICAL_BLOCK_BULK_INSERT_PLAN)
+                + Self::batch_count(chunks.len(), CANONICAL_CHUNK_BULK_INSERT_PLAN)
+                + Self::batch_count(state_changes.len(), CANONICAL_STATE_CHANGE_BULK_INSERT_PLAN),
         );
 
         let start = Instant::now();
@@ -2501,63 +2597,55 @@ impl VenearGovernanceModule {
     ) -> Result<ReceiptTxMapCleanupStats> {
         let cutoff_height =
             block_height.saturating_sub(self.effective_receipt_tx_map_retention_blocks());
-        let mut stats = ReceiptTxMapCleanupStats::default();
+        let mut values = vec![cutoff_height.into()];
+        let mut sql = String::from(
+            "WITH deletable AS (
+                SELECT m.receipt_id
+                FROM near.near_receipt_tx_hash_map m
+                WHERE m.last_seen_height < $1",
+        );
 
-        for _ in 0..RECEIPT_TX_MAP_CLEANUP_MAX_BATCHES {
-            let mut values = vec![cutoff_height.into()];
-            let mut sql = String::from(
-                "WITH deletable AS (
-                    SELECT m.receipt_id
-                    FROM near.near_receipt_tx_hash_map m
-                    WHERE m.last_seen_height < $1",
-            );
-
-            if !active_graph_tx_hashes.is_empty() {
-                sql.push_str(" AND m.transaction_hash NOT IN (");
-                let start_idx = values.len() + 1;
-                let mut first = true;
-                for (idx, tx_hash) in active_graph_tx_hashes.iter().enumerate() {
-                    if !first {
-                        sql.push_str(", ");
-                    }
-                    first = false;
-                    sql.push('$');
-                    sql.push_str(&(start_idx + idx).to_string());
-                    values.push(tx_hash.clone().into());
+        if !active_graph_tx_hashes.is_empty() {
+            sql.push_str(" AND m.transaction_hash NOT IN (");
+            let start_idx = values.len() + 1;
+            let mut first = true;
+            for (idx, tx_hash) in active_graph_tx_hashes.iter().enumerate() {
+                if !first {
+                    sql.push_str(", ");
                 }
-                sql.push(')');
+                first = false;
+                sql.push('$');
+                sql.push_str(&(start_idx + idx).to_string());
+                values.push(tx_hash.clone().into());
             }
-
-            let batch_placeholder = values.len() + 1;
-            values.push((RECEIPT_TX_MAP_CLEANUP_BATCH_SIZE as i64).into());
-            sql.push_str(&format!(
-                "
-                    ORDER BY m.last_seen_height ASC
-                    LIMIT ${batch_placeholder}
-                 )
-                 DELETE FROM near.near_receipt_tx_hash_map m
-                 USING deletable d
-                 WHERE m.receipt_id = d.receipt_id"
-            ));
-
-            let result = db
-                .execute(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    &sql,
-                    values,
-                ))
-                .await
-                .context("failed running near_receipt_tx_hash_map cleanup")?;
-
-            let affected = result.rows_affected();
-            stats.batch_count += 1;
-            stats.deleted_total += affected;
-            if affected == 0 {
-                break;
-            }
+            sql.push(')');
         }
 
-        Ok(stats)
+        let limit_placeholder = values.len() + 1;
+        values.push((RECEIPT_TX_MAP_CLEANUP_TARGET_ROWS as i64).into());
+        sql.push_str(&format!(
+            "
+                ORDER BY m.last_seen_height ASC
+                LIMIT ${limit_placeholder}
+             )
+             DELETE FROM near.near_receipt_tx_hash_map m
+             USING deletable d
+             WHERE m.receipt_id = d.receipt_id"
+        ));
+
+        let result = db
+            .execute(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                &sql,
+                values,
+            ))
+            .await
+            .context("failed running near_receipt_tx_hash_map cleanup")?;
+
+        Ok(ReceiptTxMapCleanupStats {
+            deleted_total: result.rows_affected(),
+            batch_count: 1,
+        })
     }
 
     async fn store_hos_projection(
@@ -2579,14 +2667,8 @@ impl VenearGovernanceModule {
         let mut receipt_tx_hashes = build_receipt_tx_hashes(&msg.shards);
         stats.record_phase_elapsed("build_receipt_tx_hashes", build_receipt_tx_hashes_start);
 
-        let data_receipt_links_clone_start = Instant::now();
-        let mut data_receipt_links = {
-            let state = self.state.lock().unwrap();
-            state.data_receipt_links.clone()
-        };
-        stats.record_phase_elapsed("data_receipt_links_clone", data_receipt_links_clone_start);
-        stats.record_count("data_receipt_link_cache_size", data_receipt_links.len());
         let mut lookup_receipt_ids = Vec::new();
+        let mut relevant_data_receipt_ids = HashSet::new();
 
         let lookup_receipt_collect_start = Instant::now();
         for shard in &msg.shards {
@@ -2607,15 +2689,25 @@ impl VenearGovernanceModule {
 
                 for receipt in &chunk.receipts {
                     lookup_receipt_ids.push(receipt.receipt_id.to_string());
+                    if let Some(data_id) = Self::receipt_data_id(receipt) {
+                        relevant_data_receipt_ids.insert(data_id);
+                    }
                 }
 
                 for receipt in &chunk.local_receipts {
                     lookup_receipt_ids.push(receipt.receipt_id.to_string());
+                    if let Some(data_id) = Self::receipt_data_id(receipt) {
+                        relevant_data_receipt_ids.insert(data_id);
+                    }
                 }
             }
 
             for outcome_with_receipt in &shard.receipt_execution_outcomes {
-                lookup_receipt_ids.push(outcome_with_receipt.receipt.receipt_id.to_string());
+                let receipt = &outcome_with_receipt.receipt;
+                lookup_receipt_ids.push(receipt.receipt_id.to_string());
+                if let Some(data_id) = Self::receipt_data_id(receipt) {
+                    relevant_data_receipt_ids.insert(data_id);
+                }
                 for child_receipt_id in &outcome_with_receipt.execution_outcome.outcome.receipt_ids
                 {
                     lookup_receipt_ids.push(child_receipt_id.to_string());
@@ -2625,6 +2717,22 @@ impl VenearGovernanceModule {
         stats.record_phase_elapsed("lookup_receipt_collect", lookup_receipt_collect_start);
         stats.record_count("lookup_receipt_ids_before_dedup", lookup_receipt_ids.len());
 
+        let data_receipt_links_clone_start = Instant::now();
+        let (mut data_receipt_links, data_receipt_link_cache_size) = {
+            let state = self.state.lock().unwrap();
+            (
+                state.snapshot_data_receipt_links(&relevant_data_receipt_ids),
+                state.data_receipt_links.len(),
+            )
+        };
+        stats.record_phase_elapsed("data_receipt_links_clone", data_receipt_links_clone_start);
+        stats.record_count("data_receipt_link_cache_size", data_receipt_link_cache_size);
+        stats.record_count(
+            "data_receipt_link_lookup_id_count",
+            relevant_data_receipt_ids.len(),
+        );
+        stats.record_count("data_receipt_link_snapshot_size", data_receipt_links.len());
+
         let lookup_seed_from_data_links_start = Instant::now();
         for shard in &msg.shards {
             if let Some(chunk) = &shard.chunk {
@@ -2632,7 +2740,7 @@ impl VenearGovernanceModule {
                     if let Some(link) = Self::data_receipt_link(&data_receipt_links, receipt) {
                         receipt_tx_hashes
                             .entry(receipt.receipt_id.to_string())
-                            .or_insert(link.transaction_hash);
+                            .or_insert_with(|| link.transaction_hash.clone());
                     }
                 }
             }
@@ -2642,7 +2750,7 @@ impl VenearGovernanceModule {
                 if let Some(link) = Self::data_receipt_link(&data_receipt_links, receipt) {
                     receipt_tx_hashes
                         .entry(receipt.receipt_id.to_string())
-                        .or_insert(link.transaction_hash);
+                        .or_insert_with(|| link.transaction_hash.clone());
                 }
             }
         }
@@ -2764,9 +2872,7 @@ impl VenearGovernanceModule {
                 let data_receipt_link = Self::data_receipt_link(&data_receipt_links, receipt);
                 let mut transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
                 if transaction_hash.is_none() {
-                    transaction_hash = data_receipt_link
-                        .as_ref()
-                        .map(|link| link.transaction_hash.clone());
+                    transaction_hash = data_receipt_link.map(|link| link.transaction_hash.clone());
                 }
                 let Some(transaction_hash) = transaction_hash else {
                     continue;
@@ -2948,9 +3054,8 @@ impl VenearGovernanceModule {
                     let data_receipt_link = Self::data_receipt_link(&data_receipt_links, receipt);
                     let mut transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
                     if transaction_hash.is_none() {
-                        transaction_hash = data_receipt_link
-                            .as_ref()
-                            .map(|link| link.transaction_hash.clone());
+                        transaction_hash =
+                            data_receipt_link.map(|link| link.transaction_hash.clone());
                     }
                     let is_hos_root_related = self.is_hos_related_receipt(receipt);
 
@@ -2970,7 +3075,7 @@ impl VenearGovernanceModule {
                         &transaction_hash,
                         block_height,
                     );
-                    if let Some(link) = data_receipt_link.as_ref() {
+                    if let Some(link) = data_receipt_link {
                         updates.note_receipt_edge(
                             &transaction_hash,
                             NearReceiptEdgeRow {
@@ -3016,9 +3121,7 @@ impl VenearGovernanceModule {
                 let data_receipt_link = Self::data_receipt_link(&data_receipt_links, receipt);
                 let mut transaction_hash = receipt_tx_hashes.get(&receipt_id).cloned();
                 if transaction_hash.is_none() {
-                    transaction_hash = data_receipt_link
-                        .as_ref()
-                        .map(|link| link.transaction_hash.clone());
+                    transaction_hash = data_receipt_link.map(|link| link.transaction_hash.clone());
                 }
                 let is_hos_root_related = self.is_hos_related_receipt(receipt);
 
@@ -3034,7 +3137,7 @@ impl VenearGovernanceModule {
                 shard_touched_tx_hashes.insert(transaction_hash.clone());
                 updates.note_tx_metadata(&transaction_hash, is_hos_root_related, false);
                 updates.note_receipt_tx_hash_mapping(&receipt_id, &transaction_hash, block_height);
-                if let Some(link) = data_receipt_link.as_ref() {
+                if let Some(link) = data_receipt_link {
                     updates.note_receipt_edge(
                         &transaction_hash,
                         NearReceiptEdgeRow {
@@ -3154,7 +3257,10 @@ impl VenearGovernanceModule {
         stats.record_count("receipt_tx_map_write_rows", receipt_map_rows_to_write.len());
         stats.record_count(
             "receipt_tx_map_write_batch_count",
-            Self::batch_count(receipt_map_rows_to_write.len(), 3),
+            Self::batch_count(
+                receipt_map_rows_to_write.len(),
+                RECEIPT_TX_MAP_BULK_INSERT_PLAN,
+            ),
         );
         stats.record_count(
             "receipt_tx_map_write_new_count",
@@ -3671,6 +3777,7 @@ mod tests {
         assert_eq!(state.graphs.len(), 2);
         assert_eq!(state.graphs["tx-1"].recent_refs.len(), 1);
         assert_eq!(state.graphs["tx-2"].recent_refs.len(), 1);
+        assert_eq!(state.recent_block_ref_counts.get(&123), Some(&2));
     }
 
     #[test]
@@ -3722,6 +3829,34 @@ mod tests {
         );
         assert_eq!(link.parent_execution_outcome_id, "outcome-1");
         assert_eq!(link.block_height, 100);
+    }
+
+    #[test]
+    fn recent_cache_ref_counts_are_released_when_graph_is_removed() {
+        let mut updates = HosBlockUpdates::default();
+        updates.note_tx_metadata("tx-1", false, true);
+        updates.note_pending_receipt("tx-1", "pending-1");
+        updates.note_transaction(
+            "tx-1",
+            TransactionSource {
+                block_height: 123,
+                shard_id: 0,
+                transaction: Arc::new(signed_transaction("tx-1", "signer.near", "receiver.near")),
+            },
+        );
+
+        let mut state = HosRuntimeState::default();
+        state.merge_block_updates(123, updates, false, &mut StageMetrics::new());
+        assert_eq!(state.recent_block_ref_counts.get(&123), Some(&1));
+
+        let mut close_updates = HosBlockUpdates::default();
+        close_updates.note_tx_metadata("tx-1", false, false);
+        close_updates.note_executed_receipt("tx-1", "pending-1");
+
+        let plan = state.merge_block_updates(124, close_updates, false, &mut StageMetrics::new());
+
+        assert_eq!(plan.pruned_non_hos, vec!["tx-1".to_string()]);
+        assert!(state.recent_block_ref_counts.is_empty());
     }
 
     #[test]
