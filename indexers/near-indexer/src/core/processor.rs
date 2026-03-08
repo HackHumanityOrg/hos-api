@@ -7,6 +7,8 @@ use std::time::Instant;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, info, instrument, warn};
 
+use crate::core::prepared_block::PreparedBlockContext;
+use crate::core::stage_timing::StageMetrics;
 use crate::ModuleRegistry;
 
 fn module_is_assigned(assigned_modules: &HashSet<String>, module_name: &str) -> bool {
@@ -25,6 +27,9 @@ async fn process_block_independent(
     let height = msg.block.header.height as i64;
     let prev_height = msg.block.header.prev_height.map(|value| value as i64);
     let start_time = Instant::now();
+    let mut block_metrics = StageMetrics::new();
+    let mut assigned_module_count = 0usize;
+    let mut skipped_module_count = 0usize;
 
     debug!(
         stream_id = stream_id,
@@ -32,17 +37,18 @@ async fn process_block_independent(
         "Processing block through assigned modules"
     );
 
-    // Process all modules independently - no synchronization
-    let mut modules_processed = 0;
+    let mut modules_to_process = Vec::new();
+    let cursor_check_start = Instant::now();
     for module in registry
         .enabled_modules()
         .filter(|module| module_is_assigned(assigned_modules, module.name()))
     {
-        let module_start = Instant::now();
+        assigned_module_count += 1;
 
         // Check if this module needs this block
         let cursor = module.get_cursor(db.as_ref()).await?;
         if cursor.map(|c| c >= height).unwrap_or(false) {
+            skipped_module_count += 1;
             debug!(
                 stream_id = stream_id,
                 module = module.name(),
@@ -57,11 +63,37 @@ async fn process_block_independent(
             stream_id = stream_id,
             module = module.name(),
             height = height,
-            "Processing block in module"
+            "Module scheduled for block processing"
         );
 
-        // Process block and update cursor
-        if let Err(e) = module.process_block(msg, db.as_ref()).await {
+        modules_to_process.push(module);
+    }
+    block_metrics.record_phase_elapsed("cursor_check", cursor_check_start);
+    block_metrics.record_count("assigned_module_count", assigned_module_count);
+    block_metrics.record_count("skipped_module_count", skipped_module_count);
+
+    if modules_to_process.is_empty() {
+        debug!(
+            stream_id = stream_id,
+            height = height,
+            "All assigned modules already processed this block"
+        );
+        return Ok(());
+    }
+
+    let prepare_block_start = Instant::now();
+    let prepared_build = PreparedBlockContext::from_message_with_metrics(msg)?;
+    block_metrics.record_phase_elapsed("prepare_block", prepare_block_start);
+    block_metrics.merge_with_prefix("prepare.", prepared_build.metrics);
+    let prepared = prepared_build.context;
+
+    let mut modules_processed = 0;
+    for module in modules_to_process {
+        let module_process_start = Instant::now();
+        if let Err(e) = module
+            .process_prepared_block(&prepared, msg, db.as_ref())
+            .await
+        {
             error!(
                 stream_id = stream_id,
                 module = module.name(),
@@ -71,7 +103,12 @@ async fn process_block_independent(
             );
             return Err(e);
         }
+        block_metrics.record_phase_elapsed(
+            format!("module.{}.process", module.name()),
+            module_process_start,
+        );
 
+        let cursor_update_start = Instant::now();
         if let Err(e) = module.update_cursor(db.as_ref(), height, prev_height).await {
             error!(
                 stream_id = stream_id,
@@ -82,13 +119,16 @@ async fn process_block_independent(
             );
             return Err(e);
         }
+        block_metrics.record_phase_elapsed(
+            format!("module.{}.cursor_update", module.name()),
+            cursor_update_start,
+        );
 
-        let module_elapsed = module_start.elapsed();
         debug!(
             stream_id = stream_id,
             module = module.name(),
             height = height,
-            elapsed_ms = module_elapsed.as_millis(),
+            elapsed_ms = module_process_start.elapsed().as_millis(),
             "Module processed successfully"
         );
 
@@ -96,11 +136,15 @@ async fn process_block_independent(
     }
 
     let total_elapsed = start_time.elapsed();
-    debug!(
+    block_metrics.record_count("modules_processed", modules_processed);
+    info!(
         stream_id = stream_id,
         height = height,
         modules_processed = modules_processed,
         elapsed_ms = total_elapsed.as_millis(),
+        phase_ms = ?block_metrics.phase_ms(),
+        counts = ?block_metrics.counts(),
+        flags = ?block_metrics.flags(),
         "Block processed through assigned modules"
     );
     Ok(())
@@ -166,7 +210,7 @@ pub async fn run_parallel_processing(
                                     "Block processed successfully after retries"
                                 );
                             } else {
-                                info!(
+                                debug!(
                                     stream_id = %stream_id,
                                     height = height,
                                     elapsed_ms = elapsed.as_millis(),

@@ -6,6 +6,8 @@ use tracing::{debug, info};
 pub mod core;
 pub mod modules;
 
+use crate::core::prepared_block::PreparedBlockContext;
+
 /// Core trait that all indexer modules must implement
 #[async_trait]
 pub trait IndexerModule: Send + Sync {
@@ -24,6 +26,17 @@ pub trait IndexerModule: Send + Sync {
     /// Process a single streamer message for this module
     async fn process_block(
         &self,
+        msg: &near_lake_framework::near_indexer_primitives::StreamerMessage,
+        db: &DatabaseConnection,
+    ) -> Result<()> {
+        let prepared = PreparedBlockContext::from_message(msg)?;
+        self.process_prepared_block(&prepared, msg, db).await
+    }
+
+    /// Process a single streamer message with a shared prepared block context.
+    async fn process_prepared_block(
+        &self,
+        prepared: &PreparedBlockContext,
         msg: &near_lake_framework::near_indexer_primitives::StreamerMessage,
         db: &DatabaseConnection,
     ) -> Result<()>;

@@ -1,26 +1,31 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use common::config::NearModuleStreamMode;
-use near_lake_framework::near_indexer_primitives::views::{
-    ActionView, ExecutionStatusView, ReceiptEnumView, ReceiptView,
-};
+use near_lake_framework::near_indexer_primitives::views::{ReceiptEnumView, ReceiptView};
 use near_lake_framework::near_indexer_primitives::StreamerMessage;
-use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, QueryResult, Statement, TransactionTrait,
-    Value,
-};
-use serde_json::{json, Value as JsonValue};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracing::{error, info, instrument, warn};
 
+use crate::core::canonical_persistence::{
+    self, NearReceiptWriteMode, NearTransactionWriteMode, CANONICAL_BLOCK_BULK_INSERT_PLAN,
+    CANONICAL_CHUNK_BULK_INSERT_PLAN, CANONICAL_EXECUTION_OUTCOME_BULK_INSERT_PLAN,
+    CANONICAL_RECEIPT_ACTION_BULK_INSERT_PLAN, CANONICAL_RECEIPT_BULK_INSERT_PLAN,
+    CANONICAL_RECEIPT_EDGE_BULK_INSERT_PLAN, CANONICAL_STATE_CHANGE_BULK_INSERT_PLAN,
+    CANONICAL_TRANSACTION_BULK_INSERT_PLAN, RECEIPT_TX_MAP_BULK_INSERT_PLAN,
+};
+use crate::core::canonical_rows::{
+    self, ExecutionOutcomeRowMeta, NearBlockRow, NearChunkRow, NearExecutionOutcomeRow,
+    NearReceiptActionRow, NearReceiptEdgeRow, NearReceiptRow, NearStateChangesRow,
+    NearTransactionRow, ReceiptActionRowMeta, ReceiptTxHashMapRow,
+};
 use crate::core::cursor;
+use crate::core::prepared_block::PreparedBlockContext;
 use crate::core::receipt_tx_hash_map::{
     load_receipt_tx_hash_map, receipt_tx_hash_lookup_batch_count,
 };
-use crate::core::receipt_tx_resolver::build_receipt_tx_hashes;
 use crate::core::stage_timing::{BlockProcessingLog, StageMetrics};
 use crate::IndexerModule;
 
@@ -38,39 +43,6 @@ const DATA_RECEIPT_LINK_RETENTION_BLOCKS: i64 = 256;
 const STALLED_PENDING_GRAPH_WARNING_BLOCKS: i64 = 43_200;
 const RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS: i64 = 128;
 const RECEIPT_TX_MAP_CLEANUP_TARGET_ROWS: usize = 30_000;
-const MAX_BULK_INSERT_PARAMS: usize = 65_535;
-
-#[derive(Clone, Copy)]
-struct BulkInsertPlan {
-    columns_per_row: usize,
-    max_rows_per_statement: usize,
-}
-
-impl BulkInsertPlan {
-    const fn new(columns_per_row: usize, max_rows_per_statement: usize) -> Self {
-        Self {
-            columns_per_row,
-            max_rows_per_statement,
-        }
-    }
-}
-
-const RECEIPT_TX_MAP_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(3, 1_024);
-const CANONICAL_TRANSACTION_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(11, 512);
-const CANONICAL_RECEIPT_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(7, 512);
-const CANONICAL_EXECUTION_OUTCOME_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(19, 384);
-const CANONICAL_RECEIPT_ACTION_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(23, 256);
-const CANONICAL_RECEIPT_EDGE_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(7, 512);
-const CANONICAL_BLOCK_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(16, 256);
-const CANONICAL_CHUNK_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(10, 384);
-const CANONICAL_STATE_CHANGE_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(3, 512);
-
-#[derive(Clone)]
-struct ReceiptTxHashMapRow {
-    receipt_id: String,
-    transaction_hash: String,
-    block_height: i64,
-}
 
 #[derive(Clone)]
 struct BlockSource {
@@ -120,134 +92,6 @@ struct ExecutionOutcomeSource {
     author: String,
     block_timestamp: i64,
     receipt: Option<Arc<ReceiptView>>,
-}
-
-#[derive(Clone)]
-struct NearBlockRow {
-    height: i64,
-    hash: String,
-    prev_hash: String,
-    epoch_id: String,
-    next_epoch_id: String,
-    author: String,
-    timestamp: i64,
-    timestamp_nanosec: i64,
-    gas_price: String,
-    total_supply: String,
-    validator_reward: String,
-    protocol_version: i32,
-    chunks_included: i64,
-    block_ordinal: Option<i64>,
-    prev_height: Option<i64>,
-    raw_data: JsonValue,
-}
-
-#[derive(Clone)]
-struct NearChunkRow {
-    chunk_hash: String,
-    block_height: i64,
-    shard_id: i64,
-    author: String,
-    height_created: i64,
-    height_included: i64,
-    gas_used: i64,
-    gas_limit: i64,
-    validator_reward: String,
-    raw_data: JsonValue,
-}
-
-#[derive(Clone)]
-struct NearStateChangesRow {
-    block_height: i64,
-    shard_id: i64,
-    state_changes: JsonValue,
-}
-
-#[derive(Clone)]
-struct NearTransactionRow {
-    hash: String,
-    block_height: i64,
-    shard_id: i64,
-    signer_id: String,
-    receiver_id: String,
-    nonce: i64,
-    priority_fee: i64,
-    public_key: String,
-    signature: String,
-    actions: JsonValue,
-    raw_data: JsonValue,
-}
-
-#[derive(Clone)]
-struct NearReceiptRow {
-    receipt_id: String,
-    block_height: i64,
-    shard_id: i64,
-    predecessor_id: String,
-    receiver_id: String,
-    receipt: JsonValue,
-    raw_data: JsonValue,
-}
-
-#[derive(Clone)]
-struct NearExecutionOutcomeRow {
-    id: String,
-    transaction_hash: String,
-    block_height: i64,
-    shard_id: i64,
-    receipt_id: Option<String>,
-    outcome: JsonValue,
-    raw_data: JsonValue,
-    block_hash: String,
-    chunk_hash: String,
-    gas_burnt: i64,
-    gas_used: f64,
-    tokens_burnt: f64,
-    executor_account_id: String,
-    status: String,
-    outcome_receipt_ids: JsonValue,
-    executed_in_block_hash: String,
-    logs: JsonValue,
-    results_json: Option<JsonValue>,
-    block_timestamp: i64,
-}
-
-#[derive(Clone)]
-struct NearReceiptActionRow {
-    id: String,
-    transaction_hash: String,
-    block_height: i64,
-    receipt_id: String,
-    execution_outcome_id: String,
-    shard_id: i64,
-    signer_account_id: Option<String>,
-    signer_public_key: Option<String>,
-    gas_price: Option<String>,
-    action_kind: String,
-    action_json: JsonValue,
-    predecessor_id: String,
-    receiver_id: String,
-    block_hash: String,
-    chunk_hash: String,
-    author: String,
-    method_name: Option<String>,
-    gas: Option<i64>,
-    deposit: Option<String>,
-    args_base64: Option<String>,
-    args_json: Option<JsonValue>,
-    action_index: i32,
-    block_timestamp: i64,
-}
-
-#[derive(Clone)]
-struct NearReceiptEdgeRow {
-    parent_receipt_id: String,
-    child_receipt_id: String,
-    transaction_hash: String,
-    parent_execution_outcome_id: String,
-    block_height: i64,
-    block_hash: String,
-    block_timestamp: i64,
 }
 
 #[derive(Clone)]
@@ -345,6 +189,13 @@ impl TxSliceRefs {
             && self.receipt_ids.is_empty()
             && self.execution_outcome_ids.is_empty()
             && self.receipt_edge_keys.is_empty()
+    }
+
+    fn row_count(&self) -> usize {
+        self.transaction_hashes.len()
+            + self.receipt_ids.len()
+            + self.execution_outcome_ids.len()
+            + self.receipt_edge_keys.len()
     }
 }
 
@@ -596,7 +447,6 @@ struct GraphState {
     pending_receipts: HashSet<String>,
     open_yield_receipts: HashMap<String, i64>,
     recent_refs: BTreeMap<i64, TxSliceRefs>,
-    bundle: Option<HosGraphBundle>,
     incomplete_reason: Option<String>,
 }
 
@@ -699,6 +549,11 @@ struct RecentCacheEvictionStats {
 struct ReceiptTxMapCleanupStats {
     deleted_total: u64,
     batch_count: u64,
+}
+
+struct ProjectionResult {
+    stats: StageMetrics,
+    unresolved_hos_receipts: Vec<String>,
 }
 
 impl HosRuntimeState {
@@ -942,44 +797,12 @@ impl HosRuntimeState {
 
         let update_loop_start = Instant::now();
         let mut recent_ref_count_deltas = Vec::new();
-        let mut hydrated_graph_count = 0_u64;
-        let mut hydrated_row_count = 0_u64;
+        let mut recent_ref_graph_count = 0_u64;
         let mut current_slice_graph_count = 0_u64;
         let mut current_slice_row_count = 0_u64;
-        let mut recent_ref_graph_count = 0_u64;
         let mut became_hos_touch_count = 0_u64;
         for (transaction_hash, update) in graph_updates {
-            let prior_hos_touch = self
-                .graphs
-                .get(&transaction_hash)
-                .map(|graph| graph.has_hos_touch)
-                .unwrap_or(false);
-            let hydrated_bundle = if !raw_enabled && !prior_hos_touch && update.has_hos_touch {
-                let hydrate_start = Instant::now();
-                let bundle = self
-                    .graphs
-                    .get(&transaction_hash)
-                    .map(|graph| self.hydrate_bundle_from_recent_cache(graph))
-                    .unwrap_or_default();
-                merge_metrics.record_phase_elapsed("hydrate_bundle", hydrate_start);
-                hydrated_graph_count += 1;
-                hydrated_row_count += bundle.row_count() as u64;
-                bundle
-            } else {
-                HosGraphBundle::default()
-            };
-            let current_slice = if !raw_enabled && (prior_hos_touch || update.has_hos_touch) {
-                let current_slice_start = Instant::now();
-                let slice = Self::materialize_bundle_from_shared(&shared_bundle, &update.refs);
-                merge_metrics
-                    .record_phase_elapsed("materialize_current_slice", current_slice_start);
-                current_slice_graph_count += 1;
-                current_slice_row_count += slice.row_count() as u64;
-                Some(slice)
-            } else {
-                None
-            };
-
+            let update_ref_row_count = update.refs.row_count();
             let graph = self
                 .graphs
                 .entry(transaction_hash.clone())
@@ -995,7 +818,11 @@ impl HosRuntimeState {
                 graph.first_seen_height.min(block_height)
             };
             graph.last_seen_height = graph.last_seen_height.max(block_height);
+            let had_hos_touch = graph.has_hos_touch;
             graph.has_hos_touch |= update.has_hos_touch;
+            if !had_hos_touch && graph.has_hos_touch {
+                became_hos_touch_count += 1;
+            }
             graph.root_transaction_seen |= update.root_transaction_seen;
 
             for receipt_id in update.pending_receipts_add {
@@ -1008,34 +835,13 @@ impl HosRuntimeState {
             graph.resolve_yield_receipts(update.resumed_yield_receipt_count);
             graph.expire_timed_out_yields(block_height);
 
-            let became_hos_touch = !prior_hos_touch && graph.has_hos_touch;
-            if !raw_enabled && graph.has_hos_touch {
-                if became_hos_touch {
-                    became_hos_touch_count += 1;
-                }
-                if became_hos_touch && graph.bundle.is_none() {
-                    graph.bundle = Some(hydrated_bundle);
-                    let released_heights = graph.recent_refs.keys().copied().collect::<Vec<_>>();
-                    graph.recent_refs.clear();
-                    for height in released_heights {
-                        recent_ref_count_deltas.push((height, -1));
-                    }
-                }
+            if update_ref_row_count > 0 {
+                current_slice_graph_count += 1;
+                current_slice_row_count = current_slice_row_count
+                    .saturating_add(u64::try_from(update_ref_row_count).unwrap_or(u64::MAX));
+            }
 
-                let bundle = graph.bundle.get_or_insert_with(HosGraphBundle::default);
-                if let Some(slice) = &current_slice {
-                    bundle.merge(slice.clone());
-                }
-
-                if !graph.root_transaction_seen || !bundle.has_root_transaction(&transaction_hash) {
-                    if graph.incomplete_reason.is_none() {
-                        graph.incomplete_reason = Some("missing_root_transaction_row".to_string());
-                    }
-                } else if graph.incomplete_reason.as_deref() == Some("missing_root_transaction_row")
-                {
-                    graph.incomplete_reason = None;
-                }
-            } else if !raw_enabled && !update.refs.is_empty() {
+            if !raw_enabled && !update.refs.is_empty() {
                 recent_ref_graph_count += 1;
                 let recent_refs = graph.recent_refs.entry(block_height).or_default();
                 let had_recent_refs = !recent_refs.is_empty();
@@ -1044,19 +850,25 @@ impl HosRuntimeState {
                     recent_ref_count_deltas.push((block_height, 1));
                 }
             }
+
+            if !graph.root_transaction_seen && graph.has_hos_touch {
+                if graph.incomplete_reason.is_none() {
+                    graph.incomplete_reason = Some("missing_root_transaction_row".to_string());
+                }
+            } else if graph.incomplete_reason.as_deref() == Some("missing_root_transaction_row") {
+                graph.incomplete_reason = None;
+            }
         }
         merge_metrics.record_phase_elapsed("graph_update_loop", update_loop_start);
-        merge_metrics.record_count("hydrated_graph_count", hydrated_graph_count);
-        merge_metrics.record_count("hydrated_row_count", hydrated_row_count);
+        merge_metrics.record_count("recent_ref_graph_count", recent_ref_graph_count);
         merge_metrics.record_count("current_slice_graph_count", current_slice_graph_count);
         merge_metrics.record_count("current_slice_row_count", current_slice_row_count);
-        merge_metrics.record_count("recent_ref_graph_count", recent_ref_graph_count);
         merge_metrics.record_count("became_hos_touch_count", became_hos_touch_count);
         for (height, delta) in recent_ref_count_deltas {
             self.apply_recent_block_ref_delta(height, delta);
         }
 
-        if !raw_enabled && shared_bundle.row_count() > 0 {
+        if !raw_enabled && recent_ref_graph_count > 0 && shared_bundle.row_count() > 0 {
             let cache_insert_start = Instant::now();
             self.recent_blocks
                 .insert(block_height, RecentBlockCache { shared_bundle });
@@ -1065,6 +877,7 @@ impl HosRuntimeState {
 
         let mut plan = BlockMergePlan::default();
         let mut remove_now = Vec::new();
+        let mut closed_hos_candidates = Vec::new();
         merge_metrics.record_count("closure_scan_graph_count", self.graphs.len());
         let closure_scan_start = Instant::now();
 
@@ -1094,20 +907,23 @@ impl HosRuntimeState {
                 remove_now.push(transaction_hash.clone());
                 continue;
             }
-
-            let Some(bundle) = graph.bundle.clone() else {
-                plan.dropped_incomplete_hos.push((
-                    transaction_hash.clone(),
-                    graph
-                        .incomplete_reason
-                        .clone()
-                        .unwrap_or_else(|| "missing_bundle".to_string()),
-                ));
-                remove_now.push(transaction_hash.clone());
+            closed_hos_candidates.push(transaction_hash.clone());
+        }
+        merge_metrics.record_phase_elapsed("closure_scan", closure_scan_start);
+        merge_metrics.record_count("closed_hos_candidate_count", closed_hos_candidates.len());
+        let hydrate_closed_hos_start = Instant::now();
+        let mut hydrated_graph_count = 0_u64;
+        let mut hydrated_row_count = 0_u64;
+        for transaction_hash in closed_hos_candidates {
+            let Some(graph) = self.graphs.get(&transaction_hash) else {
                 continue;
             };
+            let bundle = self.hydrate_bundle_from_recent_cache(graph);
+            hydrated_graph_count += 1;
+            hydrated_row_count = hydrated_row_count
+                .saturating_add(u64::try_from(bundle.row_count()).unwrap_or(u64::MAX));
 
-            if !graph.root_transaction_seen || !bundle.has_root_transaction(transaction_hash) {
+            if !graph.root_transaction_seen || !bundle.has_root_transaction(&transaction_hash) {
                 plan.dropped_incomplete_hos.push((
                     transaction_hash.clone(),
                     graph
@@ -1115,20 +931,24 @@ impl HosRuntimeState {
                         .clone()
                         .unwrap_or_else(|| "missing_root_transaction_row".to_string()),
                 ));
-                remove_now.push(transaction_hash.clone());
+                remove_now.push(transaction_hash);
                 continue;
             }
 
             if let Some(reason) = &graph.incomplete_reason {
                 plan.dropped_incomplete_hos
                     .push((transaction_hash.clone(), reason.clone()));
-                remove_now.push(transaction_hash.clone());
+                remove_now.push(transaction_hash);
                 continue;
             }
 
             plan.closed_hos.push((transaction_hash.clone(), bundle));
+            remove_now.push(transaction_hash);
         }
-        merge_metrics.record_phase_elapsed("closure_scan", closure_scan_start);
+        merge_metrics.record_phase_elapsed("hydrate_closed_hos", hydrate_closed_hos_start);
+        merge_metrics.record_count("hydrated_graph_count", hydrated_graph_count);
+        merge_metrics.record_count("hydrated_row_count", hydrated_row_count);
+
         merge_metrics.record_count("remove_now_count", remove_now.len());
 
         for tx_hash in remove_now {
@@ -1473,153 +1293,53 @@ impl VenearGovernanceModule {
         )
     }
 
-    fn parse_args_json(args: &[u8]) -> JsonValue {
-        if args.is_empty() {
-            return JsonValue::Null;
-        }
-
-        serde_json::from_slice::<JsonValue>(args)
-            .or_else(|_| {
-                String::from_utf8(args.to_vec())
-                    .ok()
-                    .and_then(|text| serde_json::from_str::<JsonValue>(&text).ok())
-                    .ok_or_else(|| serde_json::Error::io(std::io::Error::other("invalid json")))
-            })
-            .unwrap_or_else(|_| json!({ "value": "invalid json" }))
-    }
-
-    fn serialize_json<T: serde::Serialize>(value: &T, label: &str) -> Result<JsonValue> {
-        serde_json::to_value(value).with_context(|| format!("failed to serialize {label}"))
-    }
-
     fn block_source_to_row(source: &BlockSource) -> Result<NearBlockRow> {
-        let block = source.block.as_ref();
-        let header = &block.header;
-
-        Ok(NearBlockRow {
-            height: header.height as i64,
-            hash: header.hash.to_string(),
-            prev_hash: header.prev_hash.to_string(),
-            epoch_id: header.epoch_id.to_string(),
-            next_epoch_id: header.next_epoch_id.to_string(),
-            author: source.author.clone(),
-            timestamp: header.timestamp as i64,
-            timestamp_nanosec: header.timestamp_nanosec as i64,
-            gas_price: header.gas_price.to_string(),
-            total_supply: header.total_supply.to_string(),
-            validator_reward: header.validator_reward.to_string(),
-            protocol_version: header.latest_protocol_version as i32,
-            chunks_included: header.chunks_included as i64,
-            block_ordinal: header.block_ordinal.map(|value| value as i64),
-            prev_height: header.prev_height.map(|value| value as i64),
-            raw_data: Self::serialize_json(block, "block raw_data")?,
-        })
+        canonical_rows::block_to_row(source.block.as_ref(), &source.author)
     }
 
     fn chunk_source_to_row(source: &ChunkSource) -> Result<NearChunkRow> {
-        let chunk = source.chunk.as_ref();
-        let header = &chunk.header;
-
-        Ok(NearChunkRow {
-            chunk_hash: header.chunk_hash.to_string(),
-            block_height: source.block_height,
-            shard_id: source.shard_id,
-            author: chunk.author.to_string(),
-            height_created: header.height_created as i64,
-            height_included: header.height_included as i64,
-            gas_used: header.gas_used.as_gas() as i64,
-            gas_limit: header.gas_limit.as_gas() as i64,
-            validator_reward: header.validator_reward.to_string(),
-            raw_data: Self::serialize_json(chunk, "chunk raw_data")?,
-        })
+        canonical_rows::chunk_to_row(source.chunk.as_ref(), source.block_height, source.shard_id)
     }
 
     fn state_changes_source_to_row(source: &StateChangesSource) -> Result<NearStateChangesRow> {
-        Ok(NearStateChangesRow {
-            block_height: source.block_height,
-            shard_id: source.shard_id,
-            state_changes: Self::serialize_json(
-                source.state_changes.as_ref(),
-                "state changes payload",
-            )?,
-        })
+        canonical_rows::state_changes_to_row(
+            source.state_changes.as_ref(),
+            source.block_height,
+            source.shard_id,
+        )
     }
 
     fn transaction_source_to_row(source: &TransactionSource) -> Result<NearTransactionRow> {
-        let transaction = source.transaction.as_ref();
-
-        Ok(NearTransactionRow {
-            hash: transaction.hash.to_string(),
-            block_height: source.block_height,
-            shard_id: source.shard_id,
-            signer_id: transaction.signer_id.to_string(),
-            receiver_id: transaction.receiver_id.to_string(),
-            nonce: transaction.nonce as i64,
-            priority_fee: transaction.priority_fee as i64,
-            public_key: transaction.public_key.to_string(),
-            signature: transaction.signature.to_string(),
-            actions: Self::serialize_json(&transaction.actions, "HoS transaction actions")?,
-            raw_data: Self::serialize_json(transaction, "HoS transaction raw_data")?,
-        })
+        canonical_rows::transaction_to_row(
+            source.transaction.as_ref(),
+            source.block_height,
+            source.shard_id,
+        )
     }
 
     fn receipt_source_to_row(source: &ReceiptSource) -> Result<NearReceiptRow> {
-        let receipt = source.receipt.as_ref();
-
-        Ok(NearReceiptRow {
-            receipt_id: receipt.receipt_id.to_string(),
-            block_height: source.block_height,
-            shard_id: source.shard_id,
-            predecessor_id: receipt.predecessor_id.to_string(),
-            receiver_id: receipt.receiver_id.to_string(),
-            receipt: Self::serialize_json(&receipt.receipt, "receipt body")?,
-            raw_data: Self::serialize_json(receipt, "receipt row")?,
-        })
+        canonical_rows::receipt_to_row(
+            source.receipt.as_ref(),
+            source.block_height,
+            source.shard_id,
+        )
     }
 
     fn execution_outcome_source_to_row(
         source: &ExecutionOutcomeSource,
     ) -> Result<NearExecutionOutcomeRow> {
-        let outcome_view = source.execution_outcome.as_ref();
-        let outcome = &outcome_view.outcome;
-        let outcome_receipt_ids = JsonValue::Array(
-            outcome
-                .receipt_ids
-                .iter()
-                .map(|value| JsonValue::String(value.to_string()))
-                .collect(),
-        );
-        let logs = JsonValue::Array(
-            outcome
-                .logs
-                .iter()
-                .cloned()
-                .map(JsonValue::String)
-                .collect(),
-        );
-        let (status, results_json) = Self::extract_status(&outcome.status);
-
-        Ok(NearExecutionOutcomeRow {
-            id: source.id.clone(),
-            transaction_hash: source.transaction_hash.clone(),
-            block_height: source.block_height,
-            shard_id: source.shard_id,
-            receipt_id: source.receipt_id.clone(),
-            outcome: Self::serialize_json(&outcome_view.outcome, "execution outcome")?,
-            raw_data: Self::serialize_json(outcome_view, "execution outcome row")?,
-            block_hash: source.block_hash.clone(),
-            chunk_hash: source.chunk_hash.clone(),
-            gas_burnt: outcome.gas_burnt.as_gas() as i64,
-            gas_used: outcome.gas_burnt.as_gas() as f64,
-            tokens_burnt: outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
-            executor_account_id: outcome.executor_id.to_string(),
-            status: status.to_string(),
-            outcome_receipt_ids,
-            executed_in_block_hash: source.block_hash.clone(),
-            logs,
-            results_json,
-            block_timestamp: source.block_timestamp,
-        })
+        canonical_rows::execution_outcome_to_row(
+            source.execution_outcome.as_ref(),
+            ExecutionOutcomeRowMeta {
+                transaction_hash: Some(&source.transaction_hash),
+                block_height: source.block_height,
+                shard_id: source.shard_id,
+                receipt_id: source.receipt_id.as_deref(),
+                block_hash: &source.block_hash,
+                chunk_hash: &source.chunk_hash,
+                block_timestamp: source.block_timestamp,
+            },
+        )
     }
 
     fn receipt_action_rows_from_execution_outcome(
@@ -1629,331 +1349,26 @@ impl VenearGovernanceModule {
             return Ok(Vec::new());
         };
 
-        let ReceiptEnumView::Action {
-            signer_id,
-            signer_public_key,
-            gas_price,
-            actions,
-            ..
-        } = &receipt.receipt
-        else {
-            return Ok(Vec::new());
-        };
-
-        let mut rows = Vec::with_capacity(actions.len());
-        for (action_index, action) in actions.iter().enumerate() {
-            let action_json = Self::serialize_json(action, "receipt action")?;
-            let action_kind = Self::action_kind_from_json(&action_json);
-            let signer_id_value = signer_id.to_string();
-            let signer_public_key_value = signer_public_key.to_string();
-            let gas_price_value = gas_price.to_string();
-
-            let mut method_name: Option<String> = None;
-            let mut gas: Option<i64> = None;
-            let mut deposit: Option<String> = None;
-            let mut args_base64: Option<String> = None;
-            let mut args_json: Option<JsonValue> = None;
-
-            if let ActionView::FunctionCall {
-                method_name: function_name,
-                args,
-                gas: function_gas,
-                deposit: function_deposit,
-            } = action
-            {
-                let args_bytes: &[u8] = args.as_ref();
-                method_name = Some(function_name.clone());
-                gas = Some(function_gas.as_gas() as i64);
-                deposit = Some(function_deposit.to_string());
-                args_base64 = Some(BASE64_STANDARD.encode(args_bytes));
-                args_json = Some(Self::parse_args_json(args_bytes));
-            }
-
-            rows.push(NearReceiptActionRow {
-                id: format!("{}-{action_index}", receipt.receipt_id),
-                transaction_hash: source.transaction_hash.clone(),
+        canonical_rows::receipt_action_rows(
+            receipt,
+            ReceiptActionRowMeta {
+                transaction_hash: Some(&source.transaction_hash),
                 block_height: source.block_height,
-                receipt_id: receipt.receipt_id.to_string(),
-                execution_outcome_id: source.id.clone(),
+                execution_outcome_id: &source.id,
                 shard_id: source.shard_id,
-                signer_account_id: Some(signer_id_value),
-                signer_public_key: Some(signer_public_key_value),
-                gas_price: Some(gas_price_value),
-                action_kind,
-                action_json,
-                predecessor_id: receipt.predecessor_id.to_string(),
-                receiver_id: receipt.receiver_id.to_string(),
-                block_hash: source.block_hash.clone(),
-                chunk_hash: source.chunk_hash.clone(),
-                author: source.author.clone(),
-                method_name,
-                gas,
-                deposit,
-                args_base64,
-                args_json,
-                action_index: action_index as i32,
+                block_hash: &source.block_hash,
+                chunk_hash: &source.chunk_hash,
+                author: &source.author,
                 block_timestamp: source.block_timestamp,
-            });
-        }
-
-        Ok(rows)
-    }
-
-    fn action_kind_from_json(action_json: &JsonValue) -> String {
-        match action_json {
-            JsonValue::Object(map) => map
-                .keys()
-                .next()
-                .cloned()
-                .unwrap_or_else(|| "Unknown".to_string()),
-            JsonValue::String(value) => value.clone(),
-            _ => "Unknown".to_string(),
-        }
-    }
-
-    fn extract_status(status: &ExecutionStatusView) -> (&'static str, Option<JsonValue>) {
-        match status {
-            ExecutionStatusView::Unknown => (
-                "Unknown",
-                Some(json!({
-                    "status_type": "Unknown",
-                })),
-            ),
-            ExecutionStatusView::Failure(failure) => (
-                "Failure",
-                Some(json!({
-                    "error": failure.to_string(),
-                    "status_type": "Failure",
-                })),
-            ),
-            ExecutionStatusView::SuccessReceiptId(receipt_id) => (
-                "SuccessReceiptId",
-                Some(json!({
-                    "receipt_id": receipt_id.to_string(),
-                    "status_type": "SuccessReceiptId",
-                })),
-            ),
-            ExecutionStatusView::SuccessValue(raw_value) => {
-                if raw_value.is_empty() {
-                    return ("SuccessValue", None);
-                }
-
-                let parsed = serde_json::from_slice::<JsonValue>(raw_value)
-                    .or_else(|_| {
-                        String::from_utf8(raw_value.clone())
-                            .ok()
-                            .and_then(|text| serde_json::from_str::<JsonValue>(&text).ok())
-                            .ok_or_else(|| {
-                                serde_json::Error::io(std::io::Error::other("invalid json"))
-                            })
-                    })
-                    .unwrap_or_else(|_| json!({ "value": "invalid json" }));
-
-                ("SuccessValue", Some(parsed))
-            }
-        }
-    }
-
-    fn shard_to_i64(shard_id: near_lake_framework::near_indexer_primitives::types::ShardId) -> i64 {
-        let value: u64 = shard_id.into();
-        i64::try_from(value).unwrap_or(i64::MAX)
-    }
-
-    fn max_bulk_rows(plan: BulkInsertPlan) -> usize {
-        let max_by_params = (MAX_BULK_INSERT_PARAMS / plan.columns_per_row.max(1)).max(1);
-        max_by_params.min(plan.max_rows_per_statement.max(1))
-    }
-
-    fn batch_count(row_count: usize, plan: BulkInsertPlan) -> usize {
-        if row_count == 0 {
-            0
-        } else {
-            row_count.div_ceil(Self::max_bulk_rows(plan))
-        }
-    }
-
-    fn build_values_clause(row_count: usize, columns_per_row: usize) -> String {
-        let mut sql = String::new();
-        let mut placeholder = 1;
-        for row_idx in 0..row_count {
-            if row_idx > 0 {
-                sql.push_str(", ");
-            }
-            sql.push('(');
-            for col_idx in 0..columns_per_row {
-                if col_idx > 0 {
-                    sql.push_str(", ");
-                }
-                sql.push('$');
-                sql.push_str(&placeholder.to_string());
-                placeholder += 1;
-            }
-            sql.push(')');
-        }
-        sql
-    }
-
-    async fn execute_chunked_upsert<T, F>(
-        db: &impl ConnectionTrait,
-        rows: &[T],
-        plan: BulkInsertPlan,
-        sql_prefix: &str,
-        sql_suffix: &str,
-        mut bind_row: F,
-        context: &str,
-    ) -> Result<()>
-    where
-        F: FnMut(&T, &mut Vec<Value>),
-    {
-        if rows.is_empty() {
-            return Ok(());
-        }
-
-        let batch_size = Self::max_bulk_rows(plan);
-        for chunk in rows.chunks(batch_size) {
-            let mut sql = String::from(sql_prefix);
-            sql.push_str(&Self::build_values_clause(
-                chunk.len(),
-                plan.columns_per_row,
-            ));
-            sql.push_str(sql_suffix);
-
-            let mut values = Vec::with_capacity(chunk.len() * plan.columns_per_row);
-            for row in chunk {
-                bind_row(row, &mut values);
-            }
-
-            db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                &sql,
-                values,
-            ))
-            .await
-            .with_context(|| context.to_string())?;
-        }
-
-        Ok(())
-    }
-
-    async fn query_chunked<T, F>(
-        db: &impl ConnectionTrait,
-        rows: &[T],
-        plan: BulkInsertPlan,
-        sql_prefix: &str,
-        sql_suffix: &str,
-        mut bind_row: F,
-        context: &str,
-    ) -> Result<Vec<QueryResult>>
-    where
-        F: FnMut(&T, &mut Vec<Value>),
-    {
-        if rows.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let batch_size = Self::max_bulk_rows(plan);
-        let mut results = Vec::new();
-        for chunk in rows.chunks(batch_size) {
-            let mut sql = String::from(sql_prefix);
-            sql.push_str(&Self::build_values_clause(
-                chunk.len(),
-                plan.columns_per_row,
-            ));
-            sql.push_str(sql_suffix);
-
-            let mut values = Vec::with_capacity(chunk.len() * plan.columns_per_row);
-            for row in chunk {
-                bind_row(row, &mut values);
-            }
-
-            let mut chunk_rows = db
-                .query_all(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    &sql,
-                    values,
-                ))
-                .await
-                .with_context(|| context.to_string())?;
-            results.append(&mut chunk_rows);
-        }
-
-        Ok(results)
+            },
+        )
     }
 
     async fn flush_receipt_tx_hash_map_upserts(
         db: &impl ConnectionTrait,
         rows: &[ReceiptTxHashMapRow],
     ) -> Result<Vec<ReceiptTxHashMapRow>> {
-        let query_rows = Self::query_chunked(
-            db,
-            rows,
-            RECEIPT_TX_MAP_BULK_INSERT_PLAN,
-            "INSERT INTO near.near_receipt_tx_hash_map (
-                receipt_id,
-                transaction_hash,
-                first_seen_height,
-                last_seen_height,
-                created_at,
-                updated_at
-            )
-            SELECT
-                incoming.receipt_id,
-                incoming.transaction_hash,
-                incoming.block_height,
-                incoming.block_height,
-                NOW(),
-                NOW()
-            FROM (VALUES ",
-            "
-            ) AS incoming(receipt_id, transaction_hash, block_height)
-            ON CONFLICT (receipt_id) DO UPDATE SET
-                last_seen_height = GREATEST(
-                    near.near_receipt_tx_hash_map.last_seen_height,
-                    EXCLUDED.last_seen_height
-                ),
-                updated_at = NOW()
-            RETURNING receipt_id, transaction_hash",
-            |row, values| {
-                values.push(row.receipt_id.clone().into());
-                values.push(row.transaction_hash.clone().into());
-                values.push(row.block_height.into());
-            },
-            "failed to bulk upsert near_receipt_tx_hash_map",
-        )
-        .await?;
-
-        let mut persisted = HashMap::new();
-        let mut persisted_rows = Vec::new();
-        for row in query_rows {
-            let receipt_id: String = row
-                .try_get("", "receipt_id")
-                .context("failed to read bulk near_receipt_tx_hash_map.receipt_id")?;
-            let transaction_hash: String = row
-                .try_get("", "transaction_hash")
-                .context("failed to read bulk near_receipt_tx_hash_map.transaction_hash")?;
-            persisted_rows.push(ReceiptTxHashMapRow {
-                receipt_id: receipt_id.clone(),
-                transaction_hash: transaction_hash.clone(),
-                block_height: 0,
-            });
-            persisted.insert(receipt_id, transaction_hash);
-        }
-
-        for row in rows {
-            if let Some(persisted_tx_hash) = persisted.get(&row.receipt_id) {
-                if persisted_tx_hash != &row.transaction_hash {
-                    error!(
-                        module = MODULE_NAME,
-                        receipt_id = %row.receipt_id,
-                        incoming_transaction_hash = %row.transaction_hash,
-                        persisted_transaction_hash = %persisted_tx_hash,
-                        "receipt->tx hash conflict detected; preserving first-seen mapping"
-                    );
-                }
-            }
-        }
-
-        Ok(persisted_rows)
+        canonical_persistence::flush_receipt_tx_hash_map_upserts(db, rows, MODULE_NAME).await
     }
 
     fn is_hos_lockup_contract(account_id: &str) -> bool {
@@ -2108,408 +1523,57 @@ impl VenearGovernanceModule {
         db: &impl ConnectionTrait,
         rows: &[NearTransactionRow],
     ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            CANONICAL_TRANSACTION_BULK_INSERT_PLAN,
-            "INSERT INTO near.near_transactions (
-                hash,
-                block_height,
-                signer_id,
-                receiver_id,
-                nonce,
-                priority_fee,
-                public_key,
-                signature,
-                actions,
-                raw_data,
-                shard_id
-            ) VALUES ",
-            "
-            ON CONFLICT (hash) DO UPDATE SET
-                block_height = EXCLUDED.block_height,
-                signer_id = EXCLUDED.signer_id,
-                receiver_id = EXCLUDED.receiver_id,
-                nonce = EXCLUDED.nonce,
-                priority_fee = EXCLUDED.priority_fee,
-                public_key = EXCLUDED.public_key,
-                signature = EXCLUDED.signature,
-                actions = EXCLUDED.actions,
-                raw_data = COALESCE(EXCLUDED.raw_data, near.near_transactions.raw_data),
-                shard_id = EXCLUDED.shard_id",
-            |row, values| {
-                values.push(row.hash.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.signer_id.clone().into());
-                values.push(row.receiver_id.clone().into());
-                values.push(row.nonce.into());
-                values.push(row.priority_fee.into());
-                values.push(row.public_key.clone().into());
-                values.push(row.signature.clone().into());
-                values.push(row.actions.clone().into());
-                values.push(row.raw_data.clone().into());
-                values.push(row.shard_id.into());
-            },
-            "failed to bulk upsert near_transactions",
-        )
-        .await
+        canonical_persistence::flush_near_transactions(db, rows, NearTransactionWriteMode::Upsert)
+            .await
     }
 
     async fn flush_canonical_receipts(
         db: &impl ConnectionTrait,
         rows: &[NearReceiptRow],
     ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            CANONICAL_RECEIPT_BULK_INSERT_PLAN,
-            "INSERT INTO near.near_receipts (
-                receipt_id,
-                block_height,
-                shard_id,
-                predecessor_id,
-                receiver_id,
-                receipt,
-                raw_data
-            ) VALUES ",
-            "
-            ON CONFLICT (receipt_id) DO UPDATE SET
-                block_height = EXCLUDED.block_height,
-                shard_id = EXCLUDED.shard_id,
-                predecessor_id = EXCLUDED.predecessor_id,
-                receiver_id = EXCLUDED.receiver_id,
-                receipt = EXCLUDED.receipt,
-                raw_data = COALESCE(near.near_receipts.raw_data, EXCLUDED.raw_data)",
-            |row, values| {
-                values.push(row.receipt_id.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.shard_id.into());
-                values.push(row.predecessor_id.clone().into());
-                values.push(row.receiver_id.clone().into());
-                values.push(row.receipt.clone().into());
-                values.push(row.raw_data.clone().into());
-            },
-            "failed to bulk upsert near_receipts",
-        )
-        .await
+        canonical_persistence::flush_near_receipts(db, rows, NearReceiptWriteMode::Upsert).await
     }
 
     async fn flush_canonical_execution_outcomes(
         db: &impl ConnectionTrait,
         rows: &[NearExecutionOutcomeRow],
     ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            CANONICAL_EXECUTION_OUTCOME_BULK_INSERT_PLAN,
-            "INSERT INTO near.near_execution_outcomes (
-                id,
-                block_height,
-                shard_id,
-                receipt_id,
-                outcome,
-                raw_data,
-                transaction_hash,
-                block_hash,
-                chunk_hash,
-                gas_burnt,
-                gas_used,
-                tokens_burnt,
-                executor_account_id,
-                status,
-                outcome_receipt_ids,
-                executed_in_block_hash,
-                logs,
-                results_json,
-                block_timestamp
-            ) VALUES ",
-            "
-            ON CONFLICT (id) DO UPDATE SET
-                block_height = EXCLUDED.block_height,
-                shard_id = EXCLUDED.shard_id,
-                receipt_id = COALESCE(near.near_execution_outcomes.receipt_id, EXCLUDED.receipt_id),
-                outcome = EXCLUDED.outcome,
-                raw_data = COALESCE(near.near_execution_outcomes.raw_data, EXCLUDED.raw_data),
-                transaction_hash = COALESCE(near.near_execution_outcomes.transaction_hash, EXCLUDED.transaction_hash),
-                block_hash = EXCLUDED.block_hash,
-                chunk_hash = EXCLUDED.chunk_hash,
-                gas_burnt = EXCLUDED.gas_burnt,
-                gas_used = EXCLUDED.gas_used,
-                tokens_burnt = EXCLUDED.tokens_burnt,
-                executor_account_id = EXCLUDED.executor_account_id,
-                status = EXCLUDED.status,
-                outcome_receipt_ids = EXCLUDED.outcome_receipt_ids,
-                executed_in_block_hash = EXCLUDED.executed_in_block_hash,
-                logs = EXCLUDED.logs,
-                results_json = EXCLUDED.results_json,
-                block_timestamp = EXCLUDED.block_timestamp",
-            |row, values| {
-                values.push(row.id.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.shard_id.into());
-                values.push(row.receipt_id.clone().into());
-                values.push(row.outcome.clone().into());
-                values.push(row.raw_data.clone().into());
-                values.push(row.transaction_hash.clone().into());
-                values.push(row.block_hash.clone().into());
-                values.push(row.chunk_hash.clone().into());
-                values.push(row.gas_burnt.into());
-                values.push(row.gas_used.into());
-                values.push(row.tokens_burnt.into());
-                values.push(row.executor_account_id.clone().into());
-                values.push(row.status.clone().into());
-                values.push(row.outcome_receipt_ids.clone().into());
-                values.push(row.executed_in_block_hash.clone().into());
-                values.push(row.logs.clone().into());
-                values.push(row.results_json.clone().into());
-                values.push(row.block_timestamp.into());
-            },
-            "failed to bulk upsert near_execution_outcomes",
-        )
-        .await
+        canonical_persistence::flush_near_execution_outcomes(db, rows).await
     }
 
     async fn flush_canonical_receipt_actions(
         db: &impl ConnectionTrait,
         rows: &[NearReceiptActionRow],
     ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            CANONICAL_RECEIPT_ACTION_BULK_INSERT_PLAN,
-            "INSERT INTO near.near_receipt_actions (
-                id,
-                block_height,
-                receipt_id,
-                execution_outcome_id,
-                transaction_hash,
-                shard_id,
-                signer_account_id,
-                signer_public_key,
-                gas_price,
-                action_kind,
-                action_json,
-                predecessor_id,
-                receiver_id,
-                block_hash,
-                chunk_hash,
-                author,
-                method_name,
-                gas,
-                deposit,
-                args_base64,
-                args_json,
-                action_index,
-                block_timestamp
-            ) VALUES ",
-            "
-            ON CONFLICT (id) DO UPDATE SET
-                block_height = EXCLUDED.block_height,
-                receipt_id = EXCLUDED.receipt_id,
-                execution_outcome_id = EXCLUDED.execution_outcome_id,
-                transaction_hash = COALESCE(EXCLUDED.transaction_hash, near.near_receipt_actions.transaction_hash),
-                shard_id = EXCLUDED.shard_id,
-                signer_account_id = EXCLUDED.signer_account_id,
-                signer_public_key = EXCLUDED.signer_public_key,
-                gas_price = EXCLUDED.gas_price,
-                action_kind = EXCLUDED.action_kind,
-                action_json = EXCLUDED.action_json,
-                predecessor_id = EXCLUDED.predecessor_id,
-                receiver_id = EXCLUDED.receiver_id,
-                block_hash = EXCLUDED.block_hash,
-                chunk_hash = EXCLUDED.chunk_hash,
-                author = EXCLUDED.author,
-                method_name = EXCLUDED.method_name,
-                gas = EXCLUDED.gas,
-                deposit = EXCLUDED.deposit,
-                args_base64 = EXCLUDED.args_base64,
-                args_json = EXCLUDED.args_json,
-                action_index = EXCLUDED.action_index,
-                block_timestamp = EXCLUDED.block_timestamp",
-            |row, values| {
-                values.push(row.id.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.receipt_id.clone().into());
-                values.push(row.execution_outcome_id.clone().into());
-                values.push(row.transaction_hash.clone().into());
-                values.push(row.shard_id.into());
-                values.push(row.signer_account_id.clone().into());
-                values.push(row.signer_public_key.clone().into());
-                values.push(row.gas_price.clone().into());
-                values.push(row.action_kind.clone().into());
-                values.push(row.action_json.clone().into());
-                values.push(row.predecessor_id.clone().into());
-                values.push(row.receiver_id.clone().into());
-                values.push(row.block_hash.clone().into());
-                values.push(row.chunk_hash.clone().into());
-                values.push(row.author.clone().into());
-                values.push(row.method_name.clone().into());
-                values.push(row.gas.into());
-                values.push(row.deposit.clone().into());
-                values.push(row.args_base64.clone().into());
-                values.push(row.args_json.clone().into());
-                values.push(row.action_index.into());
-                values.push(row.block_timestamp.into());
-            },
-            "failed to bulk upsert near_receipt_actions",
-        )
-        .await
+        canonical_persistence::flush_near_receipt_actions(db, rows).await
     }
 
     async fn flush_canonical_receipt_edges(
         db: &impl ConnectionTrait,
         rows: &[NearReceiptEdgeRow],
     ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            CANONICAL_RECEIPT_EDGE_BULK_INSERT_PLAN,
-            "INSERT INTO near.near_receipt_edges (
-                parent_receipt_id,
-                child_receipt_id,
-                parent_execution_outcome_id,
-                block_height,
-                block_hash,
-                block_timestamp,
-                transaction_hash
-            ) VALUES ",
-            "
-            ON CONFLICT (parent_receipt_id, child_receipt_id) DO UPDATE SET
-                parent_execution_outcome_id = EXCLUDED.parent_execution_outcome_id,
-                block_height = EXCLUDED.block_height,
-                block_hash = EXCLUDED.block_hash,
-                block_timestamp = EXCLUDED.block_timestamp,
-                transaction_hash = COALESCE(
-                    near.near_receipt_edges.transaction_hash,
-                    EXCLUDED.transaction_hash
-                )",
-            |row, values| {
-                values.push(row.parent_receipt_id.clone().into());
-                values.push(row.child_receipt_id.clone().into());
-                values.push(row.parent_execution_outcome_id.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.block_hash.clone().into());
-                values.push(row.block_timestamp.into());
-                values.push(row.transaction_hash.clone().into());
-            },
-            "failed to bulk upsert near_receipt_edges",
-        )
-        .await
+        canonical_persistence::flush_near_receipt_edges(db, rows).await
     }
 
     async fn flush_canonical_blocks(
         db: &impl ConnectionTrait,
         rows: &[NearBlockRow],
     ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            CANONICAL_BLOCK_BULK_INSERT_PLAN,
-            "INSERT INTO near.near_blocks (
-                height,
-                hash,
-                prev_hash,
-                epoch_id,
-                next_epoch_id,
-                author,
-                timestamp,
-                timestamp_nanosec,
-                gas_price,
-                total_supply,
-                validator_reward,
-                protocol_version,
-                chunks_included,
-                block_ordinal,
-                prev_height,
-                raw_data
-            ) VALUES ",
-            "
-            ON CONFLICT (height) DO NOTHING",
-            |row, values| {
-                values.push(row.height.into());
-                values.push(row.hash.clone().into());
-                values.push(row.prev_hash.clone().into());
-                values.push(row.epoch_id.clone().into());
-                values.push(row.next_epoch_id.clone().into());
-                values.push(row.author.clone().into());
-                values.push(row.timestamp.into());
-                values.push(row.timestamp_nanosec.into());
-                values.push(row.gas_price.clone().into());
-                values.push(row.total_supply.clone().into());
-                values.push(row.validator_reward.clone().into());
-                values.push(row.protocol_version.into());
-                values.push(row.chunks_included.into());
-                values.push(row.block_ordinal.into());
-                values.push(row.prev_height.into());
-                values.push(row.raw_data.clone().into());
-            },
-            "failed to bulk insert near_blocks",
-        )
-        .await
+        canonical_persistence::flush_near_blocks(db, rows).await
     }
 
     async fn flush_canonical_chunks(
         db: &impl ConnectionTrait,
         rows: &[NearChunkRow],
     ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            CANONICAL_CHUNK_BULK_INSERT_PLAN,
-            "INSERT INTO near.near_chunks (
-                chunk_hash,
-                block_height,
-                shard_id,
-                author,
-                height_created,
-                height_included,
-                gas_used,
-                gas_limit,
-                validator_reward,
-                raw_data
-            ) VALUES ",
-            "
-            ON CONFLICT (chunk_hash) DO NOTHING",
-            |row, values| {
-                values.push(row.chunk_hash.clone().into());
-                values.push(row.block_height.into());
-                values.push(row.shard_id.into());
-                values.push(row.author.clone().into());
-                values.push(row.height_created.into());
-                values.push(row.height_included.into());
-                values.push(row.gas_used.into());
-                values.push(row.gas_limit.into());
-                values.push(row.validator_reward.clone().into());
-                values.push(row.raw_data.clone().into());
-            },
-            "failed to bulk insert near_chunks",
-        )
-        .await
+        canonical_persistence::flush_near_chunks(db, rows).await
     }
 
     async fn flush_canonical_state_changes(
         db: &impl ConnectionTrait,
         rows: &[NearStateChangesRow],
     ) -> Result<()> {
-        Self::execute_chunked_upsert(
-            db,
-            rows,
-            CANONICAL_STATE_CHANGE_BULK_INSERT_PLAN,
-            "INSERT INTO near.near_state_changes (
-                block_height,
-                shard_id,
-                state_changes
-            ) VALUES ",
-            "
-            ON CONFLICT (block_height, shard_id) DO NOTHING",
-            |row, values| {
-                values.push(row.block_height.into());
-                values.push(row.shard_id.into());
-                values.push(row.state_changes.clone().into());
-            },
-            "failed to bulk insert near_state_changes",
-        )
-        .await
+        canonical_persistence::flush_near_state_changes(db, rows).await
     }
 
     async fn flush_canonical_write_batch(
@@ -2538,20 +1602,30 @@ impl VenearGovernanceModule {
         stats.record_count("canonical_state_changes_rows", state_changes.len());
         stats.record_count(
             "canonical_total_batches",
-            Self::batch_count(transactions.len(), CANONICAL_TRANSACTION_BULK_INSERT_PLAN)
-                + Self::batch_count(receipts.len(), CANONICAL_RECEIPT_BULK_INSERT_PLAN)
-                + Self::batch_count(
-                    execution_outcomes.len(),
-                    CANONICAL_EXECUTION_OUTCOME_BULK_INSERT_PLAN,
+            canonical_persistence::batch_count(
+                transactions.len(),
+                CANONICAL_TRANSACTION_BULK_INSERT_PLAN,
+            ) + canonical_persistence::batch_count(
+                receipts.len(),
+                CANONICAL_RECEIPT_BULK_INSERT_PLAN,
+            ) + canonical_persistence::batch_count(
+                execution_outcomes.len(),
+                CANONICAL_EXECUTION_OUTCOME_BULK_INSERT_PLAN,
+            ) + canonical_persistence::batch_count(
+                receipt_actions.len(),
+                CANONICAL_RECEIPT_ACTION_BULK_INSERT_PLAN,
+            ) + canonical_persistence::batch_count(
+                receipt_edges.len(),
+                CANONICAL_RECEIPT_EDGE_BULK_INSERT_PLAN,
+            ) + canonical_persistence::batch_count(blocks.len(), CANONICAL_BLOCK_BULK_INSERT_PLAN)
+                + canonical_persistence::batch_count(
+                    chunks.len(),
+                    CANONICAL_CHUNK_BULK_INSERT_PLAN,
                 )
-                + Self::batch_count(
-                    receipt_actions.len(),
-                    CANONICAL_RECEIPT_ACTION_BULK_INSERT_PLAN,
-                )
-                + Self::batch_count(receipt_edges.len(), CANONICAL_RECEIPT_EDGE_BULK_INSERT_PLAN)
-                + Self::batch_count(blocks.len(), CANONICAL_BLOCK_BULK_INSERT_PLAN)
-                + Self::batch_count(chunks.len(), CANONICAL_CHUNK_BULK_INSERT_PLAN)
-                + Self::batch_count(state_changes.len(), CANONICAL_STATE_CHANGE_BULK_INSERT_PLAN),
+                + canonical_persistence::batch_count(
+                    state_changes.len(),
+                    CANONICAL_STATE_CHANGE_BULK_INSERT_PLAN,
+                ),
         );
 
         let start = Instant::now();
@@ -2650,72 +1724,47 @@ impl VenearGovernanceModule {
 
     async fn store_hos_projection(
         &self,
+        prepared: &PreparedBlockContext,
         msg: &StreamerMessage,
         db: &impl ConnectionTrait,
-    ) -> Result<StageMetrics> {
+    ) -> Result<ProjectionResult> {
         let mut stats = StageMetrics::new();
-        let block_height = msg.block.header.height as i64;
-        let block_hash = msg.block.header.hash.to_string();
-        let block_timestamp = msg.block.header.timestamp as i64;
-        let default_author = msg.block.author.to_string();
+        let block_height = prepared.block_height;
+        let block_hash = prepared.block_hash.clone();
+        let block_timestamp = prepared.block_timestamp;
+        let default_author = prepared.block_author.clone();
         let block_source = BlockSource {
             author: default_author.clone(),
             block: Arc::new(msg.block.clone()),
         };
 
-        let build_receipt_tx_hashes_start = Instant::now();
-        let mut receipt_tx_hashes = build_receipt_tx_hashes(&msg.shards);
-        stats.record_phase_elapsed("build_receipt_tx_hashes", build_receipt_tx_hashes_start);
+        let prepared_receipt_tx_hashes_clone_start = Instant::now();
+        let mut receipt_tx_hashes = prepared.receipt_tx_hashes.clone();
+        stats.record_phase_elapsed(
+            "clone_prepared_receipt_tx_hashes",
+            prepared_receipt_tx_hashes_clone_start,
+        );
 
-        let mut lookup_receipt_ids = Vec::new();
-        let mut relevant_data_receipt_ids = HashSet::new();
-
-        let lookup_receipt_collect_start = Instant::now();
-        for shard in &msg.shards {
-            if let Some(chunk) = &shard.chunk {
-                for tx_with_outcome in &chunk.transactions {
-                    if let Some(receipt) = &tx_with_outcome.outcome.receipt {
-                        lookup_receipt_ids.push(receipt.receipt_id.to_string());
-                    }
-                    for child_receipt_id in &tx_with_outcome
-                        .outcome
-                        .execution_outcome
-                        .outcome
-                        .receipt_ids
-                    {
-                        lookup_receipt_ids.push(child_receipt_id.to_string());
-                    }
-                }
-
-                for receipt in &chunk.receipts {
-                    lookup_receipt_ids.push(receipt.receipt_id.to_string());
-                    if let Some(data_id) = Self::receipt_data_id(receipt) {
-                        relevant_data_receipt_ids.insert(data_id);
-                    }
-                }
-
-                for receipt in &chunk.local_receipts {
-                    lookup_receipt_ids.push(receipt.receipt_id.to_string());
-                    if let Some(data_id) = Self::receipt_data_id(receipt) {
-                        relevant_data_receipt_ids.insert(data_id);
-                    }
-                }
-            }
-
-            for outcome_with_receipt in &shard.receipt_execution_outcomes {
-                let receipt = &outcome_with_receipt.receipt;
-                lookup_receipt_ids.push(receipt.receipt_id.to_string());
-                if let Some(data_id) = Self::receipt_data_id(receipt) {
-                    relevant_data_receipt_ids.insert(data_id);
-                }
-                for child_receipt_id in &outcome_with_receipt.execution_outcome.outcome.receipt_ids
-                {
-                    lookup_receipt_ids.push(child_receipt_id.to_string());
-                }
-            }
-        }
-        stats.record_phase_elapsed("lookup_receipt_collect", lookup_receipt_collect_start);
-        stats.record_count("lookup_receipt_ids_before_dedup", lookup_receipt_ids.len());
+        let prepare_lookup_inputs_start = Instant::now();
+        let lookup_receipt_ids = prepared.candidate_receipt_ids.clone();
+        let relevant_data_receipt_ids = prepared.data_receipt_ids.clone();
+        stats.record_phase_elapsed("prepare_lookup_inputs", prepare_lookup_inputs_start);
+        stats.record_count(
+            "lookup_receipt_ids_before_dedup",
+            prepared.candidate_receipt_id_count_before_dedup,
+        );
+        stats.record_count(
+            "prepared_receipt_tx_seed_count",
+            prepared.receipt_tx_hashes.len(),
+        );
+        stats.record_count(
+            "prepared_data_receipt_id_count",
+            prepared.data_receipt_ids.len(),
+        );
+        stats.record_count(
+            "prepared_candidate_receipt_id_count",
+            prepared.candidate_receipt_ids.len(),
+        );
 
         let data_receipt_links_clone_start = Instant::now();
         let (mut data_receipt_links, data_receipt_link_cache_size) = {
@@ -2759,10 +1808,6 @@ impl VenearGovernanceModule {
             lookup_seed_from_data_links_start,
         );
 
-        let lookup_receipt_dedup_start = Instant::now();
-        let mut seen_lookup_receipt_ids = HashSet::new();
-        lookup_receipt_ids.retain(|receipt_id| seen_lookup_receipt_ids.insert(receipt_id.clone()));
-        stats.record_phase_elapsed("lookup_receipt_dedup", lookup_receipt_dedup_start);
         stats.record_count("lookup_receipt_ids_after_dedup", lookup_receipt_ids.len());
 
         let lookup_hot_cache_resolve_start = Instant::now();
@@ -2901,19 +1946,11 @@ impl VenearGovernanceModule {
         stats.record_phase_elapsed("output_data_link_build", output_data_link_build_start);
 
         let block_update_build_start = Instant::now();
-        for shard in &msg.shards {
+        for (shard, shard_ctx) in msg.shards.iter().zip(prepared.shards.iter()) {
             let mut shard_touched_tx_hashes = HashSet::new();
-            let chunk_hash = shard
-                .chunk
-                .as_ref()
-                .map(|chunk| chunk.header.chunk_hash.to_string())
-                .unwrap_or_default();
-            let chunk_author = shard
-                .chunk
-                .as_ref()
-                .map(|chunk| chunk.author.to_string())
-                .unwrap_or_else(|| default_author.clone());
-            let shard_id = Self::shard_to_i64(shard.shard_id);
+            let chunk_hash = shard_ctx.chunk_hash.clone();
+            let chunk_author = shard_ctx.chunk_author.clone();
+            let shard_id = shard_ctx.shard_id;
 
             if let Some(chunk) = &shard.chunk {
                 for tx_with_outcome in &chunk.transactions {
@@ -3024,7 +2061,7 @@ impl VenearGovernanceModule {
                                 NearReceiptEdgeRow {
                                     parent_receipt_id: parent_receipt_id.to_string(),
                                     child_receipt_id: child_receipt_id.clone(),
-                                    transaction_hash: tx_hash.clone(),
+                                    transaction_hash: Some(tx_hash.clone()),
                                     parent_execution_outcome_id: tx_outcome_id.clone(),
                                     block_height,
                                     block_hash: block_hash.clone(),
@@ -3081,7 +2118,7 @@ impl VenearGovernanceModule {
                             NearReceiptEdgeRow {
                                 parent_receipt_id: link.parent_receipt_id.clone(),
                                 child_receipt_id: receipt_id.clone(),
-                                transaction_hash: transaction_hash.clone(),
+                                transaction_hash: Some(transaction_hash.clone()),
                                 parent_execution_outcome_id: link
                                     .parent_execution_outcome_id
                                     .clone(),
@@ -3143,7 +2180,7 @@ impl VenearGovernanceModule {
                         NearReceiptEdgeRow {
                             parent_receipt_id: link.parent_receipt_id.clone(),
                             child_receipt_id: receipt_id.clone(),
-                            transaction_hash: transaction_hash.clone(),
+                            transaction_hash: Some(transaction_hash.clone()),
                             parent_execution_outcome_id: link.parent_execution_outcome_id.clone(),
                             block_height: link.block_height,
                             block_hash: link.block_hash.clone(),
@@ -3205,7 +2242,7 @@ impl VenearGovernanceModule {
                         NearReceiptEdgeRow {
                             parent_receipt_id: receipt_id.clone(),
                             child_receipt_id: child_receipt_id.clone(),
-                            transaction_hash: transaction_hash.clone(),
+                            transaction_hash: Some(transaction_hash.clone()),
                             parent_execution_outcome_id: outcome_id.clone(),
                             block_height,
                             block_hash: block_hash.clone(),
@@ -3257,7 +2294,7 @@ impl VenearGovernanceModule {
         stats.record_count("receipt_tx_map_write_rows", receipt_map_rows_to_write.len());
         stats.record_count(
             "receipt_tx_map_write_batch_count",
-            Self::batch_count(
+            canonical_persistence::batch_count(
                 receipt_map_rows_to_write.len(),
                 RECEIPT_TX_MAP_BULK_INSERT_PLAN,
             ),
@@ -3353,10 +2390,65 @@ impl VenearGovernanceModule {
             state.note_closed_hos_graphs(merge_plan.closed_raw_only.len());
         }
 
+        Ok(ProjectionResult {
+            stats,
+            unresolved_hos_receipts,
+        })
+    }
+
+    async fn process_block_internal(
+        &self,
+        prepared: &PreparedBlockContext,
+        msg: &StreamerMessage,
+        db: &DatabaseConnection,
+    ) -> Result<()> {
+        let height = prepared.block_height as u64;
+        let shard_count = prepared.shard_count;
+        info!(
+            module = MODULE_NAME,
+            height = height,
+            shard_count = shard_count,
+            "Processing HOS governance raw block data"
+        );
+
+        let mut process_log = BlockProcessingLog::new(MODULE_NAME, height, shard_count);
+
+        let txn = process_log
+            .metrics_mut()
+            .time_future("txn_begin", db.begin())
+            .await?;
+
+        let projection_result = process_log
+            .metrics_mut()
+            .time_future(
+                "store_projection",
+                self.store_hos_projection(prepared, msg, &txn),
+            )
+            .await
+            .context("failed to store HOS governance raw projection data")?;
+        let ProjectionResult {
+            stats: projection_stats,
+            unresolved_hos_receipts,
+        } = projection_result;
+        process_log
+            .metrics_mut()
+            .merge_with_prefix("projection.", projection_stats);
+
+        process_log
+            .metrics_mut()
+            .time_future("txn_commit", txn.commit())
+            .await?;
+
+        let post_commit_start = Instant::now();
+        let block_height = height as i64;
+        let maintenance_collect_start = Instant::now();
         let maintenance_plan = {
             let state = self.state.lock().unwrap();
             state.collect_maintenance_plan(block_height, self.finalization_interval_blocks)
         };
+        process_log
+            .metrics_mut()
+            .record_phase_elapsed("maintenance_collect", maintenance_collect_start);
 
         if maintenance_plan.stalled_warning_summary.total_count > 0 {
             warn!(
@@ -3379,24 +2471,28 @@ impl VenearGovernanceModule {
             );
         }
 
-        stats.record_flag("maintenance_triggered", maintenance_plan.triggered);
-        stats.record_count(
+        process_log
+            .metrics_mut()
+            .record_flag("maintenance_triggered", maintenance_plan.triggered);
+        process_log.metrics_mut().record_count(
             "stalled_graph_count",
             maintenance_plan.stalled_warning_summary.total_count,
         );
-        stats.record_count(
+        process_log.metrics_mut().record_count(
             "stalled_hos_graph_count",
             maintenance_plan.stalled_warning_summary.hos_touch_count,
         );
-        stats.record_count(
+        process_log.metrics_mut().record_count(
             "effective_receipt_tx_map_retention_blocks",
             self.effective_receipt_tx_map_retention_blocks().max(0) as u64,
         );
-        stats.record_count(
+        process_log.metrics_mut().record_count(
             "maintenance_active_graph_tx_hash_count",
             maintenance_plan.active_graph_tx_hashes.len(),
         );
-        stats.record_flag("receipt_tx_map_cleanup_skipped_for_replay", false);
+        process_log
+            .metrics_mut()
+            .record_flag("receipt_tx_map_cleanup_skipped_for_replay", false);
 
         if maintenance_plan.triggered {
             let finalize_start = Instant::now();
@@ -3405,7 +2501,7 @@ impl VenearGovernanceModule {
                 let mut state = self.state.lock().unwrap();
                 state.should_skip_receipt_tx_map_cleanup(block_height)
             };
-            stats.record_flag(
+            process_log.metrics_mut().record_flag(
                 "receipt_tx_map_cleanup_skipped_for_replay",
                 cleanup_skipped_for_replay,
             );
@@ -3419,12 +2515,17 @@ impl VenearGovernanceModule {
                 )
                 .await?
             };
-            stats.record_phase_elapsed("receipt_tx_map_cleanup", cleanup_start);
-            stats.record_count(
+            process_log
+                .metrics_mut()
+                .record_phase_elapsed("receipt_tx_map_cleanup", cleanup_start);
+            process_log.metrics_mut().record_count(
                 "receipt_tx_map_cleanup_batch_count",
                 cleanup_stats.batch_count,
             );
-            stats.record_count("receipt_tx_map_deleted", cleanup_stats.deleted_total);
+            process_log
+                .metrics_mut()
+                .record_count("receipt_tx_map_deleted", cleanup_stats.deleted_total);
+            let hot_cache_evict_start = Instant::now();
             {
                 let mut state = self.state.lock().unwrap();
                 state.evict_receipt_tx_hot_cache(
@@ -3432,62 +2533,19 @@ impl VenearGovernanceModule {
                     self.effective_receipt_tx_map_retention_blocks(),
                     &maintenance_plan.active_graph_tx_hashes,
                 );
-                stats.record_count(
+                process_log.metrics_mut().record_count(
                     "receipt_tx_hot_cache_size",
                     state.receipt_tx_hot_cache.len(),
                 );
             }
-            stats.record_phase_elapsed("maintenance_finalize", finalize_start);
+            process_log
+                .metrics_mut()
+                .record_phase_elapsed("receipt_tx_hot_cache_evict", hot_cache_evict_start);
+            process_log
+                .metrics_mut()
+                .record_phase_elapsed("maintenance_finalize", finalize_start);
         }
 
-        for receipt_id in unresolved_hos_receipts {
-            warn!(
-                module = MODULE_NAME,
-                receipt_id = %receipt_id,
-                height = block_height,
-                "HoS-related receipt observed without resolvable transaction hash; preserving nothing until replay or later lineage resolution"
-            );
-        }
-
-        Ok(stats)
-    }
-
-    async fn process_block_internal(
-        &self,
-        msg: &StreamerMessage,
-        db: &DatabaseConnection,
-    ) -> Result<()> {
-        let height = msg.block.header.height;
-        let shard_count = msg.shards.len();
-        info!(
-            module = MODULE_NAME,
-            height = height,
-            shard_count = shard_count,
-            "Processing HOS governance raw block data"
-        );
-
-        let mut process_log = BlockProcessingLog::new(MODULE_NAME, height, shard_count);
-
-        let txn = process_log
-            .metrics_mut()
-            .time_future("txn_begin", db.begin())
-            .await?;
-
-        let projection_stats = process_log
-            .metrics_mut()
-            .time_future("store_projection", self.store_hos_projection(msg, &txn))
-            .await
-            .context("failed to store HOS governance raw projection data")?;
-        process_log
-            .metrics_mut()
-            .merge_with_prefix("projection.", projection_stats);
-
-        process_log
-            .metrics_mut()
-            .time_future("txn_commit", txn.commit())
-            .await?;
-
-        let block_height = height as i64;
         let (mview_refresh_triggered, mview_refresh_graph_count) =
             self.take_pending_mview_refresh(block_height);
         process_log
@@ -3523,6 +2581,18 @@ impl VenearGovernanceModule {
                     .record_flag("mview_refresh_failed", false);
             }
         }
+
+        for receipt_id in unresolved_hos_receipts {
+            warn!(
+                module = MODULE_NAME,
+                receipt_id = %receipt_id,
+                height = block_height,
+                "HoS-related receipt observed without resolvable transaction hash; preserving nothing until replay or later lineage resolution"
+            );
+        }
+        process_log
+            .metrics_mut()
+            .record_phase_elapsed("post_commit", post_commit_start);
 
         process_log.log_success("Successfully processed HOS governance raw block data");
 
@@ -3566,9 +2636,14 @@ impl IndexerModule for VenearGovernanceModule {
         Ok(())
     }
 
-    #[instrument(skip(self, msg, db), fields(module = "venear_governance", height = %msg.block.header.height))]
-    async fn process_block(&self, msg: &StreamerMessage, db: &DatabaseConnection) -> Result<()> {
-        self.process_block_internal(msg, db).await
+    #[instrument(skip(self, prepared, msg, db), fields(module = "venear_governance", height = prepared.block_height))]
+    async fn process_prepared_block(
+        &self,
+        prepared: &PreparedBlockContext,
+        msg: &StreamerMessage,
+        db: &DatabaseConnection,
+    ) -> Result<()> {
+        self.process_block_internal(prepared, msg, db).await
     }
 
     async fn get_cursor(&self, db: &DatabaseConnection) -> Result<Option<i64>> {

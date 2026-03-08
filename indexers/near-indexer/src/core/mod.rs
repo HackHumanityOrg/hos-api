@@ -1,6 +1,10 @@
+pub mod canonical_persistence;
+pub mod canonical_rows;
 pub mod cursor;
 pub mod lake_stream;
+pub mod prepared_block;
 pub mod processor;
+pub mod receipt_tx_canonical_resolver;
 pub mod receipt_tx_hash_map;
 pub mod receipt_tx_resolver;
 pub mod stage_timing;
