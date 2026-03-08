@@ -108,7 +108,12 @@ fn collect_range_paths(id: &str) -> Result<Vec<PathBuf>> {
 
     let part_prefix = format!("{id}.part");
     let mut part_paths: Vec<_> = std::fs::read_dir(ranges_root())
-        .with_context(|| format!("failed to read fixture ranges dir {}", ranges_root().display()))?
+        .with_context(|| {
+            format!(
+                "failed to read fixture ranges dir {}",
+                ranges_root().display()
+            )
+        })?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .filter(|path| {
             path.file_name()

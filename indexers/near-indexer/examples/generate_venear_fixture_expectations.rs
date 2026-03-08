@@ -7,12 +7,12 @@
 
 #![allow(dead_code)]
 
-#[path = "../tests/support/fixture_ranges.rs"]
-mod fixture_ranges;
 #[path = "../tests/support/fixture_catalog.rs"]
 mod fixture_catalog;
 #[path = "../tests/support/fixture_expectations.rs"]
 mod fixture_expectations;
+#[path = "../tests/support/fixture_ranges.rs"]
+mod fixture_ranges;
 
 use anyhow::{bail, Context, Result};
 use common::config::{
@@ -20,9 +20,6 @@ use common::config::{
     NearModulesConfig, NearStreamProvider, RawModuleConfig, TelemetryConfig,
     VenearGovernanceModuleConfig,
 };
-use near_indexer::modules::raw::RawModule;
-use near_indexer::modules::venear_governance::VenearGovernanceModule;
-use near_indexer::IndexerModule;
 use fixture_catalog::{
     all_fixture_cases, find_fixture_case, load_fixture_messages, FixtureCase, ModuleExpectationKind,
 };
@@ -30,6 +27,9 @@ use fixture_expectations::{
     capture_fixture_expectation, expectation_path, refresh_hos_materialized_views,
     reset_near_indexer_tables, write_fixture_expectation,
 };
+use near_indexer::modules::raw::RawModule;
+use near_indexer::modules::venear_governance::VenearGovernanceModule;
+use near_indexer::IndexerModule;
 use test_support::TestDatabase;
 
 fn parse_bool_env(name: &str, default: bool) -> bool {
@@ -133,10 +133,7 @@ async fn generate_raw_expectation(db: &TestDatabase, fixture_case: &FixtureCase)
     Ok(())
 }
 
-async fn generate_venear_expectation(
-    db: &TestDatabase,
-    fixture_case: &FixtureCase,
-) -> Result<()> {
+async fn generate_venear_expectation(db: &TestDatabase, fixture_case: &FixtureCase) -> Result<()> {
     let config = build_venear_only_config();
     let module = VenearGovernanceModule::new(&config);
     let fixtures = load_fixture_messages(fixture_case)?;

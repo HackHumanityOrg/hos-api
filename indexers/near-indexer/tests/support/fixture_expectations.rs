@@ -295,7 +295,9 @@ fn json_values_equivalent(lhs: &JsonValue, rhs: &JsonValue) -> bool {
                 && left
                     .iter()
                     .zip(right.iter())
-                    .all(|(left_value, right_value)| json_values_equivalent(left_value, right_value))
+                    .all(|(left_value, right_value)| {
+                        json_values_equivalent(left_value, right_value)
+                    })
         }
         (JsonValue::Object(left), JsonValue::Object(right)) => {
             left.len() == right.len()
@@ -324,13 +326,18 @@ async fn relation_rows(
             vec![],
         ))
         .await
-        .with_context(|| format!("failed reading relation snapshot for {}", relation_spec.name))?;
+        .with_context(|| {
+            format!(
+                "failed reading relation snapshot for {}",
+                relation_spec.name
+            )
+        })?;
 
     rows.into_iter()
         .map(|row| {
-            let value: JsonValue = row
-                .try_get("", "value")
-                .with_context(|| format!("failed decoding row for relation {}", relation_spec.name))?;
+            let value: JsonValue = row.try_get("", "value").with_context(|| {
+                format!("failed decoding row for relation {}", relation_spec.name)
+            })?;
             let row_map = value_to_btreemap(value, relation_spec.name)?;
             Ok(normalize_relation_row(relation_spec.name, row_map))
         })
@@ -386,10 +393,7 @@ pub async fn capture_fixture_expectation(
     })
 }
 
-pub fn expectation_path(
-    fixture_case: &FixtureCase,
-    module_kind: ModuleExpectationKind,
-) -> PathBuf {
+pub fn expectation_path(fixture_case: &FixtureCase, module_kind: ModuleExpectationKind) -> PathBuf {
     expectation_root()
         .join(module_kind.as_str())
         .join(format!("{}.json", fixture_case.id))
@@ -413,10 +417,7 @@ pub fn read_fixture_expectation(path: &Path) -> Result<FixtureExpectationFile> {
     Ok(expectation)
 }
 
-pub fn write_fixture_expectation(
-    path: &Path,
-    expectation: &FixtureExpectationFile,
-) -> Result<()> {
+pub fn write_fixture_expectation(path: &Path, expectation: &FixtureExpectationFile) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| {
             format!(
@@ -447,11 +448,8 @@ fn assert_table_expectation(
         );
     }
 
-    for (row_index, (actual_row, expected_row)) in actual
-        .rows
-        .iter()
-        .zip(expected.rows.iter())
-        .enumerate()
+    for (row_index, (actual_row, expected_row)) in
+        actual.rows.iter().zip(expected.rows.iter()).enumerate()
     {
         let keys = actual_row
             .keys()
@@ -485,21 +483,24 @@ pub fn assert_snapshot_matches(
         let relation_name = relation_spec.name;
         let (actual_table, expected_table) = match relation_spec.category {
             RelationCategory::Canonical => (
-                actual
-                    .canonical
-                    .get(relation_name)
-                    .ok_or_else(|| anyhow!("missing actual canonical relation {}", relation_name))?,
+                actual.canonical.get(relation_name).ok_or_else(|| {
+                    anyhow!("missing actual canonical relation {}", relation_name)
+                })?,
                 expected.canonical.get(relation_name).ok_or_else(|| {
                     anyhow!("missing expected canonical relation {}", relation_name)
                 })?,
             ),
             RelationCategory::MaterializedView => (
-                actual.materialized_views.get(relation_name).ok_or_else(|| {
-                    anyhow!("missing actual materialized view {}", relation_name)
-                })?,
-                expected.materialized_views.get(relation_name).ok_or_else(|| {
-                    anyhow!("missing expected materialized view {}", relation_name)
-                })?,
+                actual
+                    .materialized_views
+                    .get(relation_name)
+                    .ok_or_else(|| anyhow!("missing actual materialized view {}", relation_name))?,
+                expected
+                    .materialized_views
+                    .get(relation_name)
+                    .ok_or_else(|| {
+                        anyhow!("missing expected materialized view {}", relation_name)
+                    })?,
             ),
         };
 
