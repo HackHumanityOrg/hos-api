@@ -7,7 +7,9 @@ use std::time::Instant;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::core::prepared_block::PreparedBlockContext;
+use crate::core::block_artifacts::BlockArtifacts;
+use crate::core::block_facts::BlockFacts;
+use crate::core::module_demand::ModuleDemand;
 use crate::core::stage_timing::StageMetrics;
 use crate::ModuleRegistry;
 
@@ -81,17 +83,25 @@ async fn process_block_independent(
         return Ok(());
     }
 
-    let prepare_block_start = Instant::now();
-    let prepared_build = PreparedBlockContext::from_message_with_metrics(msg)?;
-    block_metrics.record_phase_elapsed("prepare_block", prepare_block_start);
-    block_metrics.merge_with_prefix("prepare.", prepared_build.metrics);
-    let prepared = prepared_build.context;
+    let facts_build_start = Instant::now();
+    let facts_build = BlockFacts::from_message_with_metrics(msg)?;
+    block_metrics.record_phase_elapsed("facts_build", facts_build_start);
+    block_metrics.merge_with_prefix("facts.", facts_build.metrics);
+    let artifacts = BlockArtifacts::new(facts_build.facts);
+
+    let mut module_demand = ModuleDemand::default();
+    for module in &modules_to_process {
+        module_demand = module_demand.union(module.demand());
+    }
+    block_metrics.record_flag("needs_receipt_graph", module_demand.needs_receipt_graph);
+    block_metrics.record_flag("needs_raw_projection", module_demand.needs_raw_projection);
+    block_metrics.record_flag("needs_hos_delta", module_demand.needs_hos_delta);
 
     let mut modules_processed = 0;
     for module in modules_to_process {
         let module_process_start = Instant::now();
         if let Err(e) = module
-            .process_prepared_block(&prepared, msg, db.as_ref())
+            .process_block_with_artifacts(&artifacts, msg, db.as_ref())
             .await
         {
             error!(

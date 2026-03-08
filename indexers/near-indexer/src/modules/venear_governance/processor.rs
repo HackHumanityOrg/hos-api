@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracing::{error, info, instrument, warn};
 
+use crate::core::block_artifacts::BlockArtifacts;
+use crate::core::block_facts::BlockFacts;
 use crate::core::canonical_persistence::{
     self, NearReceiptWriteMode, NearTransactionWriteMode, CANONICAL_BLOCK_BULK_INSERT_PLAN,
     CANONICAL_CHUNK_BULK_INSERT_PLAN, CANONICAL_EXECUTION_OUTCOME_BULK_INSERT_PLAN,
@@ -22,9 +24,10 @@ use crate::core::canonical_rows::{
     NearTransactionRow, ReceiptActionRowMeta, ReceiptTxHashMapRow,
 };
 use crate::core::cursor;
-use crate::core::prepared_block::PreparedBlockContext;
-use crate::core::receipt_tx_hash_map::{
-    load_receipt_tx_hash_map, receipt_tx_hash_lookup_batch_count,
+use crate::core::module_demand::ModuleDemand;
+use crate::core::receipt_graph_resolver::{
+    DataReceiptParentLink as SharedDataReceiptParentLink, ReceiptGraphResolver,
+    ReceiptGraphUpsertMode,
 };
 use crate::core::stage_timing::{BlockProcessingLog, StageMetrics};
 use crate::IndexerModule;
@@ -41,7 +44,6 @@ const DEFAULT_TX_MAP_RETENTION_BLOCKS: i64 = 1_024;
 const DEFAULT_YIELD_TIMEOUT_BLOCKS: i64 = 200;
 const DATA_RECEIPT_LINK_RETENTION_BLOCKS: i64 = 256;
 const STALLED_PENDING_GRAPH_WARNING_BLOCKS: i64 = 43_200;
-const RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS: i64 = 128;
 const RECEIPT_TX_MAP_CLEANUP_TARGET_ROWS: usize = 30_000;
 
 #[derive(Clone)]
@@ -197,30 +199,6 @@ impl TxSliceRefs {
             + self.execution_outcome_ids.len()
             + self.receipt_edge_keys.len()
     }
-}
-
-#[derive(Clone)]
-struct ReceiptTxHotCacheEntry {
-    transaction_hash: String,
-    last_seen_height: i64,
-    last_persisted_height: i64,
-}
-
-#[derive(Default)]
-struct ReceiptTxHotCacheLookupStats {
-    candidate_count: usize,
-    local_resolved_count: usize,
-    hot_cache_hit_count: usize,
-    db_query_count: usize,
-    db_hit_count: usize,
-    db_miss_count: usize,
-}
-
-#[derive(Default)]
-struct ReceiptTxHotCacheWriteStats {
-    new_count: usize,
-    refresh_count: usize,
-    skipped_count: usize,
 }
 
 #[derive(Default)]
@@ -489,7 +467,6 @@ struct HosRuntimeState {
     recent_block_ref_counts: HashMap<i64, usize>,
     data_receipt_links: HashMap<String, DataReceiptParentLink>,
     data_receipt_link_heights: BTreeMap<i64, Vec<String>>,
-    receipt_tx_hot_cache: HashMap<String, ReceiptTxHotCacheEntry>,
     closed_hos_since_refresh: usize,
     cleanup_resume_height: Option<i64>,
 }
@@ -554,6 +531,9 @@ struct ReceiptTxMapCleanupStats {
 struct ProjectionResult {
     stats: StageMetrics,
     unresolved_hos_receipts: Vec<String>,
+    new_data_receipt_links: HashMap<String, SharedDataReceiptParentLink>,
+    receipt_map_rows: Vec<ReceiptTxHashMapRow>,
+    persisted_receipt_map_rows: Vec<ReceiptTxHashMapRow>,
 }
 
 impl HosRuntimeState {
@@ -595,25 +575,6 @@ impl HosRuntimeState {
         self.evict_data_receipt_links(block_height);
     }
 
-    fn snapshot_data_receipt_links(
-        &self,
-        data_ids: &HashSet<String>,
-    ) -> HashMap<String, DataReceiptParentLink> {
-        if data_ids.is_empty() {
-            return HashMap::new();
-        }
-
-        let mut snapshot =
-            HashMap::with_capacity(data_ids.len().min(self.data_receipt_links.len()));
-        for data_id in data_ids {
-            if let Some(link) = self.data_receipt_links.get(data_id) {
-                snapshot.insert(data_id.clone(), link.clone());
-            }
-        }
-
-        snapshot
-    }
-
     fn evict_data_receipt_links(&mut self, block_height: i64) {
         let cutoff_height = block_height.saturating_sub(DATA_RECEIPT_LINK_RETENTION_BLOCKS);
         let stale_heights = self
@@ -637,114 +598,6 @@ impl HosRuntimeState {
                 }
             }
         }
-    }
-
-    fn resolve_receipt_tx_hashes_from_hot_cache(
-        &mut self,
-        block_height: i64,
-        receipt_ids: &[String],
-        receipt_tx_hashes: &mut HashMap<String, String>,
-    ) -> ReceiptTxHotCacheLookupStats {
-        let mut stats = ReceiptTxHotCacheLookupStats {
-            candidate_count: receipt_ids.len(),
-            ..ReceiptTxHotCacheLookupStats::default()
-        };
-
-        for receipt_id in receipt_ids {
-            if receipt_tx_hashes.contains_key(receipt_id) {
-                stats.local_resolved_count += 1;
-                continue;
-            }
-
-            if let Some(entry) = self.receipt_tx_hot_cache.get_mut(receipt_id) {
-                entry.last_seen_height = entry.last_seen_height.max(block_height);
-                receipt_tx_hashes
-                    .entry(receipt_id.clone())
-                    .or_insert_with(|| entry.transaction_hash.clone());
-                stats.hot_cache_hit_count += 1;
-            }
-        }
-
-        stats
-    }
-
-    fn plan_receipt_tx_hash_map_writes(
-        &self,
-        rows: &[ReceiptTxHashMapRow],
-        block_height: i64,
-    ) -> (Vec<ReceiptTxHashMapRow>, ReceiptTxHotCacheWriteStats) {
-        let mut planned = Vec::new();
-        let mut stats = ReceiptTxHotCacheWriteStats::default();
-
-        for row in rows {
-            let Some(entry) = self.receipt_tx_hot_cache.get(&row.receipt_id) else {
-                planned.push(row.clone());
-                stats.new_count += 1;
-                continue;
-            };
-
-            if entry.transaction_hash != row.transaction_hash {
-                planned.push(row.clone());
-                stats.refresh_count += 1;
-                continue;
-            }
-
-            if block_height.saturating_sub(entry.last_persisted_height)
-                >= RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS
-            {
-                planned.push(row.clone());
-                stats.refresh_count += 1;
-            } else {
-                stats.skipped_count += 1;
-            }
-        }
-
-        (planned, stats)
-    }
-
-    fn remember_receipt_tx_hashes(
-        &mut self,
-        block_height: i64,
-        rows: &[ReceiptTxHashMapRow],
-        persisted_rows: &[ReceiptTxHashMapRow],
-    ) {
-        let mut persisted_by_receipt = HashMap::new();
-        for row in persisted_rows {
-            persisted_by_receipt.insert(row.receipt_id.as_str(), row.transaction_hash.as_str());
-        }
-
-        for row in rows {
-            let persisted_tx_hash = persisted_by_receipt
-                .get(row.receipt_id.as_str())
-                .copied()
-                .unwrap_or(row.transaction_hash.as_str());
-            let entry = self
-                .receipt_tx_hot_cache
-                .entry(row.receipt_id.clone())
-                .or_insert_with(|| ReceiptTxHotCacheEntry {
-                    transaction_hash: persisted_tx_hash.to_string(),
-                    last_seen_height: block_height,
-                    last_persisted_height: block_height,
-                });
-            entry.transaction_hash = persisted_tx_hash.to_string();
-            entry.last_seen_height = entry.last_seen_height.max(block_height);
-            if persisted_by_receipt.contains_key(row.receipt_id.as_str()) {
-                entry.last_persisted_height = block_height;
-            }
-        }
-    }
-
-    fn evict_receipt_tx_hot_cache(
-        &mut self,
-        block_height: i64,
-        retention_blocks: i64,
-        active_graph_tx_hashes: &HashSet<String>,
-    ) {
-        let cutoff_height = block_height.saturating_sub(retention_blocks);
-        self.receipt_tx_hot_cache.retain(|_, entry| {
-            entry.last_seen_height >= cutoff_height
-                || active_graph_tx_hashes.contains(&entry.transaction_hash)
-        });
     }
 
     fn apply_recent_block_ref_delta(&mut self, block_height: i64, delta: isize) {
@@ -1210,11 +1063,19 @@ pub struct VenearGovernanceModule {
     restart_rewind_blocks: i64,
     receipt_tx_map_retention_blocks: i64,
     raw_enabled: bool,
+    receipt_graph: Arc<ReceiptGraphResolver>,
     state: Mutex<HosRuntimeState>,
 }
 
 impl VenearGovernanceModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
+        Self::with_receipt_graph(config, Arc::new(ReceiptGraphResolver::new()))
+    }
+
+    pub fn with_receipt_graph(
+        config: &common::config::AppConfig,
+        receipt_graph: Arc<ReceiptGraphResolver>,
+    ) -> Self {
         let mut enabled = false;
         let mut stream_mode = NearModuleStreamMode::Shared;
         let mut mview_refresh_interval_blocks = DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS;
@@ -1260,6 +1121,7 @@ impl VenearGovernanceModule {
             restart_rewind_blocks,
             receipt_tx_map_retention_blocks,
             raw_enabled,
+            receipt_graph,
             state: Mutex::new(HosRuntimeState::default()),
         }
     }
@@ -1724,138 +1586,73 @@ impl VenearGovernanceModule {
 
     async fn store_hos_projection(
         &self,
-        prepared: &PreparedBlockContext,
+        facts: &BlockFacts,
         msg: &StreamerMessage,
         db: &impl ConnectionTrait,
     ) -> Result<ProjectionResult> {
         let mut stats = StageMetrics::new();
-        let block_height = prepared.block_height;
-        let block_hash = prepared.block_hash.clone();
-        let block_timestamp = prepared.block_timestamp;
-        let default_author = prepared.block_author.clone();
+        let block_height = facts.block_height;
+        let block_hash = facts.block_hash.clone();
+        let block_timestamp = facts.block_timestamp;
+        let default_author = facts.block_author.clone();
         let block_source = BlockSource {
             author: default_author.clone(),
             block: Arc::new(msg.block.clone()),
         };
 
-        let prepared_receipt_tx_hashes_clone_start = Instant::now();
-        let mut receipt_tx_hashes = prepared.receipt_tx_hashes.clone();
-        stats.record_phase_elapsed(
-            "clone_prepared_receipt_tx_hashes",
-            prepared_receipt_tx_hashes_clone_start,
-        );
+        let resolved_graph_start = Instant::now();
+        let resolved_graph = self.receipt_graph.resolve_for_block(msg, facts, db).await?;
+        stats.record_phase_elapsed("receipt_graph_resolve", resolved_graph_start);
+        stats.merge_with_prefix("receipt_graph.", resolved_graph.metrics.clone());
 
-        let prepare_lookup_inputs_start = Instant::now();
-        let lookup_receipt_ids = prepared.candidate_receipt_ids.clone();
-        let relevant_data_receipt_ids = prepared.data_receipt_ids.clone();
-        stats.record_phase_elapsed("prepare_lookup_inputs", prepare_lookup_inputs_start);
+        let mut receipt_tx_hashes = resolved_graph.receipt_tx_hashes.clone();
+        let lookup_receipt_ids = facts.candidate_receipt_ids.clone();
+        let unresolved_lookup_receipt_ids = resolved_graph.unresolved_receipt_ids.clone();
+        let lookup_stats = resolved_graph.lookup_stats.clone();
+        let relevant_data_receipt_ids = facts.data_receipt_ids.clone();
+        let mut data_receipt_links = resolved_graph
+            .data_receipt_links
+            .into_iter()
+            .filter_map(|(data_id, link)| {
+                link.transaction_hash.map(|transaction_hash| {
+                    (
+                        data_id,
+                        DataReceiptParentLink {
+                            transaction_hash,
+                            parent_receipt_id: link.parent_receipt_id,
+                            parent_execution_outcome_id: link.parent_execution_outcome_id,
+                            block_height: link.block_height,
+                            block_hash: link.block_hash,
+                            block_timestamp: link.block_timestamp,
+                        },
+                    )
+                })
+            })
+            .collect::<HashMap<_, _>>();
+        let mut new_data_receipt_links = HashMap::new();
         stats.record_count(
             "lookup_receipt_ids_before_dedup",
-            prepared.candidate_receipt_id_count_before_dedup,
+            facts.candidate_receipt_id_count_before_dedup,
         );
         stats.record_count(
             "prepared_receipt_tx_seed_count",
-            prepared.receipt_tx_hashes.len(),
+            facts.receipt_tx_hashes.len(),
         );
         stats.record_count(
             "prepared_data_receipt_id_count",
-            prepared.data_receipt_ids.len(),
+            facts.data_receipt_ids.len(),
         );
         stats.record_count(
             "prepared_candidate_receipt_id_count",
-            prepared.candidate_receipt_ids.len(),
+            facts.candidate_receipt_ids.len(),
         );
-
-        let data_receipt_links_clone_start = Instant::now();
-        let (mut data_receipt_links, data_receipt_link_cache_size) = {
-            let state = self.state.lock().unwrap();
-            (
-                state.snapshot_data_receipt_links(&relevant_data_receipt_ids),
-                state.data_receipt_links.len(),
-            )
-        };
-        stats.record_phase_elapsed("data_receipt_links_clone", data_receipt_links_clone_start);
-        stats.record_count("data_receipt_link_cache_size", data_receipt_link_cache_size);
+        stats.record_count("lookup_receipt_ids_after_dedup", lookup_receipt_ids.len());
+        stats.record_count("data_receipt_link_cache_size", resolved_graph.data_receipt_link_cache_size);
         stats.record_count(
             "data_receipt_link_lookup_id_count",
             relevant_data_receipt_ids.len(),
         );
         stats.record_count("data_receipt_link_snapshot_size", data_receipt_links.len());
-
-        let lookup_seed_from_data_links_start = Instant::now();
-        for shard in &msg.shards {
-            if let Some(chunk) = &shard.chunk {
-                for receipt in chunk.receipts.iter().chain(chunk.local_receipts.iter()) {
-                    if let Some(link) = Self::data_receipt_link(&data_receipt_links, receipt) {
-                        receipt_tx_hashes
-                            .entry(receipt.receipt_id.to_string())
-                            .or_insert_with(|| link.transaction_hash.clone());
-                    }
-                }
-            }
-
-            for outcome_with_receipt in &shard.receipt_execution_outcomes {
-                let receipt = &outcome_with_receipt.receipt;
-                if let Some(link) = Self::data_receipt_link(&data_receipt_links, receipt) {
-                    receipt_tx_hashes
-                        .entry(receipt.receipt_id.to_string())
-                        .or_insert_with(|| link.transaction_hash.clone());
-                }
-            }
-        }
-        stats.record_phase_elapsed(
-            "lookup_seed_from_data_links",
-            lookup_seed_from_data_links_start,
-        );
-
-        stats.record_count("lookup_receipt_ids_after_dedup", lookup_receipt_ids.len());
-
-        let lookup_hot_cache_resolve_start = Instant::now();
-        let mut lookup_stats = {
-            let mut state = self.state.lock().unwrap();
-            state.resolve_receipt_tx_hashes_from_hot_cache(
-                block_height,
-                &lookup_receipt_ids,
-                &mut receipt_tx_hashes,
-            )
-        };
-        stats.record_phase_elapsed("lookup_hot_cache_resolve", lookup_hot_cache_resolve_start);
-        let unresolved_lookup_receipt_ids = lookup_receipt_ids
-            .iter()
-            .filter(|receipt_id| !receipt_tx_hashes.contains_key(*receipt_id))
-            .cloned()
-            .collect::<Vec<_>>();
-        lookup_stats.db_query_count =
-            receipt_tx_hash_lookup_batch_count(unresolved_lookup_receipt_ids.len());
-
-        let lineage_lookup_start = Instant::now();
-        let mapped_receipts = load_receipt_tx_hash_map(db, &unresolved_lookup_receipt_ids).await?;
-        let mapped_receipt_rows = mapped_receipts
-            .into_iter()
-            .map(|(receipt_id, transaction_hash)| ReceiptTxHashMapRow {
-                receipt_id,
-                transaction_hash,
-                block_height,
-            })
-            .collect::<Vec<_>>();
-        for row in &mapped_receipt_rows {
-            receipt_tx_hashes
-                .entry(row.receipt_id.clone())
-                .or_insert_with(|| row.transaction_hash.clone());
-        }
-        stats.record_phase_elapsed("lineage_lookup", lineage_lookup_start);
-        {
-            let mut state = self.state.lock().unwrap();
-            state.remember_receipt_tx_hashes(
-                block_height,
-                &mapped_receipt_rows,
-                &mapped_receipt_rows,
-            );
-        }
-        lookup_stats.db_hit_count = mapped_receipt_rows.len();
-        lookup_stats.db_miss_count = unresolved_lookup_receipt_ids
-            .len()
-            .saturating_sub(lookup_stats.db_hit_count);
         stats.record_count("receipt_lookup_count", lookup_receipt_ids.len());
         stats.record_count(
             "receipt_lookup_candidate_count",
@@ -1908,6 +1705,15 @@ impl VenearGovernanceModule {
                         &block_hash,
                         block_timestamp,
                     );
+                    Self::cache_output_data_receivers(
+                        &mut new_data_receipt_links,
+                        receipt,
+                        &tx_hash,
+                        &tx_outcome_id,
+                        block_height,
+                        &block_hash,
+                        block_timestamp,
+                    );
                 }
             }
 
@@ -1941,12 +1747,21 @@ impl VenearGovernanceModule {
                     &block_hash,
                     block_timestamp,
                 );
+                Self::cache_output_data_receivers(
+                    &mut new_data_receipt_links,
+                    receipt,
+                    &transaction_hash,
+                    &outcome_id,
+                    block_height,
+                    &block_hash,
+                    block_timestamp,
+                );
             }
         }
         stats.record_phase_elapsed("output_data_link_build", output_data_link_build_start);
 
         let block_update_build_start = Instant::now();
-        for (shard, shard_ctx) in msg.shards.iter().zip(prepared.shards.iter()) {
+        for (shard, shard_ctx) in msg.shards.iter().zip(facts.shards.iter()) {
             let mut shard_touched_tx_hashes = HashSet::new();
             let chunk_hash = shard_ctx.chunk_hash.clone();
             let chunk_author = shard_ctx.chunk_author.clone();
@@ -2018,6 +1833,15 @@ impl VenearGovernanceModule {
                         );
                         Self::cache_output_data_receivers(
                             &mut data_receipt_links,
+                            receipt,
+                            &tx_hash,
+                            &tx_outcome_id,
+                            block_height,
+                            &block_hash,
+                            block_timestamp,
+                        );
+                        Self::cache_output_data_receivers(
+                            &mut new_data_receipt_links,
                             receipt,
                             &tx_hash,
                             &tx_outcome_id,
@@ -2286,10 +2110,11 @@ impl VenearGovernanceModule {
             .values()
             .cloned()
             .collect::<Vec<_>>();
-        let (receipt_map_rows_to_write, receipt_tx_write_stats) = {
-            let state = self.state.lock().unwrap();
-            state.plan_receipt_tx_hash_map_writes(&receipt_map_rows, block_height)
-        };
+        let (receipt_map_rows_to_write, receipt_tx_write_stats) = self.receipt_graph.plan_upserts(
+            &receipt_map_rows,
+            block_height,
+            ReceiptGraphUpsertMode::Venear,
+        );
         stats.record_count("receipt_tx_map_candidate_rows", receipt_map_rows.len());
         stats.record_count("receipt_tx_map_write_rows", receipt_map_rows_to_write.len());
         stats.record_count(
@@ -2315,18 +2140,10 @@ impl VenearGovernanceModule {
         let persisted_receipt_map_rows =
             Self::flush_receipt_tx_hash_map_upserts(db, &receipt_map_rows_to_write).await?;
         stats.record_phase_elapsed("receipt_tx_map_write", receipt_map_write_start);
-        {
-            let mut state = self.state.lock().unwrap();
-            state.remember_receipt_tx_hashes(
-                block_height,
-                &receipt_map_rows,
-                &persisted_receipt_map_rows,
-            );
-            stats.record_count(
-                "receipt_tx_hot_cache_size",
-                state.receipt_tx_hot_cache.len(),
-            );
-        }
+        stats.record_count(
+            "receipt_tx_hot_cache_size",
+            self.receipt_graph.hot_cache_size(),
+        );
 
         let memory_merge_start = Instant::now();
         let merge_plan = {
@@ -2393,17 +2210,36 @@ impl VenearGovernanceModule {
         Ok(ProjectionResult {
             stats,
             unresolved_hos_receipts,
+            new_data_receipt_links: new_data_receipt_links
+                .into_iter()
+                .map(|(data_id, link)| {
+                    (
+                        data_id,
+                        SharedDataReceiptParentLink {
+                            transaction_hash: Some(link.transaction_hash),
+                            parent_receipt_id: link.parent_receipt_id,
+                            parent_execution_outcome_id: link.parent_execution_outcome_id,
+                            block_height: link.block_height,
+                            block_hash: link.block_hash,
+                            block_timestamp: link.block_timestamp,
+                        },
+                    )
+                })
+                .collect(),
+            receipt_map_rows,
+            persisted_receipt_map_rows,
         })
     }
 
     async fn process_block_internal(
         &self,
-        prepared: &PreparedBlockContext,
+        artifacts: &BlockArtifacts,
         msg: &StreamerMessage,
         db: &DatabaseConnection,
     ) -> Result<()> {
-        let height = prepared.block_height as u64;
-        let shard_count = prepared.shard_count;
+        let facts = artifacts.facts();
+        let height = facts.block_height as u64;
+        let shard_count = facts.shard_count;
         info!(
             module = MODULE_NAME,
             height = height,
@@ -2422,13 +2258,16 @@ impl VenearGovernanceModule {
             .metrics_mut()
             .time_future(
                 "store_projection",
-                self.store_hos_projection(prepared, msg, &txn),
+                self.store_hos_projection(facts, msg, &txn),
             )
             .await
             .context("failed to store HOS governance raw projection data")?;
         let ProjectionResult {
             stats: projection_stats,
             unresolved_hos_receipts,
+            new_data_receipt_links,
+            receipt_map_rows,
+            persisted_receipt_map_rows,
         } = projection_result;
         process_log
             .metrics_mut()
@@ -2438,6 +2277,17 @@ impl VenearGovernanceModule {
             .metrics_mut()
             .time_future("txn_commit", txn.commit())
             .await?;
+
+        self.receipt_graph.remember_after_commit(
+            facts.block_height,
+            new_data_receipt_links,
+            &receipt_map_rows,
+            &persisted_receipt_map_rows,
+        );
+        process_log.metrics_mut().record_count(
+            "receipt_tx_hot_cache_size",
+            self.receipt_graph.hot_cache_size(),
+        );
 
         let post_commit_start = Instant::now();
         let block_height = height as i64;
@@ -2526,18 +2376,15 @@ impl VenearGovernanceModule {
                 .metrics_mut()
                 .record_count("receipt_tx_map_deleted", cleanup_stats.deleted_total);
             let hot_cache_evict_start = Instant::now();
-            {
-                let mut state = self.state.lock().unwrap();
-                state.evict_receipt_tx_hot_cache(
-                    block_height,
-                    self.effective_receipt_tx_map_retention_blocks(),
-                    &maintenance_plan.active_graph_tx_hashes,
-                );
-                process_log.metrics_mut().record_count(
-                    "receipt_tx_hot_cache_size",
-                    state.receipt_tx_hot_cache.len(),
-                );
-            }
+            self.receipt_graph.evict_receipt_tx_hot_cache(
+                block_height,
+                self.effective_receipt_tx_map_retention_blocks(),
+                &maintenance_plan.active_graph_tx_hashes,
+            );
+            process_log.metrics_mut().record_count(
+                "receipt_tx_hot_cache_size",
+                self.receipt_graph.hot_cache_size(),
+            );
             process_log
                 .metrics_mut()
                 .record_phase_elapsed("receipt_tx_hot_cache_evict", hot_cache_evict_start);
@@ -2614,6 +2461,14 @@ impl IndexerModule for VenearGovernanceModule {
         self.stream_mode
     }
 
+    fn demand(&self) -> ModuleDemand {
+        ModuleDemand {
+            needs_receipt_graph: true,
+            needs_raw_projection: false,
+            needs_hos_delta: true,
+        }
+    }
+
     async fn initialize(&self, db: &DatabaseConnection) -> Result<()> {
         let cleanup_resume_height = if self.restart_rewind_blocks > 0 {
             cursor::get_module_cursor(db, MODULE_NAME).await?
@@ -2636,14 +2491,14 @@ impl IndexerModule for VenearGovernanceModule {
         Ok(())
     }
 
-    #[instrument(skip(self, prepared, msg, db), fields(module = "venear_governance", height = prepared.block_height))]
-    async fn process_prepared_block(
+    #[instrument(skip(self, artifacts, msg, db), fields(module = "venear_governance", height = artifacts.facts().block_height))]
+    async fn process_block_with_artifacts(
         &self,
-        prepared: &PreparedBlockContext,
+        artifacts: &BlockArtifacts,
         msg: &StreamerMessage,
         db: &DatabaseConnection,
     ) -> Result<()> {
-        self.process_block_internal(prepared, msg, db).await
+        self.process_block_internal(artifacts, msg, db).await
     }
 
     async fn get_cursor(&self, db: &DatabaseConnection) -> Result<Option<i64>> {
@@ -2663,8 +2518,8 @@ impl IndexerModule for VenearGovernanceModule {
 #[cfg(test)]
 mod tests {
     use super::{
-        BlockSource, HosBlockUpdates, HosRuntimeState, ReceiptTxHashMapRow, StageMetrics,
-        TransactionSource, VenearGovernanceModule, RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS,
+        BlockSource, HosBlockUpdates, HosRuntimeState, StageMetrics, TransactionSource,
+        VenearGovernanceModule,
     };
     use near_lake_framework::near_indexer_primitives::types::Balance;
     use near_lake_framework::near_indexer_primitives::views::{
@@ -2948,103 +2803,6 @@ mod tests {
             VenearGovernanceModule::effective_receipt_tx_map_retention_blocks_for(1_024, 256, 100),
             1_024
         );
-    }
-
-    #[test]
-    fn receipt_tx_hot_cache_resolves_misses_without_db() {
-        let mut state = HosRuntimeState::default();
-        state.remember_receipt_tx_hashes(
-            100,
-            &[ReceiptTxHashMapRow {
-                receipt_id: "receipt-1".to_string(),
-                transaction_hash: "tx-1".to_string(),
-                block_height: 100,
-            }],
-            &[ReceiptTxHashMapRow {
-                receipt_id: "receipt-1".to_string(),
-                transaction_hash: "tx-1".to_string(),
-                block_height: 100,
-            }],
-        );
-
-        let mut receipt_tx_hashes = std::collections::HashMap::new();
-        let stats = state.resolve_receipt_tx_hashes_from_hot_cache(
-            101,
-            &["receipt-1".to_string(), "receipt-2".to_string()],
-            &mut receipt_tx_hashes,
-        );
-
-        assert_eq!(
-            receipt_tx_hashes.get("receipt-1"),
-            Some(&"tx-1".to_string())
-        );
-        assert_eq!(stats.candidate_count, 2);
-        assert_eq!(stats.hot_cache_hit_count, 1);
-        assert_eq!(stats.local_resolved_count, 0);
-    }
-
-    #[test]
-    fn receipt_tx_map_write_plan_skips_recent_known_rows() {
-        let mut state = HosRuntimeState::default();
-        state.remember_receipt_tx_hashes(
-            100,
-            &[ReceiptTxHashMapRow {
-                receipt_id: "receipt-1".to_string(),
-                transaction_hash: "tx-1".to_string(),
-                block_height: 100,
-            }],
-            &[ReceiptTxHashMapRow {
-                receipt_id: "receipt-1".to_string(),
-                transaction_hash: "tx-1".to_string(),
-                block_height: 100,
-            }],
-        );
-
-        let (planned, stats) = state.plan_receipt_tx_hash_map_writes(
-            &[ReceiptTxHashMapRow {
-                receipt_id: "receipt-1".to_string(),
-                transaction_hash: "tx-1".to_string(),
-                block_height: 101,
-            }],
-            101,
-        );
-
-        assert!(planned.is_empty());
-        assert_eq!(stats.new_count, 0);
-        assert_eq!(stats.refresh_count, 0);
-        assert_eq!(stats.skipped_count, 1);
-    }
-
-    #[test]
-    fn receipt_tx_map_write_plan_refreshes_stale_rows() {
-        let mut state = HosRuntimeState::default();
-        state.remember_receipt_tx_hashes(
-            100,
-            &[ReceiptTxHashMapRow {
-                receipt_id: "receipt-1".to_string(),
-                transaction_hash: "tx-1".to_string(),
-                block_height: 100,
-            }],
-            &[ReceiptTxHashMapRow {
-                receipt_id: "receipt-1".to_string(),
-                transaction_hash: "tx-1".to_string(),
-                block_height: 100,
-            }],
-        );
-
-        let (planned, stats) = state.plan_receipt_tx_hash_map_writes(
-            &[ReceiptTxHashMapRow {
-                receipt_id: "receipt-1".to_string(),
-                transaction_hash: "tx-1".to_string(),
-                block_height: 100 + RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS,
-            }],
-            100 + RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS,
-        );
-
-        assert_eq!(planned.len(), 1);
-        assert_eq!(stats.new_count, 0);
-        assert_eq!(stats.refresh_count, 1);
-        assert_eq!(stats.skipped_count, 0);
     }
 
     #[test]

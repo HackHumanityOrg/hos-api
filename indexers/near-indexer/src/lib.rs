@@ -6,7 +6,9 @@ use tracing::{debug, info};
 pub mod core;
 pub mod modules;
 
-use crate::core::prepared_block::PreparedBlockContext;
+use crate::core::block_artifacts::BlockArtifacts;
+use crate::core::block_facts::BlockFacts;
+use crate::core::module_demand::ModuleDemand;
 
 /// Core trait that all indexer modules must implement
 #[async_trait]
@@ -23,20 +25,26 @@ pub trait IndexerModule: Send + Sync {
         common::config::NearModuleStreamMode::Shared
     }
 
+    /// Describe which shared artifacts this module needs.
+    fn demand(&self) -> ModuleDemand {
+        ModuleDemand::default()
+    }
+
     /// Process a single streamer message for this module
     async fn process_block(
         &self,
         msg: &near_lake_framework::near_indexer_primitives::StreamerMessage,
         db: &DatabaseConnection,
     ) -> Result<()> {
-        let prepared = PreparedBlockContext::from_message(msg)?;
-        self.process_prepared_block(&prepared, msg, db).await
+        let facts = BlockFacts::from_message(msg)?;
+        let artifacts = BlockArtifacts::new(facts);
+        self.process_block_with_artifacts(&artifacts, msg, db).await
     }
 
-    /// Process a single streamer message with a shared prepared block context.
-    async fn process_prepared_block(
+    /// Process a single streamer message with shared block artifacts.
+    async fn process_block_with_artifacts(
         &self,
-        prepared: &PreparedBlockContext,
+        artifacts: &BlockArtifacts,
         msg: &near_lake_framework::near_indexer_primitives::StreamerMessage,
         db: &DatabaseConnection,
     ) -> Result<()>;

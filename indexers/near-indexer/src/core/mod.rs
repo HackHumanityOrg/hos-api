@@ -1,9 +1,13 @@
+pub mod block_artifacts;
+pub mod block_facts;
 pub mod canonical_persistence;
 pub mod canonical_rows;
 pub mod cursor;
 pub mod lake_stream;
-pub mod prepared_block;
+pub mod module_demand;
 pub mod processor;
+pub mod raw_projector;
+pub mod receipt_graph_resolver;
 pub mod receipt_tx_canonical_resolver;
 pub mod receipt_tx_hash_map;
 pub mod receipt_tx_resolver;
