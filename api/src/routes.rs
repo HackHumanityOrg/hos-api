@@ -3,6 +3,7 @@
 use crate::state::AppState;
 use axum::Router;
 
+pub mod agora;
 pub mod discourse;
 pub mod health;
 pub mod identity;

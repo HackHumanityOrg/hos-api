@@ -85,6 +85,26 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         paths.contains_key("/api/v1/venear/delegates/{account_id}/delegations"),
         "venear delegate delegations path present"
     );
+    assert!(
+        paths.contains_key("/api/agora/proposal/approved"),
+        "agora approved proposals path present"
+    );
+    assert!(
+        paths.contains_key("/api/agora/proposal/{proposal_id}/quorum"),
+        "agora proposal quorum path present"
+    );
+    assert!(
+        paths.contains_key("/api/agora/delegates/{address}"),
+        "agora delegate detail path present"
+    );
+    assert!(
+        paths.contains_key("/api/agora/get_voting_power_chart/{account_id}"),
+        "agora voting power chart path present"
+    );
+    assert!(
+        paths.contains_key("/api/agora/vote_changes/{proposal_id}"),
+        "agora vote changes path present"
+    );
 
     let health_operation = paths
         .get("/health")
@@ -133,6 +153,20 @@ fn openapi_spec_exposes_health_path_and_schemas() {
             .expect("delegates description")
             .contains("possible voters"),
         "delegates description should explain dataset semantics"
+    );
+
+    let agora_delegate_operation = paths
+        .get("/api/agora/delegates/{address}")
+        .and_then(|path| path.get("get"))
+        .and_then(|op| op.as_object())
+        .expect("agora delegate get operation");
+    assert_eq!(
+        agora_delegate_operation
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .and_then(|tags| tags.first())
+            .and_then(|v| v.as_str()),
+        Some("agora")
     );
 
     let telegram_messages_operation = paths
@@ -210,6 +244,10 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(schemas.contains_key("VenearConfigEntryDto"));
     assert!(schemas.contains_key("VenearDelegateDto"));
     assert!(schemas.contains_key("VenearDelegateVotingPowerEventDto"));
+    assert!(schemas.contains_key("AgoraProposalDto"));
+    assert!(schemas.contains_key("AgoraDelegateDetailDto"));
+    assert!(schemas.contains_key("AgoraVoteChangesResponse"));
+    assert!(schemas.contains_key("AgoraHosActivityDto"));
 
     let discourse_instance_props = schemas
         .get("DiscourseInstanceDto")
@@ -312,6 +350,14 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         .and_then(|properties| properties.as_object())
         .expect("VenearDelegationEventDto properties");
     assert!(venear_delegation_props.contains_key("account_id"));
+
+    let agora_delegate_props = schemas
+        .get("AgoraDelegateDetailDto")
+        .and_then(|schema| schema.get("properties"))
+        .and_then(|properties| properties.as_object())
+        .expect("AgoraDelegateDetailDto properties");
+    assert!(agora_delegate_props.contains_key("notificationPreferences"));
+    assert!(agora_delegate_props.contains_key("delegatedFromCount"));
 
     let telegram_messages_parameters = paths
         .get("/api/v1/telegram/channels/{channel_telegram_id}/messages")

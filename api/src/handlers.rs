@@ -1,5 +1,6 @@
 //! API endpoint handlers
 
+pub mod agora;
 pub mod discourse;
 pub mod health;
 pub mod identity;

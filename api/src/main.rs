@@ -70,6 +70,7 @@ async fn run(config: AppConfig) -> Result<()> {
     // Create the router with API routes
     let app = Router::new()
         .nest("/api/v1", routes::create_routes())
+        .nest("/api/agora", routes::agora::agora_routes())
         .merge(routes::health::health_routes())
         .layer(TraceLayer::new_for_http());
 

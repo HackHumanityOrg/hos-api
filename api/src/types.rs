@@ -1,6 +1,7 @@
 //! API request/response types and DTOs
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use utoipa::{IntoParams, ToSchema};
 
 /// Health check response.
@@ -1059,6 +1060,469 @@ pub struct VenearDelegationEventDto {
     pub receipt_id: String,
     /// Execution outcome id associated with the event.
     pub execution_outcome_id: String,
+}
+
+/// Legacy Agora query options for proposal list endpoints.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct AgoraPaginationQuery {
+    /// Requested page size. Invalid values fall back to 10.
+    pub page_size: Option<String>,
+    /// Requested page number. Invalid values fall back to 1.
+    pub page: Option<String>,
+}
+
+/// Legacy Agora query options for pending proposals.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct AgoraPendingProposalsQuery {
+    /// Optional proposal creator filter.
+    pub created_by: Option<String>,
+    /// Requested page size. Invalid values fall back to 10.
+    pub page_size: Option<String>,
+    /// Requested page number. Invalid values fall back to 1.
+    pub page: Option<String>,
+}
+
+/// Legacy Agora query options for delegates listing.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct AgoraDelegatesQuery {
+    /// Requested page size. Invalid values fall back to 10.
+    pub page_size: Option<String>,
+    /// Requested page number. Invalid values fall back to 1.
+    pub page: Option<String>,
+    /// Legacy ordering selector.
+    pub order_by: Option<String>,
+    /// Legacy filter selector.
+    pub filter_by: Option<String>,
+    /// Legacy issue-type filter, comma-separated.
+    pub issue_type: Option<String>,
+    /// Optional deterministic seed for weighted random ordering.
+    pub sorting_seed: Option<String>,
+}
+
+/// Legacy Agora query options for delegate statement changes.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct AgoraDelegateStatementChangesQuery {
+    /// Requested page number. Must be a positive integer when provided.
+    pub page: Option<String>,
+    /// Requested page size. Must be a positive integer when provided.
+    pub offset: Option<String>,
+    /// Optional lookback window in days.
+    pub lookback_days: Option<String>,
+}
+
+/// Legacy Agora query options for delegate HOS activity.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct AgoraDelegateHosActivityQuery {
+    /// Requested page size. Invalid values fall back to 10.
+    pub page_size: Option<String>,
+    /// Requested page number. Invalid values fall back to 1.
+    pub page: Option<String>,
+    /// Legacy network id parameter retained for compatibility.
+    pub network_id: Option<String>,
+    /// Legacy contract id parameter retained for compatibility.
+    pub contract_id: Option<String>,
+}
+
+/// Legacy Agora error payload using `{ "error": ... }`.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraLegacyErrorBody {
+    /// Human-readable error string.
+    pub error: String,
+}
+
+/// Legacy Agora error payload using `{ "message": ... }`.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraLegacyMessageBody {
+    /// Human-readable error string.
+    pub message: String,
+}
+
+/// Legacy Agora approved/pending proposals response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraProposalListResponse {
+    /// Returned proposal rows.
+    pub proposals: Vec<AgoraProposalDto>,
+    /// Total number of matching rows before pagination.
+    pub count: i64,
+}
+
+/// Legacy Agora proposal row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraProposalDto {
+    /// Legacy proposal identifier, sourced from `receipt_id`.
+    pub id: String,
+    /// Proposal type derived from encoded metadata.
+    pub proposal_type: String,
+    /// Approval threshold in basis points.
+    pub approval_threshold: String,
+    /// Approval timestamp, when present.
+    pub approved_at: Option<String>,
+    /// Reviewer account id, when present.
+    pub approver_id: Option<String>,
+    /// Proposal creation timestamp, when present.
+    pub created_at: Option<String>,
+    /// Creator account id, when present.
+    pub creator_id: Option<String>,
+    /// Whether the proposal currently has any votes.
+    pub has_vote: bool,
+    /// Whether the proposal is approved.
+    pub is_approved: bool,
+    /// Whether the proposal is rejected.
+    pub is_rejected: bool,
+    /// Raw proposal description stored on-chain.
+    pub proposal_description: Option<String>,
+    /// Upstream proposal identifier as a string.
+    pub proposal_id: Option<String>,
+    /// Proposal title, when present.
+    pub proposal_title: Option<String>,
+    /// Proposal URL, when present.
+    pub proposal_url: Option<String>,
+    /// Receipt id associated with the create proposal action.
+    pub receipt_id: String,
+    /// Rejection timestamp, when present.
+    pub rejected_at: Option<String>,
+    /// Rejecter account id, when present.
+    pub rejecter_id: Option<String>,
+    /// Voting power currently counted as `for`.
+    pub for_voting_power: Option<String>,
+    /// Voting power currently counted as `against`.
+    pub against_voting_power: Option<String>,
+    /// Voting power currently counted as `abstain`.
+    pub abstain_voting_power: Option<String>,
+    /// Voting duration in nanoseconds, when present.
+    pub voting_duration_ns: Option<String>,
+    /// Snapshot total voting power at approval time.
+    pub total_voting_power: Option<String>,
+    /// Calculated quorum amount as a string.
+    pub quorum_amount: String,
+    /// Legacy derived status (`Created`, `Voting`, `Finished`, `Rejected`, `Unknown`).
+    pub status: String,
+    /// Voting start timestamp converted to nanoseconds.
+    pub voting_start_time_ns: Option<String>,
+    /// Proposal creation timestamp converted to nanoseconds.
+    pub voting_created_at_ns: Option<String>,
+}
+
+/// Legacy Agora proposal quorum response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraProposalQuorumResponse {
+    /// Calculated quorum amount as a string.
+    pub quorum_amount: String,
+}
+
+/// Legacy Agora proposal votes response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraProposalVotesResponse {
+    /// Returned vote rows.
+    pub votes: Vec<AgoraProposalVoteDto>,
+    /// Total number of matching rows before pagination.
+    pub count: i64,
+}
+
+/// Legacy Agora proposal vote row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraProposalVoteDto {
+    /// Voter account id.
+    pub account_id: String,
+    /// Voting power as a string.
+    pub voting_power: String,
+    /// Selected vote option as a string.
+    pub vote_option: String,
+}
+
+/// Legacy Agora proposal charts response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraProposalChartsResponse {
+    /// Returned chart points.
+    pub data: Vec<AgoraProposalChartPointDto>,
+}
+
+/// Legacy Agora proposal chart point.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraProposalChartPointDto {
+    /// Voter account id.
+    pub account_id: String,
+    /// Voting power as a string.
+    pub voting_power: String,
+    /// Selected vote option as a string.
+    pub vote_option: String,
+    /// Vote timestamp in ISO-8601 format.
+    pub voted_at: Option<String>,
+}
+
+/// Legacy Agora proposal non-voters response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraProposalNonVotersResponse {
+    /// Returned non-voter rows.
+    pub non_voters: Vec<AgoraProposalNonVoterDto>,
+    /// Total number of matching rows before pagination.
+    pub count: i64,
+}
+
+/// Legacy Agora proposal non-voter row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraProposalNonVoterDto {
+    /// Stable row identifier.
+    pub id: String,
+    /// Proposal identifier.
+    pub proposal_id: i64,
+    /// Registered voter account id.
+    pub registered_voter_id: String,
+    /// Current voting power as a string.
+    pub voting_power: String,
+}
+
+/// Legacy Agora vote changes response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraVoteChangesResponse {
+    /// Vote change groups keyed by account id.
+    pub vote_changes: Vec<AgoraVoteChangeDto>,
+}
+
+/// Legacy Agora vote change group.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraVoteChangeDto {
+    /// Voter account id.
+    pub account_id: String,
+    /// Full vote history for the voter on the proposal.
+    pub changes: Vec<AgoraVoteChangeEntryDto>,
+}
+
+/// Legacy Agora vote change entry.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraVoteChangeEntryDto {
+    /// Selected vote option.
+    pub vote_option: i32,
+    /// Voting power as a string.
+    pub voting_power: String,
+    /// Vote timestamp in ISO-8601 format.
+    pub voted_at: String,
+    /// Block height, coerced to a plain number.
+    pub block_height: i64,
+}
+
+/// Legacy Agora delegates list response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraDelegatesResponse {
+    /// Returned delegate rows.
+    pub delegates: Vec<AgoraDelegateSummaryDto>,
+    /// Total number of matching rows before pagination.
+    pub count: i64,
+}
+
+/// Legacy Agora top-issue entry.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraTopIssueDto {
+    /// Legacy issue type label.
+    pub r#type: String,
+    /// Legacy issue value.
+    pub value: String,
+}
+
+/// Legacy Agora delegate summary row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraDelegateSummaryDto {
+    /// Delegate address.
+    pub address: String,
+    /// Current voting power as a string.
+    pub voting_power: Option<String>,
+    /// Proposal participation rate as a string.
+    pub participation_rate: Option<String>,
+    /// Twitter handle, unavailable in this compatibility layer.
+    pub twitter: Option<String>,
+    /// Discord handle, unavailable in this compatibility layer.
+    pub discord: Option<String>,
+    /// Warpcast handle, unavailable in this compatibility layer.
+    pub warpcast: Option<String>,
+    /// Delegate statement, unavailable in this compatibility layer.
+    pub statement: Option<String>,
+    /// Delegate top issues, unavailable in this compatibility layer.
+    pub top_issues: Option<Vec<AgoraTopIssueDto>>,
+    /// Whether the delegate is endorsed, unavailable in this compatibility layer.
+    pub endorsed: Option<bool>,
+    /// Legacy notification preferences blob, unavailable in this compatibility layer.
+    #[schema(value_type = Object)]
+    pub notification_preferences: Option<JsonValue>,
+}
+
+/// Legacy Agora delegate detail response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraDelegateDetailResponse {
+    /// Detailed delegate row.
+    pub delegate: AgoraDelegateDetailDto,
+}
+
+/// Legacy Agora delegate detail row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraDelegateDetailDto {
+    /// Delegate address.
+    pub address: String,
+    /// Twitter handle, unavailable in this compatibility layer.
+    pub twitter: Option<String>,
+    /// Discord handle, unavailable in this compatibility layer.
+    pub discord: Option<String>,
+    /// Warpcast handle, unavailable in this compatibility layer.
+    pub warpcast: Option<String>,
+    /// Delegate statement, unavailable in this compatibility layer.
+    pub statement: Option<String>,
+    /// Delegate top issues, unavailable in this compatibility layer.
+    pub top_issues: Option<Vec<AgoraTopIssueDto>>,
+    /// Whether the delegate is endorsed, unavailable in this compatibility layer.
+    pub endorsed: Option<bool>,
+    /// Legacy notification preferences blob, unavailable in this compatibility layer.
+    #[schema(value_type = Object)]
+    pub notification_preferences: Option<JsonValue>,
+    /// Current voting power as a string.
+    pub voting_power: Option<String>,
+    /// Number of effective `for` votes cast by the delegate.
+    pub for_count: i64,
+    /// Number of effective `against` votes cast by the delegate.
+    pub against_count: i64,
+    /// Number of effective `abstain` votes cast by the delegate.
+    pub abstain_count: i64,
+    /// Number of accounts currently delegating to this delegate.
+    pub delegated_from_count: i64,
+    /// Proposal participation rate as a string.
+    pub participation_rate: Option<String>,
+}
+
+/// Legacy Agora delegate voting history response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraDelegateVotingHistoryResponse {
+    /// Returned vote rows.
+    pub votes: Vec<AgoraDelegateVotingHistoryDto>,
+    /// Total number of matching rows before pagination.
+    pub count: i64,
+}
+
+/// Legacy Agora delegate voting history row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraDelegateVotingHistoryDto {
+    /// Selected vote option as a string.
+    pub vote_option: Option<String>,
+    /// Voting power as a string.
+    pub voting_power: String,
+    /// Delegate address.
+    pub address: Option<String>,
+    /// Vote timestamp in ISO-8601 format.
+    pub voted_at: Option<String>,
+    /// Proposal identifier as a string.
+    pub proposal_id: Option<String>,
+    /// Proposal title, when present.
+    pub proposal_name: Option<String>,
+}
+
+/// Legacy Agora delegation events response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraDelegationEventsResponse {
+    /// Returned delegation rows.
+    pub events: Vec<AgoraDelegationEventDto>,
+    /// Total number of matching rows before pagination.
+    pub count: i64,
+}
+
+/// Legacy Agora delegation event row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraDelegationEventDto {
+    /// Stable row identifier.
+    pub id: String,
+    /// Receipt id associated with the event.
+    pub receipt_id: String,
+    /// Event date coerced to an ISO-8601 timestamp string.
+    pub event_date: Option<String>,
+    /// Event timestamp in ISO-8601 format.
+    pub event_timestamp: Option<String>,
+    /// HOS contract account id.
+    pub hos_contract_address: Option<String>,
+    /// Delegator account id.
+    pub delegator_id: String,
+    /// Delegatee account id, when present.
+    pub delegatee_id: Option<String>,
+    /// Delegation method (`delegate_all` or `undelegate`).
+    pub delegate_method: Option<String>,
+    /// Token transfer event (`ft_mint` or `ft_burn`).
+    pub delegate_event: Option<String>,
+    /// Whether this is the latest event for the delegator.
+    pub is_latest_delegator_event: bool,
+    /// Event owner id, when present.
+    pub owner_id: Option<String>,
+    /// Delegated amount as a string.
+    pub near_amount: Option<String>,
+    /// Block height as a string.
+    pub block_height: Option<String>,
+    /// Block hash, when present.
+    pub block_hash: Option<String>,
+}
+
+/// Legacy Agora delegate HOS activity response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraHosActivityResponse {
+    /// Returned activity rows.
+    pub hos_activity: Vec<AgoraHosActivityDto>,
+    /// Total number of matching rows before pagination.
+    pub count: i64,
+}
+
+/// Legacy Agora delegate HOS activity row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgoraHosActivityDto {
+    /// Receipt id associated with the event.
+    pub receipt_id: String,
+    /// Block height as a string.
+    pub block_height: Option<String>,
+    /// Event date coerced to an ISO-8601 timestamp string.
+    pub event_date: Option<String>,
+    /// Raw near amount as indexed.
+    pub near_amount: Option<String>,
+    /// Raw locked near balance as indexed.
+    pub locked_near_balance: Option<String>,
+    /// Legacy normalized transaction type label.
+    pub transaction_type: String,
+}
+
+/// Legacy Agora delegate statement changes response.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraDelegateStatementChangesResponse {
+    /// Current page number.
+    pub page: i64,
+    /// Current page size.
+    pub offset: i64,
+    /// Returned change rows.
+    pub changes: Vec<AgoraDelegateStatementChangeDto>,
+    /// Total number of matching rows before pagination.
+    pub count: i64,
+}
+
+/// Legacy Agora delegate statement change row.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraDelegateStatementChangeDto {
+    /// Delegate account id.
+    pub account: String,
+    /// Statement change timestamp, when present.
+    pub created: Option<String>,
+}
+
+/// Legacy Agora voting power chart point.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AgoraVotingPowerChartPoint {
+    /// Block height coerced to a plain number.
+    pub block_number: i64,
+    /// Voting power as a string.
+    pub vp: String,
+    /// Timestamp in ISO-8601 format.
+    pub timestamp: String,
 }
 
 /// Paginated response of indexed Telegram channels.

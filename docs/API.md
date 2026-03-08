@@ -65,12 +65,14 @@ api/
 │   │   ├── telegram/        # Telegram channel handlers
 │   │   ├── identity/        # Identity / person handlers
 │   │   ├── venear/          # veNEAR governance handlers
+│   │   ├── agora/           # Agora compatibility handlers
 │   │   └── health/          # Health check handler
 │   └── routes/              # Route definitions
 │       ├── discourse/       # Discourse route module
 │       ├── telegram/        # Telegram route module
 │       ├── identity/        # Identity route module
 │       ├── venear/          # veNEAR route module
+│       ├── agora/           # Agora compatibility route module
 │       └── health/          # Health route module
 └── Cargo.toml
 ```
@@ -81,6 +83,7 @@ api/
 ```rust
 let app = Router::new()
     .nest("/api/v1", routes::create_routes())
+    .nest("/api/agora", routes::agora::agora_routes())
     .merge(routes::health::health_routes())
     .with_state(app_state);
 ```
@@ -119,7 +122,7 @@ async fn handler(State(state): State<AppState>) -> Result<Json<Response>, ApiErr
 
 ## Current Endpoints
 
-All data endpoints are nested under `/api/v1`. The health endpoint lives at the root.
+Primary read endpoints are nested under `/api/v1`. The legacy Agora compatibility surface is mounted separately under `/api/agora`. The health endpoint lives at the root.
 
 ### Health
 
@@ -214,6 +217,32 @@ Notes:
 - `GET /api/v1/venear/delegates` supports `account_id_prefix`, `has_inbound_delegation`, and `has_outbound_delegation`.
 - `GET /api/v1/venear/delegates/{account_id}/voting-power` supports `event_type` and `proposal_id`.
 - `GET /api/v1/venear/delegates/{account_id}/delegations` supports `event_type`, `direction`, `counterparty_account_id`, and `success`.
+
+### Agora Compatibility
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/agora/proposal/approved` | List approved proposals in the legacy Agora payload shape |
+| GET | `/api/agora/proposal/pending` | List pending proposals in the legacy Agora payload shape |
+| GET | `/api/agora/proposal/{proposal_id}/votes` | List proposal votes |
+| GET | `/api/agora/proposal/{proposal_id}/non-voters` | List proposal non-voters |
+| GET | `/api/agora/proposal/{proposal_id}/charts` | Get proposal chart data |
+| GET | `/api/agora/proposal/{proposal_id}/quorum` | Get proposal quorum |
+| GET | `/api/agora/delegates` | List delegates |
+| GET | `/api/agora/delegates/{address}` | Get one delegate |
+| GET | `/api/agora/delegates/{address}/voting-history` | List delegate voting history |
+| GET | `/api/agora/delegates/{address}/delegated-from` | List inbound delegation rows for a delegate |
+| GET | `/api/agora/delegates/{address}/delegated-to` | List outbound delegation rows for a delegate |
+| GET | `/api/agora/delegates/{address}/hos-activity` | List delegate HOS activity |
+| GET | `/api/agora/delegate_statement_changes` | Return the legacy delegate-statement change shape with empty on-chain-only data |
+| GET | `/api/agora/get_voting_power_chart/{account_id}` | Get legacy voting-power chart points |
+| GET | `/api/agora/vote_changes/{proposal_id}` | Get grouped multi-vote history for voters who changed votes |
+
+Notes:
+- The Agora namespace preserves the old query parameter contract: `page` and `page_size` pagination, legacy camelCase payloads, and simple error envelopes such as `{ "error": ... }` and `{ "message": ... }`.
+- This compatibility layer is backed by local NEAR/HOS indexed data only. Fields that used to depend on `web2` tables are returned as `null`, and `delegate_statement_changes` returns an empty result set in the original shape.
+- `GET /api/agora/proposal/{proposal_id}/quorum` keeps the old quorum helper semantics, including `AGORA_ENV` and `QUORUM_FLOOR`, but does not apply unavailable web2 quorum overrides.
+- `GET /api/agora/vote_changes/{proposal_id}` reads raw vote history from `near.near_receipt_actions` and `near.near_execution_outcomes` so repeated votes are preserved even though the materialized proposal-vote view keeps only latest rows.
 
 ## Adding New Endpoints
 

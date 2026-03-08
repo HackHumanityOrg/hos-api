@@ -8,7 +8,7 @@ use utoipa::OpenApi;
     info(
         title = "Data Commons API",
         version = "0.1.0",
-        description = "Read-only REST API for indexed identity, Discourse, Telegram, and veNEAR governance data.\n\nOpenAPI contract notes for AI clients:\n- The API is read-only. Every endpoint is discoverable through generated OpenAPI metadata.\n- List endpoints are consistently paginated with `limit` and `cursor`.\n  - `limit` defaults to 20 and is clamped to a maximum of 100.\n  - `cursor` is an opaque base64url token from a prior response and should be treated as an opaque string.\n  - Omit `cursor` to request the first page in a sequence.\n  - Continue until `next_cursor` is `null` or absent.\n- All paginated responses return `data`, `next_cursor`, and `has_more`.\n- `next_cursor` and pagination order are endpoint-specific; always follow the ordering declared in each endpoint description.\n- Timestamp fields use RFC 3339 / ISO-8601 format with timezone.\n- Error responses follow RFC 9457 Problem Details as `application/problem+json`, including machine-friendly `code` when present.\n- Indexers are asynchronous: newly emitted data may lag or reorder briefly during backfill.\n- `identity` values are stable while indexer-sourced entity references may vary by environment and snapshot time.",
+        description = "Read-only REST API for indexed identity, Discourse, Telegram, and veNEAR governance data.\n\nOpenAPI contract notes for AI clients:\n- The API is read-only. Every endpoint is discoverable through generated OpenAPI metadata.\n- List endpoints are consistently paginated with `limit` and `cursor`.\n- Cursor pagination uses opaque base64url cursors.\n  - `limit` defaults to 20 and is clamped to a maximum of 100.\n  - `cursor` is an opaque base64url token from a prior response and should be treated as an opaque string.\n  - Omit `cursor` to request the first page in a sequence.\n  - Continue until `next_cursor` is `null` or absent.\n- All paginated responses return `data`, `next_cursor`, and `has_more`.\n- `next_cursor` and pagination order are endpoint-specific; always follow the ordering declared in each endpoint description.\n- Timestamp fields use RFC 3339 / ISO-8601 format with timezone.\n- Error responses follow RFC 9457 Problem Details as `application/problem+json`, including machine-friendly `code` when present.\n- Indexers are asynchronous: newly emitted data may lag or reorder briefly during backfill.\n- `identity` values are stable while indexer-sourced entity references may vary by environment and snapshot time.",
         contact(
             name = "Data Commons Team",
             url = "https://github.com/HackHumanityOrg/data-commons"
@@ -52,6 +52,21 @@ use utoipa::OpenApi;
         handlers::venear::list_delegates,
         handlers::venear::list_delegate_voting_power,
         handlers::venear::list_delegate_delegations,
+        handlers::agora::get_approved_proposals,
+        handlers::agora::get_pending_proposals,
+        handlers::agora::get_proposal_votes,
+        handlers::agora::get_proposal_non_voters,
+        handlers::agora::get_proposal_charts,
+        handlers::agora::get_proposal_quorum,
+        handlers::agora::get_delegates,
+        handlers::agora::get_delegate,
+        handlers::agora::get_delegate_voting_history,
+        handlers::agora::get_delegate_delegated_from,
+        handlers::agora::get_delegate_delegated_to,
+        handlers::agora::get_delegate_hos_activity,
+        handlers::agora::get_delegate_statement_changes,
+        handlers::agora::get_voting_power_chart,
+        handlers::agora::get_vote_changes,
     ),
     components(schemas(
         types::HealthResponse,
@@ -107,6 +122,34 @@ use utoipa::OpenApi;
         types::VenearDelegateDto,
         types::VenearDelegateVotingPowerEventDto,
         types::VenearDelegationEventDto,
+        types::AgoraLegacyErrorBody,
+        types::AgoraLegacyMessageBody,
+        types::AgoraProposalListResponse,
+        types::AgoraProposalDto,
+        types::AgoraProposalQuorumResponse,
+        types::AgoraProposalVotesResponse,
+        types::AgoraProposalVoteDto,
+        types::AgoraProposalChartsResponse,
+        types::AgoraProposalChartPointDto,
+        types::AgoraProposalNonVotersResponse,
+        types::AgoraProposalNonVoterDto,
+        types::AgoraVoteChangesResponse,
+        types::AgoraVoteChangeDto,
+        types::AgoraVoteChangeEntryDto,
+        types::AgoraDelegatesResponse,
+        types::AgoraTopIssueDto,
+        types::AgoraDelegateSummaryDto,
+        types::AgoraDelegateDetailResponse,
+        types::AgoraDelegateDetailDto,
+        types::AgoraDelegateVotingHistoryResponse,
+        types::AgoraDelegateVotingHistoryDto,
+        types::AgoraDelegationEventsResponse,
+        types::AgoraDelegationEventDto,
+        types::AgoraHosActivityResponse,
+        types::AgoraHosActivityDto,
+        types::AgoraDelegateStatementChangesResponse,
+        types::AgoraDelegateStatementChangeDto,
+        types::AgoraVotingPowerChartPoint,
     )),
         tags(
         (name = "health", description = "Service and dependency health diagnostics"),
@@ -114,7 +157,8 @@ use utoipa::OpenApi;
         (name = "discourse", description = "Read endpoints over indexed Discourse entities (instances, categories, topics, posts, likes, users)"),
         (name = "discourse-ops", description = "Operational diagnostics for data integrity and coverage checks"),
         (name = "telegram", description = "Read endpoints over indexed Telegram entities (channels, users, messages, reactions, service actions)"),
-        (name = "venear", description = "Read endpoints over indexed veNEAR governance entities (config, proposals, votes, delegates, voting power, delegations)")
+        (name = "venear", description = "Read endpoints over indexed veNEAR governance entities (config, proposals, votes, delegates, voting power, delegations)"),
+        (name = "agora", description = "Legacy Agora-compatible governance endpoints backed by indexed HOS materialized views")
     )
 )]
 pub struct ApiDoc;
@@ -235,6 +279,20 @@ mod tests {
                 .expect("delegates description")
                 .contains("possible voters"),
             "delegates endpoint should explain dataset semantics"
+        );
+
+        let agora_delegate_get = paths
+            .get("/api/agora/delegates/{address}")
+            .and_then(|p| p.get("get"))
+            .and_then(|op| op.as_object())
+            .expect("agora delegate get operation");
+        assert!(
+            agora_delegate_get
+                .get("description")
+                .and_then(|v| v.as_str())
+                .expect("agora delegate description")
+                .contains("legacy Agora payload shape"),
+            "agora delegate endpoint should document compatibility intent"
         );
 
         let telegram_messages_get = paths
@@ -388,6 +446,20 @@ mod tests {
         assert!(
             venear_delegation_properties.contains_key("account_id"),
             "delegation events should expose scoped account_id"
+        );
+
+        let agora_delegate_properties = schemas
+            .get("AgoraDelegateDetailDto")
+            .and_then(|s| s.get("properties"))
+            .and_then(|p| p.as_object())
+            .expect("AgoraDelegateDetailDto properties");
+        assert!(
+            agora_delegate_properties.contains_key("notificationPreferences"),
+            "Agora delegate detail should expose legacy notificationPreferences"
+        );
+        assert!(
+            agora_delegate_properties.contains_key("delegatedFromCount"),
+            "Agora delegate detail should expose delegatedFromCount"
         );
 
         let telegram_messages_parameters = paths
