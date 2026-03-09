@@ -47,6 +47,8 @@ async fn agora_endpoints_return_seeded_data() {
     assert_eq!(pending.proposals.len(), 1);
     assert_eq!(pending.proposals[0].proposal_id.as_deref(), Some("2"));
     assert_eq!(pending.proposals[0].status, "Created");
+    assert!(pending.proposals[0].voting_duration_ns.is_none());
+    assert!(pending.proposals[0].total_voting_power.is_none());
 
     let votes: AgoraProposalVotesResponse = get_json(&router, "/api/agora/proposal/1/votes").await;
     assert_eq!(votes.count, 2);
@@ -69,6 +71,7 @@ async fn agora_endpoints_return_seeded_data() {
         get_json(&router, "/api/agora/proposal/2/non-voters").await;
     assert_eq!(non_voters.count, 2);
     assert_eq!(non_voters.non_voters.len(), 2);
+    assert_eq!(non_voters.non_voters[0].proposal_id, "2");
     assert_eq!(non_voters.non_voters[0].registered_voter_id, "jane.near");
     assert_eq!(non_voters.non_voters[0].voting_power, "8");
     assert_eq!(non_voters.non_voters[1].registered_voter_id, "lane.near");
@@ -132,6 +135,10 @@ async fn agora_endpoints_return_seeded_data() {
     assert_eq!(
         jane_voting_history.votes[0].proposal_id.as_deref(),
         Some("1")
+    );
+    assert_eq!(
+        jane_voting_history.votes[0].proposal_name.as_deref(),
+        Some("P1")
     );
     assert_eq!(
         jane_voting_history.votes[0].vote_option.as_deref(),

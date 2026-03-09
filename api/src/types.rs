@@ -1191,8 +1191,10 @@ pub struct AgoraProposalDto {
     /// Voting power currently counted as `abstain`.
     pub abstain_voting_power: Option<String>,
     /// Voting duration in nanoseconds, when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub voting_duration_ns: Option<String>,
     /// Snapshot total voting power at approval time.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub total_voting_power: Option<String>,
     /// Calculated quorum amount as a string.
     pub quorum_amount: String,
@@ -1271,7 +1273,7 @@ pub struct AgoraProposalNonVoterDto {
     /// Stable row identifier.
     pub id: String,
     /// Proposal identifier.
-    pub proposal_id: i64,
+    pub proposal_id: String,
     /// Registered voter account id.
     pub registered_voter_id: String,
     /// Current voting power as a string.

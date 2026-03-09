@@ -891,6 +891,149 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
 }
 
 #[tokio::test]
+async fn malformed_failed_withdraw_does_not_break_hos_materialized_views() -> Result<()> {
+    init_test_tracing();
+
+    let db = TestDatabase::new().await;
+    let conn = db.db();
+
+    execute_sql(
+        conn.as_ref(),
+        "INSERT INTO near.near_execution_outcomes (
+            id,
+            block_height,
+            receipt_id,
+            outcome,
+            raw_data,
+            shard_id,
+            transaction_hash,
+            block_hash,
+            chunk_hash,
+            gas_burnt,
+            tokens_burnt_yocto,
+            executor_account_id,
+            status,
+            outcome_receipt_ids,
+            executed_in_block_hash,
+            logs,
+            results_json,
+            block_timestamp
+         ) VALUES (
+            'failed-withdraw-outcome',
+            169048936,
+            '5KMagzVhUQnRm3kuoRNUrUAcWcFZRE26A7tVTgtP3x92',
+            '{\"status\":{\"Failure\":{\"ActionError\":{\"index\":0,\"kind\":{\"FunctionCallError\":{\"ExecutionError\":\"Smart contract panicked: Failed to deserialize input from JSON.\"}}}}}}'::jsonb,
+            NULL,
+            0,
+            '85EXw4t6LMDf2RhLF3hQF8SZhUqGxv5i8AAcNaXQNTEo',
+            'failed-withdraw-bh',
+            'failed-withdraw-ch',
+            0,
+            '0',
+            '1c3e17e527587d71cafed4bd4457ac6ca9dc916d.venear.dao',
+            'Failure',
+            '[]'::jsonb,
+            'failed-withdraw-bh',
+            '[]'::jsonb,
+            NULL,
+            1690489360000000000
+         )",
+    )
+    .await?;
+
+    execute_sql(
+        conn.as_ref(),
+        "INSERT INTO near.near_receipt_actions (
+            id,
+            block_height,
+            receipt_id,
+            execution_outcome_id,
+            transaction_hash,
+            shard_id,
+            signer_account_id,
+            signer_public_key,
+            gas_price,
+            action_kind,
+            action_json,
+            predecessor_id,
+            receiver_id,
+            block_hash,
+            chunk_hash,
+            author,
+            method_name,
+            gas,
+            deposit,
+            args_base64,
+            args_json,
+            action_index,
+            block_timestamp
+         ) VALUES (
+            '5KMagzVhUQnRm3kuoRNUrUAcWcFZRE26A7tVTgtP3x92-0',
+            169048936,
+            '5KMagzVhUQnRm3kuoRNUrUAcWcFZRE26A7tVTgtP3x92',
+            'failed-withdraw-outcome',
+            '85EXw4t6LMDf2RhLF3hQF8SZhUqGxv5i8AAcNaXQNTEo',
+            0,
+            'caller.near',
+            'ed25519:failedwithdraw',
+            '0',
+            'FunctionCall',
+            '{\"FunctionCall\":{\"method_name\":\"withdraw_from_staking_pool\"}}'::jsonb,
+            'caller.near',
+            '1c3e17e527587d71cafed4bd4457ac6ca9dc916d.venear.dao',
+            'failed-withdraw-bh',
+            'failed-withdraw-ch',
+            'author.near',
+            'withdraw_from_staking_pool',
+            0,
+            '0',
+            'eyJhbW91bnQiOiJsaW5lYXItcHJvdG9jb2wubmVhciJ9',
+            '{\"amount\":\"linear-protocol.near\"}'::jsonb,
+            0,
+            1690489360000000000
+         )",
+    )
+    .await?;
+
+    refresh_hos_materialized_views(conn.as_ref()).await?;
+
+    let activity_count = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.hos_user_activities
+         WHERE receipt_id = '5KMagzVhUQnRm3kuoRNUrUAcWcFZRE26A7tVTgtP3x92'
+           AND method_name = 'withdraw_from_staking_pool'",
+    )
+    .await?;
+    assert_eq!(
+        activity_count, 1,
+        "expected malformed failed withdraw activity row"
+    );
+
+    let event_status = first_string(
+        conn.as_ref(),
+        "SELECT event_status AS value
+         FROM near.hos_user_activities
+         WHERE receipt_id = '5KMagzVhUQnRm3kuoRNUrUAcWcFZRE26A7tVTgtP3x92'
+         LIMIT 1",
+    )
+    .await?;
+    assert_eq!(event_status, "failed");
+
+    let near_amount = first_string(
+        conn.as_ref(),
+        "SELECT COALESCE(near_amount::text, 'NULL') AS value
+         FROM near.hos_user_activities
+         WHERE receipt_id = '5KMagzVhUQnRm3kuoRNUrUAcWcFZRE26A7tVTgtP3x92'
+         LIMIT 1",
+    )
+    .await?;
+    assert_eq!(near_amount, "NULL");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn venear_governance_fixture_expectations_match_checked_in_snapshots() -> Result<()> {
     init_test_tracing();
 

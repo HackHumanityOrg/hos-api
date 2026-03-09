@@ -770,15 +770,17 @@ pub async fn get_delegate_voting_history(
             DatabaseBackend::Postgres,
             "
             SELECT
-                voter_id AS address,
-                vote_option::text AS vote_option,
-                voting_power::text AS voting_power,
-                voted_at,
-                proposal_id::text AS proposal_id,
-                proposal_name
-            FROM near.hos_proposal_voting_history
-            WHERE voter_id = $1
-            ORDER BY voted_date DESC
+                h.voter_id AS address,
+                h.vote_option::text AS vote_option,
+                h.voting_power::text AS voting_power,
+                h.voted_at,
+                h.proposal_id::text AS proposal_id,
+                COALESCE(h.proposal_name, p.proposal_title) AS proposal_name
+            FROM near.hos_proposal_voting_history h
+            LEFT JOIN near.hos_proposals p
+              ON p.proposal_id = h.proposal_id
+            WHERE h.voter_id = $1
+            ORDER BY h.voted_date DESC
             LIMIT $2 OFFSET $3
             ",
             vec![address.clone().into(), page_size.into(), offset.into()],
@@ -1604,8 +1606,12 @@ fn to_agora_proposal_dto(row: &QueryResult) -> Result<AgoraProposalDto, String> 
             "abstain_voting_power",
             "Agora proposal",
         )?),
-        voting_duration_ns: normalize_numeric_string_opt(voting_duration_ns),
-        total_voting_power: normalize_numeric_string_opt(total_voting_power.clone()),
+        voting_duration_ns: is_approved
+            .then(|| normalize_numeric_string_opt(voting_duration_ns))
+            .flatten(),
+        total_voting_power: is_approved
+            .then(|| normalize_numeric_string_opt(total_voting_power.clone()))
+            .flatten(),
         quorum_amount: calculate_quorum_amount(total_voting_power.as_deref(), &metadata),
         status,
         voting_start_time_ns: voting_start_at.map(naive_datetime_to_ns_string),
@@ -1644,7 +1650,8 @@ fn to_agora_chart_point_dto(row: &QueryResult) -> Result<AgoraProposalChartPoint
 fn to_agora_non_voter_dto(row: &QueryResult) -> Result<AgoraProposalNonVoterDto, String> {
     Ok(AgoraProposalNonVoterDto {
         id: decode_row_col::<String>(row, "id", "Agora proposal non-voter")?,
-        proposal_id: decode_row_col::<i64>(row, "proposal_id", "Agora proposal non-voter")?,
+        proposal_id: decode_row_col::<i64>(row, "proposal_id", "Agora proposal non-voter")?
+            .to_string(),
         registered_voter_id: decode_row_col::<String>(
             row,
             "registered_voter_id",

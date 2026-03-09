@@ -30,6 +30,7 @@ mod m20260313_000027_near_receipt_tx_hash_map;
 mod m20260313_000028_hos_matcher_and_raw_parity;
 mod m20260313_000029_in_memory_hos_staging_refactor;
 mod m20260313_000030_near_execution_outcomes_exact_fee_fields;
+mod m20260313_000031_harden_hos_mv_typed_casts;
 
 pub struct Migrator;
 
@@ -67,6 +68,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260313_000028_hos_matcher_and_raw_parity::Migration),
             Box::new(m20260313_000029_in_memory_hos_staging_refactor::Migration),
             Box::new(m20260313_000030_near_execution_outcomes_exact_fee_fields::Migration),
+            Box::new(m20260313_000031_harden_hos_mv_typed_casts::Migration),
         ]
     }
 }
