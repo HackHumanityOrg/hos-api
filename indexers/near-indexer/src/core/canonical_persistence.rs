@@ -37,7 +37,7 @@ pub enum NearReceiptWriteMode {
     Upsert,
 }
 
-pub const RECEIPT_TX_MAP_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(3, 1_024);
+pub const RECEIPT_TX_MAP_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(4, 1_024);
 pub const CANONICAL_TRANSACTION_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(11, 512);
 pub const CANONICAL_RECEIPT_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(7, 512);
 pub const CANONICAL_EXECUTION_OUTCOME_BULK_INSERT_PLAN: BulkInsertPlan =
@@ -175,6 +175,7 @@ pub async fn flush_receipt_tx_hash_map_upserts(
         "INSERT INTO near.near_receipt_tx_hash_map (
             receipt_id,
             transaction_hash,
+            is_persisted_graph,
             first_seen_height,
             last_seen_height,
             created_at,
@@ -183,23 +184,27 @@ pub async fn flush_receipt_tx_hash_map_upserts(
         SELECT
             incoming.receipt_id,
             incoming.transaction_hash,
+            incoming.is_persisted_graph,
             incoming.block_height,
             incoming.block_height,
             NOW(),
             NOW()
         FROM (VALUES ",
         "
-        ) AS incoming(receipt_id, transaction_hash, block_height)
+        ) AS incoming(receipt_id, transaction_hash, is_persisted_graph, block_height)
         ON CONFLICT (receipt_id) DO UPDATE SET
+            is_persisted_graph = near.near_receipt_tx_hash_map.is_persisted_graph
+                OR EXCLUDED.is_persisted_graph,
             last_seen_height = GREATEST(
                 near.near_receipt_tx_hash_map.last_seen_height,
                 EXCLUDED.last_seen_height
             ),
             updated_at = NOW()
-        RETURNING receipt_id, transaction_hash",
+        RETURNING receipt_id, transaction_hash, is_persisted_graph",
         |row, values| {
             values.push(row.receipt_id.clone().into());
             values.push(row.transaction_hash.clone().into());
+            values.push(row.is_persisted_graph.into());
             values.push(row.block_height.into());
         },
         "failed to bulk upsert near_receipt_tx_hash_map",
@@ -215,10 +220,14 @@ pub async fn flush_receipt_tx_hash_map_upserts(
         let transaction_hash: String = row
             .try_get("", "transaction_hash")
             .context("failed to read bulk near_receipt_tx_hash_map.transaction_hash")?;
+        let is_persisted_graph: bool = row
+            .try_get("", "is_persisted_graph")
+            .context("failed to read bulk near_receipt_tx_hash_map.is_persisted_graph")?;
         persisted_rows.push(ReceiptTxHashMapRow {
             receipt_id: receipt_id.clone(),
             transaction_hash: transaction_hash.clone(),
             block_height: 0,
+            is_persisted_graph,
         });
         persisted.insert(receipt_id, transaction_hash);
     }

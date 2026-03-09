@@ -346,6 +346,7 @@ impl ReceiptGraphResolver {
                 receipt_id,
                 transaction_hash,
                 block_height: facts.block_height,
+                is_persisted_graph: false,
             })
             .collect::<Vec<_>>();
         for row in &mapped_receipt_rows {
@@ -416,6 +417,7 @@ impl ReceiptGraphResolver {
                 receipt_id,
                 transaction_hash,
                 block_height,
+                is_persisted_graph: true,
             })
             .collect())
     }
@@ -486,6 +488,7 @@ impl ReceiptGraphResolver {
                 receipt_id: receipt_id.to_string(),
                 transaction_hash: transaction_hash.to_string(),
                 block_height,
+                is_persisted_graph: false,
             });
     }
 
@@ -579,11 +582,13 @@ mod tests {
                 receipt_id: "receipt-1".to_string(),
                 transaction_hash: "tx-1".to_string(),
                 block_height: 100,
+                is_persisted_graph: false,
             }],
             &[ReceiptTxHashMapRow {
                 receipt_id: "receipt-1".to_string(),
                 transaction_hash: "tx-1".to_string(),
                 block_height: 100,
+                is_persisted_graph: false,
             }],
         );
 
@@ -612,11 +617,13 @@ mod tests {
                 receipt_id: "receipt-1".to_string(),
                 transaction_hash: "tx-1".to_string(),
                 block_height: 100,
+                is_persisted_graph: false,
             }],
             &[ReceiptTxHashMapRow {
                 receipt_id: "receipt-1".to_string(),
                 transaction_hash: "tx-1".to_string(),
                 block_height: 100,
+                is_persisted_graph: false,
             }],
         );
 
@@ -625,6 +632,7 @@ mod tests {
                 receipt_id: "receipt-1".to_string(),
                 transaction_hash: "tx-1".to_string(),
                 block_height: 101,
+                is_persisted_graph: false,
             }],
             101,
             ReceiptGraphUpsertMode::Venear,
@@ -645,11 +653,13 @@ mod tests {
                 receipt_id: "receipt-1".to_string(),
                 transaction_hash: "tx-1".to_string(),
                 block_height: 100,
+                is_persisted_graph: false,
             }],
             &[ReceiptTxHashMapRow {
                 receipt_id: "receipt-1".to_string(),
                 transaction_hash: "tx-1".to_string(),
                 block_height: 100,
+                is_persisted_graph: false,
             }],
         );
 
@@ -658,6 +668,7 @@ mod tests {
                 receipt_id: "receipt-1".to_string(),
                 transaction_hash: "tx-1".to_string(),
                 block_height: 100 + RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS,
+                is_persisted_graph: false,
             }],
             100 + RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS,
             ReceiptGraphUpsertMode::Venear,

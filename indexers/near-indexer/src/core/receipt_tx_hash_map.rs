@@ -76,6 +76,7 @@ pub async fn upsert_receipt_tx_hash(
     db: &impl ConnectionTrait,
     receipt_id: &str,
     transaction_hash: &str,
+    is_persisted_graph: bool,
     block_height: i64,
 ) -> Result<String> {
     let row = db
@@ -84,12 +85,15 @@ pub async fn upsert_receipt_tx_hash(
             "INSERT INTO near.near_receipt_tx_hash_map (
                 receipt_id,
                 transaction_hash,
+                is_persisted_graph,
                 first_seen_height,
                 last_seen_height,
                 created_at,
                 updated_at
-            ) VALUES ($1, $2, $3, $3, NOW(), NOW())
+            ) VALUES ($1, $2, $3, $4, $4, NOW(), NOW())
             ON CONFLICT (receipt_id) DO UPDATE SET
+                is_persisted_graph = near.near_receipt_tx_hash_map.is_persisted_graph
+                    OR EXCLUDED.is_persisted_graph,
                 last_seen_height = GREATEST(
                     near.near_receipt_tx_hash_map.last_seen_height,
                     EXCLUDED.last_seen_height
@@ -99,6 +103,7 @@ pub async fn upsert_receipt_tx_hash(
             vec![
                 receipt_id.into(),
                 transaction_hash.into(),
+                is_persisted_graph.into(),
                 block_height.into(),
             ],
         ))

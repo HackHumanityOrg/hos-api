@@ -98,6 +98,10 @@ are:
 These tables are the long-term source of truth. HoS materialized views do not
 read from staging tables.
 
+`near_receipt_tx_hash_map` distinguishes transient lineage needed to keep open
+graphs resolvable from durable lineage for graphs already persisted into the
+canonical raw tables. Cleanup only prunes transient rows.
+
 `raw_data`, `receipt`, `action_json`, and `state_changes` preserve the exact
 provider-normalized `StreamerMessage` payloads used by both Lake and FastNEAR.
 The extra scalar columns are indexed projections of that shared payload, plus a
@@ -129,6 +133,9 @@ The raw module is not HoS-aware. It stores the chain payload as broadly as
 possible and writes canonical tables in block-scoped batches. It uses
 `ON CONFLICT` semantics to fill in lineage and raw JSON as more context becomes
 available.
+
+Raw writes every `near_receipt_tx_hash_map` row as durable because it persists
+the full canonical graph.
 
 Receipt lineage is resolved in layers:
 

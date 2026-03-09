@@ -264,6 +264,7 @@ async fn insert_receipt_tx_map_row(
     db: &impl ConnectionTrait,
     receipt_id: &str,
     transaction_hash: &str,
+    is_persisted_graph: bool,
     first_seen_height: i64,
     last_seen_height: i64,
 ) -> Result<()> {
@@ -272,55 +273,19 @@ async fn insert_receipt_tx_map_row(
         "INSERT INTO near.near_receipt_tx_hash_map (
             receipt_id,
             transaction_hash,
+            is_persisted_graph,
             first_seen_height,
             last_seen_height,
             created_at,
             updated_at
-        ) VALUES ($1, $2, $3, $4, NOW(), NOW())",
+        ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())",
         vec![
             receipt_id.into(),
             transaction_hash.into(),
+            is_persisted_graph.into(),
             first_seen_height.into(),
             last_seen_height.into(),
         ],
-    ))
-    .await?;
-    Ok(())
-}
-
-async fn insert_canonical_transaction_row(
-    db: &impl ConnectionTrait,
-    transaction_hash: &str,
-    block_height: i64,
-) -> Result<()> {
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "INSERT INTO near.near_transactions (
-            hash,
-            block_height,
-            signer_id,
-            receiver_id,
-            nonce,
-            priority_fee,
-            public_key,
-            signature,
-            actions,
-            raw_data,
-            shard_id
-        ) VALUES (
-            $1,
-            $2,
-            'signer.test.near',
-            'receiver.test.near',
-            1,
-            0,
-            'ed25519:test',
-            'signature',
-            '[]'::jsonb,
-            '{}'::jsonb,
-            0
-        )",
-        vec![transaction_hash.into(), block_height.into()],
     ))
     .await?;
     Ok(())
@@ -555,6 +520,19 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
     assert!(
         mapped_hos_receipts > 0,
         "HoS lineage map should include non-null transaction_hash values"
+    );
+    let durable_hos_receipts = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_tx_hash_map map
+         JOIN near.near_receipts r
+           ON r.receipt_id = map.receipt_id
+         WHERE map.is_persisted_graph = TRUE",
+    )
+    .await?;
+    assert!(
+        durable_hos_receipts > 0,
+        "persisted HoS graphs should retain durable receipt lineage rows"
     );
     let orphaned_hos_transaction_hashes = scalar_i64(
         conn.as_ref(),
@@ -1131,7 +1109,7 @@ async fn omitted_raw_config_still_prunes_stale_receipt_tx_map_rows() -> Result<(
     raw_module.initialize(conn.as_ref()).await?;
     venear_module.initialize(conn.as_ref()).await?;
 
-    insert_receipt_tx_map_row(conn.as_ref(), "receipt-legacy", "tx-legacy", 0, 0).await?;
+    insert_receipt_tx_map_row(conn.as_ref(), "receipt-legacy", "tx-legacy", false, 0, 0).await?;
 
     let fixture = live_fixture_message();
     raw_module.process_block(&fixture, conn.as_ref()).await?;
@@ -1420,7 +1398,7 @@ async fn receipt_tx_map_cleanup_deletes_orphans_after_retention() -> Result<()> 
     ));
 
     module.initialize(conn.as_ref()).await?;
-    insert_receipt_tx_map_row(conn.as_ref(), "receipt-orphan", "tx-orphan", 0, 0).await?;
+    insert_receipt_tx_map_row(conn.as_ref(), "receipt-orphan", "tx-orphan", false, 0, 0).await?;
 
     module
         .process_block(&cleanup_trigger_message(cleanup_height), conn.as_ref())
@@ -1442,7 +1420,7 @@ async fn receipt_tx_map_cleanup_deletes_orphans_after_retention() -> Result<()> 
 }
 
 #[tokio::test]
-async fn receipt_tx_map_cleanup_preserves_canonical_and_active_graph_rows() -> Result<()> {
+async fn receipt_tx_map_cleanup_preserves_persisted_and_active_graph_rows() -> Result<()> {
     init_test_tracing();
 
     let fixtures = core_hos_fixture_messages();
@@ -1481,9 +1459,16 @@ async fn receipt_tx_map_cleanup_preserves_canonical_and_active_graph_rows() -> R
     )
     .await?;
 
-    insert_receipt_tx_map_row(conn.as_ref(), "receipt-delete", "tx-delete", 0, 0).await?;
-    insert_receipt_tx_map_row(conn.as_ref(), "receipt-canonical", "tx-canonical", 0, 0).await?;
-    insert_canonical_transaction_row(conn.as_ref(), "tx-canonical", 0).await?;
+    insert_receipt_tx_map_row(conn.as_ref(), "receipt-delete", "tx-delete", false, 0, 0).await?;
+    insert_receipt_tx_map_row(
+        conn.as_ref(),
+        "receipt-persisted",
+        "tx-persisted",
+        true,
+        0,
+        0,
+    )
+    .await?;
 
     module
         .process_block(&cleanup_trigger_message(cleanup_height), conn.as_ref())
@@ -1501,16 +1486,17 @@ async fn receipt_tx_map_cleanup_preserves_canonical_and_active_graph_rows() -> R
         "stale orphaned lineage rows should be deleted"
     );
 
-    let canonical_rows = scalar_i64(
+    let persisted_rows = scalar_i64(
         conn.as_ref(),
         "SELECT COUNT(*)::bigint AS value
          FROM near.near_receipt_tx_hash_map
-         WHERE receipt_id = 'receipt-canonical'",
+         WHERE receipt_id = 'receipt-persisted'
+           AND is_persisted_graph = TRUE",
     )
     .await?;
     assert_eq!(
-        canonical_rows, 0,
-        "HoS-only cleanup should prune stale canonical lineage rows once they are no longer active"
+        persisted_rows, 1,
+        "cleanup should preserve durable lineage rows for persisted graphs"
     );
 
     let active_rows = scalar_i64(
@@ -1682,6 +1668,18 @@ async fn raw_and_venear_modules_share_receipt_tx_lineage_map() -> Result<()> {
     assert!(
         mapped_non_hos_receipts > 0,
         "raw should contribute lineage rows beyond HoS-only scope"
+    );
+
+    let durable_rows = scalar_i64(
+        conn.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_tx_hash_map
+         WHERE is_persisted_graph = TRUE",
+    )
+    .await?;
+    assert!(
+        durable_rows > 0,
+        "raw and promoted HoS graphs should retain durable lineage rows"
     );
 
     Ok(())

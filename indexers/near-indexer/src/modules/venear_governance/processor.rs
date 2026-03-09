@@ -274,6 +274,7 @@ impl HosBlockUpdates {
                 receipt_id: receipt_id.to_string(),
                 transaction_hash: transaction_hash.to_string(),
                 block_height,
+                is_persisted_graph: false,
             });
     }
 
@@ -1499,7 +1500,8 @@ impl VenearGovernanceModule {
             "WITH deletable AS (
                 SELECT m.receipt_id
                 FROM near.near_receipt_tx_hash_map m
-                WHERE m.last_seen_height < $1",
+                WHERE m.is_persisted_graph = FALSE
+                  AND m.last_seen_height < $1",
         );
 
         if !active_graph_tx_hashes.is_empty() {
@@ -2070,7 +2072,7 @@ impl VenearGovernanceModule {
             unresolved_hos_receipts.len(),
         );
 
-        let receipt_map_rows = updates
+        let mut receipt_map_rows = updates
             .receipt_tx_hash_map
             .values()
             .cloned()
@@ -2102,7 +2104,7 @@ impl VenearGovernanceModule {
             receipt_tx_write_stats.skipped_count,
         );
         let receipt_map_write_start = Instant::now();
-        let persisted_receipt_map_rows =
+        let mut persisted_receipt_map_rows =
             Self::flush_receipt_tx_hash_map_upserts(db, &receipt_map_rows_to_write).await?;
         stats.record_phase_elapsed("receipt_tx_map_write", receipt_map_write_start);
         stats.record_count(
@@ -2148,15 +2150,44 @@ impl VenearGovernanceModule {
             );
         }
 
+        let mut durable_receipt_map_rows = HashMap::new();
         if !self.raw_enabled && !merge_plan.closed_hos.is_empty() {
             let mut canonical_batch = CanonicalWriteBatch::default();
-            for (_, bundle) in &merge_plan.closed_hos {
+            for (transaction_hash, bundle) in &merge_plan.closed_hos {
                 canonical_batch.merge_bundle(bundle.clone());
+                for receipt_id in bundle.receipts.keys() {
+                    durable_receipt_map_rows
+                        .entry(receipt_id.clone())
+                        .or_insert_with(|| ReceiptTxHashMapRow {
+                            receipt_id: receipt_id.clone(),
+                            transaction_hash: transaction_hash.clone(),
+                            block_height,
+                            is_persisted_graph: true,
+                        });
+                }
             }
 
             let canonical_close_write_start = Instant::now();
             Self::flush_canonical_write_batch(db, canonical_batch, &mut stats).await?;
             stats.record_phase_elapsed("canonical_close_write", canonical_close_write_start);
+
+            let durable_receipt_map_rows =
+                durable_receipt_map_rows.into_values().collect::<Vec<_>>();
+            stats.record_count(
+                "receipt_tx_map_persisted_graph_rows",
+                durable_receipt_map_rows.len(),
+            );
+            if !durable_receipt_map_rows.is_empty() {
+                let durable_receipt_map_write_start = Instant::now();
+                let persisted_durable_receipt_map_rows =
+                    Self::flush_receipt_tx_hash_map_upserts(db, &durable_receipt_map_rows).await?;
+                stats.record_phase_elapsed(
+                    "receipt_tx_map_persisted_graph_write",
+                    durable_receipt_map_write_start,
+                );
+                receipt_map_rows.extend(durable_receipt_map_rows);
+                persisted_receipt_map_rows.extend(persisted_durable_receipt_map_rows);
+            }
 
             let closed_tx_hashes = merge_plan
                 .closed_hos

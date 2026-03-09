@@ -13,6 +13,7 @@ pub struct ReceiptTxHashMapRow {
     pub receipt_id: String,
     pub transaction_hash: String,
     pub block_height: i64,
+    pub is_persisted_graph: bool,
 }
 
 #[derive(Clone)]

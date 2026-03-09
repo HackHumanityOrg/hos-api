@@ -133,6 +133,11 @@ impl RawProjector {
             &mut receipt_tx_rows,
         )?;
 
+        let mut receipt_tx_rows = receipt_tx_rows.into_values().collect::<Vec<_>>();
+        for row in &mut receipt_tx_rows {
+            row.is_persisted_graph = true;
+        }
+
         Ok(RawBlockProjection {
             block_row: canonical_rows::block_to_row(&msg.block, &facts.block_author)?,
             chunk_rows,
@@ -142,7 +147,7 @@ impl RawProjector {
             execution_outcome_rows: execution.execution_outcome_rows,
             receipt_action_rows: execution.receipt_action_rows,
             receipt_edge_rows: execution.receipt_edge_rows,
-            receipt_tx_rows: receipt_tx_rows.into_values().collect(),
+            receipt_tx_rows,
             new_data_receipt_links: execution.new_data_receipt_links,
         })
     }
