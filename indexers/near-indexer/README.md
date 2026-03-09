@@ -98,6 +98,15 @@ are:
 These tables are the long-term source of truth. HoS materialized views do not
 read from staging tables.
 
+`raw_data`, `receipt`, `action_json`, and `state_changes` preserve the exact
+provider-normalized `StreamerMessage` payloads used by both Lake and FastNEAR.
+The extra scalar columns are indexed projections of that shared payload, plus a
+small number of convenience derivations used by HoS queries.
+
+For token-denominated canonical columns, the stored value is the exact decimal
+yoctoNEAR string from the shared `StreamerMessage` model, not a display-formatted
+`NearToken` string.
+
 ## Raw Module
 
 `raw` is the full-chain canonical writer in
@@ -130,7 +139,14 @@ Receipt lineage is resolved in layers:
 5. fall back to canonical `near_receipt_edges`
 6. fall back to parent execution outcomes through receipt edges
 
-That lineage map is shared with the HoS module.
+The in-memory `data_id -> parent receipt/tx` lineage cache is shared with the
+HoS module. It is intentionally bounded, not durable:
+
+- while the process stays up, lineage is retained for a fixed block window
+- on restart, correctness depends on replaying enough blocks to rebuild that
+  window
+- receipts that arrive after the configured retention window are not guaranteed
+  to resolve back to their parent transaction
 
 ## HoS Matcher
 
@@ -177,7 +193,7 @@ For each open graph it tracks:
 - whether any node in the graph touched HoS
 - whether the root transaction row has been seen
 - pending child receipt ids
-- open yielded-promise receipts with timeout heights
+- open yielded-promise `data_id`s with timeout heights
 - per-block source references used for pre-HoS hydration
 - an optional HoS bundle once the graph becomes HoS-relevant
 - an optional incomplete reason when restart replay cannot recover earlier history
@@ -231,6 +247,8 @@ Restart recovery for the HoS module is bounded, not durable:
 - it rebuilds in-memory graph state by replaying the rewound block range
 - while the process stays up, source retention follows open graphs rather than a
   fixed cache window
+- shared `data_id` lineage also depends on replay rebuilding the bounded
+  in-memory lineage cache
 - if a relevant graph spans beyond the rewind window while `raw=false`, HoS-only
   recovery can miss earlier history after restart
 

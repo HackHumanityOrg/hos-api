@@ -15,10 +15,10 @@ use crate::core::receipt_tx_hash_map::{
 };
 use crate::core::stage_timing::StageMetrics;
 
-const DATA_RECEIPT_LINK_RETENTION_BLOCKS: i64 = 256;
+const DEFAULT_DATA_RECEIPT_LINK_RETENTION_BLOCKS: i64 = 1_024;
 const RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS: i64 = 128;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataReceiptParentLink {
     pub transaction_hash: Option<String>,
     pub parent_receipt_id: String,
@@ -79,9 +79,10 @@ impl ReceiptGraphRuntimeState {
         &mut self,
         block_height: i64,
         links: HashMap<String, DataReceiptParentLink>,
+        retention_blocks: i64,
     ) {
         if links.is_empty() {
-            self.evict_data_receipt_links(block_height);
+            self.evict_data_receipt_links(block_height, retention_blocks);
             return;
         }
 
@@ -93,7 +94,7 @@ impl ReceiptGraphRuntimeState {
             height_bucket.push(data_id.clone());
             self.data_receipt_links.insert(data_id, link);
         }
-        self.evict_data_receipt_links(block_height);
+        self.evict_data_receipt_links(block_height, retention_blocks);
     }
 
     fn snapshot_data_receipt_links(
@@ -114,8 +115,8 @@ impl ReceiptGraphRuntimeState {
         snapshot
     }
 
-    fn evict_data_receipt_links(&mut self, block_height: i64) {
-        let cutoff_height = block_height.saturating_sub(DATA_RECEIPT_LINK_RETENTION_BLOCKS);
+    fn evict_data_receipt_links(&mut self, block_height: i64, retention_blocks: i64) {
+        let cutoff_height = block_height.saturating_sub(retention_blocks.max(0));
         let stale_heights = self
             .data_receipt_link_heights
             .keys()
@@ -259,14 +260,27 @@ impl ReceiptGraphRuntimeState {
     }
 }
 
-#[derive(Default)]
 pub struct ReceiptGraphResolver {
     state: Mutex<ReceiptGraphRuntimeState>,
+    data_receipt_link_retention_blocks: i64,
+}
+
+impl Default for ReceiptGraphResolver {
+    fn default() -> Self {
+        Self::with_data_receipt_link_retention_blocks(DEFAULT_DATA_RECEIPT_LINK_RETENTION_BLOCKS)
+    }
 }
 
 impl ReceiptGraphResolver {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_data_receipt_link_retention_blocks(retention_blocks: i64) -> Self {
+        Self {
+            state: Mutex::new(ReceiptGraphRuntimeState::default()),
+            data_receipt_link_retention_blocks: retention_blocks.max(1),
+        }
     }
 
     pub async fn resolve_for_block(
@@ -290,9 +304,10 @@ impl ReceiptGraphResolver {
         };
         metrics.record_phase_elapsed("data_link_snapshot", snapshot_start);
         metrics.record_count("data_receipt_link_cache_size", data_receipt_link_cache_size);
+        metrics.record_count("data_receipt_link_snapshot_size", data_receipt_links.len());
         metrics.record_count(
-            "data_receipt_link_snapshot_size",
-            data_receipt_links.len(),
+            "data_receipt_link_retention_blocks",
+            self.data_receipt_link_retention_blocks.max(0) as u64,
         );
 
         let seed_from_links_start = Instant::now();
@@ -353,7 +368,10 @@ impl ReceiptGraphResolver {
         lookup_stats.db_miss_count = unresolved_receipt_ids
             .len()
             .saturating_sub(lookup_stats.db_hit_count);
-        metrics.record_count("receipt_lookup_candidate_count", lookup_stats.candidate_count);
+        metrics.record_count(
+            "receipt_lookup_candidate_count",
+            lookup_stats.candidate_count,
+        );
         metrics.record_count(
             "receipt_lookup_local_resolved_count",
             lookup_stats.local_resolved_count,
@@ -381,16 +399,16 @@ impl ReceiptGraphResolver {
     }
 
     pub async fn resolve_from_canonical(
-        &self,
         db: &impl ConnectionTrait,
         unresolved_receipt_ids: &[String],
         block_height: i64,
     ) -> Result<Vec<ReceiptTxHashMapRow>> {
-        let resolved = receipt_tx_canonical_resolver::resolve_receipt_tx_hashes_from_canonical_graph(
-            db,
-            unresolved_receipt_ids,
-        )
-        .await?;
+        let resolved =
+            receipt_tx_canonical_resolver::resolve_receipt_tx_hashes_from_canonical_graph(
+                db,
+                unresolved_receipt_ids,
+            )
+            .await?;
 
         Ok(resolved
             .into_iter()
@@ -420,7 +438,11 @@ impl ReceiptGraphResolver {
         persisted_rows: &[ReceiptTxHashMapRow],
     ) {
         let mut state = self.state.lock().unwrap();
-        state.remember_data_receipt_links(block_height, new_data_receipt_links);
+        state.remember_data_receipt_links(
+            block_height,
+            new_data_receipt_links,
+            self.data_receipt_link_retention_blocks,
+        );
         state.remember_receipt_tx_hashes(block_height, rows, persisted_rows);
     }
 
@@ -543,10 +565,10 @@ impl ReceiptGraphResolver {
 #[cfg(test)]
 mod tests {
     use super::{
-        ReceiptGraphRuntimeState, ReceiptGraphUpsertMode, ReceiptTxHashMapRow,
-        RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS,
+        DataReceiptParentLink, ReceiptGraphRuntimeState, ReceiptGraphUpsertMode,
+        ReceiptTxHashMapRow, RECEIPT_TX_MAP_REFRESH_INTERVAL_BLOCKS,
     };
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn receipt_tx_hot_cache_resolves_misses_without_db() {
@@ -645,5 +667,46 @@ mod tests {
         assert_eq!(stats.new_count, 0);
         assert_eq!(stats.refresh_count, 1);
         assert_eq!(stats.skipped_count, 0);
+    }
+
+    #[test]
+    fn data_receipt_links_evict_after_configured_retention() {
+        let mut state = ReceiptGraphRuntimeState::default();
+        state.remember_data_receipt_links(
+            100,
+            HashMap::from([(
+                "data-1".to_string(),
+                DataReceiptParentLink {
+                    transaction_hash: Some("tx-1".to_string()),
+                    parent_receipt_id: "receipt-1".to_string(),
+                    parent_execution_outcome_id: "outcome-1".to_string(),
+                    block_height: 100,
+                    block_hash: "block-100".to_string(),
+                    block_timestamp: 1_000,
+                },
+            )]),
+            4,
+        );
+
+        assert_eq!(
+            state.snapshot_data_receipt_links(&HashSet::from(["data-1".to_string()])),
+            HashMap::from([(
+                "data-1".to_string(),
+                DataReceiptParentLink {
+                    transaction_hash: Some("tx-1".to_string()),
+                    parent_receipt_id: "receipt-1".to_string(),
+                    parent_execution_outcome_id: "outcome-1".to_string(),
+                    block_height: 100,
+                    block_hash: "block-100".to_string(),
+                    block_timestamp: 1_000,
+                },
+            )])
+        );
+
+        state.remember_data_receipt_links(105, HashMap::new(), 4);
+
+        assert!(state
+            .snapshot_data_receipt_links(&HashSet::from(["data-1".to_string()]))
+            .is_empty());
     }
 }

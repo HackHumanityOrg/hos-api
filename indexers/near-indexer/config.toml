@@ -59,6 +59,10 @@ enabled = false
 # Stream mode: "shared" (default) or "independent"
 stream_mode = "shared"
 start_height = 158320040
+# Rewind this many blocks from the persisted cursor on worker restart.
+restart_rewind_blocks = 1024
+# Keep in-memory data receipt lineage for this many blocks.
+data_receipt_link_retention_blocks = 1024
 
 # veNEAR governance raw module - stores only HOS-related rows in shared raw projection tables.
 [near.modules.venear_governance]

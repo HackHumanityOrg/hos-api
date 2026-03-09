@@ -41,7 +41,7 @@ pub const RECEIPT_TX_MAP_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(
 pub const CANONICAL_TRANSACTION_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(11, 512);
 pub const CANONICAL_RECEIPT_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(7, 512);
 pub const CANONICAL_EXECUTION_OUTCOME_BULK_INSERT_PLAN: BulkInsertPlan =
-    BulkInsertPlan::new(19, 384);
+    BulkInsertPlan::new(18, 384);
 pub const CANONICAL_RECEIPT_ACTION_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(23, 256);
 pub const CANONICAL_RECEIPT_EDGE_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(7, 512);
 pub const CANONICAL_BLOCK_BULK_INSERT_PLAN: BulkInsertPlan = BulkInsertPlan::new(16, 256);
@@ -455,8 +455,7 @@ pub async fn flush_near_execution_outcomes(
             block_hash,
             chunk_hash,
             gas_burnt,
-            gas_used,
-            tokens_burnt,
+            tokens_burnt_yocto,
             executor_account_id,
             status,
             outcome_receipt_ids,
@@ -476,8 +475,7 @@ pub async fn flush_near_execution_outcomes(
             block_hash = EXCLUDED.block_hash,
             chunk_hash = EXCLUDED.chunk_hash,
             gas_burnt = EXCLUDED.gas_burnt,
-            gas_used = EXCLUDED.gas_used,
-            tokens_burnt = EXCLUDED.tokens_burnt,
+            tokens_burnt_yocto = EXCLUDED.tokens_burnt_yocto,
             executor_account_id = EXCLUDED.executor_account_id,
             status = EXCLUDED.status,
             outcome_receipt_ids = EXCLUDED.outcome_receipt_ids,
@@ -496,8 +494,7 @@ pub async fn flush_near_execution_outcomes(
             values.push(row.block_hash.clone().into());
             values.push(row.chunk_hash.clone().into());
             values.push(row.gas_burnt.into());
-            values.push(row.gas_used.into());
-            values.push(row.tokens_burnt.into());
+            values.push(row.tokens_burnt_yocto.clone().into());
             values.push(row.executor_account_id.clone().into());
             values.push(row.status.clone().into());
             values.push(row.outcome_receipt_ids.clone().into());

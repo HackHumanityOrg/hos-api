@@ -94,8 +94,7 @@ pub struct NearExecutionOutcomeRow {
     pub block_hash: String,
     pub chunk_hash: String,
     pub gas_burnt: i64,
-    pub gas_used: f64,
-    pub tokens_burnt: f64,
+    pub tokens_burnt_yocto: String,
     pub executor_account_id: String,
     pub status: String,
     pub outcome_receipt_ids: JsonValue,
@@ -253,9 +252,9 @@ pub fn block_to_row(block: &BlockView, author: &str) -> Result<NearBlockRow> {
         author: author.to_string(),
         timestamp: header.timestamp as i64,
         timestamp_nanosec: header.timestamp_nanosec as i64,
-        gas_price: header.gas_price.to_string(),
-        total_supply: header.total_supply.to_string(),
-        validator_reward: header.validator_reward.to_string(),
+        gas_price: header.gas_price.as_yoctonear().to_string(),
+        total_supply: header.total_supply.as_yoctonear().to_string(),
+        validator_reward: header.validator_reward.as_yoctonear().to_string(),
         protocol_version: header.latest_protocol_version as i32,
         chunks_included: header.chunks_included as i64,
         block_ordinal: header.block_ordinal.map(|value| value as i64),
@@ -280,7 +279,7 @@ pub fn chunk_to_row(
         height_included: header.height_included as i64,
         gas_used: header.gas_used.as_gas() as i64,
         gas_limit: header.gas_limit.as_gas() as i64,
-        validator_reward: header.validator_reward.to_string(),
+        validator_reward: header.validator_reward.as_yoctonear().to_string(),
         raw_data: serialize_json(chunk, "chunk raw_data")?,
     })
 }
@@ -366,8 +365,7 @@ pub fn execution_outcome_to_row(
         block_hash: meta.block_hash.to_string(),
         chunk_hash: meta.chunk_hash.to_string(),
         gas_burnt: outcome.gas_burnt.as_gas() as i64,
-        gas_used: outcome.gas_burnt.as_gas() as f64,
-        tokens_burnt: outcome.tokens_burnt.as_yoctonear() as f64 / 1e24,
+        tokens_burnt_yocto: outcome.tokens_burnt.as_yoctonear().to_string(),
         executor_account_id: outcome.executor_id.to_string(),
         status: status.to_string(),
         outcome_receipt_ids,
@@ -399,7 +397,7 @@ pub fn receipt_action_rows(
         let action_kind = action_kind_from_json(&action_json);
         let signer_id_value = signer_id.to_string();
         let signer_public_key_value = signer_public_key.to_string();
-        let gas_price_value = gas_price.to_string();
+        let gas_price_value = gas_price.as_yoctonear().to_string();
 
         let mut method_name: Option<String> = None;
         let mut gas: Option<i64> = None;
@@ -417,7 +415,7 @@ pub fn receipt_action_rows(
             let args_bytes: &[u8] = args.as_ref();
             method_name = Some(function_name.clone());
             gas = Some(function_gas.as_gas() as i64);
-            deposit = Some(function_deposit.to_string());
+            deposit = Some(function_deposit.as_yoctonear().to_string());
             args_base64 = Some(BASE64_STANDARD.encode(args_bytes));
             args_json = Some(parse_args_json(args_bytes));
         }

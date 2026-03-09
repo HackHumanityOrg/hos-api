@@ -221,11 +221,11 @@ async fn agora_vote_changes_return_full_history() {
         r#"
         INSERT INTO near.near_execution_outcomes (
             id, block_height, receipt_id, outcome, raw_data, shard_id, transaction_hash,
-            block_hash, chunk_hash, gas_burnt, gas_used, tokens_burnt, executor_account_id,
+            block_hash, chunk_hash, gas_burnt, tokens_burnt_yocto, executor_account_id,
             status, outcome_receipt_ids, executed_in_block_hash, logs, results_json, block_timestamp
         ) VALUES
-            ('exec-vote-3', 112, 'rcpt-vote-3', '{}'::jsonb, NULL, 0, 'tx-vote-3', 'bh-112', 'ch-112', 0, 0, 0, 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-112', '["EVENT_JSON:{\"event\":\"add_vote\",\"data\":[{\"account_balance\":\"900000000000000000000\"}]}"]'::jsonb, NULL, 1760000120000000000),
-            ('exec-vote-4', 113, 'rcpt-vote-4', '{}'::jsonb, NULL, 0, 'tx-vote-4', 'bh-113', 'ch-113', 0, 0, 0, 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-113', '["EVENT_JSON:{\"event\":\"add_vote\",\"data\":[{\"account_balance\":\"900000000000000000000\"}]}"]'::jsonb, NULL, 1760000130000000000)
+            ('exec-vote-3', 112, 'rcpt-vote-3', '{}'::jsonb, NULL, 0, 'tx-vote-3', 'bh-112', 'ch-112', 0, '0', 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-112', '["EVENT_JSON:{\"event\":\"add_vote\",\"data\":[{\"account_balance\":\"900000000000000000000\"}]}"]'::jsonb, NULL, 1760000120000000000),
+            ('exec-vote-4', 113, 'rcpt-vote-4', '{}'::jsonb, NULL, 0, 'tx-vote-4', 'bh-113', 'ch-113', 0, '0', 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-113', '["EVENT_JSON:{\"event\":\"add_vote\",\"data\":[{\"account_balance\":\"900000000000000000000\"}]}"]'::jsonb, NULL, 1760000130000000000)
         "#,
     )
     .await
@@ -270,10 +270,10 @@ async fn agora_delegation_history_returns_legacy_event_shape() {
         r#"
         INSERT INTO near.near_execution_outcomes (
             id, block_height, receipt_id, outcome, raw_data, shard_id, transaction_hash,
-            block_hash, chunk_hash, gas_burnt, gas_used, tokens_burnt, executor_account_id,
+            block_hash, chunk_hash, gas_burnt, tokens_burnt_yocto, executor_account_id,
             status, outcome_receipt_ids, executed_in_block_hash, logs, results_json, block_timestamp
         ) VALUES
-            ('exec-deleg-erin', 200, 'rcpt-deleg-erin', '{}'::jsonb, NULL, 0, 'tx-deleg-erin', 'bh-200', 'ch-200', 0, 0, 0, 'venear.dao', 'SuccessValue', '[]'::jsonb, 'bh-200', '["EVENT_JSON:{\"event\":\"ft_mint\",\"data\":[{\"owner_id\":\"jane.near\",\"amount\":\"5\"}]}"]'::jsonb, NULL, 1760000800000000000)
+            ('exec-deleg-erin', 200, 'rcpt-deleg-erin', '{}'::jsonb, NULL, 0, 'tx-deleg-erin', 'bh-200', 'ch-200', 0, '0', 'venear.dao', 'SuccessValue', '[]'::jsonb, 'bh-200', '["EVENT_JSON:{\"event\":\"ft_mint\",\"data\":[{\"owner_id\":\"jane.near\",\"amount\":\"5\"}]}"]'::jsonb, NULL, 1760000800000000000)
         "#,
     )
     .await

@@ -11,7 +11,7 @@
           "block_ordinal": 177575050,
           "chunks_included": 9,
           "epoch_id": "4AhNYzY2iNDvrxjzwiDrxzJiahn2UCkTqQ3pAibG1KaQ",
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "height": 187814864,
           "next_epoch_id": "3PFw8zpazotgpAqBLRFG25P5nrTCCmteTRWv87XF35b2",
@@ -21,8 +21,8 @@
           "raw_data_sha256": "e4c8f396fe0f6657d0350e6322a94d6c3be2d6374d8a9585bf6387c040fab035",
           "timestamp": 1772470909711234758,
           "timestamp_nanosec": 1772470909711234758,
-          "total_supply": "1289148227.65 NEAR",
-          "validator_reward": "0 NEAR"
+          "total_supply": "1289148227644968307484629869000583",
+          "validator_reward": "0"
         }
       ]
     },
@@ -38,7 +38,7 @@
           "height_included": 187814864,
           "raw_data_sha256": "7d9c42c0f34e0d3cc9bd9a9644655ecae484ab37d44d07a3691114a1974dfaf2",
           "shard_id": 1,
-          "validator_reward": "0 NEAR"
+          "validator_reward": "0"
         },
         {
           "author": "flipside.pool.near",
@@ -50,7 +50,7 @@
           "height_included": 187814864,
           "raw_data_sha256": "a948c474081514c3b1622090fbd9df135bd0fc1c34866f4f75b51ce2a55d72db",
           "shard_id": 4,
-          "validator_reward": "0 NEAR"
+          "validator_reward": "0"
         },
         {
           "author": "lux.poolv1.near",
@@ -62,7 +62,7 @@
           "height_included": 187814864,
           "raw_data_sha256": "77b8a1ef491e2599a2ec3ca07cf0f4535d450667db5406b09678bf2bec263c91",
           "shard_id": 5,
-          "validator_reward": "0 NEAR"
+          "validator_reward": "0"
         },
         {
           "author": "republic.poolv1.near",
@@ -74,7 +74,7 @@
           "height_included": 187814864,
           "raw_data_sha256": "00e8657c451841592a7009d8821065d491813b1280d2660133cc064333c9af58",
           "shard_id": 6,
-          "validator_reward": "0 NEAR"
+          "validator_reward": "0"
         },
         {
           "author": "p2p-org.poolv1.near",
@@ -86,7 +86,7 @@
           "height_included": 187814864,
           "raw_data_sha256": "072ce45c533ca0766846f1f0bd757024f69a6e017996d125bfb9e7abe315cbb3",
           "shard_id": 7,
-          "validator_reward": "0 NEAR"
+          "validator_reward": "0"
         },
         {
           "author": "openshards.poolv1.near",
@@ -98,7 +98,7 @@
           "height_included": 187814864,
           "raw_data_sha256": "70fc26f6e72bd0774fbd768d5c51d40a2c2db03c402d5c889923888a4d7cf2af",
           "shard_id": 8,
-          "validator_reward": "0 NEAR"
+          "validator_reward": "0"
         },
         {
           "author": "liver.pool.near",
@@ -110,7 +110,7 @@
           "height_included": 187814864,
           "raw_data_sha256": "5bf9218fd078e8e49a7ee85804c65bc23642289b0fe116143da61e67b465a9b9",
           "shard_id": 9,
-          "validator_reward": "0 NEAR"
+          "validator_reward": "0"
         },
         {
           "author": "astro-stakers.poolv1.near",
@@ -122,7 +122,7 @@
           "height_included": 187814864,
           "raw_data_sha256": "3e60493b6709fcebfa1457299489ae8966182960277e7081175bdb7321ee8deb",
           "shard_id": 10,
-          "validator_reward": "0 NEAR"
+          "validator_reward": "0"
         },
         {
           "author": "sofarsonear.poolv1.near",
@@ -134,7 +134,7 @@
           "height_included": 187814864,
           "raw_data_sha256": "7fa862380904e7656876a57d18baf6ea3e13105233ef3ba18777606bc564be1b",
           "shard_id": 11,
-          "validator_reward": "0 NEAR"
+          "validator_reward": "0"
         }
       ]
     },
@@ -148,7 +148,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "spedia2024.tg",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "3J2xPdY88epn3TnigRYjtnKEjQ1khzGXiijN6pwCpNZn",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -158,7 +157,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -169,7 +168,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "spedia2024.tg",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "3hsELXKSJAHd5UQf5KwFnQHGzTFrKmW1AmReADDHbvYm",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -179,7 +177,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -190,7 +188,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 514687536385,
-          "gas_used": 514687536385,
           "id": "4q1AMsPP8DPJtfZr9V3nJCRf1ao7kodfQhNL5e9W3nTD",
           "logs": [],
           "outcome_receipt_ids": [
@@ -205,7 +202,7 @@
           },
           "shard_id": 4,
           "status": "SuccessReceiptId",
-          "tokens_burnt": 0.0000514687536385,
+          "tokens_burnt_yocto": "51468753638500000000",
           "transaction_hash": "4q1AMsPP8DPJtfZr9V3nJCRf1ao7kodfQhNL5e9W3nTD"
         },
         {
@@ -216,7 +213,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "6NogXyyd59fD1A7xVFJnkTSzzL9hf7qRBBXq54uaH36K",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -226,7 +222,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -237,7 +233,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "8agxLiPBmjuRhY75m6D7BfU3RayhDRteXG1XJLgJrWbN",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -247,7 +242,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -258,7 +253,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "8mYG8wJYN1wrhA2gWBr5xo8AiECQ7fRyNydAQkczM3LF",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -268,7 +262,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -279,7 +273,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "8mmF1Zi3GWbqgXvuu8PVMovst3Ju64kt6cdVS7vTRBN1",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -289,7 +282,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -300,7 +293,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "96Mm9Y9ogqbNAYv3SGUZzLyd6CKBJ28oyLwhyf3PMy2U",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -310,7 +302,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -321,7 +313,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "spedia2024.tg",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "9HFpwYjnPrKrwLzuiMkvXSygPW8xUpJWL1hADQ5CPGcK",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -331,7 +322,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -342,7 +333,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "A5PJV8ERDXk9qNhFHcWYHnYWL7GhergHUH6qVWP16uZv",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -352,7 +342,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -363,7 +353,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "relay.tg",
           "gas_burnt": 515879629260,
-          "gas_used": 515879629260,
           "id": "An93YwRUaqvaWKF6vPca7ow1d2iQmejh1h1xZBJt5SBT",
           "logs": [],
           "outcome_receipt_ids": [
@@ -378,7 +367,7 @@
           },
           "shard_id": 4,
           "status": "SuccessReceiptId",
-          "tokens_burnt": 0.000051587962926,
+          "tokens_burnt_yocto": "51587962926000000000",
           "transaction_hash": "An93YwRUaqvaWKF6vPca7ow1d2iQmejh1h1xZBJt5SBT"
         },
         {
@@ -389,7 +378,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "spin.sweat",
           "gas_burnt": 515164373535,
-          "gas_used": 515164373535,
           "id": "D2BSwxsPndtc2HSM2ktqEvN5cADiczpWKAqbqMm6X1r4",
           "logs": [],
           "outcome_receipt_ids": [
@@ -401,7 +389,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0000515164373535,
+          "tokens_burnt_yocto": "51516437353500000000",
           "transaction_hash": null
         },
         {
@@ -412,7 +400,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "DVGztoxRTuvzJ43qhqWDAMcZk2jEf2mrMMnQAQKMZtPR",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -422,7 +409,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -433,7 +420,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "DvNpD9YuP25kTykJvQLPpi6nWi2vCQPBD41HSUXjY39N",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -443,7 +429,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -454,7 +440,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "oracle.sweat",
           "gas_burnt": 774563783135,
-          "gas_used": 774563783135,
           "id": "G6HK13fbAQqLz7FqzPUd9BXouRGsv5Z4AxLC6Y4e2SzE",
           "logs": [],
           "outcome_receipt_ids": [
@@ -466,7 +451,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0000774563783135,
+          "tokens_burnt_yocto": "77456378313500000000",
           "transaction_hash": null
         },
         {
@@ -477,7 +462,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "GBawmTHy6vXHKaZQ9ATtYqBmBeC2GSyfczRt3fbfSjUM",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -487,7 +471,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -498,7 +482,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "oracle.sweat",
           "gas_burnt": 774277680845,
-          "gas_used": 774277680845,
           "id": "Gi8iwkKP55tox9rg7AySJe8W3YLFNmo5acUnVToeJQn2",
           "logs": [],
           "outcome_receipt_ids": [
@@ -510,7 +493,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0000774277680845,
+          "tokens_burnt_yocto": "77427768084500000000",
           "transaction_hash": null
         },
         {
@@ -521,7 +504,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "HesXDp94RBZCzDcBXnLKsLRxDqUQZeWAzQLWBXsw9KfA",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -531,7 +513,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -542,7 +524,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "oracle.sweat",
           "gas_burnt": 774611466850,
-          "gas_used": 774611466850,
           "id": "HjDYQCWkzJzsMwsNRqpcxuRaMQWd7fkkpVMD27kWzxCK",
           "logs": [],
           "outcome_receipt_ids": [
@@ -554,7 +535,7 @@
           "results_json": null,
           "shard_id": 4,
           "status": "SuccessValue",
-          "tokens_burnt": 0.00007746114668500001,
+          "tokens_burnt_yocto": "77461146685000000000",
           "transaction_hash": null
         },
         {
@@ -565,7 +546,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "sweat-relayer.near",
           "gas_burnt": 774516099420,
-          "gas_used": 774516099420,
           "id": "Hrppbv7pkS4etYkTma4dWdcF2432z4gakxzUmknfijPx",
           "logs": [],
           "outcome_receipt_ids": [
@@ -580,7 +560,7 @@
           },
           "shard_id": 4,
           "status": "SuccessReceiptId",
-          "tokens_burnt": 0.000077451609942,
+          "tokens_burnt_yocto": "77451609942000000000",
           "transaction_hash": "Hrppbv7pkS4etYkTma4dWdcF2432z4gakxzUmknfijPx"
         },
         {
@@ -591,7 +571,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "token.sweat",
           "gas_burnt": 1804816576558,
-          "gas_used": 1804816576558,
           "id": "14dd9wtrutjW5kbRjq6D3tk6vWhScWRNdP35FJmopV7d",
           "logs": [
             "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_mint\",\"data\":[{\"owner_id\":\"oracle.sweat\",\"amount\":\"599975171297105708\"},{\"owner_id\":\"claim.sweat\",\"amount\":\"11399528254645007801\"}]}"
@@ -605,7 +584,7 @@
           "results_json": null,
           "shard_id": 5,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0001804816576558,
+          "tokens_burnt_yocto": "180481657655800000000",
           "transaction_hash": null
         },
         {
@@ -616,7 +595,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "v2.jars.sweat",
           "gas_burnt": 3331008620075,
-          "gas_used": 3331008620075,
           "id": "3YC7TxrJzyPLnC1ntz8Zoc9NUKq5U87KHrwb2rArwuUM",
           "logs": [],
           "outcome_receipt_ids": [
@@ -632,7 +610,7 @@
           },
           "shard_id": 5,
           "status": "SuccessReceiptId",
-          "tokens_burnt": 0.0003331008620075,
+          "tokens_burnt_yocto": "333100862007500000000",
           "transaction_hash": null
         },
         {
@@ -643,7 +621,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "token.sweat",
           "gas_burnt": 3863400039559,
-          "gas_used": 3863400039559,
           "id": "5tMyLvtumcizmBN8HWrN6bLaxd9abivoQjLVTZyyPzkJ",
           "logs": [],
           "outcome_receipt_ids": [
@@ -659,7 +636,7 @@
           },
           "shard_id": 5,
           "status": "SuccessReceiptId",
-          "tokens_burnt": 0.0003863400039559001,
+          "tokens_burnt_yocto": "386340003955900000000",
           "transaction_hash": null
         },
         {
@@ -670,7 +647,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "token.sweat",
           "gas_burnt": 1946176576558,
-          "gas_used": 1946176576558,
           "id": "9RYzVSx46YgGQnrizgm6BfnLi4DzGbfErsTLtgr8WC3L",
           "logs": [
             "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_mint\",\"data\":[{\"owner_id\":\"oracle.sweat\",\"amount\":\"745465695352902239\"},{\"owner_id\":\"claim.sweat\",\"amount\":\"14163848211705141859\"}]}"
@@ -684,7 +660,7 @@
           "results_json": null,
           "shard_id": 5,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0001946176576558,
+          "tokens_burnt_yocto": "194617657655800000000",
           "transaction_hash": null
         },
         {
@@ -695,7 +671,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "token.sweat",
           "gas_burnt": 1807516760373,
-          "gas_used": 1807516760373,
           "id": "ASaJo5k4fXfYp2esaYvfThD7dQWXMC6aYpuc5karg7kZ",
           "logs": [
             "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"spin.sweat\",\"new_owner_id\":\"d2564366a98cc011ee679d138718b4b27e198f06ff3dd7e0d0b38eb008aebef2\",\"amount\":\"710000000000000000\",\"memo\":\"sw:tr:AWNAw2kvP8\"}]}"
@@ -709,7 +684,7 @@
           "results_json": null,
           "shard_id": 5,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0001807516760373,
+          "tokens_burnt_yocto": "180751676037300000000",
           "transaction_hash": null
         },
         {
@@ -720,7 +695,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "v1.signer",
           "gas_burnt": 8037807355050,
-          "gas_used": 8037807355050,
           "id": "AaqmCJhHZDpiLKrxHdovTBPGk9QpPgMLZyXwQCt86LCn",
           "logs": [
             "respond: signer=nodemonster.near, request=SignatureRequest { tweak: Tweak([166, 111, 40, 228, 127, 162, 37, 54, 58, 121, 35, 119, 107, 80, 251, 217, 123, 233, 47, 42, 231, 216, 166, 202, 32, 23, 231, 213, 169, 124, 82, 211]), payload: Ecdsa(Bytes(\"7ecbb02d90eed6f9d86f3bf9f76af988b30c7230fb4e651bb9ab483b7e839a45\")), domain_id: DomainId(0) }"
@@ -734,7 +708,7 @@
           "results_json": null,
           "shard_id": 5,
           "status": "SuccessValue",
-          "tokens_burnt": 0.000803780735505,
+          "tokens_burnt_yocto": "803780735505000000000",
           "transaction_hash": null
         },
         {
@@ -745,7 +719,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "token.sweat",
           "gas_burnt": 1946395053343,
-          "gas_used": 1946395053343,
           "id": "BDwjDJaXeck8K9Fb7MKVyUhgNrFJ2HE8hyjG29evpjmz",
           "logs": [
             "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"v2.jars.sweat\",\"new_owner_id\":\"2a2f6155718e764d38b8a9f741414e9767e857bf18ea373b7fbaf8d862ecfc08\",\"amount\":\"192484852820395738\",\"memo\":\"claim\"}]}"
@@ -759,7 +732,7 @@
           "results_json": null,
           "shard_id": 5,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0001946395053343,
+          "tokens_burnt_yocto": "194639505334300000000",
           "transaction_hash": null
         },
         {
@@ -770,7 +743,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "token.sweat",
           "gas_burnt": 1875020979993,
-          "gas_used": 1875020979993,
           "id": "DbfD7xENaZzizGoDC8pHkmt8djWFxTES4c3krnZuFX17",
           "logs": [
             "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"claim.sweat\",\"new_owner_id\":\"fe37cd421ff26d4cbec669b4c6115af1df0ffd3bed15f482264c58afcea1184e\",\"amount\":\"1209574852029110929\",\"memo\":\"\"}]}"
@@ -784,7 +756,7 @@
           "results_json": null,
           "shard_id": 5,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0001875020979993,
+          "tokens_burnt_yocto": "187502097999300000000",
           "transaction_hash": null
         },
         {
@@ -795,7 +767,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "token.sweat",
           "gas_burnt": 1390604962864,
-          "gas_used": 1390604962864,
           "id": "E8xcAyiWRimV49yps1wbKUDEbTjWs9WhW1jjicJrRxPe",
           "logs": [],
           "outcome_receipt_ids": [
@@ -807,7 +778,7 @@
           "results_json": "1000000000000000000",
           "shard_id": 5,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0001390604962864,
+          "tokens_burnt_yocto": "139060496286400000000",
           "transaction_hash": null
         },
         {
@@ -818,7 +789,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "token.sweat",
           "gas_burnt": 3862914357303,
-          "gas_used": 3862914357303,
           "id": "FfXtCzQhjuU9ZbshkbmcBvBQrAu5THWR64yhBxv19Q6f",
           "logs": [],
           "outcome_receipt_ids": [
@@ -834,7 +804,7 @@
           },
           "shard_id": 5,
           "status": "SuccessReceiptId",
-          "tokens_burnt": 0.0003862914357303,
+          "tokens_burnt_yocto": "386291435730300000000",
           "transaction_hash": null
         },
         {
@@ -845,7 +815,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "token.sweat",
           "gas_burnt": 3864021714995,
-          "gas_used": 3864021714995,
           "id": "H9AeryhNCTQGeMAj9Mb7pYVAmMgj4iTgBbqsMrCTzTfB",
           "logs": [],
           "outcome_receipt_ids": [
@@ -861,7 +830,7 @@
           },
           "shard_id": 5,
           "status": "SuccessReceiptId",
-          "tokens_burnt": 0.0003864021714995,
+          "tokens_burnt_yocto": "386402171499500000000",
           "transaction_hash": null
         },
         {
@@ -872,7 +841,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "token.sweat",
           "gas_burnt": 1804816576558,
-          "gas_used": 1804816576558,
           "id": "HPUd7cydRjVjqo935Yfuaa7xvNkeeg27Tqtb1WfaZ2H6",
           "logs": [
             "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_mint\",\"data\":[{\"owner_id\":\"oracle.sweat\",\"amount\":\"672281148772860522\"},{\"owner_id\":\"claim.sweat\",\"amount\":\"12773341826684349345\"}]}"
@@ -886,7 +854,7 @@
           "results_json": null,
           "shard_id": 5,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0001804816576558,
+          "tokens_burnt_yocto": "180481657655800000000",
           "transaction_hash": null
         },
         {
@@ -897,7 +865,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "token.sweat",
           "gas_burnt": 1948876760373,
-          "gas_used": 1948876760373,
           "id": "HfYjSqg4uGcPuzvo2qZDsh2pCiqfG239oSyMdvUE6T7g",
           "logs": [
             "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"spin.sweat\",\"new_owner_id\":\"d2564366a98cc011ee679d138718b4b27e198f06ff3dd7e0d0b38eb008aebef2\",\"amount\":\"590000000000000000\",\"memo\":\"sw:tr:bgAAL5Z8gp\"}]}"
@@ -911,7 +878,7 @@
           "results_json": null,
           "shard_id": 5,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0001948876760373,
+          "tokens_burnt_yocto": "194887676037300000000",
           "transaction_hash": null
         },
         {
@@ -922,7 +889,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "game.hot.tg",
           "gas_burnt": 2873770935010,
-          "gas_used": 2873770935010,
           "id": "8xamduUmmhaygCL3HN9drtsJ4ZZjtG21AL2ZQQ7jYm8Z",
           "logs_sha256": "91a1c05ac6045a123f05d6509ea05e4a5431fcb8486b65115754173a746507e2",
           "outcome_receipt_ids": [
@@ -934,7 +900,7 @@
           "results_json": null,
           "shard_id": 6,
           "status": "SuccessValue",
-          "tokens_burnt": 0.000287377093501,
+          "tokens_burnt_yocto": "287377093501000000000",
           "transaction_hash": null
         },
         {
@@ -945,7 +911,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "i6629339477.tg",
           "gas_burnt": 515879629260,
-          "gas_used": 515879629260,
           "id": "3x1ioLixgyDzPXU4tMqTTPTAdejs7S23vCYsmTiLzBT3",
           "logs": [],
           "outcome_receipt_ids": [
@@ -957,7 +922,7 @@
           "results_json": null,
           "shard_id": 7,
           "status": "SuccessValue",
-          "tokens_burnt": 0.000051587962926,
+          "tokens_burnt_yocto": "51587962926000000000",
           "transaction_hash": null
         },
         {
@@ -968,7 +933,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "i5454859873.tg",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "Aec9uth9CzNJ2GhCvL6D4ravRQd8V2ECY9xLUz1dZCcg",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -978,7 +942,7 @@
           "results_json": null,
           "shard_id": 7,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -989,7 +953,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "i6589120694.tg",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "DrwEpZk961qssdPrBaCQnadBmr8cMv3QcTspiCeAgt4s",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -999,7 +962,7 @@
           "results_json": null,
           "shard_id": 7,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -1010,7 +973,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "i2139573191.tg",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "FvGFMD7RkRaDJjz4VTkxG2jQvoZitpho8XPtLAjfPkVy",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -1020,7 +982,7 @@
           "results_json": null,
           "shard_id": 7,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -1031,7 +993,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "claim.sweat",
           "gas_burnt": 28546984542683,
-          "gas_used": 28546984542683,
           "id": "3QFsvVapRWcT8XpWUTRM3inBfZgWn41kWm7kShBUS8fF",
           "logs_sha256": "bb36f3ff15096a9dbec0f180396d353353bcd599bb281f4766aa2c4c65f84c75",
           "outcome_receipt_ids": [
@@ -1043,7 +1004,7 @@
           "results_json": null,
           "shard_id": 8,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0028546984542683,
+          "tokens_burnt_yocto": "2854698454268300000000",
           "transaction_hash": null
         },
         {
@@ -1054,7 +1015,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "claim.sweat",
           "gas_burnt": 28370110113183,
-          "gas_used": 28370110113183,
           "id": "4rc9U53EfdmTbM9Vjm28T5k7Qga5AdjYBYo5SKNvjDtf",
           "logs_sha256": "075adabc0784328742ef6e2ceae46f1b97947d72444d54f404818a002a3967e3",
           "outcome_receipt_ids": [
@@ -1066,7 +1026,7 @@
           "results_json": null,
           "shard_id": 8,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0028370110113183,
+          "tokens_burnt_yocto": "2837011011318300000000",
           "transaction_hash": null
         },
         {
@@ -1077,7 +1037,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "bridge-mng.near",
           "gas_burnt": 323413656230,
-          "gas_used": 323413656230,
           "id": "EdaGudSngxGKCDYHMmU9FJjZJsuAdfDcBHrBsFWi1Bjj",
           "logs": [],
           "outcome_receipt_ids": [
@@ -1092,7 +1051,7 @@
           },
           "shard_id": 8,
           "status": "SuccessReceiptId",
-          "tokens_burnt": 0.000032341365622999996,
+          "tokens_burnt_yocto": "32341365623000000000",
           "transaction_hash": "EdaGudSngxGKCDYHMmU9FJjZJsuAdfDcBHrBsFWi1Bjj"
         },
         {
@@ -1103,7 +1062,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "bridge-refuel.hot.tg",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "GTymbdWgdFFaS8diDZCmbfUmzEqQjNxPcoMYt75zCfz2",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -1113,7 +1071,7 @@
           "results_json": null,
           "shard_id": 8,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -1124,7 +1082,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "bridge-mng.near",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "GimDyjKZqvyzpBUmqHkzxRTvu7donUqLbXjy9RFi9a1B",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -1134,7 +1091,7 @@
           "results_json": null,
           "shard_id": 8,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -1145,7 +1102,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "claim.sweat",
           "gas_burnt": 28482441416409,
-          "gas_used": 28482441416409,
           "id": "jT3rcBjmFDC7A9g4PCxrvEa68QTuUs1RR2emdSSXa2G",
           "logs_sha256": "534c7c4304b3a30710f0f1ddfa1e40bd55848e5a513cef30d72b26cd9c58154e",
           "outcome_receipt_ids": [
@@ -1157,7 +1113,7 @@
           "results_json": null,
           "shard_id": 8,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0028482441416408997,
+          "tokens_burnt_yocto": "2848244141640900000000",
           "transaction_hash": null
         },
         {
@@ -1168,7 +1124,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "firedrop.hot.tg",
           "gas_burnt": 8311080442921,
-          "gas_used": 8311080442921,
           "id": "ExU8HN3urrNi4QuM9kCRFirAvxPsKSfpbU3QphXrEmo8",
           "logs": [],
           "outcome_receipt_ids": [
@@ -1181,7 +1136,7 @@
           "results_json": null,
           "shard_id": 9,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0008311080442921,
+          "tokens_burnt_yocto": "831108044292100000000",
           "transaction_hash": null
         },
         {
@@ -1192,7 +1147,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "24beb0162cfd60744a569baecaa8d1f96dbd121c765ee02c1f024d2cf1d1f301",
           "gas_burnt": 508870123155,
-          "gas_used": 508870123155,
           "id": "7Zn51dhoeL5zmgacvBtEvvgmwbbmoX8GVMUZYesLatQt",
           "logs": [],
           "outcome_receipt_ids": [
@@ -1204,7 +1158,7 @@
           "results_json": null,
           "shard_id": 10,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0000508870123155,
+          "tokens_burnt_yocto": "50887012315500000000",
           "transaction_hash": null
         },
         {
@@ -1215,7 +1169,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "0-relay.hot.tg",
           "gas_burnt": 223182562500,
-          "gas_used": 223182562500,
           "id": "Fy3f9qevZddQeY5h5fVimrFJGSDTjqxvHxHmgd5bicc8",
           "logs": [],
           "outcome_receipt_ids": [],
@@ -1225,7 +1178,7 @@
           "results_json": null,
           "shard_id": 10,
           "status": "SuccessValue",
-          "tokens_burnt": 0,
+          "tokens_burnt_yocto": "0",
           "transaction_hash": null
         },
         {
@@ -1236,7 +1189,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "416721ed44f0c8b7a458c8cc18b04cff7ba47fc154ea460a41e742caa5c0bd4a",
           "gas_burnt": 508393286005,
-          "gas_used": 508393286005,
           "id": "GQt1ESYeQUqy2Go4p3WuvmAj2GHaoxphmbvq3aMAnB9j",
           "logs": [],
           "outcome_receipt_ids": [
@@ -1248,7 +1200,7 @@
           "results_json": null,
           "shard_id": 10,
           "status": "SuccessValue",
-          "tokens_burnt": 0.000050839328600500006,
+          "tokens_burnt_yocto": "50839328600500000000",
           "transaction_hash": null
         },
         {
@@ -1259,7 +1211,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "08034356b7ee46ea59cdb1aef7dc2fae8b2f8733d546ff8db07cf58c586a7ecd",
           "gas_burnt": 508393286005,
-          "gas_used": 508393286005,
           "id": "nHKpBoTJqiA3XMaMR3G8hX7U7mg1DzfjZYehQuVAfCQ",
           "logs": [],
           "outcome_receipt_ids": [
@@ -1271,7 +1222,7 @@
           "results_json": null,
           "shard_id": 10,
           "status": "SuccessValue",
-          "tokens_burnt": 0.000050839328600500006,
+          "tokens_burnt_yocto": "50839328600500000000",
           "transaction_hash": null
         },
         {
@@ -1282,7 +1233,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "ae6364414a4e0357b3476ab1fb56e2e61992f030.venear.dao",
           "gas_burnt": 1625449708924,
-          "gas_used": 1625449708924,
           "id": "7go48KQnnZaRcAmZsoZiipsnkvwnhQxw7H7dzS7CzRJK",
           "logs": [],
           "outcome_receipt_ids": [
@@ -1294,7 +1244,7 @@
           "results_json": null,
           "shard_id": 11,
           "status": "SuccessValue",
-          "tokens_burnt": 0.0001625449708924,
+          "tokens_burnt_yocto": "162544970892400000000",
           "transaction_hash": null
         },
         {
@@ -1305,7 +1255,6 @@
           "executed_in_block_hash": "FEN8YASNeZv5dJjx1KBfXyqRGdEbehDWRGDkjSFsvnai",
           "executor_account_id": "7676502955.tg",
           "gas_burnt": 515688894400,
-          "gas_used": 515688894400,
           "id": "BFMjL7KhPVtG8H9hUuuTQZiJcXkDPHR4a21T9NRtiNAb",
           "logs": [],
           "outcome_receipt_ids": [
@@ -1317,7 +1266,7 @@
           "results_json": null,
           "shard_id": 11,
           "status": "SuccessValue",
-          "tokens_burnt": 0.00005156888944,
+          "tokens_burnt_yocto": "51568889440000000000",
           "transaction_hash": null
         }
       ]
@@ -1340,10 +1289,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "14dd9wtrutjW5kbRjq6D3tk6vWhScWRNdP35FJmopV7d",
           "gas": 25246980826125,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "14dd9wtrutjW5kbRjq6D3tk6vWhScWRNdP35FJmopV7d-0",
           "method_name": "on_record",
           "predecessor_id": "token.sweat",
@@ -1368,7 +1317,7 @@
           "deposit": null,
           "execution_outcome_id": "3J2xPdY88epn3TnigRYjtnKEjQ1khzGXiijN6pwCpNZn",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "3J2xPdY88epn3TnigRYjtnKEjQ1khzGXiijN6pwCpNZn-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -1390,10 +1339,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "4fjGH24KfKzdnnPoNaWxZxWF1VxEBpNF6CsAupoStbN6",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "3QFsvVapRWcT8XpWUTRM3inBfZgWn41kWm7kShBUS8fF",
           "gas": 270000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "3QFsvVapRWcT8XpWUTRM3inBfZgWn41kWm7kShBUS8fF-0",
           "method_name": "record_batch_for_hold",
           "predecessor_id": "token.sweat",
@@ -1417,10 +1366,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "3YC7TxrJzyPLnC1ntz8Zoc9NUKq5U87KHrwb2rArwuUM",
           "gas": 300000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "3YC7TxrJzyPLnC1ntz8Zoc9NUKq5U87KHrwb2rArwuUM-0",
           "method_name": "claim_total",
           "predecessor_id": "692d333102e67fc4bc5d73f3f2cefefa2fb6d1d14af12139a829aa9638efae68",
@@ -1445,7 +1394,7 @@
           "deposit": null,
           "execution_outcome_id": "3hsELXKSJAHd5UQf5KwFnQHGzTFrKmW1AmReADDHbvYm",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "3hsELXKSJAHd5UQf5KwFnQHGzTFrKmW1AmReADDHbvYm-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -1470,7 +1419,7 @@
           "deposit": null,
           "execution_outcome_id": "3x1ioLixgyDzPXU4tMqTTPTAdejs7S23vCYsmTiLzBT3",
           "gas": null,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "3x1ioLixgyDzPXU4tMqTTPTAdejs7S23vCYsmTiLzBT3-0",
           "method_name": null,
           "predecessor_id": "0-relay.hot.tg",
@@ -1492,10 +1441,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "4fjGH24KfKzdnnPoNaWxZxWF1VxEBpNF6CsAupoStbN6",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "4rc9U53EfdmTbM9Vjm28T5k7Qga5AdjYBYo5SKNvjDtf",
           "gas": 270000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "4rc9U53EfdmTbM9Vjm28T5k7Qga5AdjYBYo5SKNvjDtf-0",
           "method_name": "record_batch_for_hold",
           "predecessor_id": "token.sweat",
@@ -1517,10 +1466,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "5tMyLvtumcizmBN8HWrN6bLaxd9abivoQjLVTZyyPzkJ",
           "gas": 300000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "5tMyLvtumcizmBN8HWrN6bLaxd9abivoQjLVTZyyPzkJ-0",
           "method_name": "defer_batch",
           "predecessor_id": "oracle.sweat",
@@ -1545,7 +1494,7 @@
           "deposit": null,
           "execution_outcome_id": "6NogXyyd59fD1A7xVFJnkTSzzL9hf7qRBBXq54uaH36K",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "6NogXyyd59fD1A7xVFJnkTSzzL9hf7qRBBXq54uaH36K-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -1570,7 +1519,7 @@
           "deposit": null,
           "execution_outcome_id": "7Zn51dhoeL5zmgacvBtEvvgmwbbmoX8GVMUZYesLatQt",
           "gas": null,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "7Zn51dhoeL5zmgacvBtEvvgmwbbmoX8GVMUZYesLatQt-0",
           "method_name": null,
           "predecessor_id": "sweat-relayer.near",
@@ -1594,10 +1543,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "4Gw6hrWmWBcGh5qK18DpkiYztqkkpbGWqtmJzCigmiCw",
-          "deposit": "<0.001 NEAR",
+          "deposit": "1",
           "execution_outcome_id": "7go48KQnnZaRcAmZsoZiipsnkvwnhQxw7H7dzS7CzRJK",
           "gas": 30000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "7go48KQnnZaRcAmZsoZiipsnkvwnhQxw7H7dzS7CzRJK-0",
           "method_name": "end_unlock_near",
           "predecessor_id": "full_master_ok.near",
@@ -1622,7 +1571,7 @@
           "deposit": null,
           "execution_outcome_id": "8agxLiPBmjuRhY75m6D7BfU3RayhDRteXG1XJLgJrWbN",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "8agxLiPBmjuRhY75m6D7BfU3RayhDRteXG1XJLgJrWbN-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -1647,7 +1596,7 @@
           "deposit": null,
           "execution_outcome_id": "8mYG8wJYN1wrhA2gWBr5xo8AiECQ7fRyNydAQkczM3LF",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "8mYG8wJYN1wrhA2gWBr5xo8AiECQ7fRyNydAQkczM3LF-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -1672,7 +1621,7 @@
           "deposit": null,
           "execution_outcome_id": "8mmF1Zi3GWbqgXvuu8PVMovst3Ju64kt6cdVS7vTRBN1",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "8mmF1Zi3GWbqgXvuu8PVMovst3Ju64kt6cdVS7vTRBN1-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -1699,10 +1648,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "5bPmRZj6vHmgiWrpBjxkq3iNiMTMWzJ3vKDKMpXn1HyJ",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "8xamduUmmhaygCL3HN9drtsJ4ZZjtG21AL2ZQQ7jYm8Z",
           "gas": 20000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "8xamduUmmhaygCL3HN9drtsJ4ZZjtG21AL2ZQQ7jYm8Z-0",
           "method_name": "l2_claim",
           "predecessor_id": "1447775814.tg",
@@ -1727,7 +1676,7 @@
           "deposit": null,
           "execution_outcome_id": "96Mm9Y9ogqbNAYv3SGUZzLyd6CKBJ28oyLwhyf3PMy2U",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "96Mm9Y9ogqbNAYv3SGUZzLyd6CKBJ28oyLwhyf3PMy2U-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -1752,7 +1701,7 @@
           "deposit": null,
           "execution_outcome_id": "9HFpwYjnPrKrwLzuiMkvXSygPW8xUpJWL1hADQ5CPGcK",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "9HFpwYjnPrKrwLzuiMkvXSygPW8xUpJWL1hADQ5CPGcK-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -1779,10 +1728,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "9RYzVSx46YgGQnrizgm6BfnLi4DzGbfErsTLtgr8WC3L",
           "gas": 25247467514151,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "9RYzVSx46YgGQnrizgm6BfnLi4DzGbfErsTLtgr8WC3L-0",
           "method_name": "on_record",
           "predecessor_id": "token.sweat",
@@ -1807,7 +1756,7 @@
           "deposit": null,
           "execution_outcome_id": "A5PJV8ERDXk9qNhFHcWYHnYWL7GhergHUH6qVWP16uZv",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "A5PJV8ERDXk9qNhFHcWYHnYWL7GhergHUH6qVWP16uZv-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -1833,10 +1782,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "<0.001 NEAR",
+          "deposit": "1",
           "execution_outcome_id": "ASaJo5k4fXfYp2esaYvfThD7dQWXMC6aYpuc5karg7kZ",
           "gas": 30000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "ASaJo5k4fXfYp2esaYvfThD7dQWXMC6aYpuc5karg7kZ-0",
           "method_name": "ft_transfer",
           "predecessor_id": "spin.sweat",
@@ -1909,10 +1858,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "AaqmCJhHZDpiLKrxHdovTBPGk9QpPgMLZyXwQCt86LCn",
           "gas": 300000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "AaqmCJhHZDpiLKrxHdovTBPGk9QpPgMLZyXwQCt86LCn-0",
           "method_name": "respond",
           "predecessor_id": "nodemonster.near",
@@ -1937,7 +1886,7 @@
           "deposit": null,
           "execution_outcome_id": "Aec9uth9CzNJ2GhCvL6D4ravRQd8V2ECY9xLUz1dZCcg",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "Aec9uth9CzNJ2GhCvL6D4ravRQd8V2ECY9xLUz1dZCcg-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -1963,10 +1912,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "<0.001 NEAR",
+          "deposit": "1",
           "execution_outcome_id": "BDwjDJaXeck8K9Fb7MKVyUhgNrFJ2HE8hyjG29evpjmz",
           "gas": 6000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "BDwjDJaXeck8K9Fb7MKVyUhgNrFJ2HE8hyjG29evpjmz-0",
           "method_name": "ft_transfer",
           "predecessor_id": "v2.jars.sweat",
@@ -1991,7 +1940,7 @@
           "deposit": null,
           "execution_outcome_id": "BFMjL7KhPVtG8H9hUuuTQZiJcXkDPHR4a21T9NRtiNAb",
           "gas": null,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "BFMjL7KhPVtG8H9hUuuTQZiJcXkDPHR4a21T9NRtiNAb-0",
           "method_name": null,
           "predecessor_id": "relay.tg",
@@ -2016,7 +1965,7 @@
           "deposit": null,
           "execution_outcome_id": "D2BSwxsPndtc2HSM2ktqEvN5cADiczpWKAqbqMm6X1r4",
           "gas": null,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "D2BSwxsPndtc2HSM2ktqEvN5cADiczpWKAqbqMm6X1r4-0",
           "method_name": null,
           "predecessor_id": "sweat-relayer.near",
@@ -2041,7 +1990,7 @@
           "deposit": null,
           "execution_outcome_id": "DVGztoxRTuvzJ43qhqWDAMcZk2jEf2mrMMnQAQKMZtPR",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "DVGztoxRTuvzJ43qhqWDAMcZk2jEf2mrMMnQAQKMZtPR-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -2067,10 +2016,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "<0.001 NEAR",
+          "deposit": "1",
           "execution_outcome_id": "DbfD7xENaZzizGoDC8pHkmt8djWFxTES4c3krnZuFX17",
           "gas": 5000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "DbfD7xENaZzizGoDC8pHkmt8djWFxTES4c3krnZuFX17-0",
           "method_name": "ft_transfer",
           "predecessor_id": "claim.sweat",
@@ -2095,7 +2044,7 @@
           "deposit": null,
           "execution_outcome_id": "DrwEpZk961qssdPrBaCQnadBmr8cMv3QcTspiCeAgt4s",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "DrwEpZk961qssdPrBaCQnadBmr8cMv3QcTspiCeAgt4s-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -2120,7 +2069,7 @@
           "deposit": null,
           "execution_outcome_id": "DvNpD9YuP25kTykJvQLPpi6nWi2vCQPBD41HSUXjY39N",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "DvNpD9YuP25kTykJvQLPpi6nWi2vCQPBD41HSUXjY39N-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -2146,10 +2095,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "E8xcAyiWRimV49yps1wbKUDEbTjWs9WhW1jjicJrRxPe",
           "gas": 15681005111931,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "E8xcAyiWRimV49yps1wbKUDEbTjWs9WhW1jjicJrRxPe-0",
           "method_name": "ft_resolve_transfer",
           "predecessor_id": "token.sweat",
@@ -2175,10 +2124,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "CGcpj92YtsSVM8Q2FUC1F5tYWHM5xY9xTuANrpmUe3sY",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "ExU8HN3urrNi4QuM9kCRFirAvxPsKSfpbU3QphXrEmo8",
           "gas": 60000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "ExU8HN3urrNi4QuM9kCRFirAvxPsKSfpbU3QphXrEmo8-0",
           "method_name": "claim",
           "predecessor_id": "8202203022.tg",
@@ -2200,10 +2149,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "FfXtCzQhjuU9ZbshkbmcBvBQrAu5THWR64yhBxv19Q6f",
           "gas": 300000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "FfXtCzQhjuU9ZbshkbmcBvBQrAu5THWR64yhBxv19Q6f-0",
           "method_name": "defer_batch",
           "predecessor_id": "oracle.sweat",
@@ -2228,7 +2177,7 @@
           "deposit": null,
           "execution_outcome_id": "FvGFMD7RkRaDJjz4VTkxG2jQvoZitpho8XPtLAjfPkVy",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "FvGFMD7RkRaDJjz4VTkxG2jQvoZitpho8XPtLAjfPkVy-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -2253,7 +2202,7 @@
           "deposit": null,
           "execution_outcome_id": "Fy3f9qevZddQeY5h5fVimrFJGSDTjqxvHxHmgd5bicc8",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "Fy3f9qevZddQeY5h5fVimrFJGSDTjqxvHxHmgd5bicc8-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -2278,7 +2227,7 @@
           "deposit": null,
           "execution_outcome_id": "G6HK13fbAQqLz7FqzPUd9BXouRGsv5Z4AxLC6Y4e2SzE",
           "gas": null,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "G6HK13fbAQqLz7FqzPUd9BXouRGsv5Z4AxLC6Y4e2SzE-0",
           "method_name": null,
           "predecessor_id": "sweat-relayer.near",
@@ -2303,7 +2252,7 @@
           "deposit": null,
           "execution_outcome_id": "GBawmTHy6vXHKaZQ9ATtYqBmBeC2GSyfczRt3fbfSjUM",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "GBawmTHy6vXHKaZQ9ATtYqBmBeC2GSyfczRt3fbfSjUM-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -2328,7 +2277,7 @@
           "deposit": null,
           "execution_outcome_id": "GQt1ESYeQUqy2Go4p3WuvmAj2GHaoxphmbvq3aMAnB9j",
           "gas": null,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "GQt1ESYeQUqy2Go4p3WuvmAj2GHaoxphmbvq3aMAnB9j-0",
           "method_name": null,
           "predecessor_id": "sweat-relayer.near",
@@ -2353,7 +2302,7 @@
           "deposit": null,
           "execution_outcome_id": "GTymbdWgdFFaS8diDZCmbfUmzEqQjNxPcoMYt75zCfz2",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "GTymbdWgdFFaS8diDZCmbfUmzEqQjNxPcoMYt75zCfz2-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -2378,7 +2327,7 @@
           "deposit": null,
           "execution_outcome_id": "Gi8iwkKP55tox9rg7AySJe8W3YLFNmo5acUnVToeJQn2",
           "gas": null,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "Gi8iwkKP55tox9rg7AySJe8W3YLFNmo5acUnVToeJQn2-0",
           "method_name": null,
           "predecessor_id": "sweat-relayer.near",
@@ -2403,7 +2352,7 @@
           "deposit": null,
           "execution_outcome_id": "GimDyjKZqvyzpBUmqHkzxRTvu7donUqLbXjy9RFi9a1B",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "GimDyjKZqvyzpBUmqHkzxRTvu7donUqLbXjy9RFi9a1B-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -2425,10 +2374,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "H9AeryhNCTQGeMAj9Mb7pYVAmMgj4iTgBbqsMrCTzTfB",
           "gas": 300000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "H9AeryhNCTQGeMAj9Mb7pYVAmMgj4iTgBbqsMrCTzTfB-0",
           "method_name": "defer_batch",
           "predecessor_id": "oracle.sweat",
@@ -2455,10 +2404,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "HPUd7cydRjVjqo935Yfuaa7xvNkeeg27Tqtb1WfaZ2H6",
           "gas": 25246413351333,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "HPUd7cydRjVjqo935Yfuaa7xvNkeeg27Tqtb1WfaZ2H6-0",
           "method_name": "on_record",
           "predecessor_id": "token.sweat",
@@ -2483,7 +2432,7 @@
           "deposit": null,
           "execution_outcome_id": "HesXDp94RBZCzDcBXnLKsLRxDqUQZeWAzQLWBXsw9KfA",
           "gas": null,
-          "gas_price": "0 NEAR",
+          "gas_price": "0",
           "id": "HesXDp94RBZCzDcBXnLKsLRxDqUQZeWAzQLWBXsw9KfA-0",
           "method_name": null,
           "predecessor_id": "system",
@@ -2509,10 +2458,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "FvKMofscAAtFwFRQvYdsFYo5L2BvV6Q9JD6gkCknMiHw",
-          "deposit": "<0.001 NEAR",
+          "deposit": "1",
           "execution_outcome_id": "HfYjSqg4uGcPuzvo2qZDsh2pCiqfG239oSyMdvUE6T7g",
           "gas": 30000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "HfYjSqg4uGcPuzvo2qZDsh2pCiqfG239oSyMdvUE6T7g-0",
           "method_name": "ft_transfer",
           "predecessor_id": "spin.sweat",
@@ -2537,7 +2486,7 @@
           "deposit": null,
           "execution_outcome_id": "HjDYQCWkzJzsMwsNRqpcxuRaMQWd7fkkpVMD27kWzxCK",
           "gas": null,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "HjDYQCWkzJzsMwsNRqpcxuRaMQWd7fkkpVMD27kWzxCK-0",
           "method_name": null,
           "predecessor_id": "sweat-relayer.near",
@@ -2559,10 +2508,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "4fjGH24KfKzdnnPoNaWxZxWF1VxEBpNF6CsAupoStbN6",
-          "deposit": "0 NEAR",
+          "deposit": "0",
           "execution_outcome_id": "jT3rcBjmFDC7A9g4PCxrvEa68QTuUs1RR2emdSSXa2G",
           "gas": 270000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "jT3rcBjmFDC7A9g4PCxrvEa68QTuUs1RR2emdSSXa2G-0",
           "method_name": "record_batch_for_hold",
           "predecessor_id": "token.sweat",
@@ -2587,7 +2536,7 @@
           "deposit": null,
           "execution_outcome_id": "nHKpBoTJqiA3XMaMR3G8hX7U7mg1DzfjZYehQuVAfCQ",
           "gas": null,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "nHKpBoTJqiA3XMaMR3G8hX7U7mg1DzfjZYehQuVAfCQ-0",
           "method_name": null,
           "predecessor_id": "sweat-relayer.near",
@@ -3560,10 +3509,10 @@
           "block_height": 187814864,
           "block_timestamp": 1772470909711234758,
           "chunk_hash": "4Gw6hrWmWBcGh5qK18DpkiYztqkkpbGWqtmJzCigmiCw",
-          "deposit": "<0.001 NEAR",
+          "deposit": "1",
           "execution_outcome_id": "7go48KQnnZaRcAmZsoZiipsnkvwnhQxw7H7dzS7CzRJK",
           "gas": 30000000000000,
-          "gas_price": "<0.001 NEAR",
+          "gas_price": "100000000",
           "id": "7a8b464a00e4b6e513409a89cd9043e0",
           "method_name": "end_unlock_near",
           "outcome_logs": [],

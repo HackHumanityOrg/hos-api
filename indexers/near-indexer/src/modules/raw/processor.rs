@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use common::config::AppConfig;
 use common::config::NearModuleStreamMode;
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use std::sync::Arc;
@@ -12,6 +13,7 @@ use crate::core::module_demand::ModuleDemand;
 use crate::core::raw_projector::RawBlockProjection;
 use crate::core::receipt_graph_resolver::ReceiptGraphResolver;
 use crate::core::stage_timing::BlockProcessingLog;
+use crate::modules::effective_raw_data_receipt_link_retention_blocks;
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "raw";
@@ -24,7 +26,14 @@ pub struct RawModule {
 
 impl RawModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
-        Self::with_receipt_graph(config, Arc::new(ReceiptGraphResolver::new()))
+        Self::with_receipt_graph(
+            config,
+            Arc::new(
+                ReceiptGraphResolver::with_data_receipt_link_retention_blocks(
+                    Self::data_receipt_link_retention_blocks(config),
+                ),
+            ),
+        )
     }
 
     pub fn with_receipt_graph(
@@ -50,6 +59,28 @@ impl RawModule {
             stream_mode,
             receipt_graph,
         }
+    }
+
+    fn data_receipt_link_retention_blocks(config: &AppConfig) -> i64 {
+        let AppConfig::Indexer(indexer) = config else {
+            return 1;
+        };
+
+        let Some(near) = indexer.near.as_ref() else {
+            return 1;
+        };
+
+        if !near.raw_enabled_or_default() {
+            return 1;
+        }
+
+        let raw_cfg = near
+            .modules
+            .as_ref()
+            .and_then(|modules| modules.raw.clone())
+            .unwrap_or_default();
+
+        effective_raw_data_receipt_link_retention_blocks(&raw_cfg)
     }
 
     async fn commit_projection(
@@ -242,9 +273,10 @@ impl RawModule {
             &projection.receipt_tx_rows,
             &persisted_receipt_tx_rows,
         );
-        process_log
-            .metrics_mut()
-            .record_count("receipt_tx_hot_cache_size", self.receipt_graph.hot_cache_size());
+        process_log.metrics_mut().record_count(
+            "receipt_tx_hot_cache_size",
+            self.receipt_graph.hot_cache_size(),
+        );
 
         process_log.log_success("Successfully processed NEAR raw block data");
 

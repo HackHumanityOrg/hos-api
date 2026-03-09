@@ -105,7 +105,6 @@ impl RawProjector {
 
         let mut resolved_graph = resolved.clone();
         let canonical_rows = ReceiptGraphResolver::resolve_from_canonical(
-            &ReceiptGraphResolver::new(),
             db,
             &resolved_graph.unresolved_receipt_ids,
             facts.block_height,
@@ -343,7 +342,9 @@ impl RawProjector {
                             canonical_rows::NearReceiptEdgeRow {
                                 parent_receipt_id: link.parent_receipt_id.clone(),
                                 child_receipt_id: receipt_id.clone(),
-                                parent_execution_outcome_id: link.parent_execution_outcome_id.clone(),
+                                parent_execution_outcome_id: link
+                                    .parent_execution_outcome_id
+                                    .clone(),
                                 block_height: link.block_height,
                                 block_hash: link.block_hash.clone(),
                                 block_timestamp: link.block_timestamp,

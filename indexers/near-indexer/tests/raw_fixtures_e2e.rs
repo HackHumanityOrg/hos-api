@@ -16,7 +16,7 @@ use near_lake_framework::near_indexer_primitives::{
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value};
 use std::collections::{HashMap, HashSet};
 use support::fixture_catalog::{
-    all_fixture_cases, load_all_range_fixture_messages, load_fixture_messages,
+    all_fixture_cases, load_all_range_fixture_messages, load_fixture_messages, range_fixture_cases,
     ModuleExpectationKind,
 };
 use support::fixture_expectations::{
@@ -45,8 +45,28 @@ struct RawFixtureExpectations {
     receipt_edge_keys: HashSet<(String, String)>,
 }
 
+#[derive(Debug)]
+struct CrossBlockDataReceiptCase {
+    parent_fixture_index: usize,
+    child_fixture_index: usize,
+    parent_receipt_id: String,
+    child_receipt_id: String,
+}
+
 fn load_all_fixture_messages() -> Vec<StreamerMessage> {
     load_all_range_fixture_messages().expect("failed to load ranged fixture messages")
+}
+
+fn find_cross_block_data_receipt_fixture_case(
+) -> Result<(String, Vec<StreamerMessage>, CrossBlockDataReceiptCase)> {
+    for fixture_case in range_fixture_cases()? {
+        let messages = load_fixture_messages(&fixture_case)?;
+        if let Some(case) = first_cross_block_data_receipt_case(&messages) {
+            return Ok((fixture_case.id, messages, case));
+        }
+    }
+
+    anyhow::bail!("fixture suite must include a cross-block data receipt")
 }
 
 fn build_test_config() -> AppConfig {
@@ -74,6 +94,7 @@ fn build_test_config() -> AppConfig {
                     enabled: true,
                     stream_mode: NearModuleStreamMode::Shared,
                     start_height: None,
+                    ..RawModuleConfig::default()
                 }),
                 venear_governance: None,
             }),
@@ -269,6 +290,92 @@ fn collect_expectations(messages: &[StreamerMessage]) -> RawFixtureExpectations 
     }
 
     expectations
+}
+
+fn first_cross_block_data_receipt_case(
+    messages: &[StreamerMessage],
+) -> Option<CrossBlockDataReceiptCase> {
+    let mut parent_links = HashMap::new();
+
+    for (fixture_index, message) in messages.iter().enumerate() {
+        for shard in &message.shards {
+            if let Some(chunk) = &shard.chunk {
+                for tx_with_outcome in &chunk.transactions {
+                    let Some(receipt) = &tx_with_outcome.outcome.receipt else {
+                        continue;
+                    };
+                    remember_data_receipt_parent_link(&mut parent_links, fixture_index, receipt);
+                }
+
+                for receipt in chunk.receipts.iter().chain(chunk.local_receipts.iter()) {
+                    if let Some(case) =
+                        resolve_cross_block_data_receipt_case(&parent_links, fixture_index, receipt)
+                    {
+                        return Some(case);
+                    }
+                }
+            }
+
+            for outcome_with_receipt in &shard.receipt_execution_outcomes {
+                remember_data_receipt_parent_link(
+                    &mut parent_links,
+                    fixture_index,
+                    &outcome_with_receipt.receipt,
+                );
+                if let Some(case) = resolve_cross_block_data_receipt_case(
+                    &parent_links,
+                    fixture_index,
+                    &outcome_with_receipt.receipt,
+                ) {
+                    return Some(case);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn remember_data_receipt_parent_link(
+    parent_links: &mut HashMap<String, (usize, String)>,
+    fixture_index: usize,
+    receipt: &ReceiptView,
+) {
+    let ReceiptEnumView::Action {
+        output_data_receivers,
+        ..
+    } = &receipt.receipt
+    else {
+        return;
+    };
+
+    for data_receiver in output_data_receivers {
+        parent_links
+            .entry(data_receiver.data_id.to_string())
+            .or_insert_with(|| (fixture_index, receipt.receipt_id.to_string()));
+    }
+}
+
+fn resolve_cross_block_data_receipt_case(
+    parent_links: &HashMap<String, (usize, String)>,
+    child_fixture_index: usize,
+    receipt: &ReceiptView,
+) -> Option<CrossBlockDataReceiptCase> {
+    let ReceiptEnumView::Data { data_id, .. } = &receipt.receipt else {
+        return None;
+    };
+
+    let (parent_fixture_index, parent_receipt_id) = parent_links.get(&data_id.to_string())?;
+    if *parent_fixture_index >= child_fixture_index {
+        return None;
+    }
+
+    Some(CrossBlockDataReceiptCase {
+        parent_fixture_index: *parent_fixture_index,
+        child_fixture_index,
+        parent_receipt_id: parent_receipt_id.clone(),
+        child_receipt_id: receipt.receipt_id.to_string(),
+    })
 }
 
 fn seed_block_data_receipt_parent_ids(
@@ -922,6 +1029,254 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
         &snapshot_before_replay,
         "raw-module-replay-idempotence",
     )?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn raw_module_rebuilds_data_receipt_lineage_after_replay_restart() -> Result<()> {
+    init_test_tracing();
+
+    let (fixture_id, fixtures, case) = find_cross_block_data_receipt_fixture_case()?;
+
+    let baseline_db = TestDatabase::new().await;
+    let baseline_module = RawModule::new(&build_test_config());
+    baseline_module
+        .initialize(baseline_db.connection.as_ref())
+        .await?;
+    for fixture in &fixtures[..=case.child_fixture_index] {
+        baseline_module
+            .process_block(fixture, baseline_db.connection.as_ref())
+            .await?;
+    }
+
+    let expected_edge_count = scalar_i64(
+        baseline_db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_edges
+         WHERE parent_receipt_id = $1
+           AND child_receipt_id = $2",
+        vec![
+            case.parent_receipt_id.clone().into(),
+            case.child_receipt_id.clone().into(),
+        ],
+    )
+    .await?;
+    assert_eq!(
+        expected_edge_count, 1,
+        "fixture {fixture_id} must resolve the baseline receipt edge"
+    );
+
+    let expected_edge_fingerprint = scalar_string(
+        baseline_db.connection.as_ref(),
+        "SELECT parent_execution_outcome_id::text
+                || '|' || block_height::text
+                || '|' || block_hash::text
+                || '|' || block_timestamp::text
+                || '|' || COALESCE(transaction_hash::text, '') AS value
+         FROM near.near_receipt_edges
+         WHERE parent_receipt_id = $1
+           AND child_receipt_id = $2",
+        vec![
+            case.parent_receipt_id.clone().into(),
+            case.child_receipt_id.clone().into(),
+        ],
+    )
+    .await?;
+
+    let replay_db = TestDatabase::new().await;
+    let first_run_module = RawModule::new(&build_test_config());
+    first_run_module
+        .initialize(replay_db.connection.as_ref())
+        .await?;
+    for fixture in &fixtures[..=case.parent_fixture_index] {
+        first_run_module
+            .process_block(fixture, replay_db.connection.as_ref())
+            .await?;
+    }
+
+    let restarted_module = RawModule::new(&build_test_config());
+    restarted_module
+        .initialize(replay_db.connection.as_ref())
+        .await?;
+    for fixture in &fixtures[case.parent_fixture_index..=case.child_fixture_index] {
+        restarted_module
+            .process_block(fixture, replay_db.connection.as_ref())
+            .await?;
+    }
+
+    let edge_count = scalar_i64(
+        replay_db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_edges
+         WHERE parent_receipt_id = $1
+           AND child_receipt_id = $2",
+        vec![
+            case.parent_receipt_id.clone().into(),
+            case.child_receipt_id.clone().into(),
+        ],
+    )
+    .await?;
+    assert_eq!(edge_count, 1);
+
+    let edge_fingerprint = scalar_string(
+        replay_db.connection.as_ref(),
+        "SELECT parent_execution_outcome_id::text
+                || '|' || block_height::text
+                || '|' || block_hash::text
+                || '|' || block_timestamp::text
+                || '|' || COALESCE(transaction_hash::text, '') AS value
+         FROM near.near_receipt_edges
+         WHERE parent_receipt_id = $1
+           AND child_receipt_id = $2",
+        vec![case.parent_receipt_id.into(), case.child_receipt_id.into()],
+    )
+    .await?;
+    assert_eq!(edge_fingerprint, expected_edge_fingerprint);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn raw_module_persists_exact_shared_protocol_fields() -> Result<()> {
+    init_test_tracing();
+
+    let fixtures = load_all_fixture_messages();
+    let db = TestDatabase::new().await;
+    let module = RawModule::new(&build_test_config());
+
+    module.initialize(db.connection.as_ref()).await?;
+    for fixture in &fixtures {
+        module
+            .process_block(fixture, db.connection.as_ref())
+            .await?;
+    }
+
+    let mismatched_tokens = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_execution_outcomes
+         WHERE COALESCE(outcome ->> 'tokens_burnt', raw_data #>> '{outcome,tokens_burnt}', '0')
+               <> tokens_burnt_yocto",
+        vec![],
+    )
+    .await?;
+    assert_eq!(mismatched_tokens, 0);
+
+    let mismatched_blocks = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_blocks
+         WHERE hash <> raw_data #>> '{header,hash}'
+            OR prev_hash <> raw_data #>> '{header,prev_hash}'
+            OR epoch_id <> raw_data #>> '{header,epoch_id}'
+            OR next_epoch_id <> raw_data #>> '{header,next_epoch_id}'
+            OR author <> raw_data ->> 'author'
+            OR timestamp::text <> raw_data #>> '{header,timestamp}'
+            OR timestamp_nanosec::text <> raw_data #>> '{header,timestamp_nanosec}'
+            OR gas_price <> raw_data #>> '{header,gas_price}'
+            OR total_supply <> raw_data #>> '{header,total_supply}'
+            OR validator_reward <> raw_data #>> '{header,validator_reward}'
+            OR protocol_version::text <> raw_data #>> '{header,latest_protocol_version}'
+            OR chunks_included::text <> raw_data #>> '{header,chunks_included}'
+            OR COALESCE(block_ordinal::text, '') <> COALESCE(raw_data #>> '{header,block_ordinal}', '')
+            OR COALESCE(prev_height::text, '') <> COALESCE(raw_data #>> '{header,prev_height}', '')",
+        vec![],
+    )
+    .await?;
+    assert_eq!(mismatched_blocks, 0);
+
+    let mismatched_chunks = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_chunks
+         WHERE chunk_hash <> raw_data #>> '{header,chunk_hash}'
+            OR author <> raw_data ->> 'author'
+            OR height_created::text <> raw_data #>> '{header,height_created}'
+            OR height_included::text <> raw_data #>> '{header,height_included}'
+            OR gas_used::text <> raw_data #>> '{header,gas_used}'
+            OR gas_limit::text <> raw_data #>> '{header,gas_limit}'
+            OR validator_reward <> raw_data #>> '{header,validator_reward}'",
+        vec![],
+    )
+    .await?;
+    assert_eq!(mismatched_chunks, 0);
+
+    let mismatched_transactions = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_transactions
+         WHERE hash <> raw_data ->> 'hash'
+            OR signer_id <> raw_data ->> 'signer_id'
+            OR receiver_id <> raw_data ->> 'receiver_id'
+            OR nonce::text <> raw_data ->> 'nonce'
+            OR priority_fee::text <> raw_data ->> 'priority_fee'
+            OR public_key <> raw_data ->> 'public_key'
+            OR signature <> raw_data ->> 'signature'
+            OR actions <> raw_data -> 'actions'",
+        vec![],
+    )
+    .await?;
+    assert_eq!(mismatched_transactions, 0);
+
+    let mismatched_receipts = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipts
+         WHERE receipt_id <> raw_data ->> 'receipt_id'
+            OR predecessor_id <> raw_data ->> 'predecessor_id'
+            OR receiver_id <> raw_data ->> 'receiver_id'
+            OR receipt <> raw_data -> 'receipt'",
+        vec![],
+    )
+    .await?;
+    assert_eq!(mismatched_receipts, 0);
+
+    let mismatched_execution_outcomes = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_execution_outcomes
+         WHERE id <> raw_data ->> 'id'
+            OR outcome <> raw_data -> 'outcome'
+            OR block_hash <> raw_data ->> 'block_hash'
+            OR gas_burnt::text <> raw_data #>> '{outcome,gas_burnt}'
+            OR tokens_burnt_yocto <> raw_data #>> '{outcome,tokens_burnt}'
+            OR executor_account_id <> raw_data #>> '{outcome,executor_id}'
+            OR outcome_receipt_ids <> raw_data #> '{outcome,receipt_ids}'
+            OR logs <> raw_data #> '{outcome,logs}'
+            OR executed_in_block_hash <> raw_data ->> 'block_hash'",
+        vec![],
+    )
+    .await?;
+    assert_eq!(mismatched_execution_outcomes, 0);
+
+    let mismatched_receipt_actions = scalar_i64(
+        db.connection.as_ref(),
+        "SELECT COUNT(*)::bigint AS value
+         FROM near.near_receipt_actions ra
+         JOIN near.near_receipts r
+           ON r.receipt_id = ra.receipt_id
+         WHERE action_json <> (r.receipt -> 'Action' -> 'actions' -> ra.action_index)
+            OR action_kind IS DISTINCT FROM CASE jsonb_typeof(action_json)
+                WHEN 'object' THEN (
+                    SELECT key
+                    FROM jsonb_each(action_json)
+                    LIMIT 1
+                )
+                WHEN 'string' THEN trim(both '\"' from action_json::text)
+                ELSE 'Unknown'
+            END
+            OR signer_account_id IS DISTINCT FROM (r.receipt -> 'Action' ->> 'signer_id')
+            OR signer_public_key IS DISTINCT FROM (r.receipt -> 'Action' ->> 'signer_public_key')
+            OR gas_price IS DISTINCT FROM (r.receipt -> 'Action' ->> 'gas_price')
+            OR method_name IS DISTINCT FROM (action_json -> 'FunctionCall' ->> 'method_name')
+            OR COALESCE(gas::text, '') <> COALESCE(action_json -> 'FunctionCall' ->> 'gas', '')
+            OR COALESCE(deposit, '') <> COALESCE(action_json -> 'FunctionCall' ->> 'deposit', '')
+            OR COALESCE(args_base64, '') <> COALESCE(action_json -> 'FunctionCall' ->> 'args', '')",
+        vec![],
+    )
+    .await?;
+    assert_eq!(mismatched_receipt_actions, 0);
 
     Ok(())
 }

@@ -125,6 +125,7 @@ fn raw_config(enabled: bool) -> RawModuleConfig {
         enabled,
         stream_mode: NearModuleStreamMode::Shared,
         start_height: None,
+        ..RawModuleConfig::default()
     }
 }
 
@@ -636,8 +637,7 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
             block_hash,
             chunk_hash,
             gas_burnt,
-            gas_used,
-            tokens_burnt,
+            tokens_burnt_yocto,
             executor_account_id,
             status,
             outcome_receipt_ids,
@@ -656,8 +656,7 @@ async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized
             'nonhos-bh',
             'nonhos-ch',
             0,
-            0,
-            0,
+            '0',
             'example.near',
             'SuccessValue',
             '[]'::jsonb,

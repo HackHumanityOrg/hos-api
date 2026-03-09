@@ -134,6 +134,7 @@ fn build_live_test_config(start_height: u64) -> AppConfig {
                     enabled: false,
                     stream_mode: NearModuleStreamMode::Shared,
                     start_height: None,
+                    ..RawModuleConfig::default()
                 }),
                 venear_governance: Some(VenearGovernanceModuleConfig {
                     enabled: true,

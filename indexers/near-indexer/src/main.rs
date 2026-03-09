@@ -81,7 +81,7 @@ fn configured_module_runtime_configs(config: &AppConfig) -> HashMap<String, Modu
             "raw".to_string(),
             ModuleRuntimeConfig {
                 start_height: raw.start_height,
-                restart_rewind_blocks: 0,
+                restart_rewind_blocks: raw.restart_rewind_blocks,
             },
         );
     }
@@ -598,9 +598,9 @@ mod tests {
     };
 
     use super::{
-        module_resume_start_height, plan_stream_assignments_from_modes,
-        validate_near_runtime_constraints, ModuleRuntimeConfig, NearModuleStreamMode,
-        StreamAssignment,
+        configured_module_runtime_configs, module_resume_start_height,
+        plan_stream_assignments_from_modes, validate_near_runtime_constraints, ModuleRuntimeConfig,
+        NearModuleStreamMode, StreamAssignment,
     };
 
     fn build_indexer_app_config(
@@ -703,6 +703,7 @@ mod tests {
                 enabled: true,
                 stream_mode: NearModuleStreamMode::Independent,
                 start_height: None,
+                ..RawModuleConfig::default()
             }),
             Some(VenearGovernanceModuleConfig {
                 enabled: true,
@@ -722,6 +723,7 @@ mod tests {
                 enabled: true,
                 stream_mode: NearModuleStreamMode::Shared,
                 start_height: None,
+                ..RawModuleConfig::default()
             }),
             Some(VenearGovernanceModuleConfig {
                 enabled: true,
@@ -855,6 +857,28 @@ mod tests {
         );
 
         assert_eq!(start, 169_999_401);
+    }
+
+    #[test]
+    fn configured_runtime_uses_raw_restart_rewind_blocks() {
+        let cfg = build_indexer_app_config(
+            Some(1),
+            Some(RawModuleConfig {
+                enabled: true,
+                restart_rewind_blocks: 2_048,
+                ..RawModuleConfig::default()
+            }),
+            None,
+        );
+
+        let runtime_configs = configured_module_runtime_configs(&cfg);
+        assert_eq!(
+            runtime_configs.get("raw"),
+            Some(&ModuleRuntimeConfig {
+                start_height: None,
+                restart_rewind_blocks: 2_048,
+            })
+        );
     }
 
     #[test]

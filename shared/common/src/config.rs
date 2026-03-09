@@ -470,7 +470,7 @@ impl NearModulesConfig {
 }
 
 /// Raw data module configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawModuleConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -478,6 +478,10 @@ pub struct RawModuleConfig {
     pub stream_mode: NearModuleStreamMode,
     #[serde(default)]
     pub start_height: Option<u64>,
+    #[serde(default = "default_raw_restart_rewind_blocks")]
+    pub restart_rewind_blocks: u64,
+    #[serde(default = "default_data_receipt_link_retention_blocks")]
+    pub data_receipt_link_retention_blocks: u64,
 }
 
 /// veNEAR governance filtered raw module configuration.
@@ -516,6 +520,18 @@ impl Default for VenearGovernanceModuleConfig {
     }
 }
 
+impl Default for RawModuleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            stream_mode: NearModuleStreamMode::default(),
+            start_height: None,
+            restart_rewind_blocks: default_raw_restart_rewind_blocks(),
+            data_receipt_link_retention_blocks: default_data_receipt_link_retention_blocks(),
+        }
+    }
+}
+
 fn default_chain() -> String {
     "mainnet".to_string()
 }
@@ -534,6 +550,14 @@ fn default_hos_finalization_interval_blocks() -> u64 {
 
 fn default_hos_restart_rewind_blocks() -> u64 {
     256
+}
+
+fn default_raw_restart_rewind_blocks() -> u64 {
+    1_024
+}
+
+fn default_data_receipt_link_retention_blocks() -> u64 {
+    1_024
 }
 
 fn default_receipt_tx_map_retention_blocks() -> u64 {
@@ -570,6 +594,8 @@ impl ToLog for RawModuleConfig {
             "enabled": self.enabled,
             "stream_mode": self.stream_mode.as_str(),
             "start_height": self.start_height,
+            "restart_rewind_blocks": self.restart_rewind_blocks,
+            "data_receipt_link_retention_blocks": self.data_receipt_link_retention_blocks,
         })
     }
 }
@@ -1154,6 +1180,8 @@ mod tests {
         assert_eq!(venear_governance.stream_mode, NearModuleStreamMode::Shared);
 
         assert_eq!(raw.start_height, None);
+        assert_eq!(raw.restart_rewind_blocks, 1_024);
+        assert_eq!(raw.data_receipt_link_retention_blocks, 1_024);
         assert_eq!(venear_governance.start_height, None);
         assert_eq!(venear_governance.mview_refresh_interval_blocks, 100);
         assert_eq!(venear_governance.finalization_interval_blocks, 100);
@@ -1188,6 +1216,7 @@ mod tests {
                     enabled: false,
                     stream_mode: NearModuleStreamMode::Independent,
                     start_height: None,
+                    ..RawModuleConfig::default()
                 }),
                 venear_governance: None,
             }),
@@ -1205,6 +1234,7 @@ mod tests {
                     enabled: true,
                     stream_mode: NearModuleStreamMode::Shared,
                     start_height: None,
+                    ..RawModuleConfig::default()
                 }),
                 venear_governance: None,
             }),
@@ -1297,6 +1327,42 @@ mod tests {
                 "finalization_interval_blocks": 900u64,
                 "restart_rewind_blocks": 1440u64,
                 "receipt_tx_map_retention_blocks": 172800u64,
+            })
+        );
+    }
+
+    #[test]
+    fn raw_module_runtime_config_deserializes() {
+        let cfg: RawModuleConfig = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "stream_mode": "shared",
+            "restart_rewind_blocks": 2048,
+            "data_receipt_link_retention_blocks": 4096,
+        }))
+        .expect("raw runtime config should deserialize");
+
+        assert_eq!(cfg.restart_rewind_blocks, 2_048);
+        assert_eq!(cfg.data_receipt_link_retention_blocks, 4_096);
+    }
+
+    #[test]
+    fn raw_module_runtime_log_uses_new_fields() {
+        let cfg = RawModuleConfig {
+            enabled: true,
+            stream_mode: NearModuleStreamMode::Independent,
+            start_height: Some(160_000_000),
+            restart_rewind_blocks: 2_048,
+            data_receipt_link_retention_blocks: 4_096,
+        };
+
+        assert_eq!(
+            cfg.to_log(),
+            serde_json::json!({
+                "enabled": true,
+                "stream_mode": "independent",
+                "start_height": 160000000u64,
+                "restart_rewind_blocks": 2048u64,
+                "data_receipt_link_retention_blocks": 4096u64,
             })
         );
     }

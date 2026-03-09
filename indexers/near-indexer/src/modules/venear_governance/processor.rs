@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use common::config::NearModuleStreamMode;
+use common::config::{AppConfig, NearModuleStreamMode};
 use near_lake_framework::near_indexer_primitives::views::{ReceiptEnumView, ReceiptView};
 use near_lake_framework::near_indexer_primitives::StreamerMessage;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
@@ -30,6 +30,7 @@ use crate::core::receipt_graph_resolver::{
     ReceiptGraphUpsertMode,
 };
 use crate::core::stage_timing::{BlockProcessingLog, StageMetrics};
+use crate::modules::effective_venear_data_receipt_link_retention_blocks;
 use crate::IndexerModule;
 
 const MODULE_NAME: &str = "venear_governance";
@@ -42,7 +43,6 @@ const DEFAULT_HOS_MVIEW_REFRESH_INTERVAL_BLOCKS: i64 = 100;
 const DEFAULT_FINALIZATION_INTERVAL_BLOCKS: i64 = 100;
 const DEFAULT_TX_MAP_RETENTION_BLOCKS: i64 = 1_024;
 const DEFAULT_YIELD_TIMEOUT_BLOCKS: i64 = 200;
-const DATA_RECEIPT_LINK_RETENTION_BLOCKS: i64 = 256;
 const STALLED_PENDING_GRAPH_WARNING_BLOCKS: i64 = 43_200;
 const RECEIPT_TX_MAP_CLEANUP_TARGET_ROWS: usize = 30_000;
 
@@ -208,14 +208,14 @@ struct GraphBlockUpdate {
     pending_receipts_add: HashSet<String>,
     pending_receipts_remove: HashSet<String>,
     yielded_receipts: HashMap<String, i64>,
-    resumed_yield_receipt_count: usize,
+    resumed_yield_data_ids: HashSet<String>,
+    yield_tracking_failed: bool,
     refs: TxSliceRefs,
 }
 
 #[derive(Default)]
 struct HosBlockUpdates {
     receipt_tx_hash_map: HashMap<String, ReceiptTxHashMapRow>,
-    data_receipt_links: HashMap<String, DataReceiptParentLink>,
     graph_updates: HashMap<String, GraphBlockUpdate>,
     shared_bundle: SourceBlockBundle,
 }
@@ -277,37 +277,6 @@ impl HosBlockUpdates {
             });
     }
 
-    fn note_output_data_receivers(
-        &mut self,
-        receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
-        transaction_hash: &str,
-        parent_execution_outcome_id: &str,
-        block_height: i64,
-        block_hash: &str,
-        block_timestamp: i64,
-    ) {
-        let ReceiptEnumView::Action {
-            output_data_receivers,
-            ..
-        } = &receipt.receipt
-        else {
-            return;
-        };
-
-        for data_receiver in output_data_receivers {
-            self.data_receipt_links
-                .entry(data_receiver.data_id.to_string())
-                .or_insert_with(|| DataReceiptParentLink {
-                    transaction_hash: transaction_hash.to_string(),
-                    parent_receipt_id: receipt.receipt_id.to_string(),
-                    parent_execution_outcome_id: parent_execution_outcome_id.to_string(),
-                    block_height,
-                    block_hash: block_hash.to_string(),
-                    block_timestamp,
-                });
-        }
-    }
-
     fn note_tx_metadata(
         &mut self,
         transaction_hash: &str,
@@ -331,20 +300,21 @@ impl HosBlockUpdates {
             .insert(receipt_id.to_string());
     }
 
-    fn note_yielded_receipt(
-        &mut self,
-        transaction_hash: &str,
-        receipt_id: &str,
-        timeout_height: i64,
-    ) {
+    fn note_yielded_receipt(&mut self, transaction_hash: &str, data_id: &str, timeout_height: i64) {
         self.graph_update_mut(transaction_hash)
             .yielded_receipts
-            .insert(receipt_id.to_string(), timeout_height);
+            .insert(data_id.to_string(), timeout_height);
     }
 
-    fn note_resumed_yield_receipt(&mut self, transaction_hash: &str) {
+    fn note_resumed_yield_receipt(&mut self, transaction_hash: &str, data_id: &str) {
         self.graph_update_mut(transaction_hash)
-            .resumed_yield_receipt_count += 1;
+            .resumed_yield_data_ids
+            .insert(data_id.to_string());
+    }
+
+    fn note_yield_tracking_failure(&mut self, transaction_hash: &str) {
+        self.graph_update_mut(transaction_hash)
+            .yield_tracking_failed = true;
     }
 
     fn set_block_source(&mut self, row: BlockSource) {
@@ -434,20 +404,13 @@ impl GraphState {
             .retain(|_, timeout_height| *timeout_height > block_height);
     }
 
-    fn resolve_yield_receipts(&mut self, resume_count: usize) {
-        if resume_count == 0 || self.open_yield_receipts.is_empty() {
+    fn resolve_yield_receipts(&mut self, resumed_data_ids: &HashSet<String>) {
+        if resumed_data_ids.is_empty() || self.open_yield_receipts.is_empty() {
             return;
         }
 
-        let mut yielded_receipts = self
-            .open_yield_receipts
-            .iter()
-            .map(|(receipt_id, timeout_height)| (receipt_id.clone(), *timeout_height))
-            .collect::<Vec<_>>();
-        yielded_receipts.sort_by_key(|(_, timeout_height)| *timeout_height);
-
-        for (receipt_id, _) in yielded_receipts.into_iter().take(resume_count) {
-            self.open_yield_receipts.remove(&receipt_id);
+        for data_id in resumed_data_ids {
+            self.open_yield_receipts.remove(data_id);
         }
     }
 
@@ -465,8 +428,6 @@ struct HosRuntimeState {
     graphs: HashMap<String, GraphState>,
     recent_blocks: BTreeMap<i64, RecentBlockCache>,
     recent_block_ref_counts: HashMap<i64, usize>,
-    data_receipt_links: HashMap<String, DataReceiptParentLink>,
-    data_receipt_link_heights: BTreeMap<i64, Vec<String>>,
     closed_hos_since_refresh: usize,
     cleanup_resume_height: Option<i64>,
 }
@@ -554,52 +515,6 @@ impl HosRuntimeState {
         false
     }
 
-    fn remember_data_receipt_links(
-        &mut self,
-        block_height: i64,
-        links: HashMap<String, DataReceiptParentLink>,
-    ) {
-        if links.is_empty() {
-            self.evict_data_receipt_links(block_height);
-            return;
-        }
-
-        let height_bucket = self
-            .data_receipt_link_heights
-            .entry(block_height)
-            .or_default();
-        for (data_id, link) in links {
-            height_bucket.push(data_id.clone());
-            self.data_receipt_links.insert(data_id, link);
-        }
-        self.evict_data_receipt_links(block_height);
-    }
-
-    fn evict_data_receipt_links(&mut self, block_height: i64) {
-        let cutoff_height = block_height.saturating_sub(DATA_RECEIPT_LINK_RETENTION_BLOCKS);
-        let stale_heights = self
-            .data_receipt_link_heights
-            .keys()
-            .copied()
-            .take_while(|height| *height <= cutoff_height)
-            .collect::<Vec<_>>();
-
-        for height in stale_heights {
-            if let Some(data_ids) = self.data_receipt_link_heights.remove(&height) {
-                for data_id in data_ids {
-                    let remove = self
-                        .data_receipt_links
-                        .get(&data_id)
-                        .map(|link| link.block_height <= cutoff_height)
-                        .unwrap_or(false);
-                    if remove {
-                        self.data_receipt_links.remove(&data_id);
-                    }
-                }
-            }
-        }
-    }
-
     fn apply_recent_block_ref_delta(&mut self, block_height: i64, delta: isize) {
         if delta == 0 {
             return;
@@ -637,16 +552,11 @@ impl HosRuntimeState {
         let mut merge_metrics = StageMetrics::new();
         let HosBlockUpdates {
             receipt_tx_hash_map: _,
-            data_receipt_links,
             graph_updates,
             shared_bundle,
         } = updates;
         merge_metrics.record_count("graph_update_count", graph_updates.len());
         merge_metrics.record_count("shared_bundle_row_count", shared_bundle.row_count());
-
-        let remember_links_start = Instant::now();
-        self.remember_data_receipt_links(block_height, data_receipt_links);
-        merge_metrics.record_phase_elapsed("remember_data_receipt_links", remember_links_start);
 
         let update_loop_start = Instant::now();
         let mut recent_ref_count_deltas = Vec::new();
@@ -685,8 +595,11 @@ impl HosRuntimeState {
                 graph.pending_receipts.remove(&receipt_id);
             }
             graph.open_yield_receipts.extend(update.yielded_receipts);
-            graph.resolve_yield_receipts(update.resumed_yield_receipt_count);
+            graph.resolve_yield_receipts(&update.resumed_yield_data_ids);
             graph.expire_timed_out_yields(block_height);
+            if update.yield_tracking_failed && graph.incomplete_reason.is_none() {
+                graph.incomplete_reason = Some("untracked_promise_yield".to_string());
+            }
 
             if update_ref_row_count > 0 {
                 current_slice_graph_count += 1;
@@ -1069,7 +982,14 @@ pub struct VenearGovernanceModule {
 
 impl VenearGovernanceModule {
     pub fn new(config: &common::config::AppConfig) -> Self {
-        Self::with_receipt_graph(config, Arc::new(ReceiptGraphResolver::new()))
+        Self::with_receipt_graph(
+            config,
+            Arc::new(
+                ReceiptGraphResolver::with_data_receipt_link_retention_blocks(
+                    Self::data_receipt_link_retention_blocks(config),
+                ),
+            ),
+        )
     }
 
     pub fn with_receipt_graph(
@@ -1124,6 +1044,30 @@ impl VenearGovernanceModule {
             receipt_graph,
             state: Mutex::new(HosRuntimeState::default()),
         }
+    }
+
+    fn data_receipt_link_retention_blocks(config: &AppConfig) -> i64 {
+        let AppConfig::Indexer(indexer) = config else {
+            return 1;
+        };
+
+        let Some(near) = indexer.near.as_ref() else {
+            return 1;
+        };
+
+        let Some(venear_cfg) = near
+            .modules
+            .as_ref()
+            .and_then(|modules| modules.venear_governance.as_ref())
+        else {
+            return 1;
+        };
+
+        if !venear_cfg.enabled {
+            return 1;
+        }
+
+        effective_venear_data_receipt_link_retention_blocks(venear_cfg)
     }
 
     fn minimum_receipt_tx_map_retention_blocks(
@@ -1303,6 +1247,23 @@ impl VenearGovernanceModule {
                 ..
             }
         )
+    }
+
+    fn yield_data_ids(
+        receipt: &near_lake_framework::near_indexer_primitives::views::ReceiptView,
+    ) -> Vec<String> {
+        let ReceiptEnumView::Action {
+            output_data_receivers,
+            ..
+        } = &receipt.receipt
+        else {
+            return Vec::new();
+        };
+
+        output_data_receivers
+            .iter()
+            .map(|receiver| receiver.data_id.to_string())
+            .collect()
     }
 
     fn receipt_data_id(
@@ -1647,7 +1608,10 @@ impl VenearGovernanceModule {
             facts.candidate_receipt_ids.len(),
         );
         stats.record_count("lookup_receipt_ids_after_dedup", lookup_receipt_ids.len());
-        stats.record_count("data_receipt_link_cache_size", resolved_graph.data_receipt_link_cache_size);
+        stats.record_count(
+            "data_receipt_link_cache_size",
+            resolved_graph.data_receipt_link_cache_size,
+        );
         stats.record_count(
             "data_receipt_link_lookup_id_count",
             relevant_data_receipt_ids.len(),
@@ -1688,14 +1652,6 @@ impl VenearGovernanceModule {
                     };
                     let tx_hash = tx_with_outcome.transaction.hash.to_string();
                     let tx_outcome_id = tx_with_outcome.outcome.execution_outcome.id.to_string();
-                    updates.note_output_data_receivers(
-                        receipt,
-                        &tx_hash,
-                        &tx_outcome_id,
-                        block_height,
-                        &block_hash,
-                        block_timestamp,
-                    );
                     Self::cache_output_data_receivers(
                         &mut data_receipt_links,
                         receipt,
@@ -1730,14 +1686,6 @@ impl VenearGovernanceModule {
                 };
                 let outcome_id = outcome_with_receipt.execution_outcome.id.to_string();
 
-                updates.note_output_data_receivers(
-                    receipt,
-                    &transaction_hash,
-                    &outcome_id,
-                    block_height,
-                    &block_hash,
-                    block_timestamp,
-                );
                 Self::cache_output_data_receivers(
                     &mut data_receipt_links,
                     receipt,
@@ -1817,20 +1765,19 @@ impl VenearGovernanceModule {
                         );
                         updates.note_executed_receipt(&tx_hash, &receipt_id);
                         if Self::is_promise_yield(&receipt.receipt) {
-                            updates.note_yielded_receipt(
-                                &tx_hash,
-                                &receipt_id,
-                                block_height.saturating_add(DEFAULT_YIELD_TIMEOUT_BLOCKS),
-                            );
+                            let yielded_data_ids = Self::yield_data_ids(receipt);
+                            if yielded_data_ids.is_empty() {
+                                updates.note_yield_tracking_failure(&tx_hash);
+                            } else {
+                                for data_id in yielded_data_ids {
+                                    updates.note_yielded_receipt(
+                                        &tx_hash,
+                                        &data_id,
+                                        block_height.saturating_add(DEFAULT_YIELD_TIMEOUT_BLOCKS),
+                                    );
+                                }
+                            }
                         }
-                        updates.note_output_data_receivers(
-                            receipt,
-                            &tx_hash,
-                            &tx_outcome_id,
-                            block_height,
-                            &block_hash,
-                            block_timestamp,
-                        );
                         Self::cache_output_data_receivers(
                             &mut data_receipt_links,
                             receipt,
@@ -1964,14 +1911,23 @@ impl VenearGovernanceModule {
                         updates.note_pending_receipt(&transaction_hash, &receipt_id);
                     }
                     if Self::is_promise_yield(&receipt.receipt) {
-                        updates.note_yielded_receipt(
-                            &transaction_hash,
-                            &receipt_id,
-                            block_height.saturating_add(DEFAULT_YIELD_TIMEOUT_BLOCKS),
-                        );
+                        let yielded_data_ids = Self::yield_data_ids(receipt);
+                        if yielded_data_ids.is_empty() {
+                            updates.note_yield_tracking_failure(&transaction_hash);
+                        } else {
+                            for data_id in yielded_data_ids {
+                                updates.note_yielded_receipt(
+                                    &transaction_hash,
+                                    &data_id,
+                                    block_height.saturating_add(DEFAULT_YIELD_TIMEOUT_BLOCKS),
+                                );
+                            }
+                        }
                     }
                     if Self::is_promise_resume(&receipt.receipt) {
-                        updates.note_resumed_yield_receipt(&transaction_hash);
+                        if let Some(data_id) = Self::receipt_data_id(receipt) {
+                            updates.note_resumed_yield_receipt(&transaction_hash, &data_id);
+                        }
                     }
                 }
             }
@@ -2023,14 +1979,23 @@ impl VenearGovernanceModule {
                 );
                 updates.note_executed_receipt(&transaction_hash, &receipt_id);
                 if Self::is_promise_yield(&receipt.receipt) {
-                    updates.note_yielded_receipt(
-                        &transaction_hash,
-                        &receipt_id,
-                        block_height.saturating_add(DEFAULT_YIELD_TIMEOUT_BLOCKS),
-                    );
+                    let yielded_data_ids = Self::yield_data_ids(receipt);
+                    if yielded_data_ids.is_empty() {
+                        updates.note_yield_tracking_failure(&transaction_hash);
+                    } else {
+                        for data_id in yielded_data_ids {
+                            updates.note_yielded_receipt(
+                                &transaction_hash,
+                                &data_id,
+                                block_height.saturating_add(DEFAULT_YIELD_TIMEOUT_BLOCKS),
+                            );
+                        }
+                    }
                 }
                 if Self::is_promise_resume(&receipt.receipt) {
-                    updates.note_resumed_yield_receipt(&transaction_hash);
+                    if let Some(data_id) = Self::receipt_data_id(receipt) {
+                        updates.note_resumed_yield_receipt(&transaction_hash, &data_id);
+                    }
                 }
 
                 let outcome_view = &outcome_with_receipt.execution_outcome;
@@ -2641,6 +2606,30 @@ mod tests {
         }
     }
 
+    fn yield_receipt(data_id: u8) -> ReceiptView {
+        let mut receipt = action_receipt_with_data_outputs(&[data_id]);
+        let ReceiptEnumView::Action {
+            is_promise_yield, ..
+        } = &mut receipt.receipt
+        else {
+            unreachable!();
+        };
+        *is_promise_yield = true;
+        receipt
+    }
+
+    fn resumed_data_receipt(data_id: u8) -> ReceiptView {
+        let mut receipt = data_receipt(data_id);
+        let ReceiptEnumView::Data {
+            is_promise_resume, ..
+        } = &mut receipt.receipt
+        else {
+            unreachable!();
+        };
+        *is_promise_resume = true;
+        receipt
+    }
+
     #[test]
     fn hos_contract_matcher_accepts_verified_contracts_and_lockups() {
         for account_id in [
@@ -2732,33 +2721,92 @@ mod tests {
     }
 
     #[test]
-    fn data_receipt_links_survive_across_blocks() {
-        let parent_receipt = action_receipt_with_data_outputs(&[9]);
+    fn yield_resumes_by_data_id_not_by_count() {
+        let first_yield = yield_receipt(9);
+        let second_yield = yield_receipt(10);
+        let resumed = resumed_data_receipt(10);
         let mut updates = HosBlockUpdates::default();
-        updates.note_output_data_receivers(
-            &parent_receipt,
+        updates.note_tx_metadata("tx-1", true, true);
+        updates.note_yielded_receipt(
             "tx-1",
-            "outcome-1",
-            100,
-            "block-100",
-            1_000,
+            &VenearGovernanceModule::yield_data_ids(&first_yield)[0],
+            300,
+        );
+        updates.note_yielded_receipt(
+            "tx-1",
+            &VenearGovernanceModule::yield_data_ids(&second_yield)[0],
+            300,
+        );
+        updates.note_resumed_yield_receipt(
+            "tx-1",
+            &VenearGovernanceModule::receipt_data_id(&resumed).expect("resume data id"),
         );
 
         let mut state = HosRuntimeState::default();
         let mut stats = StageMetrics::new();
         state.merge_block_updates(100, updates, false, &mut stats);
 
-        let link =
-            VenearGovernanceModule::data_receipt_link(&state.data_receipt_links, &data_receipt(9))
-                .expect("expected cached data receipt link");
-
-        assert_eq!(link.transaction_hash, "tx-1");
         assert_eq!(
-            link.parent_receipt_id,
-            parent_receipt.receipt_id.to_string()
+            state
+                .graphs
+                .get("tx-1")
+                .expect("graph")
+                .open_yield_receipts
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![VenearGovernanceModule::yield_data_ids(&first_yield)[0].clone()]
         );
-        assert_eq!(link.parent_execution_outcome_id, "outcome-1");
-        assert_eq!(link.block_height, 100);
+    }
+
+    #[test]
+    fn duplicate_resume_observation_is_idempotent() {
+        let yielded = yield_receipt(9);
+        let resumed = resumed_data_receipt(9);
+        let data_id = VenearGovernanceModule::yield_data_ids(&yielded)[0].clone();
+        let mut updates = HosBlockUpdates::default();
+        updates.note_tx_metadata("tx-1", true, true);
+        updates.note_pending_receipt("tx-1", "pending-1");
+        updates.note_yielded_receipt("tx-1", &data_id, 300);
+        updates.note_resumed_yield_receipt(
+            "tx-1",
+            &VenearGovernanceModule::receipt_data_id(&resumed).expect("resume data id"),
+        );
+        updates.note_resumed_yield_receipt(
+            "tx-1",
+            &VenearGovernanceModule::receipt_data_id(&resumed).expect("resume data id"),
+        );
+
+        let mut state = HosRuntimeState::default();
+        state.merge_block_updates(100, updates, false, &mut StageMetrics::new());
+
+        assert!(state
+            .graphs
+            .get("tx-1")
+            .expect("graph")
+            .open_yield_receipts
+            .is_empty());
+    }
+
+    #[test]
+    fn yield_tracking_failure_marks_graph_incomplete() {
+        let mut updates = HosBlockUpdates::default();
+        updates.note_tx_metadata("tx-1", true, true);
+        updates.note_pending_receipt("tx-1", "pending-1");
+        updates.note_yield_tracking_failure("tx-1");
+
+        let mut state = HosRuntimeState::default();
+        state.merge_block_updates(100, updates, false, &mut StageMetrics::new());
+
+        assert_eq!(
+            state
+                .graphs
+                .get("tx-1")
+                .expect("graph")
+                .incomplete_reason
+                .as_deref(),
+            Some("untracked_promise_yield")
+        );
     }
 
     #[test]

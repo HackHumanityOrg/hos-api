@@ -82,6 +82,7 @@ fn raw_config(enabled: bool) -> RawModuleConfig {
         enabled,
         stream_mode: NearModuleStreamMode::Shared,
         start_height: None,
+        ..RawModuleConfig::default()
     }
 }
 
