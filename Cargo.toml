@@ -101,6 +101,7 @@ near-indexer-primitives = "0.34.6"
 httpdate = "1"
 serde_path_to_error = "0.1"
 scraper = "0.25.0"
+socket2 = "0.5"
 
 # Development tools (managed by cargo-run-bin)
 [workspace.metadata.bin]
