@@ -43,3 +43,10 @@ logs/
 *.tmp
 *.temp
 ~*
+
+# Next.js web app artifacts
+/web/.next/
+/web/node_modules/
+/web/.vercel/
+/web/.pnpm-store/
+/web/.DS_Store

@@ -7,6 +7,7 @@ This guide covers development workflows, best practices, and common tasks for th
 ### Prerequisites
 
 - **Rust 1.89+** with Cargo
+- **Node.js 20+** with `pnpm`
 - **PostgreSQL/PlanetScale Postgres** database access
 - **Git** for version control
 - **direnv + Doppler CLI** for environment loading
@@ -68,9 +69,20 @@ cargo run-indexer-1          # Test discourse indexer changes
 cargo run-indexer-2          # Test NEAR indexer changes
 cargo run-indexer-3          # Test Telegram indexer changes
 
+# Run the Next.js veNEAR explorer
+cd web
+cp .env.example .env.local   # Optional if you are not using the default local API URL
+pnpm install
+pnpm dev
+
 # Or run in development mode with auto-reload (if configured)
 cargo watch -x "run -p api"
 ```
+
+The frontend expects the veNEAR API at `VENEAR_API_BASE_URL`. By default it points at `http://127.0.0.1:3000/api/v1/venear`, so the common local workflow is:
+
+1. `cargo run-api`
+2. `cd web && pnpm dev`
 
 ## Project Structure
 
@@ -112,6 +124,10 @@ data-commons/
 │   │   ├── main.rs         # CLI entry point
 │   │   └── m*.rs           # Individual migrations
 │   └── Cargo.toml
+├── web/                    # Next.js veNEAR explorer
+│   ├── src/app/            # App Router pages and layouts
+│   ├── src/components/     # shadcn/ui and veNEAR-specific UI pieces
+│   └── package.json        # Frontend scripts and dependencies
 └── .cargo/
     └── config.toml         # Cargo aliases
 ```
