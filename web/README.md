@@ -24,6 +24,9 @@ pnpm build
 The Railway service expects:
 
 - `NEXT_TELEMETRY_DISABLED=1`
-- `VENEAR_API_BASE_URL=http://${{api.RAILWAY_PRIVATE_DOMAIN}}:${{api.PORT}}/api/v1/venear`
+- `VENEAR_API_BASE_URL=http://${{api.RAILWAY_PRIVATE_DOMAIN}}:8080/api/v1/venear`
+
+If you later add `PORT=8080` to the `api` service variables, you can switch that to
+`http://${{api.RAILWAY_PRIVATE_DOMAIN}}:${{api.PORT}}/api/v1/venear`.
 
 The committed deployment manifest is `web/railway.toml` and the container build is `web/Dockerfile`.
