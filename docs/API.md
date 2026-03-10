@@ -197,26 +197,48 @@ Notes:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/venear/config/current` | Get latest indexed config per contract and field |
+| GET | `/api/v1/venear/proposals` | List canonical proposal summaries |
+| GET | `/api/v1/venear/proposals/{proposal_id}` | Get full canonical proposal detail |
+| GET | `/api/v1/venear/proposals/{proposal_id}/timeline` | List canonical proposal lifecycle events |
+| GET | `/api/v1/venear/proposals/{proposal_id}/votes` | List current effective votes for a proposal |
+| GET | `/api/v1/venear/proposals/{proposal_id}/vote_history` | List full successful vote history for a proposal |
+| GET | `/api/v1/venear/accounts` | List account-centric veNEAR summaries |
+| GET | `/api/v1/venear/accounts/{account_id}` | Get current account governance state |
+| GET | `/api/v1/venear/accounts/{account_id}/proposals` | List proposal summaries related to one account |
+| GET | `/api/v1/venear/accounts/{account_id}/votes` | List current effective votes cast by one account |
+| GET | `/api/v1/venear/accounts/{account_id}/vote_history` | List full successful vote history for one account |
+| GET | `/api/v1/venear/accounts/{account_id}/voting_power_history` | List derived voting-power mutations for one account |
+| GET | `/api/v1/venear/accounts/{account_id}/delegation_history` | List delegation events involving one account |
+| GET | `/api/v1/venear/accounts/{account_id}/lockup_events` | List lockup lifecycle events for one account |
+| GET | `/api/v1/venear/accounts/{account_id}/rewards_events` | List reward and claim events for one account |
+| GET | `/api/v1/venear/delegations` | List current active delegation edges |
+| GET | `/api/v1/venear/lockups` | List current lockup summaries |
+| GET | `/api/v1/venear/lockups/{lockup_account_id}` | Get current lockup detail |
+| GET | `/api/v1/venear/lockups/{lockup_account_id}/events` | List lockup lifecycle history |
+| GET | `/api/v1/venear/config` | Get current config snapshots by contract |
 | GET | `/api/v1/venear/config/history` | List config change history from governance method calls |
-| GET | `/api/v1/venear/proposals` | List governance proposals |
-| GET | `/api/v1/venear/proposals/{proposal_id}` | Get latest details for a proposal |
-| GET | `/api/v1/venear/proposals/{proposal_id}/events` | List events for a proposal |
-| GET | `/api/v1/venear/proposals/{proposal_id}/votes` | List effective votes for a proposal |
-| GET | `/api/v1/venear/delegates` | List delegates (possible voters) |
-| GET | `/api/v1/venear/delegates/{account_id}/voting-power` | List voting power history for a delegate |
-| GET | `/api/v1/venear/delegates/{account_id}/delegations` | List delegation events for a delegate |
+| GET | `/api/v1/venear/admin/actions` | List admin and operator actions, including failures |
+| GET | `/api/v1/venear/activity` | List the normalized cross-domain activity feed |
 
 Notes:
 - All veNEAR list endpoints support cursor pagination via `limit` and `cursor`.
-- `GET /api/v1/venear/config/current` returns the latest row for each `(contract_id, field)` pair.
-- `GET /api/v1/venear/config/history` supports `contract_id` and `field` (`guardians` or `reviewer_ids`).
-- `GET /api/v1/venear/proposals` supports `latest_event_type` and `proposer_id`.
-- `GET /api/v1/venear/proposals/{proposal_id}/events` supports `event_type` and `actor_account_id`.
+- The `/api/v1/venear` surface now reads directly from canonical NEAR tables and does not depend on `near.hos_*` materialized views.
+- Common shared veNEAR fields include `TokenAmountDto` payloads with `raw` and `decimal` and provenance refs with `contract_id`, `transaction_hash`, `receipt_id`, `execution_outcome_id`, `block_height`, and `block_timestamp`.
+- `GET /api/v1/venear/proposals` supports `status`, `proposer_id`, `reviewer_id`, `contract_id`, `has_votes`, `q`, `created_after`, and `created_before`.
+- `GET /api/v1/venear/proposals/{proposal_id}/timeline` supports `event_type` and `actor_account_id`.
 - `GET /api/v1/venear/proposals/{proposal_id}/votes` supports `voter_account_id` and `vote_option`.
-- `GET /api/v1/venear/delegates` supports `account_id_prefix`, `has_inbound_delegation`, and `has_outbound_delegation`.
-- `GET /api/v1/venear/delegates/{account_id}/voting-power` supports `event_type` and `proposal_id`.
-- `GET /api/v1/venear/delegates/{account_id}/delegations` supports `event_type`, `direction`, `counterparty_account_id`, and `success`.
+- `GET /api/v1/venear/proposals/{proposal_id}/vote_history` supports `voter_account_id`, `vote_option`, and `event_type`.
+- `GET /api/v1/venear/accounts` supports `q`, `role`, `has_inbound_delegation`, `has_outbound_delegation`, `has_lockup`, and `min_effective_voting_power_raw`.
+- `GET /api/v1/venear/accounts/{account_id}/proposals` supports `role` and `status`.
+- `GET /api/v1/venear/accounts/{account_id}/vote_history` supports `proposal_id` and `event_type`.
+- `GET /api/v1/venear/accounts/{account_id}/voting_power_history` supports `reason` and `proposal_id`.
+- `GET /api/v1/venear/accounts/{account_id}/delegation_history` supports `direction`, `event_type`, and `counterparty_account_id`.
+- `GET /api/v1/venear/accounts/{account_id}/lockup_events` and `/rewards_events` support `event_type`.
+- `GET /api/v1/venear/delegations` supports `delegator_account_id` and `delegatee_account_id`.
+- `GET /api/v1/venear/lockups` supports `owner_account_id`, `status`, and `has_delegatee`.
+- `GET /api/v1/venear/config/history` supports `contract_id`, `field`, and `method_name`.
+- `GET /api/v1/venear/admin/actions` supports `contract_id`, `event_type`, `actor_account_id`, and `success`.
+- `GET /api/v1/venear/activity` supports `kind`, `account_id`, `proposal_id`, `contract_id`, `event_type`, and `success`.
 
 ### Agora Compatibility
 

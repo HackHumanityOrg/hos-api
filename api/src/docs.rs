@@ -43,15 +43,28 @@ use utoipa::OpenApi;
         handlers::telegram::list_users,
         handlers::telegram::get_user,
         handlers::telegram::list_user_messages,
-        handlers::venear::get_config_current,
+        handlers::venear::get_config,
         handlers::venear::list_config_history,
         handlers::venear::list_proposals,
         handlers::venear::get_proposal,
-        handlers::venear::list_proposal_events,
+        handlers::venear::list_proposal_timeline,
         handlers::venear::list_proposal_votes,
-        handlers::venear::list_delegates,
-        handlers::venear::list_delegate_voting_power,
-        handlers::venear::list_delegate_delegations,
+        handlers::venear::list_proposal_vote_history,
+        handlers::venear::list_accounts,
+        handlers::venear::get_account,
+        handlers::venear::list_account_proposals,
+        handlers::venear::list_account_votes,
+        handlers::venear::list_account_vote_history,
+        handlers::venear::list_account_voting_power_history,
+        handlers::venear::delegations::list_account_delegation_history,
+        handlers::venear::lockups::list_account_lockup_events,
+        handlers::venear::list_account_rewards_events,
+        handlers::venear::list_delegations,
+        handlers::venear::list_lockups,
+        handlers::venear::get_lockup,
+        handlers::venear::list_lockup_events,
+        handlers::venear::list_admin_actions,
+        handlers::venear::list_activity,
         handlers::agora::get_approved_proposals,
         handlers::agora::get_pending_proposals,
         handlers::agora::get_proposal_votes,
@@ -104,24 +117,53 @@ use utoipa::OpenApi;
         types::TelegramMessageDto,
         types::TelegramReactionDto,
         types::TelegramServiceActionDto,
-        types::VenearConfigCurrentResponse,
-        types::VenearConfigHistoryListResponse,
-        types::VenearConfigEntryDto,
-        types::VenearProposalsListResponse,
-        types::VenearProposalEventsListResponse,
-        types::VenearVotesListResponse,
-        types::VenearDelegatesListResponse,
-        types::VenearDelegateVotingPowerEventsListResponse,
-        types::VenearDelegationEventsListResponse,
-        types::VenearProposalSummaryDto,
-        types::VenearProposalDto,
-        types::VenearVoteAggregateDto,
-        types::VenearProposalLatestEventDto,
-        types::VenearProposalEventDto,
-        types::VenearVoteDto,
-        types::VenearDelegateDto,
-        types::VenearDelegateVotingPowerEventDto,
-        types::VenearDelegationEventDto,
+        types::VenearTokenAmountDto,
+        types::VenearChainRefDto,
+        types::VenearProposalListResponse,
+        types::VenearProposalTimelineListResponse,
+        types::VenearProposalVoteListResponse,
+        types::VenearProposalVoteHistoryListResponse,
+        types::VenearAccountListResponse,
+        types::VenearAccountProposalListResponse,
+        types::VenearAccountVoteListResponse,
+        types::VenearAccountVoteHistoryListResponse,
+        types::VenearAccountVotingPowerHistoryListResponse,
+        types::VenearAccountDelegationHistoryListResponse,
+        types::VenearAccountLockupEventsListResponse,
+        types::VenearAccountRewardsEventsListResponse,
+        types::VenearDelegationListResponse,
+        types::VenearLockupListResponse,
+        types::VenearLockupDetailDto,
+        types::VenearLockupEventsListResponse,
+        types::VenearConfigResponse,
+        types::VenearConfigHistoryListResponseV2,
+        types::VenearAdminActionsListResponse,
+        types::VenearActivityListResponse,
+        types::VenearProposalSummaryV2Dto,
+        types::VenearProposalDetailDto,
+        types::VenearProposalMilestonesDto,
+        types::VenearProposalSnapshotDto,
+        types::VenearProposalTallyDto,
+        types::VenearProposalTimelineEventDto,
+        types::VenearProposalVoteV2Dto,
+        types::VenearProposalVoteHistoryEventDto,
+        types::VenearAccountSummaryDto,
+        types::VenearAccountDetailDto,
+        types::VenearAccountGovernanceStateDto,
+        types::VenearAccountDelegationSummaryDto,
+        types::VenearAccountLockupSummaryDto,
+        types::VenearAccountParticipationDto,
+        types::VenearAccountVoteDto,
+        types::VenearAccountVotingPowerEventV2Dto,
+        types::VenearAccountDelegationHistoryEventDto,
+        types::VenearDelegationEdgeDto,
+        types::VenearLockupSummaryDto,
+        types::VenearLockupEventDto,
+        types::VenearRewardEventDto,
+        types::VenearConfigSnapshotDto,
+        types::VenearConfigHistoryEntryV2Dto,
+        types::VenearAdminActionDto,
+        types::VenearActivityItemDto,
         types::AgoraLegacyErrorBody,
         types::AgoraLegacyMessageBody,
         types::AgoraProposalListResponse,
@@ -157,7 +199,7 @@ use utoipa::OpenApi;
         (name = "discourse", description = "Read endpoints over indexed Discourse entities (instances, categories, topics, posts, likes, users)"),
         (name = "discourse-ops", description = "Operational diagnostics for data integrity and coverage checks"),
         (name = "telegram", description = "Read endpoints over indexed Telegram entities (channels, users, messages, reactions, service actions)"),
-        (name = "venear", description = "Read endpoints over indexed veNEAR governance entities (config, proposals, votes, delegates, voting power, delegations)"),
+        (name = "venear", description = "Read endpoints over indexed veNEAR governance entities (proposals, accounts, votes, delegations, lockups, config, admin actions, activity)"),
         (name = "agora", description = "Legacy Agora-compatible governance endpoints backed by indexed HOS materialized views")
     )
 )]
@@ -267,18 +309,18 @@ mod tests {
             "identity persons endpoint should explain pagination semantics"
         );
 
-        let delegates_get = paths
-            .get("/api/v1/venear/delegates")
+        let accounts_get = paths
+            .get("/api/v1/venear/accounts")
             .and_then(|p| p.get("get"))
             .and_then(|op| op.as_object())
-            .expect("delegates get operation");
+            .expect("accounts get operation");
         assert!(
-            delegates_get
-                .get("description")
+            accounts_get
+                .get("operationId")
                 .and_then(|v| v.as_str())
-                .expect("delegates description")
-                .contains("possible voters"),
-            "delegates endpoint should explain dataset semantics"
+                .expect("accounts operation id")
+                .contains("VenearAccountsCanonical"),
+            "accounts endpoint should expose the canonical veNEAR operation id"
         );
 
         let agora_delegate_get = paths
@@ -429,20 +471,20 @@ mod tests {
         );
 
         let venear_voting_power_properties = schemas
-            .get("VenearDelegateVotingPowerEventDto")
+            .get("VenearAccountVotingPowerEventV2Dto")
             .and_then(|s| s.get("properties"))
             .and_then(|p| p.as_object())
-            .expect("VenearDelegateVotingPowerEventDto properties");
+            .expect("VenearAccountVotingPowerEventV2Dto properties");
         assert!(
             venear_voting_power_properties.contains_key("account_id"),
-            "delegate voting power events should expose scoped account_id"
+            "account voting power events should expose scoped account_id"
         );
 
         let venear_delegation_properties = schemas
-            .get("VenearDelegationEventDto")
+            .get("VenearAccountDelegationHistoryEventDto")
             .and_then(|s| s.get("properties"))
             .and_then(|p| p.as_object())
-            .expect("VenearDelegationEventDto properties");
+            .expect("VenearAccountDelegationHistoryEventDto properties");
         assert!(
             venear_delegation_properties.contains_key("account_id"),
             "delegation events should expose scoped account_id"

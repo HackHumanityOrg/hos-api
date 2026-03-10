@@ -77,7 +77,7 @@ async fn venear_config_routes_are_wired_under_api_v1() {
     let response = support::build_router_with_state(None)
         .into_service()
         .oneshot(
-            Request::get("/api/v1/venear/config/current")
+            Request::get("/api/v1/venear/config")
                 .body(Body::empty())
                 .unwrap(),
         )

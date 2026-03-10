@@ -32,6 +32,7 @@ mod m20260313_000029_in_memory_hos_staging_refactor;
 mod m20260313_000030_near_execution_outcomes_exact_fee_fields;
 mod m20260313_000031_harden_hos_mv_typed_casts;
 mod m20260313_000032_receipt_tx_map_persistence;
+mod m20260314_000033_venear_canonical_query_indexes;
 
 pub struct Migrator;
 
@@ -71,6 +72,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260313_000030_near_execution_outcomes_exact_fee_fields::Migration),
             Box::new(m20260313_000031_harden_hos_mv_typed_casts::Migration),
             Box::new(m20260313_000032_receipt_tx_map_persistence::Migration),
+            Box::new(m20260314_000033_venear_canonical_query_indexes::Migration),
         ]
     }
 }

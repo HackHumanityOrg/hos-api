@@ -46,8 +46,8 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         "venear proposals path present"
     );
     assert!(
-        paths.contains_key("/api/v1/venear/config/current"),
-        "venear config current path present"
+        paths.contains_key("/api/v1/venear/config"),
+        "venear config path present"
     );
     assert!(
         paths.contains_key("/api/v1/venear/config/history"),
@@ -56,6 +56,42 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(
         paths.contains_key("/api/v1/venear/proposals/{proposal_id}"),
         "venear proposal details path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/proposals/{proposal_id}/timeline"),
+        "venear proposal timeline path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/proposals/{proposal_id}/vote_history"),
+        "venear proposal vote history path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/accounts"),
+        "venear accounts path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/accounts/{account_id}"),
+        "venear account details path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/accounts/{account_id}/voting_power_history"),
+        "venear account voting power history path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/delegations"),
+        "venear delegations path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/lockups"),
+        "venear lockups path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/admin/actions"),
+        "venear admin actions path present"
+    );
+    assert!(
+        paths.contains_key("/api/v1/venear/activity"),
+        "venear activity path present"
     );
     assert!(
         paths.contains_key("/api/v1/telegram/channels"),
@@ -68,22 +104,6 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(
         paths.contains_key("/api/v1/telegram/users/{user_telegram_id}/messages"),
         "telegram user messages path present"
-    );
-    assert!(
-        paths.contains_key("/api/v1/venear/proposals/{proposal_id}/events"),
-        "venear proposal events path present"
-    );
-    assert!(
-        paths.contains_key("/api/v1/venear/delegates"),
-        "venear delegates path present"
-    );
-    assert!(
-        paths.contains_key("/api/v1/venear/delegates/{account_id}/voting-power"),
-        "venear delegate voting power path present"
-    );
-    assert!(
-        paths.contains_key("/api/v1/venear/delegates/{account_id}/delegations"),
-        "venear delegate delegations path present"
     );
     assert!(
         paths.contains_key("/api/agora/proposal/approved"),
@@ -141,18 +161,18 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         "topics description should explain ordering semantics"
     );
 
-    let venear_delegates_operation = paths
-        .get("/api/v1/venear/delegates")
+    let venear_accounts_operation = paths
+        .get("/api/v1/venear/accounts")
         .and_then(|path| path.get("get"))
         .and_then(|op| op.as_object())
-        .expect("venear delegates get operation");
+        .expect("venear accounts get operation");
     assert!(
-        venear_delegates_operation
-            .get("description")
+        venear_accounts_operation
+            .get("operationId")
             .and_then(|v| v.as_str())
-            .expect("delegates description")
-            .contains("possible voters"),
-        "delegates description should explain dataset semantics"
+            .expect("accounts operation id")
+            .contains("VenearAccountsCanonical"),
+        "venear accounts operation id should expose canonical surface"
     );
 
     let agora_delegate_operation = paths
@@ -236,14 +256,14 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(schemas.contains_key("TelegramMessageDto"));
     assert!(schemas.contains_key("TelegramReactionDto"));
     assert!(schemas.contains_key("TelegramServiceActionDto"));
-    assert!(schemas.contains_key("VenearProposalSummaryDto"));
-    assert!(schemas.contains_key("VenearProposalDto"));
-    assert!(schemas.contains_key("VenearVoteDto"));
-    assert!(schemas.contains_key("VenearConfigCurrentResponse"));
-    assert!(schemas.contains_key("VenearConfigHistoryListResponse"));
-    assert!(schemas.contains_key("VenearConfigEntryDto"));
-    assert!(schemas.contains_key("VenearDelegateDto"));
-    assert!(schemas.contains_key("VenearDelegateVotingPowerEventDto"));
+    assert!(schemas.contains_key("VenearProposalSummaryV2Dto"));
+    assert!(schemas.contains_key("VenearProposalDetailDto"));
+    assert!(schemas.contains_key("VenearProposalVoteV2Dto"));
+    assert!(schemas.contains_key("VenearConfigResponse"));
+    assert!(schemas.contains_key("VenearConfigHistoryListResponseV2"));
+    assert!(schemas.contains_key("VenearConfigSnapshotDto"));
+    assert!(schemas.contains_key("VenearAccountSummaryDto"));
+    assert!(schemas.contains_key("VenearAccountVotingPowerEventV2Dto"));
     assert!(schemas.contains_key("AgoraProposalDto"));
     assert!(schemas.contains_key("AgoraDelegateDetailDto"));
     assert!(schemas.contains_key("AgoraVoteChangesResponse"));
@@ -338,17 +358,17 @@ fn openapi_spec_exposes_health_path_and_schemas() {
     assert!(!telegram_message_props.contains_key("from_user_telegram_id"));
 
     let venear_vp_props = schemas
-        .get("VenearDelegateVotingPowerEventDto")
+        .get("VenearAccountVotingPowerEventV2Dto")
         .and_then(|schema| schema.get("properties"))
         .and_then(|properties| properties.as_object())
-        .expect("VenearDelegateVotingPowerEventDto properties");
+        .expect("VenearAccountVotingPowerEventV2Dto properties");
     assert!(venear_vp_props.contains_key("account_id"));
 
     let venear_delegation_props = schemas
-        .get("VenearDelegationEventDto")
+        .get("VenearAccountDelegationHistoryEventDto")
         .and_then(|schema| schema.get("properties"))
         .and_then(|properties| properties.as_object())
-        .expect("VenearDelegationEventDto properties");
+        .expect("VenearAccountDelegationHistoryEventDto properties");
     assert!(venear_delegation_props.contains_key("account_id"));
 
     let agora_delegate_props = schemas

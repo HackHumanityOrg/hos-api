@@ -26,7 +26,7 @@ pub async fn router_with_database() -> (Router, TestDatabase) {
     (router, database)
 }
 
-pub async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
+async fn seed_venear_base_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
     execute_sql(
         db,
         r#"
@@ -117,8 +117,61 @@ pub async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
     )
     .await?;
 
-    execute_sql(db, "SELECT near.refresh_hos_materialized_views()").await?;
+    Ok(())
+}
 
+pub async fn seed_venear_canonical_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
+    seed_venear_base_data(db).await?;
+
+    execute_sql(
+        db,
+        r#"
+        UPDATE near.near_execution_outcomes
+        SET logs = '["EVENT_JSON:{\"event\":\"ft_burn\",\"data\":[{\"owner_id\":\"lane.near\",\"amount\":\"3\"}]}","EVENT_JSON:{\"event\":\"ft_mint\",\"data\":[{\"owner_id\":\"jane.near\",\"amount\":\"3\"}]}"]'::jsonb
+        WHERE id = 'exec-deleg-1'
+        "#,
+    )
+    .await?;
+
+    execute_sql(
+        db,
+        r#"
+        INSERT INTO near.near_receipt_actions (
+            id, block_height, receipt_id, execution_outcome_id, transaction_hash, shard_id,
+            signer_account_id, signer_public_key, gas_price, action_kind, action_json,
+            predecessor_id, receiver_id, block_hash, chunk_hash, author, method_name,
+            gas, deposit, args_base64, args_json, action_index, block_timestamp
+        ) VALUES
+            ('a-lockup-update-lane', 132, 'rcpt-lockup-update-lane', 'exec-lockup-update-lane', 'tx-lockup-update-lane', 0, 'venear.dao', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"on_lockup_update"}}'::jsonb, 'venear.dao', 'venear.dao', 'bh-132', 'ch-132', 'author.near', 'on_lockup_update', 0, '0', NULL, '{"owner_account_id":"lane.near","amount":"8"}'::jsonb, 0, 1760000420000000000),
+            ('a-vote-jane-change', 144, 'rcpt-vote-3', 'exec-vote-3', 'tx-vote-3', 0, 'system.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"vote"}}'::jsonb, 'jane.near', 'vote.dao', 'bh-144', 'ch-144', 'author.near', 'vote', 0, '0', NULL, '{"proposal_id":"1","vote":"1"}'::jsonb, 0, 1760000540000000000),
+            ('a-claim-jane', 180, 'rcpt-claim-jane', 'exec-claim-jane', 'tx-claim-jane', 0, 'jane.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"claim"}}'::jsonb, 'jane.near', 'venear.dao', 'bh-180', 'ch-180', 'author.near', 'claim', 0, '0', NULL, '{"account_id":"jane.near"}'::jsonb, 0, 1760000800000000000),
+            ('a-pause-failed', 181, 'rcpt-pause-failed', 'exec-pause-failed', 'tx-pause-failed', 0, 'owner.near', NULL, NULL, 'FunctionCall', '{"FunctionCall":{"method_name":"pause"}}'::jsonb, 'owner.near', 'vote.dao', 'bh-181', 'ch-181', 'author.near', 'pause', 0, '0', NULL, '{}'::jsonb, 0, 1760000810000000000)
+        "#,
+    )
+    .await?;
+
+    execute_sql(
+        db,
+        r#"
+        INSERT INTO near.near_execution_outcomes (
+            id, block_height, receipt_id, outcome, raw_data, shard_id, transaction_hash,
+            block_hash, chunk_hash, gas_burnt, tokens_burnt_yocto, executor_account_id,
+            status, outcome_receipt_ids, executed_in_block_hash, logs, results_json, block_timestamp
+        ) VALUES
+            ('exec-lockup-update-lane', 132, 'rcpt-lockup-update-lane', '{}'::jsonb, NULL, 0, 'tx-lockup-update-lane', 'bh-132', 'ch-132', 0, '0', 'venear.dao', 'SuccessValue', '[]'::jsonb, 'bh-132', '["EVENT_JSON:{\"event\":\"lockup_update\",\"data\":[{\"locked_near_balance\":\"8\"}]}"]'::jsonb, NULL, 1760000420000000000),
+            ('exec-vote-3', 144, 'rcpt-vote-3', '{}'::jsonb, NULL, 0, 'tx-vote-3', 'bh-144', 'ch-144', 0, '0', 'vote.dao', 'SuccessValue', '[]'::jsonb, 'bh-144', '["EVENT_JSON:{\"event\":\"remove_vote\",\"data\":[{\"vote\":\"0\",\"account_balance\":\"3\"}]}","EVENT_JSON:{\"event\":\"add_vote\",\"data\":[{\"vote\":\"1\",\"account_balance\":\"3\"}]}"]'::jsonb, NULL, 1760000540000000000),
+            ('exec-claim-jane', 180, 'rcpt-claim-jane', '{}'::jsonb, NULL, 0, 'tx-claim-jane', 'bh-180', 'ch-180', 0, '0', 'venear.dao', 'SuccessValue', '[]'::jsonb, 'bh-180', '["EVENT_JSON:{\"event\":\"claim_rewards\",\"data\":[{\"amount\":\"1\",\"claimed\":\"1\"}]}","EVENT_JSON:{\"event\":\"ft_mint\",\"data\":[{\"owner_id\":\"jane.near\",\"amount\":\"1\"}]}"]'::jsonb, NULL, 1760000800000000000),
+            ('exec-pause-failed', 181, 'rcpt-pause-failed', '{}'::jsonb, NULL, 0, 'tx-pause-failed', 'bh-181', 'ch-181', 0, '0', 'vote.dao', 'Failure', '[]'::jsonb, 'bh-181', '[]'::jsonb, NULL, 1760000810000000000)
+        "#,
+    )
+    .await?;
+
+    Ok(())
+}
+
+pub async fn seed_venear_data(db: &impl ConnectionTrait) -> anyhow::Result<()> {
+    seed_venear_base_data(db).await?;
+    execute_sql(db, "SELECT near.refresh_hos_materialized_views()").await?;
     Ok(())
 }
 

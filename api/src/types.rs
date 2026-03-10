@@ -1,8 +1,21 @@
 //! API request/response types and DTOs
 
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value as JsonValue;
+use std::{fmt::Display, str::FromStr};
 use utoipa::{IntoParams, ToSchema};
+
+fn deserialize_optional_from_string<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr,
+    T::Err: Display,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    value
+        .map(|value| value.parse::<T>().map_err(de::Error::custom))
+        .transpose()
+}
 
 /// Health check response.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -1060,6 +1073,757 @@ pub struct VenearDelegationEventDto {
     pub receipt_id: String,
     /// Execution outcome id associated with the event.
     pub execution_outcome_id: String,
+}
+
+/// Common pagination parameters for the redesigned veNEAR API.
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct VenearPageQuery {
+    /// Maximum number of rows to return in one response page.
+    ///
+    /// - Omit to use the default value of 20.
+    /// - The API clamps values to 1..=100.
+    #[param(minimum = 1, maximum = 100, default = 20)]
+    #[serde(default, deserialize_with = "deserialize_optional_from_string")]
+    pub limit: Option<u64>,
+    /// Opaque pagination cursor from a previous response's `next_cursor`.
+    pub cursor: Option<String>,
+}
+
+/// Query options for listing redesigned veNEAR proposals.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearProposalListQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Filter by computed proposal status.
+    pub status: Option<String>,
+    /// Filter by proposal creator account id.
+    pub proposer_id: Option<String>,
+    /// Filter by reviewer account id.
+    pub reviewer_id: Option<String>,
+    /// Filter by contract id.
+    pub contract_id: Option<String>,
+    /// Filter proposals by whether they have any effective votes.
+    pub has_votes: Option<bool>,
+    /// Substring match on proposal title, description, and link.
+    pub q: Option<String>,
+    /// Lower bound for proposal creation timestamp (inclusive), RFC 3339 date-time string.
+    pub created_after: Option<String>,
+    /// Upper bound for proposal creation timestamp (inclusive), RFC 3339 date-time string.
+    pub created_before: Option<String>,
+}
+
+/// Query options for proposal timeline events.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearProposalTimelineQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional lifecycle event type filter.
+    pub event_type: Option<String>,
+    /// Optional actor account id filter.
+    pub actor_account_id: Option<String>,
+}
+
+/// Query options for current effective proposal votes.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearProposalVotesQueryV2 {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional voter account id filter.
+    pub voter_account_id: Option<String>,
+    /// Optional voting option index filter.
+    #[serde(default, deserialize_with = "deserialize_optional_from_string")]
+    pub vote_option: Option<i32>,
+}
+
+/// Query options for full proposal vote history.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearProposalVoteHistoryQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional voter account id filter.
+    pub voter_account_id: Option<String>,
+    /// Optional voting option index filter.
+    #[serde(default, deserialize_with = "deserialize_optional_from_string")]
+    pub vote_option: Option<i32>,
+    /// Optional vote event type filter (`add_vote` or `remove_vote`).
+    pub event_type: Option<String>,
+}
+
+/// Query options for listing veNEAR accounts.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearAccountListQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Substring match on account id.
+    pub q: Option<String>,
+    /// Optional derived account role filter.
+    pub role: Option<String>,
+    /// Filter accounts by current inbound delegation state.
+    pub has_inbound_delegation: Option<bool>,
+    /// Filter accounts by current outbound delegation state.
+    pub has_outbound_delegation: Option<bool>,
+    /// Filter accounts by whether a lockup exists.
+    pub has_lockup: Option<bool>,
+    /// Lower bound for current effective voting power raw amount.
+    pub min_effective_voting_power_raw: Option<String>,
+}
+
+/// Query options for proposals related to one account.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearAccountProposalsQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Filter by account role in the proposal (`creator`, `reviewer`, or `voter`).
+    pub role: Option<String>,
+    /// Filter by computed proposal status.
+    pub status: Option<String>,
+}
+
+/// Query options for current effective account votes.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearAccountVotesQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional proposal status filter for the joined proposal.
+    pub status: Option<String>,
+}
+
+/// Query options for account vote history.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearAccountVoteHistoryQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional proposal id filter.
+    #[serde(default, deserialize_with = "deserialize_optional_from_string")]
+    pub proposal_id: Option<i64>,
+    /// Optional vote event type filter.
+    pub event_type: Option<String>,
+}
+
+/// Query options for account voting power history.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearAccountVotingPowerHistoryQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional normalized reason filter.
+    pub reason: Option<String>,
+    /// Optional proposal id filter.
+    #[serde(default, deserialize_with = "deserialize_optional_from_string")]
+    pub proposal_id: Option<i64>,
+}
+
+/// Query options for account delegation history.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearAccountDelegationHistoryQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Filter relative direction (`inbound` or `outbound`) for the requested account.
+    pub direction: Option<String>,
+    /// Filter by delegation event type (`delegate_all` or `undelegate`).
+    pub event_type: Option<String>,
+    /// Filter by counterparty account id.
+    pub counterparty_account_id: Option<String>,
+}
+
+/// Query options for account lockup events.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearAccountLockupEventsQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional lockup event type filter.
+    pub event_type: Option<String>,
+}
+
+/// Query options for account reward events.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearAccountRewardsEventsQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional reward event type filter.
+    pub event_type: Option<String>,
+}
+
+/// Query options for current active delegations.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearDelegationsQueryV2 {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Filter by delegator account id.
+    pub delegator_account_id: Option<String>,
+    /// Filter by delegatee account id.
+    pub delegatee_account_id: Option<String>,
+}
+
+/// Query options for current lockup summaries.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearLockupsQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Filter by lockup owner account id.
+    pub owner_account_id: Option<String>,
+    /// Filter by normalized lockup status (`active`, `unlocking`, or `deleted`).
+    pub status: Option<String>,
+    /// Filter by whether the owner currently delegates outward.
+    pub has_delegatee: Option<bool>,
+}
+
+/// Query options for lockup lifecycle events.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearLockupEventsQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional lockup event type filter.
+    pub event_type: Option<String>,
+}
+
+/// Query options for redesigned veNEAR config history.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearConfigHistoryQueryV2 {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional exact contract filter.
+    pub contract_id: Option<String>,
+    /// Optional field name filter.
+    pub field: Option<String>,
+    /// Optional method name filter.
+    pub method_name: Option<String>,
+}
+
+/// Query options for veNEAR admin/operator actions.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearAdminActionsQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional contract id filter.
+    pub contract_id: Option<String>,
+    /// Optional action/event type filter.
+    pub event_type: Option<String>,
+    /// Optional success flag filter.
+    pub success: Option<bool>,
+    /// Optional actor account id filter.
+    pub actor_account_id: Option<String>,
+}
+
+/// Query options for the global veNEAR activity feed.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct VenearActivityQuery {
+    #[serde(flatten)]
+    pub page: VenearPageQuery,
+    /// Optional activity kind filter.
+    pub kind: Option<String>,
+    /// Optional account id filter across actor and subject references.
+    pub account_id: Option<String>,
+    /// Optional proposal id filter.
+    #[serde(default, deserialize_with = "deserialize_optional_from_string")]
+    pub proposal_id: Option<i64>,
+    /// Optional contract id filter.
+    pub contract_id: Option<String>,
+    /// Optional event type filter.
+    pub event_type: Option<String>,
+    /// Optional success flag filter.
+    pub success: Option<bool>,
+}
+
+/// Canonical token amount encoded for app consumption.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearTokenAmountDto {
+    /// Canonical raw integer string.
+    pub raw: String,
+    /// Decimal representation derived from `raw` and `decimals`.
+    pub decimal: String,
+    /// Symbol for the amount.
+    pub symbol: String,
+    /// Decimal precision used to render `decimal`.
+    pub decimals: u32,
+}
+
+/// Canonical on-chain provenance reference embedded in veNEAR resources.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearChainRefDto {
+    /// Contract account id associated with the action/outcome.
+    pub contract_id: String,
+    /// Optional transaction hash.
+    pub transaction_hash: Option<String>,
+    /// Receipt id associated with the resource.
+    pub receipt_id: String,
+    /// Execution outcome id associated with the resource.
+    pub execution_outcome_id: String,
+    /// Block height of the resource.
+    pub block_height: i64,
+    /// Block timestamp in RFC 3339 format.
+    pub block_timestamp: String,
+}
+
+/// Paginated response of redesigned veNEAR proposals.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalListResponse {
+    pub data: Vec<VenearProposalSummaryV2Dto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of proposal timeline events.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalTimelineListResponse {
+    pub data: Vec<VenearProposalTimelineEventDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of current effective proposal votes.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalVoteListResponse {
+    pub data: Vec<VenearProposalVoteV2Dto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of proposal vote history rows.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalVoteHistoryListResponse {
+    pub data: Vec<VenearProposalVoteHistoryEventDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of veNEAR accounts.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountListResponse {
+    pub data: Vec<VenearAccountSummaryDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of proposal summaries related to one account.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountProposalListResponse {
+    pub data: Vec<VenearProposalSummaryV2Dto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of current effective account votes.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountVoteListResponse {
+    pub data: Vec<VenearAccountVoteDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of account vote history.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountVoteHistoryListResponse {
+    pub data: Vec<VenearProposalVoteHistoryEventDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of account voting power history.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountVotingPowerHistoryListResponse {
+    pub data: Vec<VenearAccountVotingPowerEventV2Dto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of account delegation history rows.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountDelegationHistoryListResponse {
+    pub data: Vec<VenearAccountDelegationHistoryEventDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of account lockup history rows.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountLockupEventsListResponse {
+    pub data: Vec<VenearLockupEventDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of account reward events.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountRewardsEventsListResponse {
+    pub data: Vec<VenearRewardEventDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of current active delegations.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearDelegationListResponse {
+    pub data: Vec<VenearDelegationEdgeDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of current lockups.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearLockupListResponse {
+    pub data: Vec<VenearLockupSummaryDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of lockup lifecycle events.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearLockupEventsListResponse {
+    pub data: Vec<VenearLockupEventDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Current config snapshot across veNEAR contracts.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearConfigResponse {
+    pub data: Vec<VenearConfigSnapshotDto>,
+}
+
+/// Paginated response of config history rows.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearConfigHistoryListResponseV2 {
+    pub data: Vec<VenearConfigHistoryEntryV2Dto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of admin/operator actions.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAdminActionsListResponse {
+    pub data: Vec<VenearAdminActionDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Paginated response of the global veNEAR activity feed.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearActivityListResponse {
+    pub data: Vec<VenearActivityItemDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Proposal summary in the redesigned veNEAR API.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalSummaryV2Dto {
+    pub proposal_id: i64,
+    pub contract_id: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub link: Option<String>,
+    pub voting_options: Vec<String>,
+    pub status: String,
+    pub proposer_id: String,
+    pub reviewer_id: Option<String>,
+    pub created_at: String,
+    pub approved_at: Option<String>,
+    pub rejected_at: Option<String>,
+    pub voting_start_at: Option<String>,
+    pub voting_end_at: Option<String>,
+    pub snapshot: Option<VenearProposalSnapshotDto>,
+    pub tally: Vec<VenearProposalTallyDto>,
+    pub turnout_voter_count: i64,
+    pub turnout_voting_power: VenearTokenAmountDto,
+    pub latest_event_type: String,
+    pub refs: VenearChainRefDto,
+}
+
+/// Detailed proposal view in the redesigned veNEAR API.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalDetailDto {
+    pub proposal_id: i64,
+    pub contract_id: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub link: Option<String>,
+    pub voting_options: Vec<String>,
+    pub status: String,
+    pub proposer_id: String,
+    pub reviewer_id: Option<String>,
+    pub metadata: JsonValue,
+    pub snapshot: Option<VenearProposalSnapshotDto>,
+    pub milestones: VenearProposalMilestonesDto,
+    pub tally: Vec<VenearProposalTallyDto>,
+    pub turnout_voter_count: i64,
+    pub turnout_voting_power: VenearTokenAmountDto,
+    pub latest_event_type: String,
+    pub refs: VenearChainRefDto,
+}
+
+/// Proposal timing milestones.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalMilestonesDto {
+    pub created_at: String,
+    pub approved_at: Option<String>,
+    pub rejected_at: Option<String>,
+    pub voting_start_at: Option<String>,
+    pub voting_end_at: Option<String>,
+}
+
+/// Snapshot information attached to an approved proposal.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalSnapshotDto {
+    pub block_height: Option<i64>,
+    pub root: Option<String>,
+    pub total_venear: VenearTokenAmountDto,
+}
+
+/// Tally row for one proposal voting option.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalTallyDto {
+    pub option_index: i32,
+    pub option_label: Option<String>,
+    pub votes_count: i64,
+    pub voting_power: VenearTokenAmountDto,
+}
+
+/// Lifecycle event in a proposal timeline.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalTimelineEventDto {
+    pub event_type: String,
+    pub proposal_id: i64,
+    pub actor_account_id: Option<String>,
+    pub status_after_event: String,
+    pub refs: VenearChainRefDto,
+    pub payload: JsonValue,
+}
+
+/// Current effective vote row for a proposal.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalVoteV2Dto {
+    pub proposal_id: i64,
+    pub voter_account_id: String,
+    pub vote_option: i32,
+    pub vote_label: Option<String>,
+    pub voting_power: VenearTokenAmountDto,
+    pub voted_at: String,
+    pub refs: VenearChainRefDto,
+}
+
+/// Historical vote-change event.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearProposalVoteHistoryEventDto {
+    pub proposal_id: i64,
+    pub voter_account_id: String,
+    pub event_type: String,
+    pub vote_option: Option<i32>,
+    pub vote_label: Option<String>,
+    pub voting_power: VenearTokenAmountDto,
+    pub effective_after_event: bool,
+    pub refs: VenearChainRefDto,
+}
+
+/// Account summary in the redesigned veNEAR API.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountSummaryDto {
+    pub account_id: String,
+    pub roles: Vec<String>,
+    pub effective_voting_power: VenearTokenAmountDto,
+    pub own_voting_power: VenearTokenAmountDto,
+    pub delegated_voting_power: VenearTokenAmountDto,
+    pub delegated_to_account_id: Option<String>,
+    pub inbound_delegator_count: i64,
+    pub has_lockup: bool,
+    pub latest_activity_at: Option<String>,
+}
+
+/// Detailed account view in the redesigned veNEAR API.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountDetailDto {
+    pub account_id: String,
+    pub roles: Vec<String>,
+    pub effective_voting_power: VenearTokenAmountDto,
+    pub own_voting_power: VenearTokenAmountDto,
+    pub delegated_voting_power: VenearTokenAmountDto,
+    pub delegation: VenearAccountDelegationSummaryDto,
+    pub lockup: Option<VenearAccountLockupSummaryDto>,
+    pub participation: VenearAccountParticipationDto,
+    pub latest_activity_at: Option<String>,
+    pub latest_refs: Option<VenearChainRefDto>,
+    pub governance_state: Option<VenearAccountGovernanceStateDto>,
+}
+
+/// Governance-specific account state for accounts active as voters or proposers.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountGovernanceStateDto {
+    pub current_effective_votes_count: i64,
+    pub proposals_created_count: i64,
+    pub proposals_reviewed_count: i64,
+}
+
+/// Current delegation summary for an account.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountDelegationSummaryDto {
+    pub delegated_to_account_id: Option<String>,
+    pub inbound_delegator_count: i64,
+    pub has_inbound_delegation: bool,
+    pub has_outbound_delegation: bool,
+}
+
+/// Current lockup summary for an account.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountLockupSummaryDto {
+    pub lockup_account_id: String,
+    pub status: String,
+    pub locked_near_balance: VenearTokenAmountDto,
+    pub last_updated_at: String,
+}
+
+/// Participation counters for an account.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountParticipationDto {
+    pub proposals_created_count: i64,
+    pub proposals_reviewed_count: i64,
+    pub vote_events_count: i64,
+    pub current_effective_votes_count: i64,
+}
+
+/// Proposal vote row scoped under an account.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountVoteDto {
+    pub proposal_id: i64,
+    pub proposal_title: Option<String>,
+    pub vote_option: i32,
+    pub vote_label: Option<String>,
+    pub voting_power: VenearTokenAmountDto,
+    pub voted_at: String,
+    pub refs: VenearChainRefDto,
+}
+
+/// Voting power mutation row for an account.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountVotingPowerEventV2Dto {
+    pub account_id: String,
+    pub reason: String,
+    pub event_type: String,
+    pub proposal_id: Option<i64>,
+    pub delta: VenearTokenAmountDto,
+    pub effective_voting_power_after: VenearTokenAmountDto,
+    pub refs: VenearChainRefDto,
+}
+
+/// Delegation history event relative to one account.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAccountDelegationHistoryEventDto {
+    pub account_id: String,
+    pub direction: String,
+    pub event_type: String,
+    pub counterparty_account_id: Option<String>,
+    pub delegated_voting_power: VenearTokenAmountDto,
+    pub refs: VenearChainRefDto,
+}
+
+/// Current active delegation edge.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearDelegationEdgeDto {
+    pub delegator_account_id: String,
+    pub delegatee_account_id: String,
+    pub last_observed_delegated_voting_power: VenearTokenAmountDto,
+    pub started_at: String,
+    pub last_changed_at: String,
+    pub refs: VenearChainRefDto,
+}
+
+/// Current lockup summary row.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearLockupSummaryDto {
+    pub lockup_account_id: String,
+    pub owner_account_id: String,
+    pub contract_id: String,
+    pub status: String,
+    pub locked_near_balance: VenearTokenAmountDto,
+    pub delegated_to_account_id: Option<String>,
+    pub last_updated_at: String,
+    pub refs: VenearChainRefDto,
+}
+
+/// Detailed lockup view.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearLockupDetailDto {
+    pub lockup_account_id: String,
+    pub owner_account_id: String,
+    pub contract_id: String,
+    pub status: String,
+    pub locked_near_balance: VenearTokenAmountDto,
+    pub delegated_to_account_id: Option<String>,
+    pub deployment_refs: Option<VenearChainRefDto>,
+    pub latest_refs: VenearChainRefDto,
+}
+
+/// Lockup lifecycle event.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearLockupEventDto {
+    pub lockup_account_id: String,
+    pub owner_account_id: String,
+    pub event_type: String,
+    pub locked_near_balance: Option<VenearTokenAmountDto>,
+    pub refs: VenearChainRefDto,
+    pub payload: JsonValue,
+}
+
+/// Reward or claim event scoped to an account.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearRewardEventDto {
+    pub account_id: String,
+    pub event_type: String,
+    pub amount: Option<VenearTokenAmountDto>,
+    pub refs: VenearChainRefDto,
+    pub payload: JsonValue,
+}
+
+/// Current config snapshot for one indexed contract.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearConfigSnapshotDto {
+    pub contract_id: String,
+    pub owner_account_id: Option<String>,
+    pub proposed_new_owner_account_id: Option<String>,
+    pub guardians: Vec<String>,
+    pub reviewer_ids: Vec<String>,
+    pub lockup_contract_hash: Option<String>,
+    pub lockup_code_deployers: Vec<String>,
+    pub unlock_duration_sec: Option<u64>,
+    pub min_lockup_deposit: Option<VenearTokenAmountDto>,
+    pub local_deposit: Option<VenearTokenAmountDto>,
+    pub staking_pool_whitelist_account_id: Option<String>,
+    pub paused: Option<bool>,
+    pub refs: Option<VenearChainRefDto>,
+    pub extra_fields: JsonValue,
+}
+
+/// Config history entry in the redesigned veNEAR API.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearConfigHistoryEntryV2Dto {
+    pub contract_id: String,
+    pub field: String,
+    pub method_name: String,
+    pub actor_account_id: String,
+    pub value: JsonValue,
+    pub refs: VenearChainRefDto,
+}
+
+/// Admin/operator action row.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearAdminActionDto {
+    pub contract_id: String,
+    pub event_type: String,
+    pub actor_account_id: Option<String>,
+    pub success: bool,
+    pub refs: VenearChainRefDto,
+    pub payload: JsonValue,
+}
+
+/// Normalized cross-domain activity item.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VenearActivityItemDto {
+    pub kind: String,
+    pub event_type: String,
+    pub actor_account_id: Option<String>,
+    pub subject_account_id: Option<String>,
+    pub proposal_id: Option<i64>,
+    pub success: bool,
+    pub refs: VenearChainRefDto,
+    pub payload: JsonValue,
 }
 
 /// Legacy Agora query options for proposal list endpoints.
