@@ -22,7 +22,7 @@ export function CursorPagination({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-white/60 bg-white/70 p-4 shadow-[0_14px_40px_rgba(22,36,55,0.05)] sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-sm text-muted-foreground">
         {hasMore
           ? "This page is a live cursor window into the API. Continue forward with the opaque cursor."

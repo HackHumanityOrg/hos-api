@@ -133,7 +133,7 @@ export default async function ProposalDetailPage({ params }: Props) {
       </div>
 
       <section className="grid gap-4 lg:grid-cols-4">
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle className="text-lg">Participants</CardTitle>
           </CardHeader>
@@ -153,7 +153,7 @@ export default async function ProposalDetailPage({ params }: Props) {
           </CardContent>
         </Card>
 
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle className="text-lg">Turnout</CardTitle>
           </CardHeader>
@@ -167,7 +167,7 @@ export default async function ProposalDetailPage({ params }: Props) {
           </CardContent>
         </Card>
 
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle className="text-lg">Snapshot</CardTitle>
           </CardHeader>
@@ -192,7 +192,7 @@ export default async function ProposalDetailPage({ params }: Props) {
           </CardContent>
         </Card>
 
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle className="text-lg">Window</CardTitle>
           </CardHeader>
@@ -210,7 +210,7 @@ export default async function ProposalDetailPage({ params }: Props) {
         </Card>
       </section>
 
-      <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+      <Card>
         <CardHeader>
           <CardTitle className="text-2xl tracking-[-0.04em]">
             Tally by option
@@ -243,9 +243,9 @@ export default async function ProposalDetailPage({ params }: Props) {
                   </p>
                 </div>
               </div>
-              <div className="h-2 rounded-full bg-[color:rgba(40,138,145,0.08)]">
+              <div className="h-2 rounded-full bg-muted">
                 <div
-                  className="h-2 rounded-full bg-[color:var(--color-primary)]"
+                  className="h-2 rounded-full bg-primary"
                   style={{
                     width: percentageFromRaw(
                       row.voting_power.raw,
@@ -259,8 +259,12 @@ export default async function ProposalDetailPage({ params }: Props) {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="timeline" className="gap-4">
-        <TabsList variant="line" className="w-full justify-start gap-2 overflow-x-auto">
+      <Tabs defaultValue="timeline" className="min-w-0 gap-4 overflow-x-hidden">
+        <div className="overflow-x-auto">
+          <TabsList
+            variant="line"
+            className="min-w-max justify-start gap-2 whitespace-nowrap"
+          >
           <TabsTrigger value="timeline">
             <GitBranch className="size-4" />
             Timeline
@@ -277,7 +281,8 @@ export default async function ProposalDetailPage({ params }: Props) {
             <ScrollText className="size-4" />
             Metadata
           </TabsTrigger>
-        </TabsList>
+          </TabsList>
+        </div>
 
         <TabsContent value="timeline">
           {timeline.data.length === 0 ? (
@@ -286,9 +291,9 @@ export default async function ProposalDetailPage({ params }: Props) {
               description="Successful state-changing lifecycle events would appear here."
             />
           ) : (
-            <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+            <Card>
               <CardContent className="pt-6">
-                <Table>
+                <Table className="min-w-[42rem]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Event</TableHead>
@@ -310,7 +315,7 @@ export default async function ProposalDetailPage({ params }: Props) {
                               <summary className="cursor-pointer">
                                 Inspect payload
                               </summary>
-                              <pre className="mt-2 overflow-x-auto rounded-xl bg-[color:rgba(40,138,145,0.06)] p-3 font-mono text-[11px] leading-5">
+                              <pre className="mt-2 overflow-x-auto rounded-xl bg-muted p-3 font-mono text-[11px] leading-5">
                                 {prettyJson(event.payload)}
                               </pre>
                             </details>
@@ -341,9 +346,9 @@ export default async function ProposalDetailPage({ params }: Props) {
               description="This proposal currently has no effective votes."
             />
           ) : (
-            <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+            <Card>
               <CardContent className="pt-6">
-                <Table>
+                <Table className="min-w-[38rem]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Voter</TableHead>
@@ -377,9 +382,9 @@ export default async function ProposalDetailPage({ params }: Props) {
               description="Successful vote changes would appear here."
             />
           ) : (
-            <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+            <Card>
               <CardContent className="pt-6">
-                <Table>
+                <Table className="min-w-[46rem]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Voter</TableHead>
@@ -424,7 +429,7 @@ export default async function ProposalDetailPage({ params }: Props) {
         </TabsContent>
 
         <TabsContent value="metadata">
-          <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+          <Card>
             <CardHeader>
               <CardTitle>Canonical metadata and refs</CardTitle>
               <CardDescription>
@@ -433,13 +438,13 @@ export default async function ProposalDetailPage({ params }: Props) {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4 text-sm">
+                <div className="rounded-lg border bg-muted/30 p-4 text-sm">
                   <p className="text-muted-foreground">Receipt</p>
                   <p className="mt-1 font-mono text-xs text-foreground">
                     {truncateMiddle(proposal.refs.receipt_id, 10)}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4 text-sm">
+                <div className="rounded-lg border bg-muted/30 p-4 text-sm">
                   <p className="text-muted-foreground">Transaction hash</p>
                   <p className="mt-1 font-mono text-xs text-foreground">
                     {proposal.refs.transaction_hash
@@ -448,7 +453,7 @@ export default async function ProposalDetailPage({ params }: Props) {
                   </p>
                 </div>
               </div>
-              <pre className="overflow-x-auto rounded-2xl bg-[color:rgba(40,138,145,0.06)] p-4 font-mono text-xs leading-6 text-foreground">
+              <pre className="overflow-x-auto rounded-lg bg-muted p-4 font-mono text-xs leading-6 text-foreground">
                 {prettyJson(proposal.metadata)}
               </pre>
             </CardContent>

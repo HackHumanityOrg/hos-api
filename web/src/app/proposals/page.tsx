@@ -58,7 +58,7 @@ export default async function ProposalsPage({ searchParams }: Props) {
         description="The proposal surface exposes canonical lifecycle milestones, nullable snapshots, current tallies, and direct entry points into the proposal-specific timeline and vote state."
       />
 
-      <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+      <Card>
         <CardHeader>
           <CardTitle>Filters</CardTitle>
           <CardDescription>
@@ -66,8 +66,8 @@ export default async function ProposalsPage({ searchParams }: Props) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-3 md:grid-cols-[1fr_200px_auto]">
-            <label className="space-y-2">
+          <form className="grid items-end gap-3 md:grid-cols-[1fr_200px_auto]">
+            <label className="grid gap-2">
               <span className="text-sm font-medium text-foreground">Search</span>
               <Input
                 name="q"
@@ -75,12 +75,12 @@ export default async function ProposalsPage({ searchParams }: Props) {
                 placeholder="Title, description, link, proposer"
               />
             </label>
-            <label className="space-y-2">
+            <label className="grid gap-2">
               <span className="text-sm font-medium text-foreground">Status</span>
               <select
                 name="status"
                 defaultValue={status ?? ""}
-                className="h-8 rounded-lg border border-input bg-white/90 px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="block h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 <option value="">All statuses</option>
                 {proposalStatuses.map((item) => (
@@ -90,7 +90,7 @@ export default async function ProposalsPage({ searchParams }: Props) {
                 ))}
               </select>
             </label>
-            <div className="flex items-end gap-2">
+            <div className="flex flex-wrap gap-2 md:self-end">
               <Button type="submit">
                 <Search className="size-4" />
                 Apply
@@ -112,7 +112,7 @@ export default async function ProposalsPage({ searchParams }: Props) {
           description="Clear the current filters or move back to the first cursor window."
         />
       ) : (
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle>Proposal summaries</CardTitle>
             <CardDescription>
@@ -120,7 +120,7 @@ export default async function ProposalsPage({ searchParams }: Props) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
                   <TableHead>Proposal</TableHead>
@@ -133,10 +133,10 @@ export default async function ProposalsPage({ searchParams }: Props) {
               <TableBody>
                 {proposals.data.map((proposal) => (
                   <TableRow key={proposal.proposal_id}>
-                    <TableCell className="min-w-0">
+                    <TableCell className="min-w-0 w-[42%]">
                       <Link
                         href={`/proposals/${proposal.proposal_id}`}
-                        className="block min-w-0 space-y-1"
+                        className="block min-w-0 max-w-full space-y-1"
                       >
                         <div className="truncate font-medium text-foreground">
                           {proposal.title ?? `Proposal #${proposal.proposal_id}`}

@@ -17,22 +17,21 @@ export function MetricCard({
   href?: string;
 }) {
   return (
-    <Card className="border-white/60 bg-white/80 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+    <Card>
       <CardHeader className="gap-2">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
           {label}
         </p>
         <CardTitle className="text-3xl tracking-[-0.04em]">{value}</CardTitle>
       </CardHeader>
-      <CardContent className="flex items-end justify-between gap-4">
-        <p className="text-sm leading-6 text-muted-foreground">{supporting}</p>
+      <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <p className="min-w-0 text-sm leading-6 text-muted-foreground break-words">
+          {supporting}
+        </p>
         {href ? (
           <Link
             href={href}
-            className={cn(
-              buttonVariants({ variant: "outline", size: "sm" }),
-              "shrink-0 border-foreground/10 bg-white/70",
-            )}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
           >
             Open
             <ArrowUpRight className="size-4" />

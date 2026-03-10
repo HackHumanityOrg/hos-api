@@ -59,7 +59,7 @@ export default async function AccountsPage({ searchParams }: Props) {
         description="Accounts unify voting power, delegation posture, lockup presence, participation counts, and latest governance activity. Detail pages then branch into the domain-specific histories."
       />
 
-      <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+      <Card>
         <CardHeader>
           <CardTitle>Filters</CardTitle>
           <CardDescription>
@@ -67,8 +67,8 @@ export default async function AccountsPage({ searchParams }: Props) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-3 md:grid-cols-[1fr_220px_auto]">
-            <label className="space-y-2">
+          <form className="grid items-end gap-3 md:grid-cols-[1fr_220px_auto]">
+            <label className="grid gap-2">
               <span className="text-sm font-medium text-foreground">Search</span>
               <Input
                 name="q"
@@ -76,12 +76,12 @@ export default async function AccountsPage({ searchParams }: Props) {
                 placeholder="account.near"
               />
             </label>
-            <label className="space-y-2">
+            <label className="grid gap-2">
               <span className="text-sm font-medium text-foreground">Role</span>
               <select
                 name="role"
                 defaultValue={role ?? ""}
-                className="h-8 rounded-lg border border-input bg-white/90 px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="block h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 <option value="">All roles</option>
                 {roles.map((item) => (
@@ -91,7 +91,7 @@ export default async function AccountsPage({ searchParams }: Props) {
                 ))}
               </select>
             </label>
-            <div className="flex items-end gap-2">
+            <div className="flex flex-wrap gap-2 md:self-end">
               <Button type="submit">
                 <Search className="size-4" />
                 Apply
@@ -113,7 +113,7 @@ export default async function AccountsPage({ searchParams }: Props) {
           description="Clear the current filters or move back to the first cursor window."
         />
       ) : (
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle>Account summaries</CardTitle>
             <CardDescription>

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export default function NotFound() {
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
-      <Card className="w-full max-w-xl border-white/60 bg-white/82 text-center shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+      <Card className="w-full max-w-xl text-center">
         <CardHeader>
           <CardTitle className="text-3xl tracking-[-0.04em]">
             The requested veNEAR resource was not found.

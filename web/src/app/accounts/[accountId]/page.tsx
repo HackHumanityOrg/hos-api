@@ -144,7 +144,7 @@ export default async function AccountDetailPage({ params }: Props) {
       </div>
 
       <section className="grid gap-4 lg:grid-cols-4">
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle className="text-lg">Effective power</CardTitle>
           </CardHeader>
@@ -159,7 +159,7 @@ export default async function AccountDetailPage({ params }: Props) {
           </CardContent>
         </Card>
 
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle className="text-lg">Delegation posture</CardTitle>
           </CardHeader>
@@ -173,7 +173,7 @@ export default async function AccountDetailPage({ params }: Props) {
           </CardContent>
         </Card>
 
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle className="text-lg">Current lockup</CardTitle>
           </CardHeader>
@@ -199,7 +199,7 @@ export default async function AccountDetailPage({ params }: Props) {
           </CardContent>
         </Card>
 
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle className="text-lg">Participation</CardTitle>
           </CardHeader>
@@ -218,7 +218,7 @@ export default async function AccountDetailPage({ params }: Props) {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle className="text-xl tracking-[-0.04em]">
               Governance state
@@ -228,13 +228,13 @@ export default async function AccountDetailPage({ params }: Props) {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
-            <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4">
+            <div className="rounded-lg border bg-muted/30 p-4">
               <p className="text-muted-foreground">Latest activity</p>
               <p className="mt-1 text-foreground">
                 {formatTimestamp(account.latest_activity_at)}
               </p>
             </div>
-            <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4">
+            <div className="rounded-lg border bg-muted/30 p-4">
               <p className="text-muted-foreground">Latest refs</p>
               <p className="mt-1 font-mono text-xs text-foreground">
                 {account.latest_refs
@@ -243,7 +243,7 @@ export default async function AccountDetailPage({ params }: Props) {
               </p>
             </div>
             {account.governance_state ? (
-              <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4">
+              <div className="rounded-lg border bg-muted/30 p-4">
                 <p className="text-muted-foreground">Governance counters</p>
                 <p className="mt-1 text-foreground">
                   {account.governance_state.proposals_created_count} created •{" "}
@@ -255,7 +255,7 @@ export default async function AccountDetailPage({ params }: Props) {
           </CardContent>
         </Card>
 
-        <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+        <Card>
           <CardHeader>
             <CardTitle className="text-xl tracking-[-0.04em]">
               Current edges
@@ -264,26 +264,28 @@ export default async function AccountDetailPage({ params }: Props) {
               Direct links that describe how this account participates right now.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4">
+          <CardContent className="grid gap-4 md:grid-cols-2 [&>*]:min-w-0">
+            <div className="min-w-0 rounded-lg border bg-muted/30 p-4">
               <p className="text-sm text-muted-foreground">Outbound delegation</p>
               {account.delegation.delegated_to_account_id ? (
                 <div className="mt-2">
                   <AccountLink accountId={account.delegation.delegated_to_account_id} />
                 </div>
               ) : (
-                <p className="mt-2 text-sm text-foreground">No active outbound delegation.</p>
+                <p className="mt-2 text-sm text-foreground break-words">
+                  No active outbound delegation.
+                </p>
               )}
             </div>
-            <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4">
+            <div className="min-w-0 rounded-lg border bg-muted/30 p-4">
               <p className="text-sm text-muted-foreground">Inbound delegation</p>
               <p className="mt-2 text-sm text-foreground">
                 {account.delegation.inbound_delegator_count} active delegators
               </p>
             </div>
-            <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4 md:col-span-2">
+            <div className="min-w-0 rounded-lg border bg-muted/30 p-4 md:col-span-2">
               <p className="text-sm text-muted-foreground">Current lockup</p>
-              <p className="mt-2 text-sm text-foreground">
+              <p className="mt-2 text-sm text-foreground break-all">
                 {account.lockup
                   ? `${account.lockup.lockup_account_id} • ${formatTokenAmount(account.lockup.locked_near_balance)}`
                   : "No current lockup"}
@@ -331,9 +333,9 @@ export default async function AccountDetailPage({ params }: Props) {
               description="This account does not currently appear on proposal summaries in the first account-scoped cursor window."
             />
           ) : (
-            <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+            <Card>
               <CardContent className="pt-6">
-                <Table>
+                <Table className="min-w-[44rem] sm:min-w-0 sm:table-fixed">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Proposal</TableHead>
@@ -383,7 +385,7 @@ export default async function AccountDetailPage({ params }: Props) {
                 description="This account currently has no effective votes."
               />
             ) : (
-              <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+              <Card>
                 <CardHeader>
                   <CardTitle>Current votes</CardTitle>
                   <CardDescription>
@@ -406,7 +408,7 @@ export default async function AccountDetailPage({ params }: Props) {
                           <TableCell>
                             <Link
                               href={`/proposals/${vote.proposal_id}`}
-                              className="font-medium text-foreground hover:text-[color:var(--color-primary)]"
+                              className="font-medium text-foreground hover:text-primary"
                             >
                               {vote.proposal_title ?? `Proposal #${vote.proposal_id}`}
                             </Link>
@@ -423,7 +425,7 @@ export default async function AccountDetailPage({ params }: Props) {
             )}
 
             {voteHistory.data.length > 0 ? (
-              <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+              <Card>
                 <CardHeader>
                   <CardTitle>Vote history</CardTitle>
                   <CardDescription>
@@ -446,7 +448,7 @@ export default async function AccountDetailPage({ params }: Props) {
                           <TableCell>
                             <Link
                               href={`/proposals/${event.proposal_id}`}
-                              className="font-medium text-foreground hover:text-[color:var(--color-primary)]"
+                              className="font-medium text-foreground hover:text-primary"
                             >
                               Proposal #{event.proposal_id}
                             </Link>
@@ -476,7 +478,7 @@ export default async function AccountDetailPage({ params }: Props) {
               description="Derived mutations would appear here when the canonical ledger changes."
             />
           ) : (
-            <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+            <Card>
               <CardHeader>
                 <CardTitle>Voting power curve</CardTitle>
                 <CardDescription>
@@ -497,7 +499,7 @@ export default async function AccountDetailPage({ params }: Props) {
               description="This account exists, but there are no delegation events in the current account-scoped cursor window."
             />
           ) : (
-            <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+            <Card>
               <CardContent className="pt-6">
                 <Table>
                   <TableHeader>
@@ -537,7 +539,7 @@ export default async function AccountDetailPage({ params }: Props) {
               description="This account exists, but there are no lockup lifecycle events in the current account-scoped cursor window."
             />
           ) : (
-            <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+            <Card>
               <CardContent className="pt-6">
                 <Table>
                   <TableHeader>
@@ -557,7 +559,7 @@ export default async function AccountDetailPage({ params }: Props) {
                         <TableCell className="min-w-0">
                           <details className="text-xs text-muted-foreground">
                             <summary className="cursor-pointer">Inspect</summary>
-                            <pre className="mt-2 overflow-x-auto rounded-xl bg-[color:rgba(40,138,145,0.06)] p-3 font-mono text-[11px] leading-5">
+                            <pre className="mt-2 overflow-x-auto rounded-xl bg-muted p-3 font-mono text-[11px] leading-5">
                               {prettyJson(event.payload)}
                             </pre>
                           </details>
@@ -578,7 +580,7 @@ export default async function AccountDetailPage({ params }: Props) {
               description="Reward and claim activity would appear here when present."
             />
           ) : (
-            <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+            <Card>
               <CardContent className="pt-6">
                 <Table>
                   <TableHeader>
@@ -598,7 +600,7 @@ export default async function AccountDetailPage({ params }: Props) {
                         <TableCell>
                           <details className="text-xs text-muted-foreground">
                             <summary className="cursor-pointer">Inspect</summary>
-                            <pre className="mt-2 overflow-x-auto rounded-xl bg-[color:rgba(40,138,145,0.06)] p-3 font-mono text-[11px] leading-5">
+                            <pre className="mt-2 overflow-x-auto rounded-xl bg-muted p-3 font-mono text-[11px] leading-5">
                               {prettyJson(event.payload)}
                             </pre>
                           </details>

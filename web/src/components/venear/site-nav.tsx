@@ -10,6 +10,7 @@ const items = [
   { href: "/proposals", label: "Proposals" },
   { href: "/accounts", label: "Accounts" },
   { href: "/activity", label: "Activity" },
+  { href: "/admin", label: "Admin" },
 ];
 
 export function SiteNav() {
@@ -18,7 +19,7 @@ export function SiteNav() {
   return (
     <nav
       aria-label="Primary"
-      className="flex flex-wrap items-center gap-2 rounded-full border border-white/50 bg-white/70 p-1 shadow-[0_10px_30px_rgba(22,36,55,0.06)] backdrop-blur-sm"
+      className="flex flex-wrap items-center gap-2 rounded-lg border bg-background p-1"
     >
       {items.map((item) => {
         const active = pathname === item.href;
@@ -28,10 +29,10 @@ export function SiteNav() {
             key={item.href}
             href={item.href}
             className={cn(
-              "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
               active
-                ? "bg-[color:var(--color-primary)] text-primary-foreground"
-                : "text-muted-foreground hover:bg-white hover:text-foreground",
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
             {item.label}

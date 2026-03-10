@@ -14,9 +14,9 @@ export default function ErrorPage({
 }) {
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
-      <Card className="w-full max-w-xl border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+      <Card className="w-full max-w-xl">
         <CardHeader className="space-y-3">
-          <div className="flex size-12 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
+          <div className="flex size-12 items-center justify-center rounded-lg border bg-destructive/10 text-destructive">
             <AlertTriangle className="size-5" />
           </div>
           <CardTitle className="text-3xl tracking-[-0.04em]">

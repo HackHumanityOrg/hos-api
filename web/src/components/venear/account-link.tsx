@@ -18,7 +18,7 @@ export function AccountLink({
   return (
     <Link
       href={href}
-      className="inline-flex items-center gap-2 text-sm font-medium text-foreground transition-colors hover:text-[color:var(--color-primary)]"
+      className="inline-flex items-center gap-2 text-sm font-medium text-foreground transition-colors hover:text-primary"
     >
       <Avatar size={compact ? "sm" : "default"}>
         <AvatarFallback>{accountInitials(accountId)}</AvatarFallback>

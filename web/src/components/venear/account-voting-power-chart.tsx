@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Activity, ArrowUpRight, TrendingUp } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
@@ -9,7 +10,19 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { formatTokenAmount, humanizeSnakeCase } from "@/lib/format";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  formatTimestamp,
+  formatTokenAmount,
+  humanizeSnakeCase,
+} from "@/lib/format";
 import type {
   VenearAccountVotingPowerEventDto,
   VenearTokenAmountDto,
@@ -41,6 +54,9 @@ const compactNumberFormatter = new Intl.NumberFormat("en-US", {
 });
 
 type VotingPowerPoint = {
+  id: string;
+  proposal_id: number | null;
+  block_timestamp: string;
   timestamp_label: string;
   full_timestamp: string;
   effective_voting_power: number;
@@ -68,6 +84,9 @@ function toPoints(
       const timestamp = new Date(event.refs.block_timestamp);
 
       return {
+        id: `${event.refs.receipt_id}:${event.event_type}:${event.reason}`,
+        proposal_id: event.proposal_id,
+        block_timestamp: event.refs.block_timestamp,
         timestamp_label: axisDateFormatter.format(timestamp),
         full_timestamp: tooltipDateFormatter.format(timestamp),
         effective_voting_power: toChartNumber(
@@ -91,14 +110,14 @@ export function AccountVotingPowerChart({
   const points = toPoints(events);
   const latestPoint = points.at(-1);
   const earliestPoint = points[0];
-  const recentPoints = points.slice(-4).reverse();
+  const tablePoints = [...points].reverse();
 
   return (
     <div className="space-y-6">
       <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4">
+        <div className="rounded-lg border bg-muted/30 p-4">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-            <TrendingUp className="size-4 text-[color:var(--color-primary)]" />
+            <TrendingUp className="size-4 text-primary" />
             Current effective power
           </div>
           <p className="text-2xl font-semibold tracking-[-0.04em] text-foreground">
@@ -108,9 +127,9 @@ export function AccountVotingPowerChart({
             Latest mutation in the current chart window.
           </p>
         </div>
-        <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4">
+        <div className="rounded-lg border bg-muted/30 p-4">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-            <Activity className="size-4 text-[color:var(--color-primary)]" />
+            <Activity className="size-4 text-primary" />
             Mutations plotted
           </div>
           <p className="text-2xl font-semibold tracking-[-0.04em] text-foreground">
@@ -120,9 +139,9 @@ export function AccountVotingPowerChart({
             The chart uses the latest voting-power mutation events returned by the API.
           </p>
         </div>
-        <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4">
+        <div className="rounded-lg border bg-muted/30 p-4">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-            <ArrowUpRight className="size-4 text-[color:var(--color-primary)]" />
+            <ArrowUpRight className="size-4 text-primary" />
             Span covered
           </div>
           <p className="text-lg font-semibold text-foreground">
@@ -137,7 +156,7 @@ export function AccountVotingPowerChart({
 
       <ChartContainer
         config={chartConfig}
-        className="h-[320px] w-full rounded-3xl border border-foreground/8 bg-[color:rgba(40,138,145,0.04)] p-4"
+        className="h-[320px] w-full rounded-lg border bg-muted/20 p-4"
       >
         <AreaChart
           accessibilityLayer
@@ -215,27 +234,48 @@ export function AccountVotingPowerChart({
         </AreaChart>
       </ChartContainer>
 
-      <div className="grid gap-3 xl:grid-cols-4">
-        {recentPoints.map((point) => (
-          <div
-            key={`${point.full_timestamp}:${point.reason_label}:${point.event_type_label}`}
-            className="rounded-2xl border border-foreground/8 bg-white/72 p-4"
-          >
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              {point.timestamp_label}
-            </p>
-            <p className="mt-2 text-sm font-medium text-foreground">
-              {point.reason_label}
-            </p>
-            <p className="text-sm text-muted-foreground">{point.event_type_label}</p>
-            <p className="mt-3 text-sm text-foreground">
-              After {point.effective_voting_power_label}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Delta {point.delta_label}
-            </p>
-          </div>
-        ))}
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-sm font-medium text-foreground">All mutations</h3>
+          <p className="text-sm text-muted-foreground">
+            Full voting-power event history for the current account window, newest first.
+          </p>
+        </div>
+        <Table className="min-w-[56rem]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>When</TableHead>
+              <TableHead>Reason</TableHead>
+              <TableHead>Event</TableHead>
+              <TableHead>Proposal</TableHead>
+              <TableHead>Delta</TableHead>
+              <TableHead>Effective after</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {tablePoints.map((point) => (
+              <TableRow key={point.id}>
+                <TableCell>{formatTimestamp(point.block_timestamp)}</TableCell>
+                <TableCell>{point.reason_label}</TableCell>
+                <TableCell>{point.event_type_label}</TableCell>
+                <TableCell>
+                  {point.proposal_id !== null ? (
+                    <Link
+                      href={`/proposals/${point.proposal_id}`}
+                      className="font-medium text-foreground hover:text-primary"
+                    >
+                      Proposal #{point.proposal_id}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}
+                </TableCell>
+                <TableCell>{point.delta_label}</TableCell>
+                <TableCell>{point.effective_voting_power_label}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
     </div>
   );

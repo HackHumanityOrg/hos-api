@@ -263,6 +263,15 @@ export interface VenearConfigSnapshotDto {
   extra_fields: JsonValue;
 }
 
+export interface VenearConfigHistoryEntryDto {
+  contract_id: string;
+  field: string;
+  method_name: string;
+  actor_account_id: string;
+  value: JsonValue;
+  refs: VenearChainRefDto;
+}
+
 export interface VenearAdminActionDto {
   contract_id: string;
   event_type: string;
@@ -493,6 +502,12 @@ export async function listLockups(
 
 export async function listConfig(): Promise<{ data: VenearConfigSnapshotDto[] }> {
   return fetchJson("config");
+}
+
+export async function listConfigHistory(
+  query?: Record<string, QueryValue>,
+): Promise<VenearPaginatedResponse<VenearConfigHistoryEntryDto>> {
+  return fetchJson("config/history", query);
 }
 
 export async function listAdminActions(

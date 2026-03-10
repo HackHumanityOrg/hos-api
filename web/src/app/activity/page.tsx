@@ -49,7 +49,7 @@ export default async function ActivityPage({ searchParams }: Props) {
         description="The activity feed exposes the cross-domain union payload directly. Filter it by kind, account, or proposal to pivot between governance moments."
       />
 
-      <Card className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]">
+      <Card>
         <CardHeader>
           <CardTitle>Filters</CardTitle>
           <CardDescription>
@@ -57,13 +57,13 @@ export default async function ActivityPage({ searchParams }: Props) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-3 md:grid-cols-[180px_1fr_180px_auto]">
-            <label className="space-y-2">
+          <form className="grid items-end gap-3 md:grid-cols-[180px_1fr_180px_auto]">
+            <label className="grid gap-2">
               <span className="text-sm font-medium text-foreground">Kind</span>
               <select
                 name="kind"
                 defaultValue={kind ?? ""}
-                className="h-8 rounded-lg border border-input bg-white/90 px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="block h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 <option value="">All kinds</option>
                 {kinds.map((item) => (
@@ -73,7 +73,7 @@ export default async function ActivityPage({ searchParams }: Props) {
                 ))}
               </select>
             </label>
-            <label className="space-y-2">
+            <label className="grid gap-2">
               <span className="text-sm font-medium text-foreground">Account</span>
               <Input
                 name="account_id"
@@ -81,7 +81,7 @@ export default async function ActivityPage({ searchParams }: Props) {
                 placeholder="actor or subject account"
               />
             </label>
-            <label className="space-y-2">
+            <label className="grid gap-2">
               <span className="text-sm font-medium text-foreground">Proposal</span>
               <Input
                 name="proposal_id"
@@ -89,7 +89,7 @@ export default async function ActivityPage({ searchParams }: Props) {
                 placeholder="proposal id"
               />
             </label>
-            <div className="flex items-end gap-2">
+            <div className="flex flex-wrap gap-2 md:self-end">
               <Button type="submit">
                 <Search className="size-4" />
                 Apply
@@ -115,7 +115,6 @@ export default async function ActivityPage({ searchParams }: Props) {
           {activity.data.map((item) => (
             <Card
               key={`${item.refs.receipt_id}:${item.kind}:${item.event_type}`}
-              className="border-white/60 bg-white/82 shadow-[0_20px_60px_rgba(22,36,55,0.08)]"
             >
               <CardContent className="grid gap-4 p-5 lg:grid-cols-[1fr_280px]">
                 <div className="space-y-4">
@@ -131,7 +130,7 @@ export default async function ActivityPage({ searchParams }: Props) {
                     />
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
-                    <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4">
+                    <div className="rounded-lg border bg-muted/30 p-4">
                       <p className="text-sm text-muted-foreground">Actor</p>
                       <div className="mt-2">
                         {item.actor_account_id ? (
@@ -141,7 +140,7 @@ export default async function ActivityPage({ searchParams }: Props) {
                         )}
                       </div>
                     </div>
-                    <div className="rounded-2xl border border-foreground/8 bg-white/72 p-4">
+                    <div className="rounded-lg border bg-muted/30 p-4">
                       <p className="text-sm text-muted-foreground">Subject</p>
                       <div className="mt-2">
                         {item.subject_account_id ? (
@@ -149,7 +148,7 @@ export default async function ActivityPage({ searchParams }: Props) {
                         ) : item.proposal_id !== null ? (
                           <Link
                             href={`/proposals/${item.proposal_id}`}
-                            className="text-sm font-medium text-foreground hover:text-[color:var(--color-primary)]"
+                            className="text-sm font-medium text-foreground hover:text-primary"
                           >
                             Proposal #{item.proposal_id}
                           </Link>
@@ -159,7 +158,7 @@ export default async function ActivityPage({ searchParams }: Props) {
                       </div>
                     </div>
                   </div>
-                  <details className="rounded-2xl border border-foreground/8 bg-[color:rgba(40,138,145,0.06)] p-4">
+                  <details className="rounded-lg border bg-muted/30 p-4">
                     <summary className="cursor-pointer text-sm font-medium text-foreground">
                       Inspect payload
                     </summary>
@@ -168,7 +167,7 @@ export default async function ActivityPage({ searchParams }: Props) {
                     </pre>
                   </details>
                 </div>
-                <div className="space-y-3 rounded-3xl border border-foreground/8 bg-[color:rgba(255,255,255,0.68)] p-5">
+                <div className="space-y-3 rounded-lg border bg-muted/20 p-5">
                   <div>
                     <p className="text-sm text-muted-foreground">Timestamp</p>
                     <p className="mt-1 text-sm text-foreground">
@@ -177,13 +176,13 @@ export default async function ActivityPage({ searchParams }: Props) {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Contract</p>
-                    <p className="mt-1 text-sm text-foreground">
+                    <p className="mt-1 break-all text-sm text-foreground">
                       {item.refs.contract_id}
                     </p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Receipt</p>
-                    <p className="mt-1 font-mono text-xs text-foreground">
+                    <p className="mt-1 break-all font-mono text-xs text-foreground">
                       {item.refs.receipt_id}
                     </p>
                   </div>
