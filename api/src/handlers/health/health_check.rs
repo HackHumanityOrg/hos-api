@@ -15,8 +15,7 @@ use tracing::{info, instrument};
     description = "Performs service liveness checks and an optional database probe (`SELECT 1`). Returns `healthy` when the database probe succeeds and `degraded` when the database is unavailable or fails.",
     tag = "health",
     responses(
-        (status = 200, description = "Current API health report", body = HealthResponse),
-        (status = 500, description = "Health check failed", body = crate::errors::ApiError)
+        (status = 200, description = "Current API health report", body = HealthResponse)
     )
 )]
 #[instrument(skip(app_state))]

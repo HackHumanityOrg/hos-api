@@ -16,6 +16,7 @@ pub(crate) struct ParsedEventLog {
     pub log_index: i64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct CanonicalAction {
     pub id: String,
@@ -127,6 +128,7 @@ pub(crate) fn decode_row_col<T: sea_orm::TryGetable>(
     })
 }
 
+#[allow(dead_code)]
 pub(crate) async fn scalar_i64_with_values(
     db: &DatabaseConnection,
     sql: &str,

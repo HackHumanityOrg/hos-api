@@ -6,6 +6,17 @@ This guide covers database schema management using SeaORM migrations in the HOS 
 
 The project uses SeaORM's migration system to manage database schema changes in a version-controlled, team-friendly way. All migrations are stored in the `migration/` crate and can be run using convenient cargo aliases.
 
+DB-backed migration commands plus entity/backfill helpers require
+`DATABASE_URL` in the process environment. `cargo migrate-generate` only creates
+files and does not require a live database connection. The checked-in `.envrc`
+runs `doppler secrets download` before sourcing `.env.local`, so the repo-local
+`direnv allow` workflow requires the Doppler CLI:
+
+```bash
+cp .env.example .env.local
+direnv allow
+```
+
 ### Migration Philosophy
 
 - Define schema migrations in Rust code using `SchemaManager` + SeaQuery builders.
@@ -260,27 +271,30 @@ This command introspects PostgreSQL schemas and updates:
 - `shared/entities/src/telegram`
 - `shared/entities/src/identity`
 
-The generator reads `DATABASE_URL` and runs `sea-orm-cli generate entity` under the hood.
+The generator reads `DATABASE_URL` and runs `sea-orm-cli generate entity`
+under the hood. If your connection string includes
+`sslrootcert=system`, the wrapper rewrites it to `sslmode=require` before
+invoking `sea-orm-cli`.
 
 ### Using Entities in Code
 
 ```rust
-use entities::{users, prelude::*};
-use sea_orm::*;
+use entities::{
+    identity::{person_accounts, persons},
+    identity::prelude::Persons,
+};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
-// Find by ID
-let user: Option<users::Model> = Users::find_by_id(1)
+// Find one person by primary key.
+let person: Option<persons::Model> = Persons::find_by_id(1)
     .one(db)
     .await?;
 
-// Create new user
-let new_user = users::ActiveModel {
-    email: Set("john@example.com".to_owned()),
-    name: Set("John Doe".to_owned()),
-    ..Default::default()
-};
-
-let user: users::Model = new_user.insert(db).await?;
+// Load linked platform accounts for that person.
+let linked_accounts: Vec<person_accounts::Model> = person_accounts::Entity::find()
+    .filter(person_accounts::Column::PersonId.eq(1))
+    .all(db)
+    .await?;
 ```
 
 ## Migration Best Practices
@@ -397,28 +411,33 @@ cargo generate-entities
 
 ### Database Connection
 
-Migration commands use the same database configuration as your application:
+DB-backed migration commands and the helper binaries in `migration/src/bin/`
+read the database URL from the environment, not from service `config.toml`
+files:
 
 ```bash
-# Set in .env
-DATABASE_URL=postgresql://user:pass@host:5432/database?sslmode=require
-
-# Or in config.toml
-[database]
-max_connections = 10
-connection_timeout = 30
+# Export directly
+export DATABASE_URL=postgresql://user:pass@host:5432/database?sslmode=require
 ```
 
-If you use Doppler + direnv, ensure env is loaded first:
+If you use the checked-in `direnv` workflow, keep the value in `.env.local`
+and ensure the env is loaded first. That path requires the Doppler CLI because
+`.envrc` invokes it before reading `.env.local`:
 
 ```bash
+cp .env.example .env.local
 direnv allow
 ```
+
+The migration CLI, `cargo generate-entities`, and
+`cargo backfill-identity-accounts` also normalize
+`sslrootcert=system` connection strings to `sslmode=require`, which keeps
+PlanetScale-style URLs usable across these binaries.
 
 ### Custom Migration Path
 
 ```bash
-# Run migrations from custom directory
+# Run SeaORM directly from a custom directory when you are not using this repo's cargo aliases
 sea-orm-cli migrate up -d ./custom/migration/path
 ```
 

@@ -270,7 +270,6 @@ Current HoS materialized views:
 - `near.hos_function_calls`
 - `near.hos_event_logs`
 - `near.hos_proposal_voting_history`
-- `near.hos_approved_proposals`
 - `near.hos_delegation_events`
 - `near.hos_user_activities`
 - `near.hos_proposals`
@@ -285,6 +284,10 @@ High-level dependency shape:
 - `hos_event_logs` comes from HoS execution outcome logs
 - proposal, voting, delegation, config, and voter views are built on top of
   those canonical action/outcome/log relations
+
+The older helper view `near.hos_approved_proposals` was dropped in
+`m20260311_000023_drop_hos_approved_proposals.rs`; approved-state logic now
+lives in the remaining HoS views directly.
 
 The refresh entrypoint is:
 

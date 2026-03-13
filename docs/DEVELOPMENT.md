@@ -6,11 +6,13 @@ This guide covers development workflows, best practices, and common tasks for th
 
 ### Prerequisites
 
-- **Rust 1.89+** with Cargo
+- **Rust stable** with Cargo
+  The repo currently builds with Rust 1.86 locally, and the Dockerfiles use Rust 1.88.
 - **Node.js 20+** with `pnpm`
-- **PostgreSQL/PlanetScale Postgres** database access
+- **PostgreSQL-compatible** database access
 - **Git** for version control
-- **direnv + Doppler CLI** for environment loading
+- Optional: **direnv** for automatic env loading
+- **Doppler CLI** if you want to use the checked-in `.envrc` workflow
 
 ### Initial Setup
 
@@ -28,10 +30,21 @@ This guide covers development workflows, best practices, and common tasks for th
 
 3. **Configure environment**
    ```bash
-   cp .env.example .env
-   # Edit .env if needed, then load Doppler-managed environment
+   cp .env.example .env.local
+   # Edit .env.local, then load it through direnv
    direnv allow
    ```
+
+   The checked-in `.envrc` runs `doppler secrets download` before sourcing
+   `.env.local`, so `direnv allow` requires the Doppler CLI. If you are not
+   using Doppler, skip `direnv allow` and export `DATABASE_URL` manually in
+   your shell.
+
+   DB-backed commands such as `cargo migrate-up`, `cargo migrate-down`,
+   `cargo migrate-status`, `cargo migrate-reset`, `cargo migrate-fresh`,
+   `cargo generate-entities`, and `cargo backfill-identity-accounts` require
+   `DATABASE_URL` in the real shell environment. `cargo migrate-generate` does
+   not.
 
 4. **Initialize database**
    ```bash
@@ -71,7 +84,7 @@ cargo run-indexer-3          # Test Telegram indexer changes
 
 # Run the Next.js veNEAR explorer
 cd web
-cp .env.example .env.local   # Optional if you are not using the default local API URL
+cp .env.example .env.local   # Optional if you need to override the default local API URL
 pnpm install
 pnpm dev
 
@@ -93,9 +106,14 @@ hos-api/
 ├── api/                     # REST API server
 │   ├── src/
 │   │   ├── main.rs         # Application entry point
-│   │   ├── handlers/       # HTTP request handlers
-│   │   │   └── health.rs   # Health check endpoints
-│   │   └── lib.rs          # Library exports
+│   │   ├── lib.rs          # Library exports used by tests
+│   │   ├── docs.rs         # OpenAPI registration
+│   │   ├── state.rs        # AppState with optional DB handle
+│   │   ├── types.rs        # Shared DTOs and query structs
+│   │   ├── handlers/       # Domain handlers
+│   │   └── routes/         # Route wiring per domain
+│   ├── config.toml         # API defaults overridden by env
+│   ├── tests/              # Unit/e2e coverage plus support helpers
 │   └── Cargo.toml
 ├── indexers/               # Data processing services
 │   ├── discourse-indexer/  # Discourse data processor
@@ -114,20 +132,25 @@ hos-api/
 │   │   │   └── lib.rs
 │   │   └── Cargo.toml
 │   └── entities/           # SeaORM generated entities
-│       ├── src/
-│       │   ├── mod.rs      # Entity exports
-│       │   └── prelude.rs  # Common imports
+│       ├── src/discourse/  # Discourse schema entities
+│       ├── src/identity/   # Identity schema entities
+│       ├── src/near/       # NEAR schema entities
+│       ├── src/telegram/   # Telegram schema entities
+│       ├── src/lib.rs      # Entity exports
+│       ├── src/prelude.rs  # Cross-schema re-exports
 │       └── Cargo.toml
 ├── migration/              # Database migrations
 │   ├── src/
 │   │   ├── lib.rs          # Migrator definition
 │   │   ├── main.rs         # CLI entry point
+│   │   ├── bin/            # Helper binaries (entity generation, backfills)
 │   │   └── m*.rs           # Individual migrations
 │   └── Cargo.toml
 ├── web/                    # Next.js veNEAR explorer
 │   ├── src/app/            # App Router pages and layouts
 │   ├── src/components/     # shadcn/ui and veNEAR-specific UI pieces
 │   └── package.json        # Frontend scripts and dependencies
+├── docs/                   # Architecture, API, and workflow guides
 └── .cargo/
     └── config.toml         # Cargo aliases
 ```
@@ -137,9 +160,9 @@ hos-api/
 ```
 ┌─────────────────────────────────────┐
 │           Applications              │
-│  ┌─────┐ ┌───────────┐ ┌─────────┐  │
-│  │ API │ │ Indexer-1 │ │ Others  │  │
-│  └─────┘ └───────────┘ └─────────┘  │
+│  ┌─────┐ ┌───────────┐ ┌───────┐ ┌──────────┐ │
+│  │ API │ │ discourse │ │ near  │ │ telegram │ │
+│  └─────┘ └───────────┘ └───────┘ └──────────┘ │
 └─────────────────┬───────────────────┘
                   │
 ┌─────────────────▼───────────────────┐
@@ -169,7 +192,7 @@ pub enum DatabaseError {
 use anyhow::{Context, Result};
 
 async fn main() -> Result<()> {
-    let config = AppConfig::load()
+    let config = AppConfig::load_api()
         .context("Failed to load configuration")?;
     Ok(())
 }
@@ -198,22 +221,24 @@ let results: Vec<_> = futures::future::join_all(handles).await;
 
 ```rust
 use common::config::AppConfig;
+use common::telemetry::{self, TelemetrySetup};
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // Load environment variables first
+fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
-    
-    // Load hierarchical configuration
-    let config = AppConfig::load()?;
-    
-    // Initialize tracing with configured level
-    common::utils::init_tracing(&config.logging.level)?;
-    
-    // Use configuration
-    let db = db_core::connection::from_config(&config.database).await?;
-    
-    Ok(())
+
+    let config = AppConfig::load_api()?;
+    let telemetry_setup =
+        TelemetrySetup::from_config("api", config.telemetry(), &config.logging().level)?;
+    let _telemetry_guard = telemetry::init_telemetry(telemetry_setup)?;
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    runtime.block_on(async move {
+        let _db = db_core::connection::from_config(config.database()).await?;
+        Ok(())
+    })
 }
 ```
 
@@ -223,32 +248,46 @@ async fn main() -> Result<()> {
 
 1. **Create handler function**
    ```rust
-   // api/src/handlers/users.rs
-   use axum::{extract::State, Json};
+   // api/src/handlers/discourse/mod.rs
+   use axum::{
+       extract::{Query, State},
+       Json,
+   };
    use utoipa::path;
    
    #[utoipa::path(
        get,
-       path = "/api/users",
+       path = "/api/v1/discourse/instances",
+       params(CursorPaginationQuery),
        responses(
-           (status = 200, description = "List users successfully", body = [User]),
-           (status = 500, description = "Internal server error")
+           (status = 200, description = "List indexed instances", body = InstancesListResponse),
+           (status = 400, description = "Invalid request", body = crate::errors::ApiError),
+           (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
        )
    )]
-   pub async fn list_users(
-       State(db): State<DatabaseConnection>,
-   ) -> Result<Json<Vec<User>>, AppError> {
-       let users = Users::find().all(&db).await?;
-       Ok(Json(users))
+   pub async fn list_instances(
+       State(app_state): State<AppState>,
+       Query(query): Query<CursorPaginationQuery>,
+   ) -> Result<Json<InstancesListResponse>, ApiErrorResponse> {
+       let db = require_db(&app_state)?;
+       let limit = resolve_limit(query.limit);
+       // Build a SeaORM query, fetch `limit + 1` rows, and derive `next_cursor`.
+       let _ = (db, limit);
+       Ok(Json(InstancesListResponse {
+           data: vec![],
+           next_cursor: None,
+           has_more: false,
+       }))
    }
    ```
 
 2. **Add to router**
    ```rust
-   // api/src/main.rs
-   let app = Router::new()
-       .route("/api/users", get(handlers::users::list_users))
-       .with_state(db);
+   // api/src/routes/discourse/mod.rs
+   pub fn discourse_routes() -> Router<AppState> {
+       Router::new()
+           .route("/discourse/instances", get(discourse::list_instances))
+   }
    ```
 
 3. **Update OpenAPI spec**
@@ -257,10 +296,10 @@ async fn main() -> Result<()> {
    #[openapi(
        paths(
            handlers::health::health_check,
-           handlers::users::list_users,  // Add new endpoint
+           handlers::discourse::list_instances,
        ),
        components(
-           schemas(HealthResponse, User)  // Add new schemas
+           schemas(HealthResponse, InstancesListResponse)
        )
    )]
    struct ApiDoc;
@@ -268,13 +307,22 @@ async fn main() -> Result<()> {
 
 ### Adding New Indexer
 
-See the detailed guide in the main README.md under "Adding New Indexers".
+1. Add the crate under `indexers/<new-indexer>/` and register it in the
+   workspace `Cargo.toml`.
+2. Reuse `shared/common` for config loading and `shared/db-core` for database
+   access instead of hand-rolling service setup.
+3. Add a `config.toml` plus any deployable artifacts the service needs
+   (`Dockerfile`, `railway.toml`, service README).
+4. If the indexer writes new schema, add migrations first and regenerate
+   entities before implementing ingestion logic.
+5. Update `README.md`, `docs/ARCHITECTURE.md`, and any service-specific docs in
+   the same change.
 
 ### Adding Database Changes
 
 1. **Create migration**
    ```bash
-   cargo migrate-generate add_user_preferences_table
+   cargo migrate-generate add_identity_accounts_flags
    ```
 
 2. **Implement migration**
@@ -293,7 +341,7 @@ See the detailed guide in the main README.md under "Adding New Indexers".
 
 4. **Update code to use new entities**
    ```rust
-   use entities::{user_preferences, prelude::*};
+   use entities::identity::{accounts, prelude::Accounts};
    ```
 
 ## Testing
@@ -306,23 +354,20 @@ Tests are organized to mirror the implementation structure for better maintainab
 
 ```
 api/tests/
-├── common/                 # Shared test utilities
-│   └── mod.rs             # TestDatabase, fixtures, tracing setup
-├── handlers/              # Handler tests (business logic)
-│   └── health/
-│       ├── mod.rs
-│       └── health_check.rs   # Handler-specific unit tests
-├── routes/                # Route tests (HTTP behavior)
-│   └── health/
-│       └── mod.rs            # HTTP methods, headers, performance
-└── integration.rs         # Main integration test entry point
+├── support/mod.rs         # Shared router and test database helpers
+├── unit/                  # Deterministic unit tests for handlers/types/routes
+├── e2e/                   # PostgreSQL-backed end-to-end tests
+├── openapi.rs             # OpenAPI contract wrappers
+├── routes.rs              # Route wiring wrappers
+├── agora_live_db.rs       # Agora compatibility wrappers
+└── venear_live_db.rs      # veNEAR canonical wrappers
 ```
 
 ### Test Categories
 
 - **Handler Tests**: Focus on business logic, database interactions, validation
 - **Route Tests**: Focus on HTTP behavior, status codes, headers, performance
-- **Integration Tests**: End-to-end testing through the full request lifecycle
+- **E2E Tests**: End-to-end requests against disposable PostgreSQL instances
 
 ### Running Tests
 
@@ -333,9 +378,11 @@ cargo test-all
 # API tests specifically
 cargo test -p api
 
-# Specific test modules
-cargo test -p api handlers::health
-cargo test -p api routes::health
+# Focus on health-related API coverage
+cargo test -p api health_
+
+# OpenAPI contract smoke test
+cargo test -p api openapi_spec_exposes_health_path_and_schemas
 
 # Individual packages
 cargo test -p discourse-indexer
@@ -384,49 +431,55 @@ Notes:
 #### Handler Tests (Business Logic)
 
 ```rust
-use rstest::*;
-use crate::common::{init_test_tracing, TestDatabase};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
+use tower::ServiceExt;
 
-#[fixture]
-async fn test_db() -> TestDatabase {
-    TestDatabase::new().await
-}
+#[path = "../support/mod.rs"]
+mod support;
 
-#[rstest]
 #[tokio::test]
-async fn test_health_handler_with_database(#[future] test_db: TestDatabase) {
-    init_test_tracing();
-    
-    let test_db = test_db.await;
-    let server = create_test_server_with_db(Some(test_db.db())).await;
+async fn health_route_is_wired_at_root() {
+    support::init_test_tracing();
 
-    let response = server.get("/health").await;
-    response.assert_status_ok();
+    let response = support::build_router_with_state(None)
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
 
-    let json: Value = response.json();
-    assert_eq!(json["status"], "healthy");
-    assert_eq!(json["database"]["connected"], true);
+    assert_eq!(response.status(), StatusCode::OK);
 }
 ```
 
-#### Route Tests (HTTP Behavior)
+#### E2E Tests (HTTP + live PostgreSQL)
 
 ```rust
-use axum::http::StatusCode;
-use axum_test::TestServer;
+use api::types::HealthResponse;
+use axum::{body::Body, http::Request};
+use tower::ServiceExt;
 
-#[rstest]
+#[path = "../support/mod.rs"]
+mod support;
+
 #[tokio::test]
-async fn test_health_endpoint_http_methods() {
-    let server = create_test_server_with_db(None).await;
+async fn health_endpoint_reports_healthy_with_live_database() {
+    support::init_test_tracing();
 
-    // GET should work
-    let response = server.get("/health").await;
-    response.assert_status_ok();
+    let (router, _database) = support::router_with_database().await;
+    let response = router
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
 
-    // POST should not be allowed
-    let response = server.post("/health").await;
-    response.assert_status(StatusCode::METHOD_NOT_ALLOWED);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let payload: HealthResponse = serde_json::from_slice(&bytes).expect("health payload");
+
+    assert_eq!(payload.status, "healthy");
+    assert!(payload.database.connected);
 }
 ```
 
@@ -458,9 +511,9 @@ impl TestDatabase {
 
 ```bash
 # Set environment variable for detailed logs
-RUST_LOG=debug cargo run-api
+APP_LOGGING__LEVEL=debug cargo run-api
 
-# Or configure in config.toml
+# Or configure in api/config.toml (or indexers/*/config.toml)
 [logging]
 level = "debug"
 ```
@@ -472,10 +525,10 @@ level = "debug"
 cargo migrate-status
 
 # Inspect current schema (discourse)
-sea-orm-cli generate entity --database-schema discourse -o /tmp/current_schema_discourse
+sea-orm-cli generate entity --database-url "$DATABASE_URL" --database-schema discourse -o /tmp/current_schema_discourse
 
 # Inspect current schema (near)
-sea-orm-cli generate entity --database-schema near -o /tmp/current_schema_near
+sea-orm-cli generate entity --database-url "$DATABASE_URL" --database-schema near -o /tmp/current_schema_near
 
 # Reset database for testing
 cargo migrate-reset
@@ -504,10 +557,10 @@ perf report
 cargo fmt
 
 # Check formatting
-cargo fmt -- --check
+cargo fmt --check
 
-# Lint code (if clippy is configured)
-cargo clippy -- -D warnings
+# Lint the crate you changed
+cargo clippy -p api --all-targets -- -D warnings
 
 # Check all workspace crates
 cargo check-all
@@ -518,7 +571,7 @@ cargo check-all
 Create `.git/hooks/pre-commit`:
 ```bash
 #!/bin/sh
-cargo fmt -- --check &&
+cargo fmt --check &&
 cargo check-all &&
 cargo test-all --quiet
 ```
@@ -543,7 +596,7 @@ ls -la target/release/
 ```bash
 # Production environment variables
 DATABASE_URL=postgresql://prod_user:password@prod_host:5432/database?sslmode=require
-RUST_LOG=info
+APP_LOGGING__LEVEL=info
 # Use double underscores for nested keys
 APP_SERVER__PORT=80
 ```
@@ -598,8 +651,10 @@ cargo migrate-status
 
 ### Getting Help
 
-1. **Check logs**: Enable debug logging with `RUST_LOG=debug`
-2. **Verify configuration**: Check your `.env` and `config.toml` files
+1. **Check logs**: Enable debug logging with `APP_LOGGING__LEVEL=debug`
+2. **Verify configuration**: Check your `.env.local` or exported env vars,
+   plus `api/config.toml` and `indexers/*/config.toml`. If you use `direnv`,
+   make sure the Doppler CLI is installed because `.envrc` invokes it.
 3. **Check database**: Ensure migrations are applied and database is accessible
 4. **Clean rebuild**: Use `cargo clean && cargo check-all`
 

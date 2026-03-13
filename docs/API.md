@@ -21,7 +21,7 @@ The API server provides:
 cargo run-api
 
 # Or with specific configuration
-RUST_LOG=debug cargo run-api
+APP_LOGGING__LEVEL=debug cargo run-api
 ```
 
 The server will be available at:
@@ -55,7 +55,7 @@ api/
 ├── src/
 │   ├── main.rs              # Application entry point
 │   ├── lib.rs               # Library exports
-│   ├── state.rs             # AppState (wraps Arc<DatabaseConnection>)
+│   ├── state.rs             # AppState (holds an optional Arc<DatabaseConnection>)
 │   ├── errors.rs            # ApiError / ApiErrorResponse (RFC 9457)
 │   ├── types.rs             # Shared request/response models
 │   ├── docs.rs              # OpenAPI struct (ApiDoc via Utoipa)
@@ -85,19 +85,33 @@ let app = Router::new()
     .nest("/api/v1", routes::create_routes())
     .nest("/api/agora", routes::agora::agora_routes())
     .merge(routes::health::health_routes())
-    .with_state(app_state);
+    .layer(TraceLayer::new_for_http())
+    .with_state(app_state)
+    .merge(
+        SwaggerUi::new("/swagger-ui")
+            .url("/api-docs/openapi.json", docs::ApiDoc::openapi())
+    );
 ```
 
 **Utoipa Integration**: Automatic OpenAPI documentation
 ```rust
 #[derive(OpenApi)]
 #[openapi(
-    paths(handlers::health::health_check),
+    paths(
+        handlers::health::health_check,
+        handlers::identity::list_persons,
+        handlers::discourse::list_instances,
+    ),
     components(schemas(
         types::HealthResponse,
         types::DatabaseHealth,
         errors::ApiError,
-    ))
+    )),
+    tags(
+        (name = "health", description = "Service and dependency health diagnostics"),
+        (name = "identity", description = "Identity read endpoints"),
+        (name = "discourse", description = "Discourse read endpoints"),
+    )
 )]
 struct ApiDoc;
 ```
@@ -130,7 +144,10 @@ Primary read endpoints are nested under `/api/v1`. The legacy Agora compatibilit
 |--------|------|-------------|
 | GET | `/health` | Server and database health status |
 
-The `/health` endpoint always includes database connectivity information, so there is no separate database health endpoint.
+The `/health` endpoint always includes database connectivity information, so
+there is no separate database health endpoint. It still returns HTTP `200` when
+the payload status is `degraded`, which makes it useful for liveness checks but
+not a complete readiness gate.
 
 ```bash
 curl http://localhost:3000/health
@@ -168,6 +185,13 @@ Response:
 | GET | `/api/v1/discourse/instances/{instance}/users/{user_id}/posts` | List posts by a user |
 | GET | `/api/v1/discourse/instances/{instance}/sync-lag` | Get indexer sync lag for instance |
 
+Notes:
+- All Discourse list endpoints use cursor pagination via `limit` and `cursor`.
+- `GET /api/v1/discourse/instances/{instance}/categories` supports `parent_category_id` and `q`.
+- `GET /api/v1/discourse/instances/{instance}/topics` supports `q`, `category_id`, `pinned`, `closed`, `archived`, `visible`, `bumped_after`, and `bumped_before`.
+- `GET /api/v1/discourse/instances/{instance}/topics/{topic_id}/posts` supports `username` and `q`.
+- `GET /api/v1/discourse/instances/{instance}/users` supports `q` and `trust_level`.
+
 ### Telegram
 
 | Method | Path | Description |
@@ -182,6 +206,15 @@ Response:
 | GET | `/api/v1/telegram/users/{user_telegram_id}` | Get a user |
 | GET | `/api/v1/telegram/users/{user_telegram_id}/messages` | List messages by user |
 
+Notes:
+- All Telegram list endpoints use cursor pagination via `limit` and `cursor`.
+- `GET /api/v1/telegram/channels` supports `q`, `channel_type`, and `username`.
+- `GET /api/v1/telegram/users` supports `q`.
+- `GET /api/v1/telegram/channels/{channel_telegram_id}/messages` supports `q`, `user_telegram_id`, `message_type`, `has_media`, `date_after`, and `date_before`.
+- `GET /api/v1/telegram/channels/{channel_telegram_id}/messages/{telegram_message_id}/reactions` supports `emoji` and `user_telegram_id`.
+- `GET /api/v1/telegram/channels/{channel_telegram_id}/messages/{telegram_message_id}/service-actions` supports `action` and `actor_telegram_id`.
+- `GET /api/v1/telegram/users/{user_telegram_id}/messages` supports `channel_telegram_id`, `q`, `message_type`, `has_media`, `date_after`, and `date_before`.
+
 ### Identity
 
 | Method | Path | Description |
@@ -190,8 +223,9 @@ Response:
 | GET | `/api/v1/identity/persons/{person_id}/accounts` | List accounts for a person |
 
 Notes:
+- `GET /api/v1/identity/persons` uses cursor pagination via `limit` and `cursor`.
 - `GET /api/v1/identity/persons` returns a best-effort `name` for each person.
-- Identity account `platform_id` values currently include `discourse`, `telegram`, `venear_governance`, and `venear_lockup`.
+- Identity account `platform_id` values are not fixed to a short closed list. Current examples in this repo include `near`, `discourse`, and `telegram`.
 
 ### veNEAR Governance
 
@@ -223,13 +257,14 @@ Notes:
 Notes:
 - All veNEAR list endpoints support cursor pagination via `limit` and `cursor`.
 - The `/api/v1/venear` surface now reads directly from canonical NEAR tables and does not depend on `near.hos_*` materialized views.
-- Common shared veNEAR fields include `TokenAmountDto` payloads with `raw` and `decimal` and provenance refs with `contract_id`, `transaction_hash`, `receipt_id`, `execution_outcome_id`, `block_height`, and `block_timestamp`.
+- Common shared veNEAR fields include `VenearTokenAmountDto` payloads with `raw`, `decimal`, `symbol`, and `decimals`, plus provenance refs with `contract_id`, `transaction_hash`, `receipt_id`, `execution_outcome_id`, `block_height`, and `block_timestamp`.
 - `GET /api/v1/venear/proposals` supports `status`, `proposer_id`, `reviewer_id`, `contract_id`, `has_votes`, `q`, `created_after`, and `created_before`.
 - `GET /api/v1/venear/proposals/{proposal_id}/timeline` supports `event_type` and `actor_account_id`.
 - `GET /api/v1/venear/proposals/{proposal_id}/votes` supports `voter_account_id` and `vote_option`.
 - `GET /api/v1/venear/proposals/{proposal_id}/vote_history` supports `voter_account_id`, `vote_option`, and `event_type`.
 - `GET /api/v1/venear/accounts` supports `q`, `role`, `has_inbound_delegation`, `has_outbound_delegation`, `has_lockup`, and `min_effective_voting_power_raw`.
 - `GET /api/v1/venear/accounts/{account_id}/proposals` supports `role` and `status`.
+- `GET /api/v1/venear/accounts/{account_id}/votes` supports `status`.
 - `GET /api/v1/venear/accounts/{account_id}/vote_history` supports `proposal_id` and `event_type`.
 - `GET /api/v1/venear/accounts/{account_id}/voting_power_history` supports `reason` and `proposal_id`.
 - `GET /api/v1/venear/accounts/{account_id}/delegation_history` supports `direction`, `event_type`, and `counterparty_account_id`.
@@ -263,113 +298,109 @@ Notes:
 Notes:
 - The Agora namespace preserves the old query parameter contract: `page` and `page_size` pagination, legacy camelCase payloads, and simple error envelopes such as `{ "error": ... }` and `{ "message": ... }`.
 - This compatibility layer is backed by local NEAR/HOS indexed data only. Fields that used to depend on `web2` tables are returned as `null`, and `delegate_statement_changes` returns an empty result set in the original shape.
+- `GET /api/agora/proposal/pending` also supports `created_by`.
+- `GET /api/agora/delegates` also supports `order_by`, `filter_by`, `issue_type`, and `sorting_seed`.
+- `GET /api/agora/delegate_statement_changes` uses `page`, `offset`, and `lookback_days`, and keeps its original response envelope instead of the `/api/v1` cursor shape.
+- `GET /api/agora/delegates/{address}/hos-activity` also accepts legacy `network_id` and `contract_id` query params.
 - `GET /api/agora/proposal/{proposal_id}/quorum` keeps the old quorum helper semantics, including `AGORA_ENV` and `QUORUM_FLOOR`, but does not apply unavailable web2 quorum overrides.
 - `GET /api/agora/vote_changes/{proposal_id}` reads raw vote history from `near.near_receipt_actions` and `near.near_execution_outcomes` so repeated votes are preserved even though the materialized proposal-vote view keeps only latest rows.
 
 ## Adding New Endpoints
 
-### 1. Create Handler Function
+The current API surface is read-only. New routes usually follow this sequence:
 
-Create a handler in the appropriate domain module under `api/src/handlers/`. Handlers receive `State<AppState>` and call `require_db` to extract the database connection:
+1. Add a handler in the relevant domain module under `api/src/handlers/`.
+2. Wire the path in the matching module under `api/src/routes/`.
+3. Register the path and any new DTOs in `api/src/docs.rs`.
+
+Example handler pattern:
 
 ```rust
-// api/src/handlers/discourse/instances.rs
+use crate::{errors::ApiErrorResponse, state::AppState, types::*};
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Query, State},
     Json,
 };
-use sea_orm::*;
-use serde::{Deserialize, Serialize};
+use entities::{identity::persons, prelude::*};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use std::sync::Arc;
-use utoipa::{IntoParams, ToSchema};
-use entities::discourse_instances;
-use crate::{errors::ApiErrorResponse, state::AppState};
 
-#[derive(Serialize, ToSchema)]
-pub struct InstanceResponse {
-    pub instance: String,
-    pub base_url: String,
-}
-
-#[derive(Deserialize, IntoParams)]
-pub struct ListQuery {
-    pub limit: Option<u64>,
-    pub offset: Option<u64>,
-}
-
-fn require_db(state: &AppState) -> Result<Arc<DatabaseConnection>, ApiErrorResponse> {
-    state.db.clone().ok_or_else(|| {
-        ApiErrorResponse::service_unavailable("Database connection unavailable")
-    })
+fn require_db(app_state: &AppState) -> Result<Arc<DatabaseConnection>, ApiErrorResponse> {
+    app_state
+        .db
+        .clone()
+        .ok_or_else(|| ApiErrorResponse::service_unavailable("Database connection unavailable"))
 }
 
 #[utoipa::path(
     get,
-    path = "/api/v1/discourse/instances",
-    params(ListQuery),
+    path = "/api/v1/identity/persons",
+    params(CursorPaginationQuery),
     responses(
-        (status = 200, description = "List instances", body = [InstanceResponse]),
-        (status = 503, description = "Database unavailable"),
+        (status = 200, description = "Identity persons", body = IdentityPersonsListResponse),
+        (status = 400, description = "Invalid cursor or query value", body = crate::errors::ApiError),
+        (status = 503, description = "Database unavailable", body = crate::errors::ApiError)
     )
 )]
-pub async fn list_instances(
-    State(state): State<AppState>,
-    Query(params): Query<ListQuery>,
-) -> Result<Json<Vec<InstanceResponse>>, ApiErrorResponse> {
-    let db = require_db(&state)?;
+pub async fn list_persons(
+    State(app_state): State<AppState>,
+    Query(query): Query<CursorPaginationQuery>,
+) -> Result<Json<IdentityPersonsListResponse>, ApiErrorResponse> {
+    let db = require_db(&app_state)?;
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
 
-    let mut query = DiscourseInstances::find();
-    if let Some(limit) = params.limit {
-        query = query.limit(limit);
-    }
-    if let Some(offset) = params.offset {
-        query = query.offset(offset);
-    }
+    let builder = Persons::find().order_by_asc(persons::Column::Id);
 
-    let rows = query
+    let rows = builder
+        .limit(limit + 1)
         .all(db.as_ref())
         .await
         .map_err(ApiErrorResponse::from)?;
 
-    Ok(Json(rows.into_iter().map(|r| InstanceResponse {
-        instance: r.key,
-        base_url: r.base_url,
-    }).collect()))
+    // Decode and apply the cursor filter before the fetch when the endpoint
+    // needs stable pagination across ordered rows, then encode `next_cursor`
+    // from the last retained row.
+    let _ = rows;
+    Ok(Json(IdentityPersonsListResponse {
+        data: vec![],
+        next_cursor: None,
+        has_more: false,
+    }))
 }
 ```
 
-### 2. Update Router
-
-Add the handler to the appropriate route module in `api/src/routes/`:
+Route wiring happens in the domain route module, not in `main.rs`:
 
 ```rust
-// api/src/routes/discourse/mod.rs
-use crate::{handlers::discourse, state::AppState};
+use crate::{handlers::identity, state::AppState};
 use axum::{routing::get, Router};
 
-pub fn discourse_routes() -> Router<AppState> {
+pub fn identity_routes() -> Router<AppState> {
     Router::new()
-        .route("/discourse/instances", get(discourse::list_instances))
-        // ... existing routes ...
+        .route("/identity/persons", get(identity::list_persons))
+        .route(
+            "/identity/persons/{person_id}/accounts",
+            get(identity::list_person_accounts),
+        )
 }
 ```
 
-### 3. Update OpenAPI Documentation
-
-Add the new path and any new schema types to `api/src/docs.rs`:
+OpenAPI registration stays centralized in `api/src/docs.rs`:
 
 ```rust
 #[derive(OpenApi)]
 #[openapi(
     paths(
         handlers::health::health_check,
-        handlers::discourse::list_instances,    // Add new path here
+        handlers::identity::list_persons,
+        handlers::identity::list_person_accounts,
     ),
     components(
         schemas(
             types::HealthResponse,
+            types::IdentityPersonsListResponse,
+            types::IdentityPersonAccountsResponse,
             errors::ApiError,
-            // Add new response/request types here
         )
     )
 )]
@@ -397,10 +428,9 @@ Errors follow [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457)
 
 ```json
 {
-  "type": "about:blank",
-  "title": "Not Found",
+  "type": "https://hos-api.dev/problems/not-found",
+  "title": "Identity person not found",
   "status": 404,
-  "detail": "Instance 'gov.near.org' does not exist",
   "code": "NOT_FOUND"
 }
 ```
@@ -435,83 +465,77 @@ ApiErrorResponse::not_found("Instance not found")
 
 ### Query Parameters
 
-```rust
-use serde::Deserialize;
-use utoipa::IntoParams;
+The primary `/api/v1` list endpoints use cursor pagination rather than page/offset pagination.
 
-#[derive(Deserialize, IntoParams)]
-pub struct PaginationQuery {
-    #[param(minimum = 1, default = 1)]
-    pub page: Option<u64>,
-    
+```rust
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct CursorPaginationQuery {
     #[param(minimum = 1, maximum = 100, default = 20)]
     pub limit: Option<u64>,
-    
-    pub sort_by: Option<String>,
+    pub cursor: Option<String>,
 }
 
 #[utoipa::path(
     get,
-    path = "/api/users",
-    params(PaginationQuery),
+    path = "/api/v1/identity/persons",
+    params(CursorPaginationQuery),
     responses(
-        (status = 200, body = [UserResponse])
+        (status = 200, body = IdentityPersonsListResponse),
+        (status = 400, body = crate::errors::ApiError),
+        (status = 503, body = crate::errors::ApiError),
     )
 )]
-pub async fn list_users(
-    Query(params): Query<PaginationQuery>
-) -> Json<Vec<UserResponse>> {
-    // Implementation
+pub async fn list_persons(
+    State(app_state): State<AppState>,
+    Query(query): Query<CursorPaginationQuery>,
+) -> Result<Json<IdentityPersonsListResponse>, ApiErrorResponse> {
+    let db = require_db(&app_state)?;
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    let _ = (db, limit);
+    Ok(Json(IdentityPersonsListResponse {
+        data: vec![],
+        next_cursor: None,
+        has_more: false,
+    }))
 }
 ```
+
+For these endpoints, clients should:
+
+- Omit `cursor` on the first request.
+- Reuse `next_cursor` exactly as returned by the previous page.
+- Continue until `next_cursor` is `null` or `has_more` is `false`.
 
 ### Path Parameters
 
 ```rust
 #[utoipa::path(
     get,
-    path = "/api/users/{id}/posts/{post_id}",
+    path = "/api/v1/discourse/instances/{instance}/topics/{topic_id}",
     params(
-        ("id" = i32, Path, description = "User ID"),
-        ("post_id" = i32, Path, description = "Post ID")
+        ("instance" = String, Path, description = "Discourse instance key"),
+        ("topic_id" = i32, Path, description = "Discourse topic id")
     )
 )]
-pub async fn get_user_post(
-    Path((user_id, post_id)): Path<(i32, i32)>
-) -> Json<PostResponse> {
-    // Implementation
+pub async fn get_topic(
+    State(app_state): State<AppState>,
+    Path((instance, topic_id)): Path<(String, i32)>,
+) -> Result<Json<DiscourseTopicDto>, ApiErrorResponse> {
+    let db = require_db(&app_state)?;
+    let _ = (db, instance, topic_id);
+    unimplemented!("example only")
 }
 ```
 
-### Request Body Validation
+### Read-only Contract
 
-```rust
-use validator::Validate;
-use serde::Deserialize;
+The current API surface is read-only. New endpoints should generally expose indexed data through:
 
-#[derive(Deserialize, Validate, ToSchema)]
-pub struct CreateUserRequest {
-    #[validate(email, message = "Invalid email format")]
-    pub email: String,
-    
-    #[validate(length(min = 2, max = 100, message = "Name must be 2-100 characters"))]
-    pub name: String,
-    
-    #[validate(range(min = 18, max = 120, message = "Age must be 18-120"))]
-    pub age: Option<u32>,
-}
+- path parameters for stable resource identifiers
+- query parameters for filtering and pagination
+- typed DTO responses documented through `utoipa`
 
-pub async fn create_user(
-    Json(payload): Json<CreateUserRequest>
-) -> Result<Json<UserResponse>, AppError> {
-    // Validate request
-    payload.validate()
-        .map_err(|e| AppError::ValidationError(e.to_string()))?;
-    
-    // Process request
-    // ...
-}
-```
+Write flows, mutations, and bulk backfills belong in indexers or migration/backfill binaries rather than in the API crate.
 
 ## Database Integration
 
@@ -520,170 +544,103 @@ pub async fn create_user(
 Handlers receive `State<AppState>` and call `require_db` (or inline the `ok_or_else` check) to obtain `Arc<DatabaseConnection>`. Pass `db.as_ref()` to SeaORM queries:
 
 ```rust
-use entities::{discourse_users, prelude::*};
+use entities::{identity::persons, prelude::*};
 use sea_orm::*;
 use crate::{errors::ApiErrorResponse, state::AppState};
 
-pub async fn get_user(
+pub async fn get_person(
     State(state): State<AppState>,
-    Path(user_id): Path<i64>,
-) -> Result<Json<UserResponse>, ApiErrorResponse> {
+    Path(person_id): Path<i64>,
+) -> Result<Json<IdentityPersonDto>, ApiErrorResponse> {
     let db = state.db.clone().ok_or_else(|| {
         ApiErrorResponse::service_unavailable("Database unavailable")
     })?;
 
-    let user = DiscourseUsers::find_by_id(user_id)
+    let person = Persons::find_by_id(person_id)
         .one(db.as_ref())
         .await
         .map_err(ApiErrorResponse::from)?
-        .ok_or_else(|| ApiErrorResponse::not_found("User not found"))?;
+        .ok_or_else(|| ApiErrorResponse::not_found("Identity person not found"))?;
 
-    Ok(Json(UserResponse { id: user.id, name: user.name }))
+    Ok(Json(IdentityPersonDto {
+        id: person.id,
+        name: person.name,
+        created_at: person.created_at.and_utc().to_rfc3339(),
+        updated_at: person.updated_at.and_utc().to_rfc3339(),
+    }))
 }
 ```
 
-### Transactions
+### Read-only Handlers
 
-```rust
-pub async fn update_with_transaction(
-    State(state): State<AppState>,
-    Json(payload): Json<UpdateRequest>,
-) -> Result<Json<UpdateResponse>, ApiErrorResponse> {
-    let db = state.db.clone().ok_or_else(|| {
-        ApiErrorResponse::service_unavailable("Database unavailable")
-    })?;
-
-    let txn = db.begin().await.map_err(ApiErrorResponse::from)?;
-
-    // Multiple database operations against &txn
-    some_entity::ActiveModel { /* ... */ }
-        .update(&txn)
-        .await
-        .map_err(ApiErrorResponse::from)?;
-
-    txn.commit().await.map_err(ApiErrorResponse::from)?;
-
-    Ok(Json(UpdateResponse { success: true }))
-}
-```
+The API handlers query indexed tables and map failures through `ApiErrorResponse`. They do not currently open write transactions; all domain writes happen in indexers and migration/backfill binaries.
 
 ## Middleware
 
-### Custom Middleware
+### Current Middleware
 
 ```rust
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
-use std::time::Instant;
-
-// axum 0.8: Next is not generic — no <B> type parameter
-pub async fn timing_middleware(request: Request, next: Next) -> Response {
-    let start = Instant::now();
-    let response = next.run(request).await;
-    tracing::info!("Request took {:?}", start.elapsed());
-    response
-}
-
-// Add to router
 let app = Router::new()
-    .route("/api/v1/discourse/instances", get(list_instances))
-    .layer(axum::middleware::from_fn(timing_middleware));
+    .nest("/api/v1", routes::create_routes())
+    .nest("/api/agora", routes::agora::agora_routes())
+    .merge(routes::health::health_routes())
+    .layer(TraceLayer::new_for_http());
 ```
 
-### CORS Configuration
-
-```rust
-use tower_http::cors::{CorsLayer, Any};
-
-let app = Router::new()
-    .route("/api/users", get(list_users))
-    .layer(
-        CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods(Any)
-            .allow_headers(Any)
-    );
-```
+There is no committed CORS layer in `api/src/main.rs`. If you need browser-facing cross-origin access, add `CorsLayer` there or terminate it at the reverse proxy.
 
 ## Testing API Endpoints
 
-### Unit Tests
+### Route Wiring Tests
 
 ```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum_test::TestServer;
-    
-    #[tokio::test]
-    async fn test_health_endpoint() {
-        let app = create_test_app().await;
-        let server = TestServer::new(app).unwrap();
-        
-        let response = server
-            .get("/health")
-            .await;
-            
-        response.assert_status_ok();
-        response.assert_json(&json!({
-            "status": "healthy"
-        }));
-    }
-    
-    #[tokio::test]
-    async fn test_create_user() {
-        let app = create_test_app().await;
-        let server = TestServer::new(app).unwrap();
-        
-        let response = server
-            .post("/api/users")
-            .json(&json!({
-                "email": "test@example.com",
-                "name": "Test User"
-            }))
-            .await;
-            
-        response.assert_status(StatusCode::CREATED);
-        
-        let user: UserResponse = response.json();
-        assert_eq!(user.email, "test@example.com");
-    }
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
+use tower::ServiceExt;
+
+#[path = "../support/mod.rs"]
+mod support;
+
+#[tokio::test]
+async fn health_route_is_wired_at_root() {
+    let response = support::build_router_with_state(None)
+        .into_service()
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
 }
 ```
 
-### Integration Tests
+### PostgreSQL-backed E2E Tests
 
 ```rust
-// tests/api_integration.rs
-use httpc_test::{Client, Response};
+use api::types::HealthResponse;
+use axum::{body::Body, http::Request};
+use tower::ServiceExt;
+
+#[path = "../support/mod.rs"]
+mod support;
 
 #[tokio::test]
-async fn test_user_crud_workflow() {
-    let client = Client::new("http://localhost:3000").unwrap();
-    
-    // Create user
-    let create_response = client
-        .do_post("/api/users", json!({
-            "email": "integration@test.com",
-            "name": "Integration User"
-        }))
+async fn health_endpoint_reports_healthy_with_live_database() {
+    let (router, _database) = support::router_with_database().await;
+    let response = router
+        .into_service()
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
         .await
-        .unwrap();
-    
-    assert_eq!(create_response.status(), 201);
-    
-    let user: UserResponse = create_response.json_body().unwrap();
-    
-    // Get user
-    let get_response = client
-        .do_get(&format!("/api/users/{}", user.id))
+        .expect("response");
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
-    
-    assert_eq!(get_response.status(), 200);
+        .expect("body bytes");
+    let payload: HealthResponse = serde_json::from_slice(&bytes).expect("health payload");
+
+    assert_eq!(payload.status, "healthy");
+    assert!(payload.database.connected);
 }
 ```
 
@@ -691,7 +648,7 @@ async fn test_user_crud_workflow() {
 
 ### Database Connection Pooling
 
-Configure in `config.toml`:
+Configure in `api/config.toml`:
 ```toml
 [database]
 max_connections = 20
@@ -707,36 +664,30 @@ The project does not implement in-process response caching. HTTP-level caching (
 ### Pagination
 
 ```rust
-#[derive(Deserialize, IntoParams)]
-pub struct PaginationQuery {
-    pub page: Option<u64>,
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct CursorPaginationQuery {
     pub limit: Option<u64>,
+    pub cursor: Option<String>,
 }
 
 pub async fn paginated_list(
-    Query(params): Query<PaginationQuery>,
-) -> Json<PaginatedResponse<UserResponse>> {
-    let page = params.page.unwrap_or(1);
-    let limit = params.limit.unwrap_or(20).min(100); // Cap at 100
-    let offset = (page - 1) * limit;
-    
-    let users = Users::find()
-        .limit(limit)
-        .offset(offset)
-        .all(&db)
-        .await?;
-        
-    let total = Users::find().count(&db).await?;
-    
-    Json(PaginatedResponse {
-        data: users,
-        pagination: PaginationInfo {
-            page,
-            limit,
-            total,
-            has_next: (page * limit) < total,
-        },
-    })
+    Query(params): Query<CursorPaginationQuery>,
+) -> Result<Json<InstancesListResponse>, ApiErrorResponse> {
+    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let builder = DiscourseInstances::find().order_by_asc(discourse_instances::Column::Key);
+    let mut rows = builder.limit(limit + 1).all(db.as_ref()).await?;
+
+    let has_more = rows.len() > limit as usize;
+    if has_more {
+        rows.pop();
+    }
+
+    let _ = (rows, has_more);
+    Ok(Json(InstancesListResponse {
+        data: vec![],
+        next_cursor: None,
+        has_more: false,
+    }))
 }
 ```
 

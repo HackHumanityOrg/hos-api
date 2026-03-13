@@ -1,6 +1,10 @@
-# Indexers + API Architecture
+# Indexers, API, and Web Architecture
 
-This workspace uses a CQRS-like separation: indexers ingest and normalize external data into PostgreSQL, and the API serves that indexed state through a read-only HTTP contract. Services are independently deployable units that share configuration, DB, and entity contracts.
+This workspace uses a CQRS-like separation: indexers ingest and normalize
+external data into PostgreSQL, the API serves that indexed state through a
+read-only HTTP contract, and the Next.js web app consumes the API as a
+separately deployable frontend. Services share configuration, DB, and entity
+contracts where appropriate, but ship independently.
 
 ## Architecture Principles
 
@@ -46,6 +50,7 @@ flowchart TB
     subgraph SERVE["Serving plane"]
         direction TB
         API_SVC["api: Axum and OpenAPI"]
+        WEB["web: Next.js veNEAR explorer"]
         CLIENTS["Clients, dashboards, scripts"]
     end
 
@@ -68,7 +73,9 @@ flowchart TB
     SN --> API_SVC
     ST --> API_SVC
     SI --> API_SVC
+    API_SVC --> WEB
     API_SVC --> CLIENTS
+    WEB --> CLIENTS
 
     C -.-> DI
     C -.-> NI
@@ -89,15 +96,24 @@ flowchart TB
 | Component | Primary responsibility | Reads from | Writes to | Key paths |
 |---|---|---|---|---|
 | `discourse-indexer` | Multi-instance Discourse ingestion (full, recent, directory/metrics refresh cycles) | Discourse HTTP APIs + cursor/state from DB | `discourse` schema | `indexers/discourse-indexer/src/main.rs`, `indexers/discourse-indexer/src/sync.rs` |
-| `near-indexer` | Modular chain indexing (`raw`, `accounts`, `tokens`, `staking_pools`, `venear_governance`) with stream assignment and cursor resume | NEAR Lake/FastNEAR + module cursors from DB | `near` schema | `indexers/near-indexer/src/main.rs`, `indexers/near-indexer/src/lib.rs`, `indexers/near-indexer/src/modules/mod.rs`, `indexers/near-indexer/src/core/cursor.rs` |
+| `near-indexer` | Modular chain indexing (`raw` and `venear_governance`) with stream assignment, restart rewind, and cursor resume | NEAR Lake/FastNEAR + module cursors from DB | `near` schema | `indexers/near-indexer/src/main.rs`, `indexers/near-indexer/src/lib.rs`, `indexers/near-indexer/src/modules/mod.rs`, `indexers/near-indexer/src/core/cursor.rs` |
 | `telegram-indexer` | Channel-based historical sync plus realtime Telegram updates | Telegram MTProto + channel/cursor state from DB | `telegram` schema | `indexers/telegram-indexer/src/main.rs`, `indexers/telegram-indexer/src/sync/mod.rs` |
 | `api` | Read-only REST access with cursor pagination and OpenAPI docs | PostgreSQL indexed data | No domain writes | `api/src/main.rs`, `api/src/routes.rs`, `api/src/handlers/discourse/mod.rs`, `api/src/handlers/telegram/mod.rs`, `api/src/handlers/venear/mod.rs`, `api/src/handlers/identity/mod.rs`, `api/src/docs.rs` |
+| `web` | Next.js App Router frontend for veNEAR governance views | `api` over HTTP | No domain writes | `web/src/app`, `web/src/components/venear`, `web/src/lib/venear-api.ts` |
 
 `identity` is also part of the read model served by `api`; in this repo it is populated by migration/backfill workflows (for example, the `backfill-identity-accounts` cargo alias) rather than a dedicated long-running indexer.
 
 ## API Architecture
 
-The API process composes route modules under `/api/v1` and serves Swagger/OpenAPI from the same binary (`api/src/main.rs`, `api/src/routes.rs`, `api/src/docs.rs`). Handlers are grouped by domain and consistently use bounded cursor pagination and typed DTOs (`api/src/handlers/*`, `api/src/types.rs`). `AppState` holds an optional DB connection (`api/src/state.rs`), which lets the process still boot while reporting degraded DB availability in health behavior.
+The API process composes route modules under `/api/v1`, keeps the legacy Agora compatibility surface under `/api/agora`, and serves Swagger/OpenAPI from the same binary (`api/src/main.rs`, `api/src/routes.rs`, `api/src/docs.rs`). Handlers are grouped by domain and consistently use bounded cursor pagination and typed DTOs (`api/src/handlers/*`, `api/src/types.rs`). `AppState` holds an optional DB connection (`api/src/state.rs`), which lets the process still boot while reporting degraded DB availability in health behavior.
+
+## Web Architecture
+
+The web app is a separate Next.js App Router service that reads the veNEAR API
+through `web/src/lib/venear-api.ts`. It is intentionally thin: server-rendered
+pages fetch canonical API DTOs, client components mainly handle visualization
+and interaction, and deployment configuration is isolated in `web/Dockerfile`
+and `web/railway.toml`.
 
 ## Indexer Architecture
 
@@ -109,7 +125,7 @@ The API process composes route modules under `/api/v1` and serves Swagger/OpenAP
 
 ## Shared Foundations
 
-Shared crates keep service contracts consistent: typed config + telemetry/log conventions in `shared/common/src/config.rs` and `shared/common/src/telemetry.rs`, DB connection/pool setup in `shared/db-core/src/connection.rs`, and generated SeaORM entities in `shared/entities/src/lib.rs`.
+Shared crates keep service contracts consistent: typed config + telemetry/log conventions in `shared/common/src/config.rs` and `shared/common/src/telemetry.rs`, DB connection/pool setup in `shared/db-core/src/connection.rs`, and generated SeaORM entities in `shared/entities/src/{discourse,near,telegram,identity}`.
 
 ## Why this is a good fit
 
@@ -127,3 +143,6 @@ Shared crates keep service contracts consistent: typed config + telemetry/log co
 - Add or evolve schema/entities first (`migration/` + `cargo generate-entities` -> `shared/entities/`).
 - Implement ingestion in an indexer crate using shared config/DB patterns (`shared/common`, `shared/db-core`) and persisted cursors.
 - Expose read endpoints in `api/src/routes/*` + `api/src/handlers/*` and register OpenAPI metadata in `api/src/docs.rs`.
+- If the feature is user-facing, wire it into `web/src/app` or
+  `web/src/components/venear` using the typed API client in
+  `web/src/lib/venear-api.ts`.

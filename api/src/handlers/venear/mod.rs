@@ -1,4 +1,5 @@
 //! Canonical-query veNEAR governance handlers.
+#![allow(clippy::result_large_err)]
 
 pub mod accounts;
 pub mod activity;

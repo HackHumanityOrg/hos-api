@@ -26,13 +26,20 @@ hos-api/
 ```bash
 git clone <repository-url> && cd hos-api
 cargo install sea-orm-cli --version 1.1.15 --locked
-cp .env.example .env  # Edit with database settings
-direnv allow
+cp .env.example .env.local  # Used by the checked-in .envrc
+direnv allow                # Requires Doppler CLI; loads env for DB-backed migration/entity commands
 cargo migrate-up && cargo generate-entities
 cargo run-api
 ```
 
 **Access**: API at http://localhost:3000 • [Swagger UI](http://localhost:3000/swagger-ui) • [OpenAPI spec](http://localhost:3000/api-docs/openapi.json)
+
+If you do not use the checked-in `direnv` + Doppler workflow, export
+`DATABASE_URL` manually before running DB-backed commands such as
+`cargo migrate-up`, `cargo migrate-down`, `cargo migrate-status`,
+`cargo migrate-reset`, `cargo migrate-fresh`, `cargo generate-entities`, or
+`cargo backfill-identity-accounts`. `cargo migrate-generate` does not require a
+live database connection.
 
 **Detailed setup**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 
@@ -68,7 +75,7 @@ This monorepo ships as independently deployable services plus a shared PostgreSQ
 | Component | Role | Public ingress | Main requirements |
 |---|---|---|---|
 | `api` | Axum REST API and Swagger UI | Yes | `DATABASE_URL`, platform `PORT` or `APP_SERVER__PORT` |
-| `web` | Next.js frontend | Yes | `VENEAR_API_BASE_URL` |
+| `web` | Next.js frontend | Yes | `VENEAR_API_BASE_URL` or `NEXT_PUBLIC_VENEAR_API_BASE_URL` |
 | `discourse-indexer` | Discourse ingestion worker | No | `DATABASE_URL` |
 | `near-indexer` | NEAR ingestion worker | No | `DATABASE_URL`, optional FastNEAR credentials |
 | `telegram-indexer` | Telegram ingestion worker | No | `DATABASE_URL`, Telegram credentials, durable session state |
@@ -299,13 +306,13 @@ Notes for this compose stack:
 - `api`: `/api/Dockerfile` and `/api/railway.toml`
 - `web`: `/web/Dockerfile` and `/web/railway.toml`
 - `migration`: `/migration/Dockerfile`
-- `discourse-indexer`: `/indexers/discourse-indexer/Dockerfile` and `/indexers/discourse-indexer/railway.toml`
-- `near-indexer`: `/indexers/near-indexer/Dockerfile` and `/indexers/near-indexer/railway.toml`
-- `telegram-indexer`: `/indexers/telegram-indexer/Dockerfile` and `/indexers/telegram-indexer/railway.toml`
+- `discourse-indexer`: `/indexers/discourse-indexer/Dockerfile`
+- `near-indexer`: `/indexers/near-indexer/Dockerfile`
+- `telegram-indexer`: `/indexers/telegram-indexer/Dockerfile`
 
 This layout works on Railway, Fly.io, Render, Kubernetes, ECS, Nomad, or plain Docker Compose as long as the platform can run one container per service, inject environment variables, provide PostgreSQL connectivity, and expose public HTTP only for `api` and `web`.
 
-Railway is the easiest fit today because this repo already includes one `railway.toml` per service, Dockerfile-based builds, watch patterns, and API support for Railway's injected `PORT` environment variable. If you use Railway, prefer one service per component, run migrations as a separate release step, and use private networking from `web` to `api` with a base URL like `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:${{api.PORT}}/api/v1/venear`.
+Railway is the easiest fit today because this repo already includes Railway manifests for the long-running services, Dockerfile-based builds for every deployable component, watch patterns, and API support for Railway's injected `PORT` environment variable. If you use Railway, prefer one service per component, run migrations as a separate release step, and use private networking from `web` to `api` with a base URL like `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:${{api.PORT}}/api/v1/venear`.
 
 ## Testing
 
@@ -325,7 +332,7 @@ The platform uses `tracing` with `tracing-subscriber` and emits structured JSON 
 **Features**:
 - **Logs**: Structured JSON logs for all services
 - **Traces**: Span-aware request and background-job tracing
-- **Filtering**: Log level control via `RUST_LOG`
+- **Filtering**: Log level control via `APP_LOGGING__LEVEL`
 
 ## Tech Stack
 

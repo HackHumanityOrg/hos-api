@@ -15,8 +15,10 @@ fn openapi_spec_exposes_health_path_and_schemas() {
         .and_then(|v| v.as_str())
         .expect("api description present");
     assert!(
-        description.contains("Cursor pagination uses opaque base64url cursors"),
-        "api description should document pagination conventions"
+        description.contains("/api/v1` list endpoints use `limit` and `cursor`")
+            && description
+                .contains("Legacy `/api/agora` endpoints intentionally preserve page-based params"),
+        "api description should document both canonical and Agora pagination conventions"
     );
 
     let paths = value
