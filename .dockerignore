@@ -46,6 +46,8 @@ indexers/near-indexer/tests/
 
 # Node modules (if any)
 node_modules/
+**/node_modules/
+web/.next/
 
 # Docker files themselves
 Dockerfile*
