@@ -67,6 +67,8 @@ pub(crate) struct ProposalProjection {
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals",
+    summary = "List veNEAR proposals",
+    description = "Returns canonical veNEAR proposal summaries ordered by latest observed block height, with cursor pagination and optional status, actor, contract, text, and created-at filters.",
     params(VenearProposalListQuery),
     tag = "venear",
     operation_id = "listVenearProposalsCanonical",
@@ -176,6 +178,9 @@ pub async fn list_proposals(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals/{proposal_id}",
+    summary = "Get one veNEAR proposal",
+    description = "Fetches the full canonical proposal detail for one veNEAR proposal id.",
+    params(("proposal_id" = i64, Path, description = "veNEAR proposal id")),
     tag = "venear",
     operation_id = "getVenearProposalCanonical",
     responses(
@@ -201,7 +206,12 @@ pub async fn get_proposal(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals/{proposal_id}/timeline",
-    params(VenearProposalTimelineQuery),
+    summary = "List timeline events for one veNEAR proposal",
+    description = "Returns lifecycle timeline events for one proposal, with cursor pagination and optional event-type and actor filters.",
+    params(
+        ("proposal_id" = i64, Path, description = "veNEAR proposal id"),
+        VenearProposalTimelineQuery
+    ),
     tag = "venear",
     operation_id = "listVenearProposalTimelineCanonical",
     responses(
@@ -269,7 +279,12 @@ pub async fn list_proposal_timeline(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals/{proposal_id}/votes",
-    params(VenearProposalVotesQueryV2),
+    summary = "List current votes for one veNEAR proposal",
+    description = "Returns the current effective votes for one proposal, with cursor pagination and optional voter and vote-option filters.",
+    params(
+        ("proposal_id" = i64, Path, description = "veNEAR proposal id"),
+        VenearProposalVotesQueryV2
+    ),
     tag = "venear",
     operation_id = "listVenearProposalVotesCanonical",
     responses(
@@ -340,7 +355,12 @@ pub async fn list_proposal_votes(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/proposals/{proposal_id}/vote_history",
-    params(VenearProposalVoteHistoryQuery),
+    summary = "List vote history for one veNEAR proposal",
+    description = "Returns the full successful vote history for one proposal, with cursor pagination and optional voter, vote-option, and event-type filters.",
+    params(
+        ("proposal_id" = i64, Path, description = "veNEAR proposal id"),
+        VenearProposalVoteHistoryQuery
+    ),
     tag = "venear",
     operation_id = "listVenearProposalVoteHistoryCanonical",
     responses(

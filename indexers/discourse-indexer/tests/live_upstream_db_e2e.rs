@@ -20,6 +20,7 @@ use test_support::{init_test_tracing, TestDatabase};
 use tracing::warn;
 
 #[tokio::test]
+#[ignore = "hits real Discourse APIs"]
 async fn live_upstream_pipeline_uses_real_api_and_postgres_testcontainer() -> Result<()> {
     init_test_tracing();
 

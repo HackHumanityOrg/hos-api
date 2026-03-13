@@ -50,6 +50,8 @@ pub(crate) struct ConfigSnapshotProjection {
 #[utoipa::path(
     get,
     path = "/api/v1/venear/config",
+    summary = "Get current veNEAR config snapshots",
+    description = "Returns the latest canonical config snapshots for each veNEAR contract tracked by the indexer.",
     tag = "venear",
     operation_id = "getVenearConfigCanonical",
     responses(
@@ -90,6 +92,8 @@ pub async fn get_config(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/config/history",
+    summary = "List veNEAR config history",
+    description = "Returns normalized config change history derived from canonical NEAR actions, with cursor pagination and optional contract, field, and method filters.",
     params(VenearConfigHistoryQueryV2),
     tag = "venear",
     operation_id = "listVenearConfigHistoryCanonical",

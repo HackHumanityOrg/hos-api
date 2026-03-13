@@ -48,6 +48,8 @@ pub(crate) struct RewardEventProjection {
 #[utoipa::path(
     get,
     path = "/api/v1/venear/accounts",
+    summary = "List veNEAR accounts",
+    description = "Returns account-centric veNEAR summaries ordered by effective voting power, with cursor pagination and optional role, delegation, lockup, and text filters.",
     params(VenearAccountListQuery),
     tag = "venear",
     operation_id = "listVenearAccountsCanonical",
@@ -153,6 +155,9 @@ pub async fn list_accounts(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/accounts/{account_id}",
+    summary = "Get one veNEAR account",
+    description = "Fetches the current canonical veNEAR governance state for one account id.",
+    params(("account_id" = String, Path, description = "veNEAR account id")),
     tag = "venear",
     operation_id = "getVenearAccountCanonical",
     responses(
@@ -178,7 +183,12 @@ pub async fn get_account(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/accounts/{account_id}/proposals",
-    params(VenearAccountProposalsQuery),
+    summary = "List proposals for one veNEAR account",
+    description = "Returns proposal summaries related to one account as proposer, reviewer, or voter, with cursor pagination and optional role and status filters.",
+    params(
+        ("account_id" = String, Path, description = "veNEAR account id"),
+        VenearAccountProposalsQuery
+    ),
     tag = "venear",
     operation_id = "listVenearAccountProposalsCanonical",
     responses(
@@ -260,7 +270,12 @@ pub async fn list_account_proposals(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/accounts/{account_id}/votes",
-    params(VenearAccountVotesQuery),
+    summary = "List current votes for one veNEAR account",
+    description = "Returns the current effective votes cast by one account, with cursor pagination and optional proposal-status filtering.",
+    params(
+        ("account_id" = String, Path, description = "veNEAR account id"),
+        VenearAccountVotesQuery
+    ),
     tag = "venear",
     operation_id = "listVenearAccountVotesCanonical",
     responses(
@@ -342,7 +357,12 @@ pub async fn list_account_votes(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/accounts/{account_id}/vote_history",
-    params(VenearAccountVoteHistoryQuery),
+    summary = "List vote history for one veNEAR account",
+    description = "Returns the full successful vote history for one account, with cursor pagination and optional proposal and event-type filters.",
+    params(
+        ("account_id" = String, Path, description = "veNEAR account id"),
+        VenearAccountVoteHistoryQuery
+    ),
     tag = "venear",
     operation_id = "listVenearAccountVoteHistoryCanonical",
     responses(
@@ -422,7 +442,12 @@ pub async fn list_account_vote_history(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/accounts/{account_id}/voting_power_history",
-    params(VenearAccountVotingPowerHistoryQuery),
+    summary = "List voting power history for one veNEAR account",
+    description = "Returns derived voting-power mutations for one account, with cursor pagination and optional reason and proposal filters.",
+    params(
+        ("account_id" = String, Path, description = "veNEAR account id"),
+        VenearAccountVotingPowerHistoryQuery
+    ),
     tag = "venear",
     operation_id = "listVenearAccountVotingPowerHistoryCanonical",
     responses(
@@ -497,7 +522,12 @@ pub async fn list_account_voting_power_history(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/accounts/{account_id}/rewards_events",
-    params(VenearAccountRewardsEventsQuery),
+    summary = "List reward events for one veNEAR account",
+    description = "Returns reward and claim events associated with one account, with cursor pagination and optional event-type filtering.",
+    params(
+        ("account_id" = String, Path, description = "veNEAR account id"),
+        VenearAccountRewardsEventsQuery
+    ),
     tag = "venear",
     operation_id = "listVenearAccountRewardsEventsCanonical",
     responses(

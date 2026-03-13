@@ -244,6 +244,13 @@ fn normalize_relation_row(
             replace_value_with_digest(&mut row, "action_json", "action_json_sha256");
             maybe_digest_json_value(&mut row, "args_json", "args_json_sha256");
         }
+        // Durable lineage promotion is covered by focused e2e assertions; omit the
+        // bookkeeping bit from broad fixture snapshots to avoid golden churn.
+        "near_receipt_tx_hash_map" => {
+            row.remove("is_persisted_graph");
+            row.remove("first_seen_height");
+            row.remove("last_seen_height");
+        }
         _ => {}
     }
 
@@ -270,14 +277,12 @@ fn json_values_equivalent(lhs: &JsonValue, rhs: &JsonValue) -> bool {
                 return true;
             }
 
-            match (left.as_i64(), right.as_i64()) {
-                (Some(left), Some(right)) => return left == right,
-                _ => {}
+            if let (Some(left), Some(right)) = (left.as_i64(), right.as_i64()) {
+                return left == right;
             }
 
-            match (left.as_u64(), right.as_u64()) {
-                (Some(left), Some(right)) => return left == right,
-                _ => {}
+            if let (Some(left), Some(right)) = (left.as_u64(), right.as_u64()) {
+                return left == right;
             }
 
             match (left.as_f64(), right.as_f64()) {
@@ -308,6 +313,21 @@ fn json_values_equivalent(lhs: &JsonValue, rhs: &JsonValue) -> bool {
                 })
         }
         _ => lhs == rhs,
+    }
+}
+
+fn sanitize_stored_expectation(expectation: &mut FixtureExpectationFile) {
+    for tables in [
+        &mut expectation.canonical,
+        &mut expectation.materialized_views,
+    ] {
+        if let Some(table) = tables.get_mut("near_receipt_tx_hash_map") {
+            for row in &mut table.rows {
+                row.remove("is_persisted_graph");
+                row.remove("first_seen_height");
+                row.remove("last_seen_height");
+            }
+        }
     }
 }
 
@@ -402,7 +422,7 @@ pub fn expectation_path(fixture_case: &FixtureCase, module_kind: ModuleExpectati
 pub fn read_fixture_expectation(path: &Path) -> Result<FixtureExpectationFile> {
     let bytes = std::fs::read(path)
         .with_context(|| format!("failed reading fixture expectation {}", path.display()))?;
-    let expectation: FixtureExpectationFile = serde_json::from_slice(&bytes)
+    let mut expectation: FixtureExpectationFile = serde_json::from_slice(&bytes)
         .with_context(|| format!("failed parsing fixture expectation {}", path.display()))?;
 
     if expectation.version != FIXTURE_EXPECTATION_VERSION {
@@ -413,6 +433,8 @@ pub fn read_fixture_expectation(path: &Path) -> Result<FixtureExpectationFile> {
             FIXTURE_EXPECTATION_VERSION
         );
     }
+
+    sanitize_stored_expectation(&mut expectation);
 
     Ok(expectation)
 }

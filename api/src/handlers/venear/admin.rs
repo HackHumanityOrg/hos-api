@@ -30,6 +30,8 @@ pub(crate) struct AdminActionProjection {
 #[utoipa::path(
     get,
     path = "/api/v1/venear/admin/actions",
+    summary = "List veNEAR admin actions",
+    description = "Returns admin and operator actions derived from canonical NEAR actions, with cursor pagination and optional contract, event-type, actor, and success filters.",
     params(VenearAdminActionsQuery),
     tag = "venear",
     operation_id = "listVenearAdminActionsCanonical",

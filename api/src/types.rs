@@ -441,6 +441,7 @@ pub struct CursorPaginationQuery {
 }
 
 /// Query options for listing latest veNEAR proposal states.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearProposalsQuery {
     /// Maximum number of rows to return in one response page.
@@ -462,6 +463,7 @@ pub struct VenearProposalsQuery {
 }
 
 /// Query options for listing veNEAR config history events.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearConfigHistoryQuery {
     /// Maximum number of rows to return in one response page.
@@ -479,6 +481,7 @@ pub struct VenearConfigHistoryQuery {
 }
 
 /// Query options for listing events of a single proposal.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearProposalEventsQuery {
     /// Maximum number of rows to return in one response page.
@@ -498,6 +501,7 @@ pub struct VenearProposalEventsQuery {
 }
 
 /// Query options for listing effective votes of a single proposal.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearProposalVotesQuery {
     /// Maximum number of rows to return in one response page.
@@ -515,6 +519,7 @@ pub struct VenearProposalVotesQuery {
 }
 
 /// Query options for listing veNEAR delegates.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearDelegatesQuery {
     /// Maximum number of rows to return in one response page.
@@ -534,6 +539,7 @@ pub struct VenearDelegatesQuery {
 }
 
 /// Query options for listing voting power history of one delegate.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearDelegateVotingPowerQuery {
     /// Maximum number of rows to return in one response page.
@@ -551,6 +557,7 @@ pub struct VenearDelegateVotingPowerQuery {
 }
 
 /// Query options for listing delegation events of one delegate.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct VenearDelegateDelegationsQuery {
     /// Maximum number of rows to return in one response page.

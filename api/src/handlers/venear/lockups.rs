@@ -50,6 +50,8 @@ pub(crate) struct LockupProjection {
 #[utoipa::path(
     get,
     path = "/api/v1/venear/lockups",
+    summary = "List veNEAR lockups",
+    description = "Returns current lockup summaries, with cursor pagination and optional owner, status, and delegatee-presence filters.",
     params(VenearLockupsQuery),
     tag = "venear",
     operation_id = "listVenearLockupsCanonical",
@@ -120,6 +122,9 @@ pub async fn list_lockups(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/lockups/{lockup_account_id}",
+    summary = "Get one veNEAR lockup",
+    description = "Fetches the current canonical lockup detail for one lockup account id.",
+    params(("lockup_account_id" = String, Path, description = "veNEAR lockup account id")),
     tag = "venear",
     operation_id = "getVenearLockupCanonical",
     responses(
@@ -154,7 +159,12 @@ pub async fn get_lockup(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/lockups/{lockup_account_id}/events",
-    params(VenearLockupEventsQuery),
+    summary = "List events for one veNEAR lockup",
+    description = "Returns lifecycle events for one lockup account, with cursor pagination and optional event-type filtering.",
+    params(
+        ("lockup_account_id" = String, Path, description = "veNEAR lockup account id"),
+        VenearLockupEventsQuery
+    ),
     tag = "venear",
     operation_id = "listVenearLockupEventsCanonical",
     responses(
@@ -233,7 +243,12 @@ pub async fn list_lockup_events(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/accounts/{account_id}/lockup_events",
-    params(VenearAccountLockupEventsQuery),
+    summary = "List lockup events for one veNEAR account",
+    description = "Returns lockup lifecycle events associated with one account, with cursor pagination and optional event-type filtering.",
+    params(
+        ("account_id" = String, Path, description = "veNEAR account id"),
+        VenearAccountLockupEventsQuery
+    ),
     tag = "venear",
     operation_id = "listVenearAccountLockupEventsCanonical",
     responses(

@@ -44,6 +44,8 @@ pub(crate) struct DelegationEdgeProjection {
 #[utoipa::path(
     get,
     path = "/api/v1/venear/delegations",
+    summary = "List active veNEAR delegations",
+    description = "Returns the current active delegation edges, with cursor pagination and optional delegator and delegatee filters.",
     params(VenearDelegationsQueryV2),
     tag = "venear",
     operation_id = "listVenearDelegationsCanonical",
@@ -251,7 +253,12 @@ pub(crate) async fn load_active_delegations(
 #[utoipa::path(
     get,
     path = "/api/v1/venear/accounts/{account_id}/delegation_history",
-    params(VenearAccountDelegationHistoryQuery),
+    summary = "List delegation history for one veNEAR account",
+    description = "Returns inbound and outbound delegation events involving one account, with cursor pagination and optional direction, event-type, and counterparty filters.",
+    params(
+        ("account_id" = String, Path, description = "veNEAR account id"),
+        VenearAccountDelegationHistoryQuery
+    ),
     tag = "venear",
     operation_id = "listVenearAccountDelegationHistoryCanonical",
     responses(

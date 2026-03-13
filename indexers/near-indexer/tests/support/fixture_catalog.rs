@@ -69,6 +69,7 @@ pub struct FixtureCase {
     pub source_paths: Vec<PathBuf>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum FixtureFile {

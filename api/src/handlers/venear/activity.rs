@@ -27,6 +27,8 @@ struct OffsetCursor {
 #[utoipa::path(
     get,
     path = "/api/v1/venear/activity",
+    summary = "List veNEAR activity",
+    description = "Returns a normalized cross-domain veNEAR activity feed, with cursor pagination and optional kind, account, proposal, contract, event-type, and success filters.",
     params(VenearActivityQuery),
     tag = "venear",
     operation_id = "listVenearActivityCanonical",

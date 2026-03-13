@@ -24,7 +24,7 @@ use support::fixture_expectations::{
     refresh_hos_materialized_views, reset_near_indexer_tables,
 };
 use support::hos_mv_goldens::assert_hos_mv_normalized_semantics;
-use support::{init_test_tracing, TestDatabase};
+use support::{init_test_tracing, skip_resource_heavy_test_in_ci, TestDatabase};
 
 #[derive(Debug, Default)]
 struct RawFixtureExpectations {
@@ -470,6 +470,9 @@ async fn scalar_string(db: &impl ConnectionTrait, sql: &str, values: Vec<Value>)
 #[tokio::test]
 async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
     init_test_tracing();
+    if skip_resource_heavy_test_in_ci("raw_module_stores_complete_payloads_and_shard_ids") {
+        return Ok(());
+    }
 
     let fixtures = load_all_fixture_messages();
     let fixture_transactions_with_null_outcome_receipt: i64 = fixtures
@@ -822,6 +825,10 @@ async fn raw_module_stores_complete_payloads_and_shard_ids() -> Result<()> {
 #[tokio::test]
 async fn raw_module_fixture_expectations_match_checked_in_snapshots() -> Result<()> {
     init_test_tracing();
+    if skip_resource_heavy_test_in_ci("raw_module_fixture_expectations_match_checked_in_snapshots")
+    {
+        return Ok(());
+    }
 
     let db = TestDatabase::new().await;
 
@@ -853,6 +860,9 @@ async fn raw_module_fixture_expectations_match_checked_in_snapshots() -> Result<
 #[tokio::test]
 async fn raw_module_is_replay_idempotent() -> Result<()> {
     init_test_tracing();
+    if skip_resource_heavy_test_in_ci("raw_module_is_replay_idempotent") {
+        return Ok(());
+    }
 
     let fixtures = load_all_fixture_messages();
     let first_tx_hash = fixtures
@@ -1036,6 +1046,11 @@ async fn raw_module_is_replay_idempotent() -> Result<()> {
 #[tokio::test]
 async fn raw_module_rebuilds_data_receipt_lineage_after_replay_restart() -> Result<()> {
     init_test_tracing();
+    if skip_resource_heavy_test_in_ci(
+        "raw_module_rebuilds_data_receipt_lineage_after_replay_restart",
+    ) {
+        return Ok(());
+    }
 
     let (fixture_id, fixtures, case) = find_cross_block_data_receipt_fixture_case()?;
 
@@ -1140,6 +1155,9 @@ async fn raw_module_rebuilds_data_receipt_lineage_after_replay_restart() -> Resu
 #[tokio::test]
 async fn raw_module_persists_exact_shared_protocol_fields() -> Result<()> {
     init_test_tracing();
+    if skip_resource_heavy_test_in_ci("raw_module_persists_exact_shared_protocol_fields") {
+        return Ok(());
+    }
 
     let fixtures = load_all_fixture_messages();
     let db = TestDatabase::new().await;

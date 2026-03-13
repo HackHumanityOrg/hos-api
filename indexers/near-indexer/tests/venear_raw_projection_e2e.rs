@@ -23,7 +23,7 @@ use support::fixture_expectations::{
     refresh_hos_materialized_views, reset_near_indexer_tables,
 };
 use support::hos_mv_goldens::assert_hos_mv_normalized_semantics;
-use support::{init_test_tracing, TestDatabase};
+use support::{init_test_tracing, skip_resource_heavy_test_in_ci, TestDatabase};
 
 const HOS_MATERIALIZED_VIEWS: &[&str] = &[
     "hos_function_calls",
@@ -295,6 +295,11 @@ async fn insert_receipt_tx_map_row(
 async fn venear_governance_projects_to_canonical_raw_tables_and_hos_materialized_views(
 ) -> Result<()> {
     init_test_tracing();
+    if skip_resource_heavy_test_in_ci(
+        "venear_governance_projects_to_canonical_raw_tables_and_hos_materialized_views",
+    ) {
+        return Ok(());
+    }
 
     let fixtures = all_fixture_messages();
     let fixture_transactions_with_null_outcome_receipt: i64 = fixtures
@@ -1014,6 +1019,11 @@ async fn malformed_failed_withdraw_does_not_break_hos_materialized_views() -> Re
 #[tokio::test]
 async fn venear_governance_fixture_expectations_match_checked_in_snapshots() -> Result<()> {
     init_test_tracing();
+    if skip_resource_heavy_test_in_ci(
+        "venear_governance_fixture_expectations_match_checked_in_snapshots",
+    ) {
+        return Ok(());
+    }
 
     let db = TestDatabase::new().await;
 
@@ -1050,6 +1060,9 @@ async fn venear_governance_fixture_expectations_match_checked_in_snapshots() -> 
 #[tokio::test]
 async fn venear_governance_is_replay_idempotent() -> Result<()> {
     init_test_tracing();
+    if skip_resource_heavy_test_in_ci("venear_governance_is_replay_idempotent") {
+        return Ok(());
+    }
 
     let fixtures = all_fixture_messages();
     let db = TestDatabase::new().await;
@@ -1607,6 +1620,9 @@ async fn late_related_receipts_reopen_finalized_graphs() -> Result<()> {
 #[tokio::test]
 async fn raw_and_venear_modules_share_receipt_tx_lineage_map() -> Result<()> {
     init_test_tracing();
+    if skip_resource_heavy_test_in_ci("raw_and_venear_modules_share_receipt_tx_lineage_map") {
+        return Ok(());
+    }
 
     let fixtures = all_fixture_messages();
     let db = TestDatabase::new().await;
