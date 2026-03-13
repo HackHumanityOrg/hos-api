@@ -297,6 +297,73 @@ Notes for this compose stack:
 - Telegram indexer: `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_CHANNELS`, and either `TELEGRAM_SESSION_DATA` or persistent storage for `TELEGRAM_SESSION_FILE`
 - NEAR indexer: optional `FASTNEAR_API_KEY`, or set `APP_NEAR__PROVIDER=lake` if you do not want FastNEAR
 
+### Telegram session bootstrap and rotation
+
+`telegram-indexer` only performs phone/code/password login when
+`TELEGRAM_ALLOW_INTERACTIVE_LOGIN=true` and stdin is a real TTY. Otherwise it
+expects an already authorized session from `TELEGRAM_SESSION_FILE` or
+`TELEGRAM_SESSION_DATA`. `TELEGRAM_SESSION_DATA` can be either a base64-encoded
+SQLite session file or a legacy Grammers session payload; the service imports
+legacy payloads into the SQLite format on startup.
+
+1. For a deployment with durable storage, run the indexer once interactively
+   against the same database and the same session path you will use in
+   production:
+
+```bash
+docker run --rm -it \
+  --name hos-api-telegram-auth \
+  --network hos-api-local \
+  -e DATABASE_URL=postgresql://hos:hos@hos-api-db:5432/hos_api \
+  -e TELEGRAM_API_ID=... \
+  -e TELEGRAM_API_HASH=... \
+  -e TELEGRAM_CHANNELS=@nearprotocol \
+  -e TELEGRAM_ALLOW_INTERACTIVE_LOGIN=true \
+  -e TELEGRAM_SESSION_FILE=/var/lib/telegram/telegram_session.bin \
+  -v hos-api-telegram-session:/var/lib/telegram \
+  hos-api/telegram-indexer
+```
+
+Enter the phone number, verification code, and two-factor password if Telegram
+asks for it. Once the session is authorized and the worker begins syncing, stop
+the container and start the long-running deployment without
+`TELEGRAM_ALLOW_INTERACTIVE_LOGIN`.
+
+2. For an ephemeral platform without durable disk, create the session locally,
+   encode it, and store it as a secret:
+
+```bash
+mkdir -p .secrets/telegram
+
+docker run --rm -it \
+  --name hos-api-telegram-auth \
+  --network hos-api-local \
+  -e DATABASE_URL=postgresql://hos:hos@hos-api-db:5432/hos_api \
+  -e TELEGRAM_API_ID=... \
+  -e TELEGRAM_API_HASH=... \
+  -e TELEGRAM_CHANNELS=@nearprotocol \
+  -e TELEGRAM_ALLOW_INTERACTIVE_LOGIN=true \
+  -e TELEGRAM_SESSION_FILE=/sessions/telegram_session.bin \
+  -v "$PWD/.secrets/telegram:/sessions" \
+  hos-api/telegram-indexer
+
+base64 < .secrets/telegram/telegram_session.bin | tr -d '\n'
+```
+
+Set the resulting single-line value as `TELEGRAM_SESSION_DATA` in the platform
+secret store, keep `TELEGRAM_SESSION_FILE` pointed at a writable path inside the
+container, and redeploy. On startup the service will materialize the SQLite
+session file from the secret before connecting.
+
+3. To refresh or replace a session, stop the worker, repeat the same
+   interactive bootstrap flow against the existing session path, then restart
+   the worker. For secret-based deployments, re-encode the updated
+   `telegram_session.bin`, replace `TELEGRAM_SESSION_DATA`, and redeploy.
+
+If the worker starts without a valid authorized session, it retries
+authentication every 60 seconds for up to 60 attempts and logs that it is
+waiting so a session file or `TELEGRAM_SESSION_DATA` can be uploaded.
+
 ### Operational notes
 
 - The API `/health` endpoint is useful for liveness, but it still returns HTTP 200 with a `degraded` payload when the database is unavailable. Treat it as a basic health signal, not your only database readiness gate.
