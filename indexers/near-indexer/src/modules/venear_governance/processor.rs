@@ -841,8 +841,10 @@ impl HosRuntimeState {
     }
 
     fn evict_unreferenced_source_blocks(&mut self) -> RecentCacheEvictionStats {
-        let mut stats = RecentCacheEvictionStats::default();
-        stats.retained_block_count = self.recent_block_ref_counts.len();
+        let mut stats = RecentCacheEvictionStats {
+            retained_block_count: self.recent_block_ref_counts.len(),
+            ..RecentCacheEvictionStats::default()
+        };
 
         let stale_heights = self
             .recent_blocks

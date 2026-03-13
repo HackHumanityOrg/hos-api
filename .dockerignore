@@ -24,6 +24,9 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
 
 # Documentation that's not needed in container
 docs/
@@ -52,4 +55,5 @@ web/.next/
 # Docker files themselves
 Dockerfile*
 docker-compose*.yml
+compose.yml
 .dockerignore

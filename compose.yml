@@ -1,0 +1,135 @@
+name: hos-api
+
+x-rust-environment: &rust-environment
+  DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://hos:hos@db:5432/hos_api}
+  APP_LOGGING__FORMAT: json
+  APP_TELEMETRY__ENVIRONMENT: ${APP_TELEMETRY__ENVIRONMENT:-docker-compose}
+  APP_TELEMETRY__SERVICE_VERSION: ${APP_TELEMETRY__SERVICE_VERSION:-local}
+
+x-rust-service: &rust-service
+  restart: unless-stopped
+  environment: *rust-environment
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hos_api}
+      POSTGRES_USER: ${POSTGRES_USER:-hos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hos}
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hos} -d ${POSTGRES_DB:-hos_api}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: migration/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: *rust-environment
+    restart: "no"
+    command: ["up"]
+
+  api:
+    <<: *rust-service
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *rust-environment
+      APP_LOGGING__LEVEL: ${API_LOG_LEVEL:-info}
+      PORT: 3000
+    ports:
+      - "${API_PORT:-3000}:3000"
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      VENEAR_API_BASE_URL: ${COMPOSE_VENEAR_API_BASE_URL:-http://api:3000/api/v1/venear}
+      NEXT_PUBLIC_VENEAR_API_BASE_URL: ${COMPOSE_VENEAR_API_BASE_URL:-http://api:3000/api/v1/venear}
+    ports:
+      - "${WEB_PORT:-3001}:3000"
+
+  discourse-indexer:
+    <<: *rust-service
+    profiles: ["discourse"]
+    build:
+      context: .
+      dockerfile: indexers/discourse-indexer/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *rust-environment
+      APP_LOGGING__LEVEL: ${DISCOURSE_LOG_LEVEL:-info}
+
+  near-indexer:
+    <<: *rust-service
+    profiles: ["near"]
+    build:
+      context: .
+      dockerfile: indexers/near-indexer/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *rust-environment
+      APP_LOGGING__LEVEL: ${NEAR_LOG_LEVEL:-info}
+      APP_NEAR__CHAIN: ${NEAR_CHAIN:-mainnet}
+      APP_NEAR__FASTNEAR_API_KEY: ${FASTNEAR_API_KEY:-}
+      APP_NEAR__FASTNEAR_NUM_THREADS: ${FASTNEAR_NUM_THREADS:-2}
+      APP_NEAR__PROVIDER: ${NEAR_PROVIDER:-fastnear}
+      APP_NEAR__START_HEIGHT: ${NEAR_START_HEIGHT:-158320040}
+
+  telegram-indexer:
+    <<: *rust-service
+    profiles: ["telegram"]
+    build:
+      context: .
+      dockerfile: indexers/telegram-indexer/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *rust-environment
+      APP_LOGGING__LEVEL: ${TELEGRAM_LOG_LEVEL:-info}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_CHANNELS: ${TELEGRAM_CHANNELS:-}
+      TELEGRAM_SESSION_DATA: ${TELEGRAM_SESSION_DATA:-}
+      TELEGRAM_SESSION_FILE: /var/lib/telegram/telegram_session.bin
+    volumes:
+      - telegram-session:/var/lib/telegram
+
+volumes:
+  postgres-data:
+  telegram-session:
