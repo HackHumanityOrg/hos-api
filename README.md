@@ -1,5 +1,9 @@
 # HOS API
 
+[![Fmt](https://github.com/HackHumanityOrg/hos-api/actions/workflows/fmt.yml/badge.svg?branch=main&event=push)](https://github.com/HackHumanityOrg/hos-api/actions/workflows/fmt.yml)
+[![Clippy](https://github.com/HackHumanityOrg/hos-api/actions/workflows/clippy.yml/badge.svg?branch=main&event=push)](https://github.com/HackHumanityOrg/hos-api/actions/workflows/clippy.yml)
+[![Tests](https://github.com/HackHumanityOrg/hos-api/actions/workflows/tests.yml/badge.svg?branch=main&event=push)](https://github.com/HackHumanityOrg/hos-api/actions/workflows/tests.yml)
+
 A high-performance Rust monorepo for data indexing and API services built with modern async architecture.
 
 ## Architecture
