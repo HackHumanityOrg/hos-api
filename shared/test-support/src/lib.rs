@@ -12,7 +12,7 @@ pub struct TestDatabase {
 impl TestDatabase {
     pub async fn new() -> Self {
         Self::new_with(
-            "data_commons_test",
+            "hos_api_test",
             "test_user",
             "test_password",
             "root_password",

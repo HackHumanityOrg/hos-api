@@ -25,7 +25,7 @@ shutdown_timeout_sec = 2
 send_default_pii = true
 
 [telemetry.tags]
-"service.namespace" = "data-commons"
+"service.namespace" = "hos-api"
 "service.component" = "telegram-indexer"
 "deployment.region" = "local"
 "indexer.type" = "primary"

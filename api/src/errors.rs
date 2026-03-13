@@ -115,7 +115,7 @@ impl ApiErrorResponse {
     pub fn internal_server_error(title: impl Into<String>) -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "https://data-commons.dev/problems/internal-error",
+            "https://hos-api.dev/problems/internal-error",
             title,
         )
         .with_code("INTERNAL_ERROR")
@@ -124,7 +124,7 @@ impl ApiErrorResponse {
     pub fn service_unavailable(title: impl Into<String>) -> Self {
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,
-            "https://data-commons.dev/problems/service-unavailable",
+            "https://hos-api.dev/problems/service-unavailable",
             title,
         )
         .with_code("SERVICE_UNAVAILABLE")
@@ -133,7 +133,7 @@ impl ApiErrorResponse {
     pub fn bad_request(title: impl Into<String>) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
-            "https://data-commons.dev/problems/bad-request",
+            "https://hos-api.dev/problems/bad-request",
             title,
         )
         .with_code("BAD_REQUEST")
@@ -142,7 +142,7 @@ impl ApiErrorResponse {
     pub fn not_found(title: impl Into<String>) -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
-            "https://data-commons.dev/problems/not-found",
+            "https://hos-api.dev/problems/not-found",
             title,
         )
         .with_code("NOT_FOUND")
@@ -151,7 +151,7 @@ impl ApiErrorResponse {
     pub fn unauthorized(title: impl Into<String>) -> Self {
         Self::new(
             StatusCode::UNAUTHORIZED,
-            "https://data-commons.dev/problems/unauthorized",
+            "https://hos-api.dev/problems/unauthorized",
             title,
         )
         .with_code("UNAUTHORIZED")
@@ -160,7 +160,7 @@ impl ApiErrorResponse {
     pub fn forbidden(title: impl Into<String>) -> Self {
         Self::new(
             StatusCode::FORBIDDEN,
-            "https://data-commons.dev/problems/forbidden",
+            "https://hos-api.dev/problems/forbidden",
             title,
         )
         .with_code("FORBIDDEN")
@@ -169,7 +169,7 @@ impl ApiErrorResponse {
     pub fn unprocessable_entity(title: impl Into<String>) -> Self {
         Self::new(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "https://data-commons.dev/problems/validation-error",
+            "https://hos-api.dev/problems/validation-error",
             title,
         )
         .with_code("VALIDATION_ERROR")
@@ -226,7 +226,7 @@ impl From<ServiceError> for ApiErrorResponse {
             }
             ServiceError::RequestTimeout { .. } => Self::new(
                 StatusCode::REQUEST_TIMEOUT,
-                "https://data-commons.dev/problems/request-timeout",
+                "https://hos-api.dev/problems/request-timeout",
                 "Request timed out",
             )
             .with_code("REQUEST_TIMEOUT")

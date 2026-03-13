@@ -33,6 +33,6 @@ send_default_pii = true
 
 # API-specific tags
 [telemetry.tags]
-"service.namespace" = "data-commons"
+"service.namespace" = "hos-api"
 "service.component" = "api"
 "deployment.region" = "local"

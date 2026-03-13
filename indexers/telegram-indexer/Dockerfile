@@ -43,9 +43,7 @@ FROM gcr.io/distroless/cc-debian12 AS runtime
 COPY --from=builder /tmp/telegram-indexer /telegram-indexer
 COPY indexers/telegram-indexer/config.toml /telegram-indexer-config.toml
 
-LABEL maintainer="data-commons-team" \
-  version="1.0" \
-  description="Data Commons Telegram Indexer - 2026" \
+LABEL version="1.0" \
   rust.version="1.88" \
   service="telegram-indexer" \
   platforms="linux/amd64,linux/arm64"

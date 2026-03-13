@@ -6,12 +6,12 @@ use utoipa::OpenApi;
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "Data Commons API",
+        title = "HOS API",
         version = "0.1.0",
         description = "Read-only REST API for indexed identity, Discourse, Telegram, and veNEAR governance data.\n\nOpenAPI contract notes for AI clients:\n- The API is read-only. Every endpoint is discoverable through generated OpenAPI metadata.\n- List endpoints are consistently paginated with `limit` and `cursor`.\n- Cursor pagination uses opaque base64url cursors.\n  - `limit` defaults to 20 and is clamped to a maximum of 100.\n  - `cursor` is an opaque base64url token from a prior response and should be treated as an opaque string.\n  - Omit `cursor` to request the first page in a sequence.\n  - Continue until `next_cursor` is `null` or absent.\n- All paginated responses return `data`, `next_cursor`, and `has_more`.\n- `next_cursor` and pagination order are endpoint-specific; always follow the ordering declared in each endpoint description.\n- Timestamp fields use RFC 3339 / ISO-8601 format with timezone.\n- Error responses follow RFC 9457 Problem Details as `application/problem+json`, including machine-friendly `code` when present.\n- Indexers are asynchronous: newly emitted data may lag or reorder briefly during backfill.\n- `identity` values are stable while indexer-sourced entity references may vary by environment and snapshot time.",
         contact(
-            name = "Data Commons Team",
-            url = "https://github.com/HackHumanityOrg/data-commons"
+            name = "HOS API Team",
+            url = "https://github.com/HackHumanityOrg/hos-api"
         ),
         license(name = "MIT", url = "https://opensource.org/licenses/MIT")
     ),

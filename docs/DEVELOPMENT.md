@@ -1,6 +1,6 @@
 # Development Guide
 
-This guide covers development workflows, best practices, and common tasks for the Data Commons platform.
+This guide covers development workflows, best practices, and common tasks for the HOS API platform.
 
 ## Development Environment Setup
 
@@ -17,7 +17,7 @@ This guide covers development workflows, best practices, and common tasks for th
 1. **Clone and setup project**
    ```bash
    git clone <repository-url>
-   cd data-commons
+   cd hos-api
    ```
 
 2. **Install development tools**
@@ -89,7 +89,7 @@ The frontend expects the veNEAR API at `VENEAR_API_BASE_URL`. By default it poin
 ### Workspace Organization
 
 ```
-data-commons/
+hos-api/
 ├── api/                     # REST API server
 │   ├── src/
 │   │   ├── main.rs         # Application entry point

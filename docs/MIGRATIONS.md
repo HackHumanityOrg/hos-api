@@ -1,6 +1,6 @@
 # Database Migrations Guide
 
-This guide covers database schema management using SeaORM migrations in the Data Commons platform.
+This guide covers database schema management using SeaORM migrations in the HOS API platform.
 
 ## Overview
 

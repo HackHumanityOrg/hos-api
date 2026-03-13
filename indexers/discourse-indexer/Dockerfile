@@ -43,9 +43,7 @@ FROM gcr.io/distroless/cc-debian12 AS runtime
 COPY --from=builder /tmp/discourse-indexer /discourse-indexer
 COPY indexers/discourse-indexer/config.toml /discourse-indexer-config.toml
 
-LABEL maintainer="data-commons-team" \
-    version="1.0" \
-    description="Data Commons Indexer-1 Service - 2025 Cross-Platform Optimized" \
+LABEL version="1.0" \
     rust.version="1.88" \
     build.optimization="size+performance" \
     platforms="linux/amd64,linux/arm64" \

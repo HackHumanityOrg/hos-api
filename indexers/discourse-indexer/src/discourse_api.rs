@@ -63,9 +63,7 @@ impl DiscourseClient {
         let mut headers = HeaderMap::new();
         headers.insert(
             reqwest::header::USER_AGENT,
-            reqwest::header::HeaderValue::from_static(
-                "data-commons-discourse-indexer/0.1 (reqwest)",
-            ),
+            reqwest::header::HeaderValue::from_static("hos-api-discourse-indexer/0.1 (reqwest)"),
         );
         let http = Client::builder()
             .default_headers(headers)

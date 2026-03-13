@@ -1,7 +1,7 @@
 //! OpenAPI server with Axum and Utoipa
 //!
 //! This server provides a REST API with automatic OpenAPI documentation
-//! and Swagger UI for interacting with the data commons platform.
+//! and Swagger UI for interacting with the HOS API platform.
 
 mod docs;
 mod errors;
@@ -172,5 +172,6 @@ fn bind_dual_stack_listener(port: u16) -> Result<TcpListener> {
         .context("Failed to listen on dual-stack socket")?;
 
     let std_listener: std::net::TcpListener = socket.into();
-    TcpListener::from_std(std_listener).context("Failed to create Tokio listener from dual-stack socket")
+    TcpListener::from_std(std_listener)
+        .context("Failed to create Tokio listener from dual-stack socket")
 }

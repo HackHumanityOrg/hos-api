@@ -45,9 +45,7 @@ COPY api/config.toml /api/config.toml
 
 EXPOSE 3000
 
-LABEL maintainer="data-commons-team" \
-    version="1.0" \
-    description="Data Commons API Server - 2025 Cross-Platform Optimized" \
+LABEL version="1.0" \
     rust.version="1.88" \
     build.optimization="size+performance" \
     platforms="linux/amd64,linux/arm64" \

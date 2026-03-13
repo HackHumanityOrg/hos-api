@@ -1,4 +1,4 @@
-# Data Commons Platform
+# HOS API
 
 A high-performance Rust monorepo for data indexing and API services built with modern async architecture.
 
@@ -11,7 +11,7 @@ A high-performance Rust monorepo for data indexing and API services built with m
 - **Observability** - Structured JSON logging and tracing
 
 ```
-data-commons/
+hos-api/
 ├── api/                    # REST API server with Swagger UI
 ├── indexers/              # Data processing services (discourse, near, telegram)
 ├── shared/                # Shared libraries (common, db-core, entities)
@@ -22,7 +22,7 @@ data-commons/
 ## Quick Start
 
 ```bash
-git clone <repository-url> && cd data-commons
+git clone <repository-url> && cd hos-api
 cargo install sea-orm-cli --version 1.1.15 --locked
 cp .env.example .env  # Edit with database settings
 direnv allow
@@ -68,7 +68,7 @@ This repository is deployed as a monorepo with one Railway service per component
 - `near-indexer` service uses `/indexers/near-indexer/railway.toml`
 - `telegram-indexer` service uses `/indexers/telegram-indexer/railway.toml`
 
-Each service should be linked to the same GitHub repository (`HackHumanityOrg/data-commons`) on `main` with autodeploy enabled. Watch patterns are defined in each service config file to avoid cross-service rebuilds.
+Each service should be linked to the same GitHub repository (`HackHumanityOrg/hos-api`) on `main` with autodeploy enabled. Watch patterns are defined in each service config file to avoid cross-service rebuilds.
 
 ## Testing
 

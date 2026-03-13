@@ -43,9 +43,7 @@ FROM gcr.io/distroless/cc-debian12 AS runtime
 COPY --from=builder /tmp/near-indexer /near-indexer
 COPY indexers/near-indexer/config.toml /near-indexer-config.toml
 
-LABEL maintainer="data-commons-team" \
-  version="1.0" \
-  description="Data Commons NEAR Indexer - 2025 Cross-Platform Optimized" \
+LABEL version="1.0" \
   rust.version="1.88" \
   service="near-indexer" \
   platforms="linux/amd64,linux/arm64"
