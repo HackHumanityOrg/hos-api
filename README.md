@@ -3,6 +3,7 @@
 [![Fmt](https://github.com/HackHumanityOrg/hos-api/actions/workflows/fmt.yml/badge.svg?branch=main&event=push)](https://github.com/HackHumanityOrg/hos-api/actions/workflows/fmt.yml)
 [![Clippy](https://github.com/HackHumanityOrg/hos-api/actions/workflows/clippy.yml/badge.svg?branch=main&event=push)](https://github.com/HackHumanityOrg/hos-api/actions/workflows/clippy.yml)
 [![Tests](https://github.com/HackHumanityOrg/hos-api/actions/workflows/tests.yml/badge.svg?branch=main&event=push)](https://github.com/HackHumanityOrg/hos-api/actions/workflows/tests.yml)
+[![Build](https://github.com/HackHumanityOrg/hos-api/actions/workflows/build.yml/badge.svg?branch=main&event=push)](https://github.com/HackHumanityOrg/hos-api/actions/workflows/build.yml)
 
 A high-performance Rust monorepo for data indexing and API services built with modern async architecture.
 
@@ -87,7 +88,7 @@ This monorepo ships as independently deployable services plus a shared PostgreSQ
 
 ### Docker
 
-Use plain Docker when you want to run each container explicitly instead of relying on [`compose.yml`](compose.yml).
+Use plain Docker when you want to run each container explicitly instead of relying on [`docker-compose.yml`](docker-compose.yml).
 This workflow publishes the same host ports as Docker Compose, so stop one stack before starting the other.
 
 Build the base images:
@@ -195,7 +196,7 @@ Useful checks:
 docker ps --filter name=hos-api
 docker logs -f hos-api-api
 curl http://127.0.0.1:3000/health
-curl http://127.0.0.1:3001/health
+curl http://127.0.0.1:3001/healthz
 ```
 
 Stop and clean up:
@@ -218,7 +219,7 @@ docker volume rm hos-api-postgres hos-api-telegram-session 2>/dev/null || true
 
 ### Docker Compose
 
-The repo now includes [`compose.yml`](compose.yml) for a full local container stack:
+The repo now includes [`docker-compose.yml`](docker-compose.yml) for a full local container stack:
 
 - `db` starts PostgreSQL 16 with a named data volume
 - `migrate` runs `migration up` before any schema-dependent service starts
@@ -261,7 +262,7 @@ Useful checks:
 docker compose ps
 docker compose logs -f migrate api web
 curl http://127.0.0.1:3000/health
-curl http://127.0.0.1:3001/health
+curl http://127.0.0.1:3001/healthz
 ```
 
 Stop the stack:
@@ -373,7 +374,7 @@ waiting so a session file or `TELEGRAM_SESSION_DATA` can be uploaded.
 
 ### Deployment artifacts in this repo
 
-- `compose`: `/compose.yml`
+- `compose`: `/docker-compose.yml`
 - `api`: `/api/Dockerfile` and `/api/railway.toml`
 - `web`: `/web/Dockerfile` and `/web/railway.toml`
 - `migration`: `/migration/Dockerfile`

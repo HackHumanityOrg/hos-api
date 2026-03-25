@@ -72,6 +72,18 @@ services:
       NEXT_PUBLIC_VENEAR_API_BASE_URL: ${COMPOSE_VENEAR_API_BASE_URL:-http://api:3000/api/v1/venear}
     ports:
       - "${WEB_PORT:-3001}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/healthz').then(async (res) => { if (!res.ok) throw new Error(String(res.status)); const body = (await res.text()).trim(); if (body !== 'ok') throw new Error(body); }).catch(() => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   discourse-indexer:
     <<: *rust-service
