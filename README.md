@@ -421,3 +421,7 @@ cargo check-all && cargo test-all  # Verify your changes
 ```
 
 **Contributing guide**: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+
+---
+
+**Created by** [Hack Humanity](https://hackhumanity.com) • Copyright © 2026 • MIT License
