@@ -263,7 +263,7 @@ async fn run(config: AppConfig) -> Result<()> {
             #[cfg(not(unix))]
             {
                 futures::future::pending::<()>().await;
-                Ok(())
+                Ok::<(), std::io::Error>(())
             }
         } => Ok(()),
     };
